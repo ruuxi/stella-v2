@@ -3,12 +3,10 @@
  *
  * Filesystem paths are deliberately relative display paths. The Electron main
  * process never returns the configured Stella data-directory path to a
- * renderer, and cursors never persist document contents or skill bytes.
+ * renderer, and cursors never persist skill bytes.
  */
 
 export const CLOUD_HOME_LOCAL_SCAN_VERSION = 1 as const;
-export const CLOUD_HOME_MAX_DOCUMENTS = 100;
-export const CLOUD_HOME_MAX_EXPORT_BYTES = 2 * 1024 * 1024;
 export const CLOUD_SKILL_MAX_PACKAGES = 50;
 export const CLOUD_SKILL_MAX_FILES = 256;
 export const CLOUD_SKILL_MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -22,30 +20,6 @@ export type CloudHomeImportOwnership =
   | "anonymous"
   | "other_owner"
   | "corrupt";
-
-export type CloudMemoryKind =
-  | "memory"
-  | "profile"
-  | "memory_map"
-  | "core_memory"
-  | "personality"
-  | "imported_markdown"
-  | "user_markdown";
-
-export type CloudMemoryImportDisposition =
-  | "automatic_allowed"
-  | "explicit_required"
-  | "explicit_allowed";
-
-export type LocalCloudMemoryDocument = {
-  name: string;
-  displayPath: string;
-  kind: CloudMemoryKind;
-  source: "legacy_local";
-  content: string;
-  sha256: string;
-  sizeBytes: number;
-};
 
 export type LocalCloudSkillFile = {
   path: string;
@@ -70,9 +44,7 @@ export type LocalCloudSkillPackage = {
 export type CloudHomeScanWarningCode =
   | "invalid_path"
   | "unsafe_file"
-  | "unsupported_document"
   | "document_too_large"
-  | "document_limit"
   | "skill_invalid"
   | "skill_too_large"
   | "skill_limit"
@@ -87,32 +59,8 @@ export type CloudHomeScanWarning = {
 
 export type LocalCloudHomeScan = {
   schemaVersion: typeof CLOUD_HOME_LOCAL_SCAN_VERSION;
-  memories: LocalCloudMemoryDocument[];
   skills: LocalCloudSkillPackage[];
   warnings: CloudHomeScanWarning[];
-};
-
-export type CloudMemoryDocument = {
-  documentId: string;
-  name: string;
-  displayPath: string;
-  kind: CloudMemoryKind | "archive";
-  source: string;
-  revision: number;
-  versionId?: string;
-  sha256?: string;
-  sizeBytes: number;
-  updatedAt: number;
-  content: string;
-};
-
-export type CloudMemorySnapshot = {
-  ownerGeneration: string;
-  memoryEpoch: string;
-  importDisposition: CloudMemoryImportDisposition;
-  lastWipedEpoch?: string;
-  lastWipeCompletedAt?: number;
-  documents: CloudMemoryDocument[];
 };
 
 export type CloudSkillHead = {
@@ -153,13 +101,12 @@ export type CloudHomeSyncErrorCode =
   | "cloud_conflict"
   | "verification_failed"
   | "import_confirmation_required"
-  | "memory_reimport_confirmation_required"
   | "local_owner_mismatch"
   | "local_owner_record_invalid";
 
 export type CloudHomeSyncIssue = {
   code: CloudHomeSyncErrorCode;
-  /** Safe label such as a cloud document name or skill slug. */
+  /** Safe label such as a skill slug. */
   item?: string;
   message: string;
 };
@@ -175,8 +122,6 @@ export type CloudHomeSyncPhase =
 export type CloudHomeSyncStatus = {
   accountScope: string | null;
   phase: CloudHomeSyncPhase;
-  memoryUploaded: number;
-  memoryCloudWins: number;
   skillsUploaded: number;
   skillsCloudWins: number;
   skipped: number;
@@ -187,12 +132,6 @@ export type CloudHomeSyncStatus = {
 
 export type CloudHomeSyncCursor = {
   schemaVersion: 1;
-  ownerGeneration?: string;
-  memoryEpoch?: string;
-  memories: Record<
-    string,
-    { localSha256: string; cloudVersionId?: string; cloudRevision: number }
-  >;
   skills: Record<
     string,
     { localTreeSha256: string; cloudVersionId?: string; cloudRevision: number }

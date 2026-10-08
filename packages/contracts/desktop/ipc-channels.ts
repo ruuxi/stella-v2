@@ -307,12 +307,6 @@ export const IPC_CLOUD_HOME_GET_IMPORT_OWNERSHIP =
   "cloudHome:getImportOwnership" as const;
 export const IPC_CLOUD_HOME_CONFIRM_IMPORT_OWNERSHIP =
   "cloudHome:confirmImportOwnership" as const;
-export const IPC_CLOUD_HOME_BEGIN_MEMORY_EXPORT =
-  "cloudHome:beginMemoryExport" as const;
-export const IPC_CLOUD_HOME_COMMIT_MEMORY_EXPORT =
-  "cloudHome:commitMemoryExport" as const;
-export const IPC_CLOUD_HOME_CANCEL_MEMORY_EXPORT =
-  "cloudHome:cancelMemoryExport" as const;
 
 // ── Discovery ───────────────────────────────────────────────────────────────
 

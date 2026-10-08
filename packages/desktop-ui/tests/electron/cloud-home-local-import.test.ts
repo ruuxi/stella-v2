@@ -57,7 +57,11 @@ afterEach(async () => {
 describe("Cloud Home local importer", () => {
   it("durably binds one fixture corpus to its first confirmed account", async () => {
     const root = await makeFixture();
-    await write(root, "memories/profile.md", "# Profile\n");
+    await write(
+      root,
+      "skills/owned-skill/SKILL.md",
+      "---\nname: Owned\ndescription: A local package.\n---\n\nBody.\n",
+    );
     await expect(
       scanOwnedLocalCloudHome(root, "account:first-owner"),
     ).rejects.toThrow("not owned");
@@ -78,10 +82,10 @@ describe("Cloud Home local importer", () => {
       await getLocalCloudHomeImportOwnership(root, "account:first-owner"),
     ).toBe("owned");
     expect(
-      (await scanOwnedLocalCloudHome(root, "account:first-owner")).memories.map(
-        (document) => document.name,
+      (await scanOwnedLocalCloudHome(root, "account:first-owner")).skills.map(
+        (skill) => skill.slug,
       ),
-    ).toEqual(["memories/profile.md"]);
+    ).toEqual(["owned-skill"]);
     expect(
       await confirmLocalCloudHomeImportOwnership(root, "account:first-owner"),
     ).toBe(true);
@@ -136,11 +140,6 @@ describe("Cloud Home local importer", () => {
 
   it("scans a real temporary Stella fixture deterministically without exposing its root", async () => {
     const root = await makeFixture();
-    await write(root, "memories/MEMORY.md", "# Memory\n\nDurable note.\n");
-    await write(root, "memories/profile.md", "# User Profile\n\n- Name: Ada\n");
-    await write(root, "core-memory.md", "Local context\n");
-    await write(root, "imports/notion/travel.md", "# Travel\n\nLisbon\n");
-    await write(root, "markdown/projects/stella.md", "# Stella\n");
     await write(
       root,
       "skills/custom-research/SKILL.md",
@@ -156,18 +155,6 @@ describe("Cloud Home local importer", () => {
     const second = await scanLocalCloudHome(root);
 
     expect(second).toEqual(first);
-    expect(first.memories.map((document) => document.name)).toEqual([
-      "MEMORY.md",
-      "memories/profile.md",
-      "core-memory.md",
-      "imports/notion/travel.md",
-      "markdown/projects/stella.md",
-    ]);
-    expect(
-      first.memories.every((document) =>
-        /^[0-9a-f]{64}$/.test(document.sha256),
-      ),
-    ).toBe(true);
     expect(first.skills).toHaveLength(1);
     expect(first.skills[0]).toMatchObject({
       slug: "custom-research",
@@ -218,21 +205,22 @@ describe("Cloud Home local importer", () => {
   it("rejects symbolic links and hard links without reading outside the fixture", async () => {
     const root = await makeFixture();
     const outside = await makeFixture();
+    const skillMarkdown =
+      "---\nname: Linked\ndescription: A package with a link.\n---\n\nBody.\n";
     await write(outside, "secret.md", "outside secret");
-    await fs.mkdir(path.join(root, "imports", "outside"), { recursive: true });
+    await write(root, "skills/symlinked/SKILL.md", skillMarkdown);
     await fs.symlink(
       path.join(outside, "secret.md"),
-      path.join(root, "imports", "outside", "secret.md"),
+      path.join(root, "skills", "symlinked", "secret.md"),
     );
-    await write(root, "memories/profile-source.md", "hard-linked profile");
-    await fs.mkdir(path.join(root, "memories"), { recursive: true });
+    await write(root, "skills/hardlinked/source.md", skillMarkdown);
     await fs.link(
-      path.join(root, "memories", "profile-source.md"),
-      path.join(root, "memories", "profile.md"),
+      path.join(root, "skills", "hardlinked", "source.md"),
+      path.join(root, "skills", "hardlinked", "SKILL.md"),
     );
 
     const scan = await scanLocalCloudHome(root);
-    expect(scan.memories).toEqual([]);
+    expect(scan.skills).toEqual([]);
     expect(
       scan.warnings.some((warning) => warning.code === "unsafe_file"),
     ).toBe(true);

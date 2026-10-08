@@ -368,8 +368,8 @@ export function SettingsContent() {
           <View style={settingsStyles.group}>
             <LinkRow
               icon="file-text"
-              label={t("mobile.cloudHome.settingsRowTitle")}
-              sub={t("mobile.cloudHome.settingsRowBody")}
+              label={t("settings.memory.title")}
+              sub={t("mobile.cloudHome.title")}
               accessibilityLabel={t("mobile.cloudHome.openSettingsLabel")}
               styles={settingsStyles}
               colors={colors}

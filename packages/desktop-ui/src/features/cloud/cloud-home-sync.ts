@@ -4,12 +4,9 @@ import type {
   CloudHomeSyncCursor,
   CloudHomeSyncIssue,
   CloudHomeSyncStatus,
-  CloudMemoryDocument,
-  CloudMemorySnapshot,
   CloudSkillHead,
   CloudSkillMirrorDeletion,
   LocalCloudHomeScan,
-  LocalCloudMemoryDocument,
   LocalCloudSkillPackage,
 } from "@stella/contracts/cloud-home-sync";
 
@@ -18,7 +15,6 @@ const HTTP_TIMEOUT_MS = 20_000;
 const SCAN_TIMEOUT_MS = 30_000;
 const MAX_HTTP_RESPONSE_BYTES = 4 * 1024 * 1024;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
-const LIFECYCLE_TOKEN_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$/u;
 /**
  * Scan warnings that can hide a skill the device root really does hold. Any of
  * them makes the scanned slug set an incomplete picture of that root, and a
@@ -32,16 +28,6 @@ const SKILL_SCAN_INCOMPLETE_CODES = new Set<CloudHomeScanWarningCode>([
   "skill_limit",
   "read_failed",
 ]);
-const MEMORY_SNAPSHOT_KEYS = new Set([
-  "subject",
-  "ownerGeneration",
-  "memoryEpoch",
-  "importDisposition",
-  "lastWipedEpoch",
-  "lastWipeCompletedAt",
-  "documents",
-]);
-
 const hasAsciiControlCharacter = (value: string): boolean => {
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);
@@ -49,25 +35,6 @@ const hasAsciiControlCharacter = (value: string): boolean => {
   }
   return false;
 };
-
-const isSafeCursorMemoryName = (name: string): boolean =>
-  Boolean(
-    name &&
-      name.length <= 240 &&
-      name.toLowerCase().endsWith(".md") &&
-      !name.startsWith("/") &&
-      !name.includes("\\") &&
-      !hasAsciiControlCharacter(name) &&
-      name
-        .split("/")
-        .every(
-          (segment) =>
-            segment &&
-            segment !== "." &&
-            segment !== ".." &&
-            !segment.startsWith("."),
-        ),
-  );
 
 export type CloudHomeCursorStore = {
   getItem(key: string): string | null;
@@ -111,8 +78,6 @@ class CloudHomeHttpError extends Error {
 const emptyStatus = (accountScope: string | null): CloudHomeSyncStatus => ({
   accountScope,
   phase: "idle",
-  memoryUploaded: 0,
-  memoryCloudWins: 0,
   skillsUploaded: 0,
   skillsCloudWins: 0,
   skipped: 0,
@@ -185,7 +150,6 @@ export const cloudHomeCursorKey = async (
 
 const blankCursor = (): CloudHomeSyncCursor => ({
   schemaVersion: CURSOR_SCHEMA_VERSION,
-  memories: {},
   skills: {},
 });
 
@@ -195,51 +159,15 @@ const parseCursor = (raw: string | null): CloudHomeSyncCursor => {
     const parsed = JSON.parse(raw) as Partial<CloudHomeSyncCursor>;
     if (
       parsed.schemaVersion !== CURSOR_SCHEMA_VERSION ||
-      !parsed.memories ||
-      typeof parsed.memories !== "object" ||
-      Array.isArray(parsed.memories) ||
       !parsed.skills ||
       typeof parsed.skills !== "object" ||
       Array.isArray(parsed.skills)
     ) {
       return blankCursor();
     }
-    const memories: CloudHomeSyncCursor["memories"] = Object.create(
-      null,
-    ) as CloudHomeSyncCursor["memories"];
     const skills: CloudHomeSyncCursor["skills"] = Object.create(
       null,
     ) as CloudHomeSyncCursor["skills"];
-    for (const [name, value] of Object.entries(parsed.memories).slice(0, 100)) {
-      if (
-        !isSafeCursorMemoryName(name) ||
-        !value ||
-        typeof value !== "object" ||
-        Array.isArray(value)
-      ) {
-        continue;
-      }
-      const row = value as Record<string, unknown>;
-      if (
-        typeof row.localSha256 !== "string" ||
-        !SHA256_PATTERN.test(row.localSha256) ||
-        !Number.isSafeInteger(row.cloudRevision) ||
-        (row.cloudRevision as number) < 0 ||
-        (row.cloudVersionId !== undefined &&
-          (typeof row.cloudVersionId !== "string" ||
-            !row.cloudVersionId ||
-            row.cloudVersionId.length > 128))
-      ) {
-        continue;
-      }
-      memories[name] = {
-        localSha256: row.localSha256,
-        ...(typeof row.cloudVersionId === "string"
-          ? { cloudVersionId: row.cloudVersionId }
-          : {}),
-        cloudRevision: row.cloudRevision as number,
-      };
-    }
     for (const [slug, value] of Object.entries(parsed.skills).slice(0, 50)) {
       if (
         !/^[a-z0-9][a-z0-9-]{0,62}$/u.test(slug) ||
@@ -272,15 +200,6 @@ const parseCursor = (raw: string | null): CloudHomeSyncCursor => {
     }
     return {
       schemaVersion: CURSOR_SCHEMA_VERSION,
-      ...(typeof parsed.ownerGeneration === "string" &&
-      LIFECYCLE_TOKEN_PATTERN.test(parsed.ownerGeneration)
-        ? { ownerGeneration: parsed.ownerGeneration }
-        : {}),
-      ...(typeof parsed.memoryEpoch === "string" &&
-      LIFECYCLE_TOKEN_PATTERN.test(parsed.memoryEpoch)
-        ? { memoryEpoch: parsed.memoryEpoch }
-        : {}),
-      memories,
       skills,
       ...(typeof parsed.lastCompletedAt === "number" &&
       Number.isFinite(parsed.lastCompletedAt) &&
@@ -473,75 +392,6 @@ const parseSkillHeads = (value: unknown): CloudSkillHead[] => {
   });
 };
 
-const parseMemorySnapshot = (
-  value: unknown,
-  expectedSubject: string,
-): CloudMemorySnapshot => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new CloudHomeHttpError(502);
-  }
-  const row = value as Record<string, unknown>;
-  if (
-    !Object.keys(row).every((key) => MEMORY_SNAPSHOT_KEYS.has(key)) ||
-    row.subject !== expectedSubject ||
-    typeof row.ownerGeneration !== "string" ||
-    !LIFECYCLE_TOKEN_PATTERN.test(row.ownerGeneration) ||
-    typeof row.memoryEpoch !== "string" ||
-    !LIFECYCLE_TOKEN_PATTERN.test(row.memoryEpoch) ||
-    (row.importDisposition !== "automatic_allowed" &&
-      row.importDisposition !== "explicit_required" &&
-      row.importDisposition !== "explicit_allowed") ||
-    (row.lastWipedEpoch !== undefined &&
-      (typeof row.lastWipedEpoch !== "string" ||
-        !LIFECYCLE_TOKEN_PATTERN.test(row.lastWipedEpoch))) ||
-    (row.lastWipeCompletedAt !== undefined &&
-      (!Number.isSafeInteger(row.lastWipeCompletedAt) ||
-        (row.lastWipeCompletedAt as number) < 0)) ||
-    !Array.isArray(row.documents)
-  ) {
-    throw new CloudHomeHttpError(502);
-  }
-  const documents = row.documents.map((candidate): CloudMemoryDocument => {
-    if (
-      !candidate ||
-      typeof candidate !== "object" ||
-      Array.isArray(candidate)
-    ) {
-      throw new CloudHomeHttpError(502);
-    }
-    const document = candidate as Record<string, unknown>;
-    if (
-      typeof document.documentId !== "string" ||
-      typeof document.name !== "string" ||
-      typeof document.displayPath !== "string" ||
-      typeof document.kind !== "string" ||
-      typeof document.source !== "string" ||
-      !Number.isSafeInteger(document.revision) ||
-      typeof document.sizeBytes !== "number" ||
-      typeof document.updatedAt !== "number" ||
-      typeof document.content !== "string" ||
-      (document.sha256 !== undefined &&
-        (typeof document.sha256 !== "string" ||
-          !SHA256_PATTERN.test(document.sha256)))
-    ) {
-      throw new CloudHomeHttpError(502);
-    }
-    return document as CloudMemoryDocument;
-  });
-  return {
-    ownerGeneration: row.ownerGeneration,
-    memoryEpoch: row.memoryEpoch,
-    importDisposition: row.importDisposition,
-    ...(typeof row.lastWipedEpoch === "string"
-      ? { lastWipedEpoch: row.lastWipedEpoch }
-      : {}),
-    ...(typeof row.lastWipeCompletedAt === "number"
-      ? { lastWipeCompletedAt: row.lastWipeCompletedAt }
-      : {}),
-    documents,
-  };
-};
-
 const safeIssue = (
   code: CloudHomeSyncIssue["code"],
   item: string | undefined,
@@ -552,14 +402,6 @@ const safeIssue = (
   message,
 });
 
-const memoryIdempotencyKey = async (
-  accountScope: string,
-  document: LocalCloudMemoryDocument,
-): Promise<string> =>
-  `desktop-memory-${(
-    await sha256Text(`${accountScope}\0${document.name}\0${document.sha256}`)
-  ).slice(0, 48)}`;
-
 const skillIdempotencyKey = async (
   accountScope: string,
   skill: LocalCloudSkillPackage,
@@ -567,20 +409,6 @@ const skillIdempotencyKey = async (
   `desktop-skill-${(
     await sha256Text(`${accountScope}\0${skill.slug}\0${skill.treeSha256}`)
   ).slice(0, 48)}`;
-
-const cursorMatchesMemory = (
-  cursor: CloudHomeSyncCursor,
-  local: LocalCloudMemoryDocument,
-  cloud: CloudMemoryDocument,
-): boolean => {
-  const prior = cursor.memories[local.name];
-  return Boolean(
-    prior &&
-      prior.localSha256 === local.sha256 &&
-      prior.cloudRevision === cloud.revision &&
-      prior.cloudVersionId === cloud.versionId,
-  );
-};
 
 const cursorMatchesSkill = (
   cursor: CloudHomeSyncCursor,
@@ -650,12 +478,12 @@ export const runCloudHomeSync = async (
               : "local_owner_mismatch",
           undefined,
           confirmationRequired
-            ? "Confirm which account owns this Mac's local memory and custom skills before importing them."
+            ? "Confirm which account owns this Mac's custom skills before importing them."
             : importOwnership === "anonymous"
-              ? "Sign in to a connected account before importing this Mac's local memory and custom skills."
+              ? "Sign in to a connected account before importing this Mac's custom skills."
               : importOwnership === "corrupt"
-                ? "Stella could not verify this Mac's durable local-import owner record, so no local memory or skills were uploaded."
-                : "This Mac's local memory and custom skills are already bound to another account and were not uploaded.",
+                ? "Stella could not verify this Mac's durable local-import owner record, so no local skills were uploaded."
+                : "This Mac's custom skills are already bound to another account and were not uploaded.",
         ),
       ],
     };
@@ -687,28 +515,16 @@ export const runCloudHomeSync = async (
   const publishStatus = () => options.onStatus?.({ ...status });
   publishStatus();
 
-  let cloudMemory: CloudMemorySnapshot;
   let cloudSkills: CloudSkillHead[];
   let scan: LocalCloudHomeScan;
   try {
-    // Read both cloud authorities before inspecting local state. The importer
-    // is additive only: an existing divergent cloud head always wins.
-    [cloudMemory, cloudSkills] = await Promise.all([
-      requestJson<unknown>({
-        fetchImpl,
-        origin,
-        path: "/cloud-home/memory",
-        token,
-        expectedSubject,
-        method: "GET",
-        signal: options.signal,
-      }).then((value) => parseMemorySnapshot(value, expectedSubject)),
-      awaitBounded({
-        operation: options.readSkillHeads,
-        timeoutMs: HTTP_TIMEOUT_MS,
-        signal: options.signal,
-      }).then(parseSkillHeads),
-    ]);
+    // Read the cloud authority before inspecting local state. The importer is
+    // additive only: an existing divergent cloud head always wins.
+    cloudSkills = await awaitBounded({
+      operation: options.readSkillHeads,
+      timeoutMs: HTTP_TIMEOUT_MS,
+      signal: options.signal,
+    }).then(parseSkillHeads);
     scan = await awaitBounded({
       operation: options.scanLocal,
       timeoutMs: SCAN_TIMEOUT_MS,
@@ -731,17 +547,7 @@ export const runCloudHomeSync = async (
   }
 
   const cursorKey = await cloudHomeCursorKey(accountScope);
-  let cursor = parseCursor(options.cursorStore.getItem(cursorKey));
-  if (
-    cursor.ownerGeneration &&
-    cursor.ownerGeneration !== cloudMemory.ownerGeneration
-  ) {
-    cursor = blankCursor();
-  } else if (cursor.memoryEpoch !== cloudMemory.memoryEpoch) {
-    cursor.memories = {};
-  }
-  cursor.ownerGeneration = cloudMemory.ownerGeneration;
-  cursor.memoryEpoch = cloudMemory.memoryEpoch;
+  const cursor = parseCursor(options.cursorStore.getItem(cursorKey));
   const persistCursor = () =>
     options.cursorStore.setItem(cursorKey, JSON.stringify(cursor));
   persistCursor();
@@ -760,171 +566,6 @@ export const runCloudHomeSync = async (
     publishStatus();
     return partial;
   };
-
-  const ownerGenerationAtStart = cloudMemory.ownerGeneration;
-  const memoryEpochAtStart = cloudMemory.memoryEpoch;
-  const memoryImportBlocked =
-    cloudMemory.importDisposition === "explicit_required";
-  if (memoryImportBlocked && scan.memories.length > 0) {
-    status = {
-      ...status,
-      issues: [
-        ...status.issues,
-        safeIssue(
-          "memory_reimport_confirmation_required",
-          undefined,
-          "Cloud Memory was erased. Explicitly confirm before importing this Mac's local Memory into the new empty epoch.",
-        ),
-      ],
-    };
-    publishStatus();
-  }
-
-  let memoryByName = new Map(
-    cloudMemory.documents.map((document) => [document.name, document]),
-  );
-  for (const local of memoryImportBlocked ? [] : scan.memories) {
-    if (options.signal?.aborted) return interrupted();
-    const cloud = memoryByName.get(local.name);
-    if (cloud?.sha256 === local.sha256) {
-      cursor.memories[local.name] = {
-        localSha256: local.sha256,
-        ...(cloud.versionId ? { cloudVersionId: cloud.versionId } : {}),
-        cloudRevision: cloud.revision,
-      };
-      status = { ...status, skipped: status.skipped + 1 };
-      persistCursor();
-      publishStatus();
-      continue;
-    }
-    if (cloud) {
-      if (cursorMatchesMemory(cursor, local, cloud)) {
-        status = { ...status, skipped: status.skipped + 1 };
-      } else {
-        status = {
-          ...status,
-          memoryCloudWins: status.memoryCloudWins + 1,
-          issues: [
-            ...status.issues,
-            safeIssue(
-              "cloud_conflict",
-              local.name,
-              "The cloud document changed, so the local copy was not uploaded.",
-            ),
-          ],
-        };
-      }
-      cursor.memories[local.name] = {
-        localSha256: local.sha256,
-        ...(cloud.versionId ? { cloudVersionId: cloud.versionId } : {}),
-        cloudRevision: cloud.revision,
-      };
-      persistCursor();
-      publishStatus();
-      continue;
-    }
-
-    try {
-      await requestJson({
-        fetchImpl,
-        origin,
-        path: "/cloud-home/memory/write",
-        token,
-        expectedSubject,
-        method: "POST",
-        body: {
-          expectedOwnerGeneration: ownerGenerationAtStart,
-          expectedMemoryEpoch: memoryEpochAtStart,
-          name: local.name,
-          kind: local.kind,
-          source: local.source,
-          expectedRevision: 0,
-          content: local.content,
-          writer: "desktop_sync",
-          idempotencyKey: await memoryIdempotencyKey(accountScope, local),
-        },
-        signal: options.signal,
-      });
-    } catch {
-      // A response can be lost after a successful commit. The authoritative
-      // re-read below distinguishes that case from a real failure.
-    }
-    try {
-      const verifiedMemory = parseMemorySnapshot(
-        await requestJson<unknown>({
-          fetchImpl,
-          origin,
-          path: "/cloud-home/memory",
-          token,
-          expectedSubject,
-          method: "GET",
-          signal: options.signal,
-        }),
-        expectedSubject,
-      );
-      if (
-        verifiedMemory.ownerGeneration !== ownerGenerationAtStart ||
-        verifiedMemory.memoryEpoch !== memoryEpochAtStart
-      ) {
-        status = {
-          ...status,
-          phase: "unavailable",
-          issues: [
-            ...status.issues,
-            safeIssue(
-              "verification_failed",
-              undefined,
-              "Cloud Memory authority changed during synchronization. No further local content was uploaded.",
-            ),
-          ],
-        };
-        publishStatus();
-        return status;
-      }
-      cloudMemory = verifiedMemory;
-      memoryByName = new Map(
-        cloudMemory.documents.map((document) => [document.name, document]),
-      );
-      const verified = memoryByName.get(local.name);
-      if (verified?.sha256 === local.sha256) {
-        cursor.memories[local.name] = {
-          localSha256: local.sha256,
-          ...(verified.versionId ? { cloudVersionId: verified.versionId } : {}),
-          cloudRevision: verified.revision,
-        };
-        status = { ...status, memoryUploaded: status.memoryUploaded + 1 };
-        persistCursor();
-      } else {
-        status = {
-          ...status,
-          memoryCloudWins: status.memoryCloudWins + 1,
-          issues: [
-            ...status.issues,
-            safeIssue(
-              "cloud_conflict",
-              local.name,
-              "The cloud document won a concurrent update; the local copy was kept only on this device.",
-            ),
-          ],
-        };
-      }
-    } catch {
-      status = {
-        ...status,
-        issues: [
-          ...status.issues,
-          safeIssue(
-            "verification_failed",
-            local.name,
-            "The cloud document could not be verified after upload.",
-          ),
-        ],
-      };
-    }
-    publishStatus();
-  }
-
-  if (options.signal?.aborted) return interrupted();
 
   let skillsBySlug = new Map(cloudSkills.map((skill) => [skill.slug, skill]));
   for (const local of scan.skills) {

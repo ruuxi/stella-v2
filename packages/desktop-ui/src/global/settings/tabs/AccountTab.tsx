@@ -25,7 +25,6 @@ import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conve
 import { CloudAccountCards } from "@/features/cloud/CloudAccountCards";
 import { CloudBoundary } from "@/features/cloud/CloudBoundary";
 import { ProviderAccountsCard } from "@/features/cloud/ProviderAccountsCard";
-import { CloudHomeMemorySettings } from "@/features/cloud/CloudHomeMemorySettings";
 import { CloudMemoryWipeSettings } from "@/features/cloud/CloudMemoryWipeSettings";
 import { CloudMemoryReimportSettings } from "@/features/cloud/CloudMemoryReimportSettings";
 
@@ -149,7 +148,7 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
     ? t("settings.account.cloudHome.summary.checking")
     : cloudHomeStatus.phase === "complete"
       ? t("settings.account.cloudHome.summary.current", {
-          memoryCount: cloudHomeStatus.memoryUploaded,
+          memoryCount: 0,
           skillCount: cloudHomeStatus.skillsUploaded,
         })
       : cloudHomeStatus.phase === "attention"
@@ -282,9 +281,6 @@ export function AccountTab({ onSignOut, onOpenLegal }: AccountTabProps) {
             </div>
           </div>
         </div>
-      ) : null}
-      {window.electronAPI?.cloudHome && isCloudConversationReady ? (
-        <CloudHomeMemorySettings key={`${accountScope}:${identityRevision}`} />
       ) : null}
       {window.electronAPI?.cloudHome && isCloudConversationReady ? (
         <CloudMemoryReimportSettings

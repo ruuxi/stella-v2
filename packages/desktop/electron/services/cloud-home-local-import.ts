@@ -5,17 +5,13 @@ import path from "node:path";
 import {
   CLOUD_HOME_LOCAL_SCAN_VERSION,
   CLOUD_HOME_LOCAL_SKILLS_SCAN_MAX_BYTES,
-  CLOUD_HOME_MAX_DOCUMENTS,
-  CLOUD_HOME_MAX_EXPORT_BYTES,
   CLOUD_SKILL_MAX_FILES,
   CLOUD_SKILL_MAX_FILE_BYTES,
   CLOUD_SKILL_MAX_PACKAGES,
   CLOUD_SKILL_MAX_TOTAL_BYTES,
   type CloudHomeScanWarning,
   type CloudHomeScanWarningCode,
-  type CloudMemoryKind,
   type LocalCloudHomeScan,
-  type LocalCloudMemoryDocument,
   type LocalCloudSkillFile,
   type LocalCloudSkillPackage,
 } from "@stella/contracts/cloud-home-sync";
@@ -207,50 +203,6 @@ const contentTypeForPath = (relativePath: string): string => {
   return known[extension] ?? "application/octet-stream";
 };
 
-const canonicalMemoryCandidates: ReadonlyArray<{
-  localPaths: readonly string[];
-  name: string;
-  displayPath: string;
-  kind: CloudMemoryKind;
-  maxBytes: number;
-}> = [
-  {
-    localPaths: ["memories/MEMORY.md", "MEMORY.md"],
-    name: "MEMORY.md",
-    displayPath: "~/.stella/memories/MEMORY.md",
-    kind: "memory",
-    maxBytes: 256 * 1024,
-  },
-  {
-    localPaths: ["memories/profile.md"],
-    name: "memories/profile.md",
-    displayPath: "~/.stella/memories/profile.md",
-    kind: "profile",
-    maxBytes: 32 * 1024,
-  },
-  {
-    localPaths: ["memories/memory_map.md"],
-    name: "memories/memory_map.md",
-    displayPath: "~/.stella/memories/memory_map.md",
-    kind: "memory_map",
-    maxBytes: 32 * 1024,
-  },
-  {
-    localPaths: ["core-memory.md"],
-    name: "core-memory.md",
-    displayPath: "~/.stella/core-memory.md",
-    kind: "core_memory",
-    maxBytes: 64 * 1024,
-  },
-  {
-    localPaths: ["PERSONALITY.md"],
-    name: "PERSONALITY.md",
-    displayPath: "~/.stella/PERSONALITY.md",
-    kind: "personality",
-    maxBytes: 64 * 1024,
-  },
-];
-
 const pushWarning = (
   warnings: CloudHomeScanWarning[],
   relativePath: string,
@@ -269,41 +221,10 @@ const failureFrom = (error: unknown): ReadFailure =>
     ? { code: error.code, message: error.message }
     : { code: "read_failed", message: "The local item could not be read." };
 
-const readUtf8Memory = async (args: {
-  rootRealPath: string;
-  absolutePath: string;
-  relativePath: string;
-  name: string;
-  displayPath: string;
-  kind: CloudMemoryKind;
-  maxBytes: number;
-}): Promise<LocalCloudMemoryDocument> => {
-  const bytes = await readRegularFile(args);
-  let content: string;
-  try {
-    content = UTF8.decode(bytes);
-  } catch {
-    throw new LocalImportError(
-      "unsupported_document",
-      "The Markdown document is not valid UTF-8.",
-    );
-  }
-  return {
-    name: args.name,
-    displayPath: args.displayPath,
-    kind: args.kind,
-    source: "legacy_local",
-    content,
-    sha256: sha256(bytes),
-    sizeBytes: bytes.byteLength,
-  };
-};
-
 const listSafeFiles = async (args: {
   rootRealPath: string;
   directoryPath: string;
   relativePrefix: string;
-  markdownOnly?: boolean;
 }): Promise<string[]> => {
   const output: string[] = [];
   let visited = 0;
@@ -357,9 +278,7 @@ const listSafeFiles = async (args: {
       if (entry.isDirectory()) {
         await visit(path.join(directoryPath, entry.name), relative);
       } else if (entry.isFile()) {
-        if (!args.markdownOnly || entry.name.toLowerCase().endsWith(".md")) {
-          output.push(assertSafeRelativePath(relative));
-        }
+        output.push(assertSafeRelativePath(relative));
       } else {
         throw new LocalImportError(
           "unsafe_file",
@@ -569,115 +488,8 @@ export const scanLocalCloudHome = async (
     throw new Error("The configured Stella data directory is unavailable.");
   }
   const rootRealPath = await fs.realpath(stellaDataDir);
-  const memories: LocalCloudMemoryDocument[] = [];
   const skills: LocalCloudSkillPackage[] = [];
   const warnings: CloudHomeScanWarning[] = [];
-  let memoryBytes = 0;
-
-  for (const candidate of canonicalMemoryCandidates) {
-    for (const localPath of candidate.localPaths) {
-      const absolutePath = path.join(stellaDataDir, ...localPath.split("/"));
-      const exists = await fs
-        .lstat(absolutePath)
-        .then(() => true)
-        .catch(() => false);
-      if (!exists) continue;
-      try {
-        const document = await readUtf8Memory({
-          rootRealPath,
-          absolutePath,
-          relativePath: localPath,
-          ...candidate,
-        });
-        if (memoryBytes + document.sizeBytes > CLOUD_HOME_MAX_EXPORT_BYTES) {
-          pushWarning(warnings, localPath, {
-            code: "document_limit",
-            message: "Local Markdown exceeds the bounded migration total.",
-          });
-        } else {
-          memories.push(document);
-          memoryBytes += document.sizeBytes;
-        }
-      } catch (error) {
-        pushWarning(warnings, localPath, failureFrom(error));
-      }
-      break;
-    }
-  }
-
-  const markdownRoots: ReadonlyArray<{
-    localRoot: string;
-    cloudPrefix: "imports" | "markdown";
-  }> = [
-    { localRoot: "imports", cloudPrefix: "imports" },
-    { localRoot: "memories/imports", cloudPrefix: "imports" },
-    { localRoot: "markdown", cloudPrefix: "markdown" },
-  ];
-  for (const markdownRoot of markdownRoots) {
-    const absoluteRoot = path.join(
-      stellaDataDir,
-      ...markdownRoot.localRoot.split("/"),
-    );
-    const exists = await fs
-      .lstat(absoluteRoot)
-      .then(() => true)
-      .catch(() => false);
-    if (!exists) continue;
-    let relativeFiles: string[];
-    try {
-      relativeFiles = await listSafeFiles({
-        rootRealPath,
-        directoryPath: absoluteRoot,
-        relativePrefix: "",
-        markdownOnly: true,
-      });
-    } catch (error) {
-      pushWarning(warnings, markdownRoot.localRoot, failureFrom(error));
-      continue;
-    }
-    for (const relativeFile of relativeFiles) {
-      if (memories.length >= CLOUD_HOME_MAX_DOCUMENTS) {
-        pushWarning(warnings, `${markdownRoot.localRoot}/${relativeFile}`, {
-          code: "document_limit",
-          message:
-            "Only the bounded number of Markdown documents can be migrated.",
-        });
-        break;
-      }
-      const importedRelative =
-        markdownRoot.cloudPrefix === "imports" && !relativeFile.includes("/")
-          ? `local/${relativeFile}`
-          : relativeFile;
-      const name = `${markdownRoot.cloudPrefix}/${importedRelative}`;
-      const relativePath = `${markdownRoot.localRoot}/${relativeFile}`;
-      try {
-        const document = await readUtf8Memory({
-          rootRealPath,
-          absolutePath: path.join(absoluteRoot, ...relativeFile.split("/")),
-          relativePath,
-          name,
-          displayPath: `~/.stella/${name}`,
-          kind:
-            markdownRoot.cloudPrefix === "imports"
-              ? "imported_markdown"
-              : "user_markdown",
-          maxBytes: 512 * 1024,
-        });
-        if (memoryBytes + document.sizeBytes > CLOUD_HOME_MAX_EXPORT_BYTES) {
-          pushWarning(warnings, relativePath, {
-            code: "document_limit",
-            message: "Local Markdown exceeds the bounded migration total.",
-          });
-          continue;
-        }
-        memories.push(document);
-        memoryBytes += document.sizeBytes;
-      } catch (error) {
-        pushWarning(warnings, relativePath, failureFrom(error));
-      }
-    }
-  }
-
   const skillsRoot = path.join(stellaDataDir, "skills");
   const bundledEntries = await readBundledSkillEntries(
     rootRealPath,
@@ -732,7 +544,6 @@ export const scanLocalCloudHome = async (
 
   return {
     schemaVersion: CLOUD_HOME_LOCAL_SCAN_VERSION,
-    memories,
     skills,
     warnings,
   };

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
   CloudHomeImportOwnership,
-  CloudMemoryDocument,
   CloudSkillHead,
   CloudSkillMirrorDeletion,
   LocalCloudHomeScan,
@@ -13,22 +12,6 @@ import {
 } from "@/features/cloud/cloud-home-sync";
 
 const expectedSubject = "https://api.example.test|user";
-const memoryEpoch = "memory-epoch-1";
-const memoryLifecycle = {
-  memoryEpoch,
-  importDisposition: "automatic_allowed" as const,
-};
-
-const memory = {
-  name: "memories/profile.md",
-  displayPath: "~/.stella/memories/profile.md",
-  kind: "profile" as const,
-  source: "legacy_local" as const,
-  content: "# User Profile\n\n- Name: Ada\n",
-  sha256: "a".repeat(64),
-  sizeBytes: 29,
-};
-
 const skill = {
   slug: "custom-research",
   name: "Custom research",
@@ -49,29 +32,18 @@ const skill = {
   ],
 };
 
+const otherSkill = {
+  ...skill,
+  slug: "custom-writing",
+  name: "Custom writing",
+  treeSha256: "f".repeat(64),
+};
+
 const scan: LocalCloudHomeScan = {
   schemaVersion: 1,
-  memories: [memory],
   skills: [skill],
   warnings: [],
 };
-
-const memoryHead = (
-  overrides: Partial<CloudMemoryDocument> = {},
-): CloudMemoryDocument => ({
-  documentId: "memdoc-profile",
-  name: memory.name,
-  displayPath: memory.displayPath,
-  kind: memory.kind,
-  source: "legacy_local",
-  revision: 1,
-  versionId: "memver-1",
-  sha256: memory.sha256,
-  sizeBytes: memory.sizeBytes,
-  updatedAt: 1,
-  content: memory.content,
-  ...overrides,
-});
 
 const skillHead = (
   overrides: Partial<CloudSkillHead> = {},
@@ -139,10 +111,8 @@ describe("Cloud Home desktop reconciliation", () => {
     const prior = {
       accountScope: "account:previous",
       phase: "attention" as const,
-      memoryUploaded: 0,
-      memoryCloudWins: 1,
       skillsUploaded: 0,
-      skillsCloudWins: 0,
+      skillsCloudWins: 1,
       skipped: 0,
       warnings: [
         {
@@ -171,27 +141,20 @@ describe("Cloud Home desktop reconciliation", () => {
     const cursor = cursorStore();
     let fetches = 0;
     let scans = 0;
-    const fetchImpl: typeof fetch = async () => {
-      fetches += 1;
-      return Response.json({
-        subject: expectedSubject,
-        ownerGeneration: "generation-1",
-        ...memoryLifecycle,
-        documents: [],
-      });
-    };
     const base = {
       builderOrigin: "https://builder.example.test",
       token: "jwt",
       expectedSubject,
       scanLocal: async () => {
         scans += 1;
-        return { ...scan, memories: [], skills: [] };
+        return { ...scan, skills: [] };
       },
-      readSkillHeads: async () => [],
+      readSkillHeads: async () => {
+        fetches += 1;
+        return [];
+      },
       deleteSkillMirror: async () => ({ status: "deleted" as const }),
       cursorStore: cursor,
-      fetch: fetchImpl,
     };
 
     const first = await runCloudHomeSync({
@@ -250,20 +213,14 @@ describe("Cloud Home desktop reconciliation", () => {
       expectedSubject,
       cursorStore: cursor,
       readImportOwnership: async () => "corrupt",
-      readSkillHeads: async () => [],
+      readSkillHeads: async () => {
+        fetches += 1;
+        return [];
+      },
       deleteSkillMirror: async () => ({ status: "deleted" as const }),
       scanLocal: async () => {
         scans += 1;
         return scan;
-      },
-      fetch: async () => {
-        fetches += 1;
-        return Response.json({
-          subject: expectedSubject,
-          ownerGeneration: "generation-1",
-          ...memoryLifecycle,
-          documents: [],
-        });
       },
     });
     expect(status.phase).toBe("unavailable");
@@ -276,7 +233,6 @@ describe("Cloud Home desktop reconciliation", () => {
     const cursor = cursorStore();
     const accountScope = "account:user-one";
     await cursor.confirmImportOwnership(accountScope);
-    let cloudMemory: CloudMemoryDocument[] = [];
     let cloudSkills: CloudSkillHead[] = [];
     const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
     const fetchImpl: typeof fetch = async (input, init) => {
@@ -286,26 +242,12 @@ describe("Cloud Home desktop reconciliation", () => {
         "x-stella-expected-subject": expectedSubject,
       });
       expect(init?.redirect).toBe("error");
-      if (url.pathname === "/cloud-home/memory") {
-        return Response.json({
-          subject: expectedSubject,
-          ownerGeneration: "generation-1",
-          ...memoryLifecycle,
-          documents: cloudMemory,
-        });
-      }
-      if (url.pathname === "/cloud-home/memory/write") {
-        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
-        writes.push({ path: url.pathname, body });
-        cloudMemory = [memoryHead()];
-        // Simulate a transport loss after the server committed.
-        throw new Error("socket closed");
-      }
       if (url.pathname === "/cloud-home/skills/upload") {
         const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
         writes.push({ path: url.pathname, body });
         cloudSkills = [skillHead()];
-        return Response.json({ status: "committed" });
+        // Simulate a transport loss after the server committed.
+        throw new Error("socket closed");
       }
       return Response.json({ error: "unexpected" }, { status: 404 });
     };
@@ -325,128 +267,22 @@ describe("Cloud Home desktop reconciliation", () => {
 
     expect(status).toMatchObject({
       phase: "complete",
-      memoryUploaded: 1,
       skillsUploaded: 1,
-      memoryCloudWins: 0,
       skillsCloudWins: 0,
       lastCompletedAt: 1234,
     });
     expect(writes.map((write) => write.path)).toEqual([
-      "/cloud-home/memory/write",
       "/cloud-home/skills/upload",
     ]);
     expect(writes[0]?.body).toMatchObject({
-      expectedOwnerGeneration: "generation-1",
-      expectedMemoryEpoch: memoryEpoch,
-      expectedRevision: 0,
-      writer: "desktop_sync",
-      idempotencyKey: expect.stringMatching(/^desktop-memory-[0-9a-f]{48}$/),
-    });
-    expect(writes[1]?.body).toMatchObject({
       expectedRevision: 0,
       idempotencyKey: expect.stringMatching(/^desktop-skill-[0-9a-f]{48}$/),
     });
     const key = await cloudHomeCursorKey(accountScope);
     const persisted = cursor.values.get(key) ?? "";
-    expect(persisted).toContain("generation-1");
+    expect(persisted).toContain(skill.treeSha256);
     expect(persisted).not.toContain(accountScope);
-    expect(persisted).not.toContain(memory.content);
     expect(persisted).not.toContain(skill.files[0]!.base64);
-  });
-
-  it("blocks automatic Memory reimport after a wipe while continuing skill sync", async () => {
-    const cursor = cursorStore();
-    const accountScope = "account:post-wipe";
-    await cursor.confirmImportOwnership(accountScope);
-    let cloudSkills: CloudSkillHead[] = [];
-    let memoryWrites = 0;
-    let skillWrites = 0;
-    const status = await runCloudHomeSync({
-      accountScope,
-      builderOrigin: "https://builder.example.test",
-      token: "jwt-post-wipe",
-      expectedSubject,
-      scanLocal: async () => scan,
-      readSkillHeads: async () => cloudSkills,
-      deleteSkillMirror: async () => ({ status: "deleted" as const }),
-      cursorStore: cursor,
-      fetch: async (input) => {
-        const pathname = new URL(String(input)).pathname;
-        if (pathname === "/cloud-home/memory") {
-          return Response.json({
-            subject: expectedSubject,
-            ownerGeneration: "generation-1",
-            memoryEpoch: "memory-epoch-2",
-            importDisposition: "explicit_required",
-            lastWipedEpoch: memoryEpoch,
-            documents: [],
-          });
-        }
-        if (pathname === "/cloud-home/memory/write") {
-          memoryWrites += 1;
-        }
-        if (pathname === "/cloud-home/skills/upload") {
-          skillWrites += 1;
-          cloudSkills = [skillHead()];
-          return Response.json({ status: "committed" });
-        }
-        return Response.json({ error: "unexpected" }, { status: 404 });
-      },
-    });
-
-    expect(memoryWrites).toBe(0);
-    expect(skillWrites).toBe(1);
-    expect(status.skillsUploaded).toBe(1);
-    expect(status.issues).toContainEqual(
-      expect.objectContaining({
-        code: "memory_reimport_confirmation_required",
-      }),
-    );
-    expect(status.phase).toBe("attention");
-  });
-
-  it("stops the pass when the authoritative Memory epoch changes during verification", async () => {
-    const cursor = cursorStore();
-    const accountScope = "account:epoch-race";
-    await cursor.confirmImportOwnership(accountScope);
-    let afterWrite = false;
-    let skillWrites = 0;
-    const status = await runCloudHomeSync({
-      accountScope,
-      builderOrigin: "https://builder.example.test",
-      token: "jwt-epoch-race",
-      expectedSubject,
-      scanLocal: async () => scan,
-      readSkillHeads: async () => [],
-      deleteSkillMirror: async () => ({ status: "deleted" as const }),
-      cursorStore: cursor,
-      fetch: async (input) => {
-        const pathname = new URL(String(input)).pathname;
-        if (pathname === "/cloud-home/memory") {
-          return Response.json({
-            subject: expectedSubject,
-            ownerGeneration: "generation-1",
-            memoryEpoch: afterWrite ? "memory-epoch-2" : memoryEpoch,
-            importDisposition: afterWrite
-              ? "explicit_required"
-              : "automatic_allowed",
-            documents: [],
-          });
-        }
-        if (pathname === "/cloud-home/memory/write") {
-          afterWrite = true;
-          return Response.json({ status: "committed" });
-        }
-        if (pathname === "/cloud-home/skills/upload") skillWrites += 1;
-        return Response.json({ status: "committed" });
-      },
-    });
-
-    expect(status.phase).toBe("unavailable");
-    expect(status.issues).toContainEqual(
-      expect.objectContaining({ code: "verification_failed" }),
-    );
-    expect(skillWrites).toBe(0);
   });
 
   it("keeps divergent cloud heads authoritative and never sends a blind overwrite", async () => {
@@ -454,14 +290,6 @@ describe("Cloud Home desktop reconciliation", () => {
     const accountScope = "account:user-two";
     await cursor.confirmImportOwnership(accountScope);
     const posted: string[] = [];
-    const cloudMemory = [
-      memoryHead({
-        revision: 7,
-        versionId: "memver-cloud",
-        sha256: "9".repeat(64),
-        content: "cloud authority",
-      }),
-    ];
     const cloudSkills = [
       skillHead({
         revision: 4,
@@ -472,12 +300,7 @@ describe("Cloud Home desktop reconciliation", () => {
     const fetchImpl: typeof fetch = async (input, init) => {
       const url = new URL(String(input));
       if (init?.method === "POST") posted.push(url.pathname);
-      return Response.json({
-        subject: expectedSubject,
-        ownerGeneration: "generation-1",
-        ...memoryLifecycle,
-        documents: cloudMemory,
-      });
+      return Response.json({ status: "committed" });
     };
 
     const prune = prunes();
@@ -496,13 +319,11 @@ describe("Cloud Home desktop reconciliation", () => {
     expect(posted).toEqual([]);
     expect(status).toMatchObject({
       phase: "attention",
-      memoryCloudWins: 1,
       skillsCloudWins: 1,
     });
     expect(
       status.issues.every((issue) => issue.code === "cloud_conflict"),
     ).toBe(true);
-    expect(JSON.stringify(status)).not.toContain("cloud authority");
     // The slug lost the race and lives only on this Mac, so the mirror keeps
     // the cloud copy instead of reading the loss as a device-root deletion.
     expect(prune.requested).toEqual([]);
@@ -517,8 +338,6 @@ describe("Cloud Home desktop reconciliation", () => {
       key,
       JSON.stringify({
         schemaVersion: 1,
-        ownerGeneration: "generation-1",
-        memories: {},
         skills: {
           "removed-locally": {
             localTreeSha256: "e".repeat(64),
@@ -534,7 +353,7 @@ describe("Cloud Home desktop reconciliation", () => {
       builderOrigin: "https://builder.example.test",
       token: "jwt-prune",
       expectedSubject,
-      scanLocal: async () => ({ ...scan, memories: [] }),
+      scanLocal: async () => scan,
       readSkillHeads: async () => [
         skillHead(),
         skillHead({
@@ -547,13 +366,6 @@ describe("Cloud Home desktop reconciliation", () => {
       ],
       deleteSkillMirror: prune.deleteSkillMirror,
       cursorStore: cursor,
-      fetch: async () =>
-        Response.json({
-          subject: expectedSubject,
-          ownerGeneration: "generation-1",
-          ...memoryLifecycle,
-          documents: [],
-        }),
     });
 
     expect(prune.requested).toEqual([
@@ -576,7 +388,6 @@ describe("Cloud Home desktop reconciliation", () => {
       expectedSubject,
       scanLocal: async () => ({
         ...scan,
-        memories: [],
         skills: [],
         warnings: [
           {
@@ -589,13 +400,6 @@ describe("Cloud Home desktop reconciliation", () => {
       readSkillHeads: async () => [skillHead()],
       deleteSkillMirror: prune.deleteSkillMirror,
       cursorStore: cursor,
-      fetch: async () =>
-        Response.json({
-          subject: expectedSubject,
-          ownerGeneration: "generation-1",
-          ...memoryLifecycle,
-          documents: [],
-        }),
     });
 
     expect(prune.requested).toEqual([]);
@@ -612,17 +416,10 @@ describe("Cloud Home desktop reconciliation", () => {
       builderOrigin: "https://builder.example.test",
       token: "jwt-prune-race",
       expectedSubject,
-      scanLocal: async () => ({ ...scan, memories: [], skills: [] }),
+      scanLocal: async () => ({ ...scan, skills: [] }),
       readSkillHeads: async () => [skillHead({ revision: 2 })],
       deleteSkillMirror: prune.deleteSkillMirror,
       cursorStore: cursor,
-      fetch: async () =>
-        Response.json({
-          subject: expectedSubject,
-          ownerGeneration: "generation-1",
-          ...memoryLifecycle,
-          documents: [],
-        }),
     });
 
     expect(prune.requested).toEqual([
@@ -643,19 +440,12 @@ describe("Cloud Home desktop reconciliation", () => {
       builderOrigin: "https://builder.example.test",
       token: "jwt-prune-offline",
       expectedSubject,
-      scanLocal: async () => ({ ...scan, memories: [], skills: [] }),
+      scanLocal: async () => ({ ...scan, skills: [] }),
       readSkillHeads: async () => [skillHead()],
       deleteSkillMirror: async () => {
         throw new Error("offline");
       },
       cursorStore: cursor,
-      fetch: async () =>
-        Response.json({
-          subject: expectedSubject,
-          ownerGeneration: "generation-1",
-          ...memoryLifecycle,
-          documents: [],
-        }),
     });
 
     expect(status.phase).toBe("attention");
@@ -667,38 +457,34 @@ describe("Cloud Home desktop reconciliation", () => {
     );
   });
 
-  it("resumes after partial failure without re-uploading a confirmed document", async () => {
+  it("resumes after partial failure without re-uploading a confirmed package", async () => {
     const cursor = cursorStore();
     const accountScope = "account:user-three";
     await cursor.confirmImportOwnership(accountScope);
-    let cloudMemory: CloudMemoryDocument[] = [];
     let cloudSkills: CloudSkillHead[] = [];
-    let memoryPosts = 0;
-    let skillPosts = 0;
+    const posts = new Map<string, number>();
     let allowSkillCommit = false;
-    const fetchImpl: typeof fetch = async (input, _init) => {
+    const fetchImpl: typeof fetch = async (input, init) => {
       const url = new URL(String(input));
-      if (url.pathname === "/cloud-home/memory") {
-        return Response.json({
-          subject: expectedSubject,
-          ownerGeneration: "generation-1",
-          ...memoryLifecycle,
-          documents: cloudMemory,
-        });
-      }
-      if (url.pathname === "/cloud-home/memory/write") {
-        memoryPosts += 1;
-        cloudMemory = [memoryHead()];
-        return Response.json({ status: "committed" });
-      }
       if (url.pathname === "/cloud-home/skills/upload") {
-        skillPosts += 1;
-        if (allowSkillCommit) cloudSkills = [skillHead()];
+        const body = JSON.parse(String(init?.body)) as { slug: string };
+        posts.set(body.slug, (posts.get(body.slug) ?? 0) + 1);
+        const commits = body.slug === otherSkill.slug || allowSkillCommit;
+        if (commits) {
+          cloudSkills = [
+            ...cloudSkills.filter((head) => head.slug !== body.slug),
+            body.slug === otherSkill.slug
+              ? skillHead({
+                  skillId: "skill-custom-writing",
+                  slug: otherSkill.slug,
+                  treeSha256: otherSkill.treeSha256,
+                })
+              : skillHead(),
+          ];
+        }
         return Response.json(
-          { status: allowSkillCommit ? "committed" : "conflict" },
-          {
-            status: allowSkillCommit ? 200 : 409,
-          },
+          { status: commits ? "committed" : "conflict" },
+          { status: commits ? 200 : 409 },
         );
       }
       return Response.json({ error: "unexpected" }, { status: 404 });
@@ -708,7 +494,7 @@ describe("Cloud Home desktop reconciliation", () => {
       builderOrigin: "https://builder.example.test",
       token: "jwt-three",
       expectedSubject,
-      scanLocal: async () => scan,
+      scanLocal: async () => ({ ...scan, skills: [otherSkill, skill] }),
       readSkillHeads: async () => cloudSkills,
       deleteSkillMirror: async () => ({ status: "deleted" as const }),
       cursorStore: cursor,
@@ -717,15 +503,15 @@ describe("Cloud Home desktop reconciliation", () => {
 
     const first = await runCloudHomeSync(options);
     expect(first.phase).toBe("attention");
-    expect(memoryPosts).toBe(1);
-    expect(skillPosts).toBe(1);
+    expect(first.skillsUploaded).toBe(1);
+    expect(posts.get(otherSkill.slug)).toBe(1);
+    expect(posts.get(skill.slug)).toBe(1);
 
     allowSkillCommit = true;
     const second = await runCloudHomeSync(options);
     expect(second.phase).toBe("complete");
-    expect(second.memoryUploaded).toBe(0);
-    expect(memoryPosts).toBe(1);
-    expect(skillPosts).toBe(2);
+    expect(posts.get(otherSkill.slug)).toBe(1);
+    expect(posts.get(skill.slug)).toBe(2);
     expect(second.skillsUploaded).toBe(1);
   });
 
@@ -734,31 +520,26 @@ describe("Cloud Home desktop reconciliation", () => {
     const accountScope = "account:user-four";
     await cursor.confirmImportOwnership(accountScope);
     const controller = new AbortController();
-    const matchingMemory = memoryHead();
     const status = await runCloudHomeSync({
       accountScope,
       builderOrigin: "https://builder.example.test",
       token: "jwt-four",
       expectedSubject,
-      scanLocal: async () => ({
-        ...scan,
-        memories: [memory, { ...memory, name: "MEMORY.md", kind: "memory" }],
-        skills: [],
-      }),
-      readSkillHeads: async () => [],
+      scanLocal: async () => ({ ...scan, skills: [skill, otherSkill] }),
+      readSkillHeads: async () => [
+        skillHead(),
+        skillHead({
+          skillId: "skill-custom-writing",
+          slug: otherSkill.slug,
+          treeSha256: otherSkill.treeSha256,
+        }),
+      ],
       deleteSkillMirror: async () => ({ status: "deleted" as const }),
       cursorStore: cursor,
       signal: controller.signal,
       onStatus: (next) => {
         if (next.skipped === 1) controller.abort();
       },
-      fetch: async () =>
-        Response.json({
-          subject: expectedSubject,
-          ownerGeneration: "generation-1",
-          ...memoryLifecycle,
-          documents: [matchingMemory],
-        }),
       now: () => 9999,
     });
 
@@ -796,17 +577,10 @@ describe("Cloud Home desktop reconciliation", () => {
       builderOrigin: "https://builder.example.test",
       token: "jwt-five",
       expectedSubject,
-      scanLocal: async () => ({ ...scan, skills: [] }),
-      readSkillHeads: async () => [],
+      scanLocal: async () => scan,
+      readSkillHeads: async () => [skillHead()],
       deleteSkillMirror: async () => ({ status: "deleted" as const }),
       cursorStore: cursor,
-      fetch: async () =>
-        Response.json({
-          subject: expectedSubject,
-          ownerGeneration: "generation-1",
-          ...memoryLifecycle,
-          documents: [memoryHead()],
-        }),
     });
 
     expect(status.phase).toBe("complete");
@@ -814,7 +588,7 @@ describe("Cloud Home desktop reconciliation", () => {
     expect(persisted).not.toContain("nested");
     expect(persisted).not.toContain("../escape.md");
     expect(persisted).not.toContain('"BAD"');
-    expect(persisted).toContain("memories/profile.md");
+    expect(persisted).toContain(skill.slug);
   });
 
   it("keeps account cancellation active while a response body is still streaming", async () => {
@@ -822,19 +596,17 @@ describe("Cloud Home desktop reconciliation", () => {
     const cursor = cursorStore();
     const accountScope = "account:user-six";
     await cursor.confirmImportOwnership(accountScope);
-    const fetchImpl: typeof fetch = async () =>
-      new Response(
+    const fetchImpl: typeof fetch = async () => {
+      setTimeout(() => controller.abort(), 0);
+      return new Response(
         new ReadableStream({
           start(stream) {
-            stream.enqueue(
-              new TextEncoder().encode(
-                '{"ownerGeneration":"generation-1","documents":',
-              ),
-            );
+            stream.enqueue(new TextEncoder().encode('{"status":'));
           },
         }),
       );
-    const pending = runCloudHomeSync({
+    };
+    const status = await runCloudHomeSync({
       accountScope,
       builderOrigin: "https://builder.example.test",
       token: "jwt-six",
@@ -846,10 +618,7 @@ describe("Cloud Home desktop reconciliation", () => {
       fetch: fetchImpl,
       signal: controller.signal,
     });
-    await Promise.resolve();
-    controller.abort();
-    const status = await pending;
     expect(status.lastCompletedAt).toBeUndefined();
-    expect(status.phase).toBe("unavailable");
+    expect(status.phase).toBe("idle");
   });
 });

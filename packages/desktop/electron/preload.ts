@@ -58,9 +58,6 @@ import {
   IPC_CLOUD_CONVERSATION_CACHE_READ,
   IPC_CLOUD_CONVERSATION_CACHE_REPLACE,
   IPC_CLOUD_CONVERSATION_CACHE_RETAIN_ACCOUNT,
-  IPC_CLOUD_HOME_BEGIN_MEMORY_EXPORT,
-  IPC_CLOUD_HOME_CANCEL_MEMORY_EXPORT,
-  IPC_CLOUD_HOME_COMMIT_MEMORY_EXPORT,
   IPC_CLOUD_HOME_CONFIRM_IMPORT_OWNERSHIP,
   IPC_CLOUD_HOME_GET_IMPORT_OWNERSHIP,
   IPC_CLOUD_HOME_SCAN_LOCAL,
@@ -366,33 +363,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ),
     confirmImportOwnership: (accountScope: string) =>
       invokeIpc<boolean>(IPC_CLOUD_HOME_CONFIRM_IMPORT_OWNERSHIP, accountScope),
-    beginMemoryExport: (payload: {
-      suggestedName: string;
-      expectedSubject: string;
-      ownerGeneration: string;
-      memoryEpoch: string;
-      lifecycleState: "open";
-    }) =>
-      invokeIpc<{ ok: true; exportId: string } | { ok: false; canceled: true }>(
-        IPC_CLOUD_HOME_BEGIN_MEMORY_EXPORT,
-        payload,
-      ),
-    commitMemoryExport: (payload: {
-      exportId: string;
-      content: string;
-      expectedSubject: string;
-      ownerGeneration: string;
-      memoryEpoch: string;
-      lifecycleState: "open";
-    }) =>
-      invokeIpc<{ ok: true } | { ok: false; canceled: true }>(
-        IPC_CLOUD_HOME_COMMIT_MEMORY_EXPORT,
-        payload,
-      ),
-    cancelMemoryExport: (exportId: string) =>
-      invokeIpc<{ ok: true }>(IPC_CLOUD_HOME_CANCEL_MEMORY_EXPORT, {
-        exportId,
-      }),
   },
 
   cloudConversationCache: {

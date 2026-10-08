@@ -19,8 +19,6 @@ const unavailable = (accountScope: string, message: string) =>
   cloudHomeSyncStatusStore.set({
     accountScope,
     phase: "unavailable",
-    memoryUploaded: 0,
-    memoryCloudWins: 0,
     skillsUploaded: 0,
     skillsCloudWins: 0,
     skipped: 0,

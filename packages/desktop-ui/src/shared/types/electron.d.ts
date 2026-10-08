@@ -1610,24 +1610,6 @@ export type ElectronApi = {
       accountScope: string,
     ) => Promise<CloudHomeImportOwnership>;
     confirmImportOwnership: (accountScope: string) => Promise<boolean>;
-    beginMemoryExport: (payload: {
-      suggestedName: string;
-      expectedSubject: string;
-      ownerGeneration: string;
-      memoryEpoch: string;
-      lifecycleState: "open";
-    }) => Promise<
-      { ok: true; exportId: string } | { ok: false; canceled: true }
-    >;
-    commitMemoryExport: (payload: {
-      exportId: string;
-      content: string;
-      expectedSubject: string;
-      ownerGeneration: string;
-      memoryEpoch: string;
-      lifecycleState: "open";
-    }) => Promise<{ ok: true } | { ok: false; canceled: true }>;
-    cancelMemoryExport: (exportId: string) => Promise<{ ok: true }>;
   };
   cloudConversationCache: {
     retainAccount: (

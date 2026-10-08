@@ -663,11 +663,15 @@ const PI_DEVICE_AGENT_PREFIX = "pi:device-agent:";
 
 /** Journal records read per batch when importing other writers' turns into pi. */
 const PI_JOURNAL_IMPORT_BATCH = 200;
-const PI_JOURNAL_IMPORT_BYTES = 4 * 1024 * 1024;
 /** The newest pi entry this conversation's journal has mirrored. */
 const PI_MIRRORED_KEY = "piMirroredEntry";
 /** Set while pi has work in flight here, so a wake after eviction resumes it. */
 const PI_LIVE_KEY = "piLive";
+/**
+ * A rewind pi has not followed yet: the journal's new epoch and the seq it
+ * was cut after. The next pi turn resets its context and imports again.
+ */
+const PI_REWOUND_KEY = "piRewound";
 const PI_HEARTBEAT_MS = 30_000;
 /** The agent tools a pi-durable conversation's harness has itself. */
 const PI_HARNESS_AGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
@@ -4276,6 +4280,111 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     }
   >();
 
+  /** A model grant from the owner, unless a freeze landed while it was issued. */
+  private async acquireOwnerModelGrant(
+    expected: LocalOwnerModelGrantExpectation,
+  ) {
+    const freezeEpoch = this.localOwnerModelGrants.freezeEpoch(expected);
+    const issued = await this.ownerGate(expected.ownerId).acquireModelGrant({
+      ownerId: expected.ownerId,
+      ownerGeneration: expected.ownerGeneration,
+      conversationId: expected.conversationId,
+      readerId: this.isolateId,
+      turnId: expected.turnId,
+      leaseId: expected.leaseId,
+      fenceGeneration: expected.fenceGeneration,
+      policy: expected.memoryPolicy,
+    });
+    const grant = this.localOwnerModelGrants.validAfter(
+      issued,
+      expected,
+      freezeEpoch,
+    );
+    if (!grant) throw new OwnerPurgeFenceError();
+    return { grant, expected };
+  }
+
+  /**
+   * A pi agent's run held to the owner's purge fence as a chat turn is: an
+   * owner-fence lease for the run (the same lease when a resumed run asks
+   * again), and a model grant under the owner's current memory policy on
+   * each request. A purge or a privacy change freezes the grant and aborts
+   * the request in flight.
+   */
+  private async piAgentGuard(
+    authority: import("./pi-runtime.js").PiAuthority,
+    turnId: string,
+  ): Promise<import("./pi-runtime.js").PiAgentGuard> {
+    const fenced: OwnerFencedTurn = {
+      ownerId: authority.ownerId,
+      ownerGeneration: authority.ownerGeneration,
+      turnId,
+    };
+    const fenceGeneration = await this.registerOwnerTurn(fenced);
+    const leaseId = fenced.ownerPurgeLeaseId;
+    try {
+      if (!leaseId) throw new OwnerPurgeFenceError();
+      const { memory } = await this.ownerGate(authority.ownerId).homeContext(
+        authority.ownerGeneration,
+        fenceGeneration,
+      );
+      const expected: LocalOwnerModelGrantExpectation = {
+        ownerId: authority.ownerId,
+        ownerGeneration: authority.ownerGeneration,
+        conversationId: authority.conversationId,
+        turnId,
+        leaseId,
+        fenceGeneration,
+        memoryPolicy: memory.preference,
+      };
+      let grantWork = this.acquireOwnerModelGrant(expected);
+      void grantWork.catch(() => undefined);
+      const currentGrant = async () => {
+        const current = await grantWork;
+        if (!this.localOwnerModelGrants.valid(current.grant, current.expected)) {
+          throw new OwnerPurgeFenceError();
+        }
+        if (current.grant.expiresAt - Date.now() > 60_000) return current;
+        grantWork = this.acquireOwnerModelGrant(expected);
+        void grantWork.catch(() => undefined);
+        return await grantWork;
+      };
+      const gateway = this.env.MODEL_GATEWAY;
+      if (!gateway) throw new Error("Model gateway is not configured.");
+      return {
+        fetch: async (request) => {
+          const current = await currentGrant();
+          const active = this.localOwnerModelGrants.begin(
+            current.grant,
+            current.expected,
+            request.signal,
+          );
+          try {
+            const response = await guardedModelFetch({
+              request: new Request(request, { signal: active.requestSignal }),
+              fetch: (value) => gateway.fetch(value),
+              mode: "authorize-before-fetch",
+              authorize: async () => {
+                if (this.purged()) throw new OwnerPurgeFenceError();
+                active.assertValid();
+              },
+            });
+            return releaseOwnerModelGrantAfterBody(response, active.release);
+          } catch (error) {
+            active.release();
+            throw error;
+          }
+        },
+        release: async () => {
+          await this.unregisterOwnerTurn(fenced);
+        },
+      };
+    } catch (error) {
+      await this.unregisterOwnerTurn(fenced).catch(() => undefined);
+      throw error;
+    }
+  }
+
   async freezeOwnerModelGrants(
     args: OwnerModelGrantFreezeRequest,
   ): Promise<{ frozen: true }> {
@@ -4780,28 +4889,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         return context;
       });
       void measuredHomePreparation.catch(() => undefined);
-      const acquireModelGrant = async (
-        expected: LocalOwnerModelGrantExpectation,
-      ) => {
-        const freezeEpoch = this.localOwnerModelGrants.freezeEpoch(expected);
-        const issued = await this.ownerGate(turn.ownerId).acquireModelGrant({
-          ownerId: expected.ownerId,
-          ownerGeneration: expected.ownerGeneration,
-          conversationId: expected.conversationId,
-          readerId: this.isolateId,
-          turnId: expected.turnId,
-          leaseId: expected.leaseId,
-          fenceGeneration: expected.fenceGeneration,
-          policy: expected.memoryPolicy,
-        });
-        const grant = this.localOwnerModelGrants.validAfter(
-          issued,
-          expected,
-          freezeEpoch,
-        );
-        if (!grant) throw new OwnerPurgeFenceError();
-        return { grant, expected };
-      };
+      const acquireModelGrant = (expected: LocalOwnerModelGrantExpectation) =>
+        this.acquireOwnerModelGrant(expected);
       let modelGrantWork =
         executionSelection.engine === "stella"
           ? measuredHomePreparation.then(async ({ memoryPreference }) => {
@@ -5969,26 +6058,39 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         .flush({ activity: "running", updatedAt: Date.now() })
         .catch(() => undefined);
       await runtime.configureRoot(binding, context);
+      // A reply the journal could not take fails the turn, as the loop's
+      // does: what the user is shown and what Stella read must not diverge.
+      // The entry stays unmirrored, so the next turn writes it again.
+      let persistError: string | undefined;
       stream = await runtime.follow(
         mirrored,
         (entry) => {
-          mirrored = Math.max(mirrored, entry.id);
-          if (entry.kind !== "pi.assistant" && entry.kind !== "pi.tool-result")
-            return;
-          // Written from the journal: another writer's, already there.
-          if (pi.journalSeqOf(entry) !== undefined) return;
+          if (persistError !== undefined) return;
           const message = entry.model?.[0];
-          if (!message) return;
-          const appended = this.appendProduced(
-            turn,
-            message as unknown as AgentMessage,
-            {
-              writer: "orchestrator",
-              writerKey: `pi:${entry.id}`,
-              streamId: null,
-            },
-          );
-          if (appended) this.publish(appended.record);
+          if (
+            message &&
+            (entry.kind === "pi.assistant" || entry.kind === "pi.tool-result") &&
+            // Written from the journal: another writer's, already there.
+            pi.journalSeqOf(entry) === undefined
+          ) {
+            try {
+              const appended = this.appendProduced(
+                turn,
+                message as unknown as AgentMessage,
+                {
+                  writer: "orchestrator",
+                  writerKey: `pi:${entry.id}`,
+                  streamId: null,
+                },
+              );
+              if (appended) this.publish(appended.record);
+            } catch (error) {
+              persistError = errorMessage(error);
+              this.currentPiRun?.abort();
+              return;
+            }
+          }
+          mirrored = Math.max(mirrored, entry.id);
         },
         context,
       );
@@ -6005,14 +6107,25 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       }
       // What other writers journaled since (a computer's turns, another
       // engine's) is part of the conversation this turn answers.
+      // A rewind since the last turn: what the journal no longer holds leaves
+      // pi's context too.
+      const rewound = await this.ctx.storage.get<{
+        epoch: number;
+        throughSeq: number;
+      }>(PI_REWOUND_KEY);
+      if (rewound) {
+        await runtime.rewind(rewound.epoch, rewound.throughSeq, context);
+        await this.ctx.storage.delete(PI_REWOUND_KEY);
+        log("info", "pi_rewound", { turnId: turn.turnId, ...rewound });
+      }
       const [, images] = await Promise.all([
+        // Rows already rolled over to R2 are read from there.
         runtime.importJournal(
           (afterSeq) =>
-            this.journal.readResident(
+            this.archive.readRange(
               afterSeq + 1,
               Number.MAX_SAFE_INTEGER,
               PI_JOURNAL_IMPORT_BATCH,
-              PI_JOURNAL_IMPORT_BYTES,
             ),
           turn.turnId,
           context,
@@ -6082,7 +6195,13 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           await this.afterTerminal(turn);
           return json({ ok: false, canceled: true });
         }
+        if (persistError !== undefined) {
+          throw new Error(`Persisting the reply failed: ${persistError}`);
+        }
         throw error;
+      }
+      if (persistError !== undefined) {
+        throw new Error(`Persisting the reply failed: ${persistError}`);
       }
       if (await this.getTurnState<boolean>("terminal")) {
         await this.afterTerminal(turn);
@@ -6190,6 +6309,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               },
             }),
           agentTools: (authority) => this.createPiAgentTools(authority),
+          agentGuard: (authority, turnId) =>
+            this.piAgentGuard(authority, turnId),
           deviceAgents: this.piDeviceAgents(),
           heartbeat: () => {
             void (async () => {
@@ -8340,10 +8461,13 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         409,
       );
     }
+    const agentRuntime = await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY);
     return json({
       acquired: true,
       sourceEpoch: request.expectedEpoch,
       sourceLastSeq: request.expectedLastSeq,
+      // A fork runs on the engine its source ran on.
+      ...(agentRuntime === "pi" ? { agentRuntime } : {}),
     });
   }
 
@@ -8571,6 +8695,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       await this.ctx.storage.put({
         [CONVERSATION_FORK_TARGET_KEY]: state,
         [CONVERSATION_EDIT_LOCK_KEY]: this.forkTargetLock(request),
+        // Its first pi turn imports the copied journal whole.
+        ...(raw?.sourceAgentRuntime === "pi"
+          ? { [AGENT_RUNTIME_KEY]: "pi" }
+          : {}),
       });
       return json({ begun: true, replayed: false });
     });
@@ -8990,6 +9118,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       retiredAt: now,
       resultJson: JSON.stringify(result),
     });
+    if ((await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi") {
+      await this.ctx.storage.put(PI_REWOUND_KEY, {
+        epoch: result.nextEpoch,
+        throughSeq: request.throughSeq,
+      });
+    }
     await this.finalizeRewindSideEffects(request, now);
     return json(result);
   }
@@ -11222,6 +11356,18 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     this.sealed = true;
     this.archive.seal();
     this.hub.closeAll(CLOSE_DELETED);
+    // Pi's runs stop here, with their leases, admissions and containers,
+    // before the storage they write goes.
+    const pi = this.piRuntime;
+    this.piRuntime = undefined;
+    const runtime = await pi?.catch(() => undefined);
+    if (runtime) {
+      await runtime.discard().then(
+        (runs) => log("info", "pi_purge_discarded", { runs }),
+        (error: unknown) =>
+          log("error", "pi_purge_discard_failed", { message: errorMessage(error) }),
+      );
+    }
     await this.archive.quiesce();
     // `segments` and `spills` outlive the drain — only the queue rows are
     // removed — so what has already been offered has to be remembered here, or

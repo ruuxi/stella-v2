@@ -44,7 +44,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { ShellExecutionEnv, type ShellBackend } from "@stella/agent/env/shell-env";
-import { openStellaHarness, orchestratorAgent, stellaModelRef } from "@stella/agent/harness";
+import { offersAgentTools, openStellaHarness, orchestratorAgent, stellaModelRef } from "@stella/agent/harness";
 import {
   stellaProvider,
   type StellaGatewayAccess,
@@ -53,7 +53,12 @@ import {
 } from "@stella/agent/provider/stella";
 import { StellaAgentDoc } from "@stella/agent/stella/agent-doc";
 import type { AgentReport, AgentRun, StellaAgentsHost } from "@stella/agent/stella/agents";
-import { STELLA_CODING_TOOL_NAMES } from "@stella/agent/stella/coding";
+import {
+  STELLA_HARNESS_TOOL_NAMES,
+  type StellaToolHost,
+  type StellaToolOutcome,
+  type StellaToolSpec,
+} from "@stella/agent/stella/host-tools";
 import type { StellaContextSources, StellaMemory } from "@stella/agent/stella/context";
 import { placementOf, StellaPlacementDoc } from "@stella/agent/stella/placement";
 import type { AgentModelReasoningEffort, CloudExecutionSelection } from "@stella/contracts/agent-engine";
@@ -67,7 +72,11 @@ import {
 } from "@stella/contracts/pi-chat";
 import { gatewayRelayBaseUrl } from "@stella/contracts/gateway/api";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
+import { toolRequiresExplicitApproval } from "@stella/runtime/kernel/tools/code-tool.js";
 import { mintTurnCapability } from "./capability-signer.js";
+import type { CloudCodeSourceAgentTool } from "./cloud-code-tool.js";
+import { createCloudWebTool } from "./cloud-web-tool.js";
+import { unwrapRpc } from "./owner-store/errors.js";
 import {
   fetchWithManagedCancellation,
   type ModelGatewayControl,
@@ -113,6 +122,8 @@ type PiAgentState = {
   models: StellaModelSpec[];
   skillsCatalog?: string;
   executionContext: ExecutionContextSnapshot;
+  /** The orchestrator's tools as the latest turn offered them, for work recovered before a turn binds. */
+  tools?: StellaToolSpec[];
 };
 
 export type PiTurnSources = {
@@ -133,6 +144,8 @@ export type PiTurnBinding = {
   agentModel: StellaModelSpec;
   thinkingLevel: ModelThinkingLevel;
   sources: PiTurnSources;
+  /** The turn's orchestrator tools (web, html, image_gen, Read, drive, …), code excluded. */
+  tools(): Promise<readonly CloudCodeSourceAgentTool[]>;
 };
 
 export type PiRuntimeEnv = Pick<Cloudflare.Env, "OWNER_GATES"> &
@@ -234,13 +247,26 @@ type AgentContainer = {
   slot?: Promise<void>;
 };
 
-type Opened = { harness: Harness; root: Conversation; rootSession: string };
+type Opened = { harness: Harness; root: Conversation; rootSession: string; refreshTools(): void };
+
+/** A cloud tool as the harness offers it. */
+const toolSpec = (tool: CloudCodeSourceAgentTool): StellaToolSpec => ({
+  name: tool.name,
+  description: tool.description,
+  parameters: tool.parameters as unknown as Record<string, unknown>,
+  ...(tool.replay ? { replay: tool.replay } : {}),
+  ...(tool.demoted && !toolRequiresExplicitApproval(tool.approval)
+    ? { codeOnly: { ...(tool.demoted.searchTerms ? { searchTerms: tool.demoted.searchTerms } : {}) } }
+    : {}),
+});
 
 export class PiConversationRuntime {
   readonly #options: PiRuntimeOptions;
   readonly #models = createModels();
   #opening: Promise<Opened> | undefined;
   #binding: PiTurnBinding | undefined;
+  /** The bound turn's tools, built once per turn. */
+  #turnTools: { binding: PiTurnBinding; tools: Promise<readonly CloudCodeSourceAgentTool[]> } | undefined;
   #state: PiAgentState | undefined;
   #modelKey: string | undefined;
   /** Agent runs by their conversation's provider session id. */
@@ -387,6 +413,65 @@ export class PiConversationRuntime {
       skillsCatalog: async () => this.#binding?.sources.skillsCatalog ?? (await this.#agentState()).skillsCatalog,
       executionContext: async () =>
         this.#binding?.sources.executionContext ?? (await this.#agentState()).executionContext,
+    };
+  }
+
+  // ---- Stella's tools ---------------------------------------------------------
+
+  #turnToolsFor(binding: PiTurnBinding): Promise<readonly CloudCodeSourceAgentTool[]> {
+    if (this.#turnTools?.binding !== binding) {
+      const tools = binding.tools();
+      this.#turnTools = { binding, tools };
+      tools.catch(() => {
+        if (this.#turnTools?.tools === tools) this.#turnTools = undefined;
+      });
+    }
+    return this.#turnTools.tools;
+  }
+
+  /** A server-internal operation on the owner's object, on the kept authority. */
+  async #ownerInternal(name: string, args: unknown): Promise<unknown> {
+    const { authority } = await this.#agentState();
+    return unwrapRpc(
+      await this.#gate(authority).ownerInternal({ name, args, ownerGeneration: authority.ownerGeneration }),
+    );
+  }
+
+  /** The agents' own tools in the cloud: web (files and shell are their container's). */
+  #agentTools(): CloudCodeSourceAgentTool[] {
+    return [createCloudWebTool({ ownerInternal: (name, args) => this.#ownerInternal(name, args) })];
+  }
+
+  #tools(): StellaToolHost {
+    return {
+      specs: (role) => (role === "orchestrator" ? (this.#state?.tools ?? []) : this.#agentTools().map(toolSpec)),
+      run: async (call, context) => {
+        const signal = context.abortSignal;
+        // The orchestrator's tools are its turn's: recovered work waits for the turn to bind again.
+        const tools =
+          call.role === "orchestrator"
+            ? await this.#turnToolsFor(await this.#turn(signal))
+            : this.#agentTools();
+        const tool = tools.find((candidate) => candidate.name === call.name);
+        if (!tool) throw new Error(`${call.name} is not available here.`);
+        const started = Date.now();
+        const fields = { role: call.role, tool: call.name, callId: call.callId };
+        try {
+          const result = await tool.execute(call.callId, call.args, signal);
+          this.#options.log("pi_tool_ran", { ...fields, ms: Date.now() - started });
+          return {
+            content: result.content as StellaToolOutcome["content"],
+            details: result.details,
+          };
+        } catch (error) {
+          this.#options.log("pi_tool_failed", {
+            ...fields,
+            ms: Date.now() - started,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
+      },
     };
   }
 
@@ -610,12 +695,13 @@ export class PiConversationRuntime {
         this.#setModels(kept.models);
       }
       const storage = await openDurableObjectSqliteStorage(this.#options.storage);
-      const { harness } = await openStellaHarness(
+      const { harness, refreshTools } = await openStellaHarness(
         {
           storage,
           models: this.#models,
           sources: this.#sources(),
           agents: this.#agents(),
+          tools: this.#tools(),
           env: (target, context) => this.#env(target, context),
           onReport: this.#options.report,
         },
@@ -624,7 +710,7 @@ export class PiConversationRuntime {
       const root = await harness.root(BACKGROUND_CONTEXT);
       const rootSession = await this.#providerSession(harness, root.id, BACKGROUND_CONTEXT);
       harness.resume();
-      return { harness, root, rootSession };
+      return { harness, root, rootSession, refreshTools };
     })().catch((error: unknown) => {
       this.#opening = undefined;
       throw error;
@@ -637,18 +723,23 @@ export class PiConversationRuntime {
    * agents need later is kept. Returns the unbind for the turn's `finally`.
    */
   async bind(binding: PiTurnBinding): Promise<() => void> {
+    const tools = (await this.#turnToolsFor(binding))
+      .filter((tool) => !STELLA_HARNESS_TOOL_NAMES.has(tool.name))
+      .map(toolSpec);
     const state: PiAgentState = {
       version: 1,
       authority: binding.authority,
       models: [binding.model, binding.agentModel],
       ...(binding.sources.skillsCatalog ? { skillsCatalog: binding.sources.skillsCatalog } : {}),
       executionContext: binding.sources.executionContext,
+      tools,
     };
     if (JSON.stringify(state) !== JSON.stringify(this.#state)) {
       await this.#options.storage.put(PI_AGENT_STATE_KEY, state);
       this.#state = state;
     }
     this.#setModels(state.models);
+    (await this.#opening?.catch(() => undefined))?.refreshTools();
     this.#binding = binding;
     this.#notify("root");
     return () => {
@@ -656,14 +747,13 @@ export class PiConversationRuntime {
     };
   }
 
-  /** The root conversation is the orchestrator: the turn's model, no file or shell tools. */
+  /** The root conversation is the orchestrator: the turn's model and the orchestrator's tools. */
   async configureRoot(binding: PiTurnBinding, context: Context): Promise<void> {
     const { root } = await this.open();
     const agent = await root.agent(context);
     const model = stellaModelRef("orchestrator", binding.model.alias);
-    const coding = agent.tools.some((tool) => (STELLA_CODING_TOOL_NAMES as readonly string[]).includes(tool.name));
     if (
-      coding ||
+      offersAgentTools(agent) ||
       agent.model?.provider !== model.provider ||
       agent.model?.modelId !== model.modelId ||
       agent.thinkingLevel !== binding.thinkingLevel

@@ -490,6 +490,8 @@ export type RunnerPublicApi = {
     signal?: AbortSignal,
     onUpdate?: ToolUpdateCallback,
   ) => Promise<ToolResult>;
+  /** Stella's tools for the pi-durable harness. */
+  piTools: import("./pi-tools.js").RunnerPiTools;
   agentHealthCheck: () => AgentHealth;
   warmModelCatalog: () => Promise<void>;
   /**

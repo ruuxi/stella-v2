@@ -29,7 +29,14 @@ import {
   type PiEntry,
 } from "@stella/contracts/pi-chat";
 import type { DeviceSigner } from "@stella/runtime/kernel/home/device";
-import { openStellaHarness, orchestratorAgent, STELLA_DEFAULT_ALIAS, stellaModelRef } from "../harness.ts";
+import {
+  offersAgentTools,
+  openStellaHarness,
+  orchestratorAgent,
+  STELLA_DEFAULT_ALIAS,
+  stellaModelRef,
+} from "../harness.ts";
+import type { StellaToolHost } from "../stella/host-tools.ts";
 import { stellaProvider } from "../provider/stella.ts";
 import { openBunSqliteStorage } from "../storage/bun-sqlite.ts";
 import { desktopAgentsHost, desktopEnvironments } from "./desktop-agents.ts";
@@ -55,6 +62,8 @@ export type DesktopChatsOptions = {
   refreshAuthToken?(): Promise<string | null | undefined>;
   getDeviceSigner(): Promise<DeviceSigner> | DeviceSigner;
   memoryEnabled?(): boolean;
+  /** Stella's own tools (web, html, image_gen, ask_user, …) for one conversation. */
+  tools?(conversationId: string): StellaToolHost;
   /** A watched conversation's events, for every attached client. */
   emit(payload: PiChatEventsPayload): void;
   report(error: unknown): void;
@@ -63,6 +72,7 @@ export type DesktopChatsOptions = {
 type Chat = {
   harness: Harness;
   root: Conversation;
+  refreshTools(): void;
   stream?: AgentEventStream;
   watchers: number;
   idleCheck: ReturnType<typeof setInterval>;
@@ -155,7 +165,7 @@ export function desktopChats(options: DesktopChatsOptions) {
           deviceId: options.deviceId ?? "this-computer",
           label: "This computer",
         };
-        const { harness } = await openStellaHarness(
+        const { harness, refreshTools } = await openStellaHarness(
           {
             storage,
             models,
@@ -166,12 +176,16 @@ export function desktopChats(options: DesktopChatsOptions) {
               destination,
             }),
             agents: desktopAgentsHost({ ...(options.deviceId ? { deviceId: options.deviceId } : {}) }),
+            ...(options.tools ? { tools: options.tools(conversationId) } : {}),
             env: environments.env,
             onReport: options.report,
           },
           context,
         );
-        const root = await harness.root(context, { agent: orchestratorAgent(stellaModelRef("orchestrator")) });
+        const orchestrator = orchestratorAgent(stellaModelRef("orchestrator"));
+        const root = await harness.root(context, { agent: orchestrator });
+        // A conversation from an older build keeps up with what the orchestrator is offered.
+        if (offersAgentTools(await root.agent(context))) await root.configure(orchestrator, context);
         // Recovered work needs the provider; it waits for sign-in otherwise.
         void waitForProvider().then(() => harness.resume());
         const idleCheck = setInterval(() => {
@@ -182,7 +196,7 @@ export function desktopChats(options: DesktopChatsOptions) {
           );
         }, IDLE_CHECK_MS);
         idleCheck.unref?.();
-        return { harness, root, watchers: 0, idleCheck };
+        return { harness, root, refreshTools, watchers: 0, idleCheck };
       })().catch((error: unknown) => {
         chats.delete(conversationId);
         throw error;
@@ -246,6 +260,8 @@ export function desktopChats(options: DesktopChatsOptions) {
   const submit = async (conversationId: string, requestId: string, text: string) => {
     await ensureProvider();
     const chat = await open(conversationId);
+    // The tool catalog follows the runtime's (extension tools come and go).
+    chat.refreshTools();
     await markActive(conversationId, true);
     const submission = await chat.root.submit(
       // A message sent while Stella works joins the run at its next step.

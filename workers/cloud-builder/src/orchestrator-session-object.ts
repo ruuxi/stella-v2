@@ -4,7 +4,6 @@ import {
   type CloudChatPreparation,
 } from "./cloud-chat-admission.js";
 import type { DevicesResponse } from "@stella/contracts/turn-plane/placement";
-import type { WebSearchResult } from "@stella/contracts/backend/search";
 import type { OwnerHomeContext } from "./owner-home-context.js";
 import {
   CONTEXT_CHECKPOINT_KEY,
@@ -110,18 +109,6 @@ import {
   buildDefaultTransformContext,
   getAgentCompletion,
 } from "@stella/runtime/kernel/agent-runtime/run-shared.js";
-import { normalizeSafePublicUrl } from "@stella/runtime/kernel/tools/url-guard.js";
-import { fetchReadableText } from "@stella/runtime/kernel/tools/web-fetch-core.js";
-import {
-  containsSecretLikeToken,
-  sanitizeToolVisibleText,
-} from "@stella/runtime/kernel/tools/safety.js";
-import {
-  WEB_TOOL_DESCRIPTION,
-  WEB_TOOL_NAME,
-  WEB_TOOL_PARAMETERS,
-  WEB_TOOL_REPLAY,
-} from "@stella/runtime/kernel/tools/defs/web-def.js";
 import {
   AGENT_STATUS_TOOL_DESCRIPTOR,
   AGENT_STATUS_TOOL_REPLAY,
@@ -271,6 +258,7 @@ import {
   type CloudCodeSourceAgentTool,
 } from "./cloud-code-tool.js";
 import { createCloudImageGenTool } from "./cloud-image-gen-tool.js";
+import { createCloudWebTool } from "./cloud-web-tool.js";
 import { createCloudHtmlTool } from "./cloud-html-tool.js";
 import { unwrapRpc } from "./owner-store/errors.js";
 import { createCloudDriveTool } from "./cloud-drive-tool.js";
@@ -5891,6 +5879,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       model: modelSpec("orchestrator"),
       agentModel: modelSpec("general"),
       thinkingLevel: pi.thinkingLevelFor(args.execution.reasoningEffort),
+      tools: async () =>
+        (
+          await this.createTools(
+            turn,
+            this.cloudAgentHome(turn),
+            home.skillCatalog,
+            home.memoryPreference.memoryEnabled,
+          )
+        ).catalog,
       sources: {
         orchestratorPrompt: canonicalPrompts.orchestratorBody,
         personality:
@@ -11577,7 +11574,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     agentHome: AgentHome,
     skillCatalog: CloudSkillCatalogSnapshot,
     memoryEnabled: boolean,
-  ): Promise<{ tools: AgentTool[]; promptTools: ReadonlySet<string> }> {
+  ): Promise<{
+    tools: AgentTool[];
+    promptTools: ReadonlySet<string>;
+    /** Every tool but code, demoted ones included, for a harness with its own code tool. */
+    catalog: readonly CloudCodeSourceAgentTool[];
+  }> {
     const toolContext = {
       ownerId: turn.ownerId,
       ownerGeneration: turn.ownerGeneration,
@@ -12208,66 +12210,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           );
         },
       },
-      // The desktop `web` tool's exact surface (web-def) and fetch pipeline
-      // (web-fetch-core, with per-redirect-hop SSRF re-validation). workerd
-      // has no resolver hook, so the guard runs literal-only here; Cloudflare's
-      // own egress policy backstops DNS-rebinding names.
-      {
-        name: WEB_TOOL_NAME,
-        label: "Web",
-        replay: WEB_TOOL_REPLAY,
-        description: WEB_TOOL_DESCRIPTION,
-        parameters: WEB_TOOL_PARAMETERS as unknown as TSchema,
-        execute: async (_id, params, signal) => {
-          const args = params as {
-            query?: string;
-            url?: string;
-            category?: string;
-            prompt?: string;
-          };
-          const query = args.query?.trim() ?? "";
-          const url = args.url?.trim() ?? "";
-          if (!query && !url) {
-            throw new Error("Either query or url is required.");
-          }
-          if (query && url) {
-            throw new Error("Pass either query or url, not both.");
-          }
-          if (url) {
-            const prompt = args.prompt?.trim() || undefined;
-            const text = await fetchReadableText(
-              { url, ...(prompt ? { prompt } : {}) },
-              {
-                guardUrl: (candidate) => normalizeSafePublicUrl(candidate),
-                // Same two protections the desktop tool applies: refuse a URL
-                // carrying a credential (exfiltration via a model-chosen
-                // query string), and redact secrets out of fetched page text
-                // before it becomes model-visible and lands in the transcript.
-                checkSecretLikeToken: containsSecretLikeToken,
-                sanitize: sanitizeToolVisibleText,
-                userAgent: "Stella/1.0 (Cloud)",
-                ...(signal ? { signal } : {}),
-              },
-            );
-            return {
-              content: [{ type: "text", text }],
-              details: { mode: "fetch", url },
-            };
-          }
-          signal?.throwIfAborted();
-          const category = args.category?.trim();
-          const payload = (await toolContext.ownerInternal("search.web", {
-            query,
-            ...(category ? { category } : {}),
-          })) as WebSearchResult;
-          return {
-            content: [
-              { type: "text", text: payload.text || "No results found." },
-            ],
-            details: { mode: "search", query, ...payload },
-          };
-        },
-      },
+      createCloudWebTool({ ownerInternal: toolContext.ownerInternal }),
       createCloudImageGenTool({
         ownerGeneration: turn.ownerGeneration,
         conversationId: turn.conversationId,
@@ -12339,6 +12282,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     );
     return {
       tools: [codeTool, ...direct],
+      catalog: tools,
       // The prompt renders against everything this turn can call, demoted
       // tools inside code included, and `history` and `memory` only when
       // code has them.

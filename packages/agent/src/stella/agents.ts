@@ -35,6 +35,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { parseStellaModelId, stellaModelId, STELLA_PROVIDER_ID } from "../provider/stella.ts";
 import { MAX_AGENT_DEPTH, StellaAgentDoc, type StellaAgentRole } from "./agent-doc.ts";
+import { agentToolSelection } from "./host-tools.ts";
 import {
   describePlacement,
   parseSpawnDestination,
@@ -307,7 +308,10 @@ export function stellaAgentsExtension(host: StellaAgentsHost) {
         const threadId = `${slug(description)}-${child.id}`;
         await configure(tx, child.id, {
           ...(model ? { model } : {}),
-          // An agent has file and shell tools; one at the depth limit cannot start agents.
+          // An agent has file, shell and agent tools, not the orchestrator's
+          // (it copied the starter's selection); one at the depth limit cannot
+          // start agents.
+          extensions: agentToolSelection,
           tools: depth >= MAX_AGENT_DEPTH ? { remove: [spawnAgent, pauseAgent] } : null,
         });
         const role = await tx.doc(StellaAgentDoc, child.id);

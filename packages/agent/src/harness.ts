@@ -8,6 +8,7 @@ import type { Models } from "@earendil-works/pi-ai";
 import {
   createRegistry,
   Harness,
+  type Agent,
   type Extension,
   type HarnessOptions,
   type HarnessSettings,
@@ -17,8 +18,9 @@ import {
 } from "@earendil-works/pi-durable";
 import { STELLA_PROVIDER_ID, stellaModelId } from "./provider/stella.ts";
 import { stellaAgentsExtension, type StellaAgentsHost } from "./stella/agents.ts";
-import { StellaCoding } from "./stella/coding.ts";
+import { STELLA_CODING_EXTENSION, StellaCoding } from "./stella/coding.ts";
 import type { StellaContextSources } from "./stella/context.ts";
+import { STELLA_AGENT_TOOLS, stellaToolExtensions, type StellaToolHost } from "./stella/host-tools.ts";
 import { stellaPromptExtension } from "./stella/prompt-extension.ts";
 
 /**
@@ -42,11 +44,18 @@ export const stellaHarnessSettings = (overrides: Partial<HarnessSettings> = {}):
   ...overrides,
 });
 
-/** What the orchestrator runs with: everything but an agent's file and shell tools. */
+/** What the orchestrator runs with: its own tools, without an agent's file, shell and host tools. */
 export const orchestratorAgent = (model: ModelRef) => ({
   model,
-  tools: { remove: StellaCoding.tools ?? [] },
+  tools: null,
+  extensions: { remove: [StellaCoding, { name: STELLA_AGENT_TOOLS }] },
 });
+
+/** Whether a root conversation's agent still offers what an agent has (it was configured by an older build). */
+export const offersAgentTools = (agent: Agent): boolean =>
+  agent.extensions.some(
+    (extension) => extension.name === STELLA_CODING_EXTENSION || extension.name === STELLA_AGENT_TOOLS,
+  );
 
 export type StellaHarnessOptions = {
   storage: Storage;
@@ -54,6 +63,8 @@ export type StellaHarnessOptions = {
   sources: StellaContextSources;
   /** Agents: where they may run and how their runs are admitted. */
   agents: StellaAgentsHost;
+  /** Stella's own tools, run by the host. */
+  tools?: StellaToolHost;
   /** Further extensions the host offers, after Stella's own. */
   extensions?: readonly Extension[];
   env?: HarnessOptions["env"];
@@ -61,13 +72,22 @@ export type StellaHarnessOptions = {
   onReport?: (error: unknown) => void;
 };
 
-export type OpenStellaHarness = { harness: Harness; registry: Registry };
+export type OpenStellaHarness = {
+  harness: Harness;
+  registry: Registry;
+  /** Offer the host's tools as they are now (its catalog changed). */
+  refreshTools(): void;
+};
 
 export async function openStellaHarness(options: StellaHarnessOptions, context: Context): Promise<OpenStellaHarness> {
   const registry = createRegistry();
   registry.install(stellaPromptExtension(options.sources));
   registry.install(stellaAgentsExtension(options.agents));
   registry.install(StellaCoding);
+  const refreshTools = () => {
+    for (const extension of stellaToolExtensions(options.tools)) registry.install(extension);
+  };
+  refreshTools();
   for (const extension of options.extensions ?? []) registry.install(extension);
   const harness = await Harness.open(
     options.storage,
@@ -80,5 +100,5 @@ export async function openStellaHarness(options: StellaHarnessOptions, context: 
     },
     context,
   );
-  return { harness, registry };
+  return { harness, registry, refreshTools };
 }

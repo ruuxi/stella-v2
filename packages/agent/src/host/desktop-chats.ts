@@ -8,13 +8,16 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import {
+  defineDoc,
   watchEvents,
   type AgentEventStream,
   type Conversation,
   type EntryId,
   type Harness,
+  type UserInput,
 } from "@earendil-works/pi-durable";
 import type { ExecutionDestination } from "@stella/contracts/execution-context";
 import {
@@ -37,7 +40,12 @@ import {
   stellaModelRef,
 } from "../harness.ts";
 import type { StellaToolHost } from "../stella/host-tools.ts";
-import { stellaProvider } from "../provider/stella.ts";
+import {
+  parseStellaModelId,
+  stellaProvider,
+  type StellaGatewayAccess,
+  type StellaModelSpec,
+} from "../provider/stella.ts";
 import { openBunSqliteStorage } from "../storage/bun-sqlite.ts";
 import { desktopAgentsHost, desktopEnvironments } from "./desktop-agents.ts";
 import { desktopGatewayAccess, resolveStellaModels } from "./desktop-gateway.ts";
@@ -62,6 +70,10 @@ export type DesktopChatsOptions = {
   refreshAuthToken?(): Promise<string | null | undefined>;
   getDeviceSigner(): Promise<DeviceSigner> | DeviceSigner;
   memoryEnabled?(): boolean;
+  /** The model the user picked for the orchestrator (`stella/<alias>`, or another provider's). */
+  stellaModel?(): string | undefined;
+  /** The orchestrator's thinking level, from the user's reasoning effort. */
+  thinkingLevel?(): ModelThinkingLevel;
   /** Stella's own tools (web, html, image_gen, ask_user, …) for one conversation. */
   tools?(conversationId: string): StellaToolHost;
   /** A watched conversation's events, for every attached client. */
@@ -79,6 +91,16 @@ type Chat = {
 };
 
 const context = BACKGROUND_CONTEXT;
+
+/** The response language a conversation's latest message asked for, so it holds across restarts. */
+const LocaleDoc = defineDoc<{ locale?: string }>({
+  kind: "stella.locale",
+  version: 1,
+  scope: "conversation",
+  history: "latest",
+  fork: "current",
+  initial: () => ({}),
+});
 
 /** A conversation id as a file name. */
 const fileName = (conversationId: string): string => {
@@ -116,11 +138,13 @@ export function desktopChats(options: DesktopChatsOptions) {
   };
   const environments = desktopEnvironments(options.workspace);
   const models = createModels();
-  let provider: Promise<void> | undefined;
+  let gateway: Promise<{ access: StellaGatewayAccess; gatewayOrigin: string }> | undefined;
+  /** Each Stella model alias in use, resolved for the orchestrator and agents. */
+  const specsByAlias = new Map<string, Promise<StellaModelSpec[]>>();
 
-  /** The `stella` provider, set up once the user is signed in. */
-  const ensureProvider = () =>
-    (provider ??= (async () => {
+  /** The model gateway, once the user is signed in. */
+  const ensureGateway = () =>
+    (gateway ??= (async () => {
       const site = options.siteAuth();
       if (!site) throw new Error("Sign in to Stella to chat.");
       const baseUrl = site.baseUrl.replace(/\/+$/, "");
@@ -135,18 +159,41 @@ export function desktopChats(options: DesktopChatsOptions) {
           : {}),
         getDeviceSigner: options.getDeviceSigner,
       });
-      const specs = await resolveStellaModels(access, gatewayOrigin, STELLA_DEFAULT_ALIAS, ["orchestrator", "general"]);
-      models.setProvider(stellaProvider({ access, models: specs }));
+      return { access, gatewayOrigin };
     })().catch((error: unknown) => {
-      provider = undefined;
+      gateway = undefined;
       throw error;
     }));
 
+  /** The `stella` provider with an alias's models among the ones it offers. */
+  const ensureProvider = async (alias: string = STELLA_DEFAULT_ALIAS): Promise<void> => {
+    const { access, gatewayOrigin } = await ensureGateway();
+    const known = specsByAlias.get(alias);
+    if (known) {
+      await known;
+      return;
+    }
+    const pending = resolveStellaModels(access, gatewayOrigin, alias, ["orchestrator", "general"]);
+    specsByAlias.set(alias, pending);
+    try {
+      await pending;
+    } catch (error) {
+      specsByAlias.delete(alias);
+      throw error;
+    }
+    const all = await Promise.all([...specsByAlias.values()].map((specs) => specs.catch(() => [])));
+    models.setProvider(stellaProvider({ access, models: all.flat() }));
+  };
+
+  /** The alias a conversation's agent runs on. */
+  const aliasOf = (model: { modelId: string } | undefined): string =>
+    (model && parseStellaModelId(model.modelId)?.alias) || STELLA_DEFAULT_ALIAS;
+
   /** The provider, retried until the user is signed in. */
-  const waitForProvider = async (): Promise<void> => {
+  const waitForProvider = async (alias?: string): Promise<void> => {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await ensureProvider();
+        return await ensureProvider(alias);
       } catch (error) {
         if (attempt === 0) options.report(error);
         await new Promise((resolve) => setTimeout(resolve, PROVIDER_RETRY_MS));
@@ -157,6 +204,7 @@ export function desktopChats(options: DesktopChatsOptions) {
   const open = (conversationId: string): Promise<Chat> => {
     let chat = chats.get(conversationId);
     if (!chat) {
+      let opened: Chat | undefined;
       chat = (async () => {
         await mkdir(directory, { recursive: true });
         const storage = await openBunSqliteStorage(path.join(directory, fileName(conversationId)));
@@ -174,6 +222,8 @@ export function desktopChats(options: DesktopChatsOptions) {
               backendUrl: options.siteAuth()?.baseUrl,
               ...(options.memoryEnabled ? { memoryEnabled: options.memoryEnabled } : {}),
               destination,
+              locale: async () =>
+                opened && (await opened.harness.snapshot(LocaleDoc, opened.root.id, context))?.locale,
             }),
             agents: desktopAgentsHost({ ...(options.deviceId ? { deviceId: options.deviceId } : {}) }),
             ...(options.tools ? { tools: options.tools(conversationId) } : {}),
@@ -187,7 +237,8 @@ export function desktopChats(options: DesktopChatsOptions) {
         // A conversation from an older build keeps up with what the orchestrator is offered.
         if (offersAgentTools(await root.agent(context))) await root.configure(orchestrator, context);
         // Recovered work needs the provider; it waits for sign-in otherwise.
-        void waitForProvider().then(() => harness.resume());
+        const alias = aliasOf((await root.agent(context)).model);
+        void waitForProvider(alias).then(() => harness.resume());
         const idleCheck = setInterval(() => {
           void harness.inspect(context).then(
             (inspection) =>
@@ -196,7 +247,8 @@ export function desktopChats(options: DesktopChatsOptions) {
           );
         }, IDLE_CHECK_MS);
         idleCheck.unref?.();
-        return { harness, root, refreshTools, watchers: 0, idleCheck };
+        opened = { harness, root, refreshTools, watchers: 0, idleCheck };
+        return opened;
       })().catch((error: unknown) => {
         chats.delete(conversationId);
         throw error;
@@ -257,15 +309,35 @@ export function desktopChats(options: DesktopChatsOptions) {
     await stream?.stop().catch(() => undefined);
   };
 
-  const submit = async (conversationId: string, requestId: string, text: string) => {
-    await ensureProvider();
+  const submit = async (
+    conversationId: string,
+    requestId: string,
+    content: UserInput,
+    sent: { locale?: string } = {},
+  ) => {
+    // The Stella model the user picked (a BYOK pick runs on the default for now).
+    const picked = options.stellaModel?.();
+    const alias = picked?.startsWith("stella/") ? picked : STELLA_DEFAULT_ALIAS;
+    await ensureProvider(alias);
     const chat = await open(conversationId);
+    const agent = await chat.root.agent(context);
+    const thinkingLevel = options.thinkingLevel?.() ?? "off";
+    if (aliasOf(agent.model) !== alias || agent.thinkingLevel !== thinkingLevel) {
+      await chat.root.configure({ model: stellaModelRef("orchestrator", alias), thinkingLevel }, context);
+    }
     // The tool catalog follows the runtime's (extension tools come and go).
     chat.refreshTools();
+    const locale = sent.locale;
+    if (locale && (await chat.harness.snapshot(LocaleDoc, chat.root.id, context))?.locale !== locale) {
+      await chat.harness.commit(async (tx) => {
+        (await tx.doc(LocaleDoc, chat.root.id)).locale = locale;
+        return undefined;
+      }, context);
+    }
     await markActive(conversationId, true);
     const submission = await chat.root.submit(
       // A message sent while Stella works joins the run at its next step.
-      { type: "input", content: text, requestId, whenBusy: "steer" },
+      { type: "input", content, requestId, whenBusy: "steer" },
       context,
     );
     return { submissionId: submission.id };
@@ -276,6 +348,8 @@ export function desktopChats(options: DesktopChatsOptions) {
 
   return {
     /** Reopen the conversations a previous process left with work in flight. */
+    /** Submit a prepared message (text and marked parts). */
+    submit,
     async resumeActive(): Promise<void> {
       for (const conversationId of await activeSet()) {
         await open(conversationId).catch((error: unknown) => options.report(error));

@@ -4,11 +4,14 @@
 // verifier, then polls the conversation's canonical history on the worker
 // until the turn's final assistant message lands.
 //
-//   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--email <owner>] [--wait 180] [--agent-runtime pi] [--watch-pi]
+//   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--email <owner>] [--wait 180] [--agent-runtime pi] [--watch-pi] [--locale es]
 //   (--prompt-file <path> instead of --prompt for prompts too long for one argument)
 //
 // `--agent-runtime pi` creates the conversation on the pi-durable runtime; it
 // only takes effect on the turn that creates the conversation.
+//
+// `--locale` sends the turn with that reply-language locale, as a client in
+// that language does.
 //
 // `--watch-pi` also opens the conversation socket with `pi=1`, prints the pi
 // view's frames as they arrive, and folds them with the clients' reducer
@@ -43,6 +46,7 @@ if (!prompt) {
 }
 const waitSeconds = Number(flag("--wait", "180"));
 const agentRuntime = flag("--agent-runtime");
+const locale = flag("--locale");
 const watchPi = args.includes("--watch-pi");
 const devVarsPath = new URL("../../../workers/cloud-builder/.dev.vars", import.meta.url).pathname;
 const devVar = (name) => {
@@ -85,6 +89,7 @@ const started = await fetch(`${builderUrl}/conversations/${conversationId}/turns
     prompt,
     lane: "chat",
     ...(agentRuntime ? { agentRuntime } : {}),
+    ...(locale ? { locale } : {}),
   }),
 });
 const startedBody = await started.json().catch(() => null);

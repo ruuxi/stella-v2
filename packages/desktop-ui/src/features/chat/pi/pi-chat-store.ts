@@ -12,6 +12,7 @@ import {
   reducePiChat,
   type PiChatEvent,
   type PiChatOlderResult,
+  type PiChatSend,
   type PiChatState,
   type PiChatWatchResult,
 } from "@stella/contracts/pi-chat";
@@ -156,10 +157,15 @@ export const loadOlderPiChat = async (conversationId: string): Promise<void> => 
   }
 };
 
-export const submitPiChat = async (conversationId: string, requestId: string, text: string): Promise<void> => {
+export const submitPiChat = async (
+  conversationId: string,
+  requestId: string,
+  text: string,
+  send?: PiChatSend,
+): Promise<void> => {
   const chat = api();
   if (!chat) throw new Error("Stella's runtime is not available.");
-  await chat.request({ op: "submit", conversationId, requestId, text });
+  await chat.request({ op: "submit", conversationId, requestId, text, ...(send ? { send } : {}) });
 };
 
 export const abortPiChat = (conversationId: string): void => {

@@ -124,6 +124,7 @@ type PiAgentState = {
   tools?: StellaToolSpec[];
   /** The agents' own tools, likewise. */
   agentTools?: StellaToolSpec[];
+  locale?: string;
 };
 
 export type PiTurnSources = {
@@ -132,6 +133,8 @@ export type PiTurnSources = {
   memory: StellaMemory;
   skillsCatalog: string | undefined;
   executionContext: ExecutionContextSnapshot;
+  /** The conversation's reply language. */
+  locale?: string;
 };
 
 export type PiTurnBinding = {
@@ -415,6 +418,7 @@ export class PiConversationRuntime {
       skillsCatalog: async () => this.#binding?.sources.skillsCatalog ?? (await this.#agentState()).skillsCatalog,
       executionContext: async () =>
         this.#binding?.sources.executionContext ?? (await this.#agentState()).executionContext,
+      locale: async () => (this.#binding ? this.#binding.sources.locale : (await this.#agentState()).locale),
     };
   }
 
@@ -724,6 +728,7 @@ export class PiConversationRuntime {
       executionContext: binding.sources.executionContext,
       tools,
       agentTools,
+      ...(binding.sources.locale ? { locale: binding.sources.locale } : {}),
     };
     if (JSON.stringify(state) !== JSON.stringify(this.#state)) {
       await this.#options.storage.put(PI_AGENT_STATE_KEY, state);

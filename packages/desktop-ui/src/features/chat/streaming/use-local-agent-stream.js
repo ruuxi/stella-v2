@@ -246,11 +246,26 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             }
             // On pi-durable the message goes to the conversation's harness;
             // its timeline and run state come from the pi chat store, keyed
-            // by this request id.
+            // by this request id. The runtime prepares the rest of the send
+            // (attachments, chat context) as it does for the agent loops.
             if (piChatEnabled()) {
-                const text = args.userPrompt?.trim() ||
-                    (typeof args.selectedText === "string" ? args.selectedText.trim() : "");
-                await submitPiChat(activeConversationId, args.userMessageEventId || crypto.randomUUID(), text);
+                await submitPiChat(activeConversationId, args.userMessageEventId || crypto.randomUUID(), args.userPrompt ?? "", {
+                    ...(typeof args.selectedText !== "undefined"
+                        ? { selectedText: args.selectedText }
+                        : {}),
+                    ...(startChatContext ? { chatContext: startChatContext } : {}),
+                    ...(startChatAttachments?.length
+                        ? { attachments: startChatAttachments }
+                        : {}),
+                    deviceId: args.deviceId,
+                    platform: args.platform,
+                    timezone: args.timezone,
+                    ...(args.locale ? { locale: args.locale } : {}),
+                    mode: args.mode,
+                    ...(args.messageMetadata
+                        ? { messageMetadata: args.messageMetadata }
+                        : {}),
+                });
                 return true;
             }
             const { requestId, userMessageId } = await window.electronAPI.agent.startChat({

@@ -5,7 +5,6 @@ import {
   type RuntimeAgentEventPayload,
   type RuntimeAttachmentRef,
   type RuntimeChatPayload,
-  type RuntimePromptMessage,
   type RuntimeOneShotCompletionRequest,
   type RuntimeOneShotCompletionResult,
 } from "@stella/contracts/protocol";
@@ -25,20 +24,11 @@ import {
 } from "../../../kernel/runner/conversation-storage-mode.js";
 import { createRuntimeLogger } from "../../../kernel/debug.js";
 import {
-  approximateDataUrlBytes,
-  attachPersistedImagePaths,
-  buildSpilledAttachmentNotice,
-  dataUrlBase64Length,
-  INLINE_IMAGE_ATTACHMENT_BUDGET_BYTES,
-  MAX_INLINE_IMAGE_BASE64_BYTES,
-  spillImageAttachmentsToDisk,
-  type SpilledImageAttachment,
-} from "../../chat-attachment-spill.js";
-import {
   asTrimmedString,
   materializeImageAttachments,
   materializeFileAttachments,
 } from "../attachments.js";
+import { prepareChatInput } from "../chat-input.js";
 import * as HostBus from "../host-bus.js";
 import * as SessionConfig from "./config.js";
 import * as SessionStorage from "./storage.js";
@@ -167,12 +157,6 @@ export const layer = Layer.effect(
     const loadOneShotCompletion = () =>
       (oneShotCompletionModule ??=
         import("../../../kernel/agent-runtime/one-shot-completion.js"));
-    let chatPromptContextModule: Promise<
-      typeof import("../../../kernel/chat-prompt-context.js")
-    > | null = null;
-    const loadChatPromptContext = () =>
-      (chatPromptContextModule ??=
-        import("../../../kernel/chat-prompt-context.js"));
 
     /**
      * Append a fresh persisted assistant row for one completed assistant
@@ -819,113 +803,30 @@ export const layer = Layer.effect(
         asTrimmedString(
           (payload as RuntimeChatPayload & { requestId?: string }).requestId,
         ) || undefined;
-      // Resolve the provider/model this turn will run on so composer images
-      // are sized to that provider's real limits (best-effort; falls back to
-      // the safe conservative profile when no route resolves).
-      let composerImageTarget: ImageCapTarget | undefined;
-      try {
-        composerImageTarget =
-          (await (
-            await runnerHandle.ensureInitialized()
-          ).resolveImageTarget(payload.agentType)) ?? undefined;
-      } catch {
-        composerImageTarget = undefined;
-      }
-      const materializedImageAttachments = await materializeImageAttachments(
-        payload.attachments,
-        composerImageTarget,
-      );
-      const modelFileAttachments = await materializeFileAttachments({
-        attachments: payload.attachments,
-        stellaDataDirPath: config.get().stellaDataDirPath,
-        conversationId: payload.conversationId,
-      });
-      let modelImageAttachments = materializedImageAttachments.map(
-        ({ attachment }) => attachment,
-      );
-      let persistedImageAttachments: SpilledImageAttachment[] = [];
-      if (modelImageAttachments.length > 0) {
-        persistedImageAttachments = await spillImageAttachmentsToDisk({
-          stellaDataDirPath: config.get().stellaDataDirPath,
-          conversationId: payload.conversationId,
-          attachments: modelImageAttachments,
-        });
-        modelImageAttachments = attachPersistedImagePaths(
-          modelImageAttachments,
-          persistedImageAttachments,
-        );
-      }
-      const totalInlineImageBytes = modelImageAttachments.reduce(
-        (total, attachment) => total + approximateDataUrlBytes(attachment.url),
-        0,
-      );
-      let spilledImageAttachments: SpilledImageAttachment[] = [];
-      const hasOverCapInlineImage = modelImageAttachments.some(
-        (attachment) =>
-          dataUrlBase64Length(attachment.url) > MAX_INLINE_IMAGE_BASE64_BYTES,
-      );
-      if (
-        totalInlineImageBytes > INLINE_IMAGE_ATTACHMENT_BUDGET_BYTES ||
-        hasOverCapInlineImage
-      ) {
-        spilledImageAttachments = persistedImageAttachments;
-        modelImageAttachments = [];
-      }
-      const { buildChatPromptMessages } = await loadChatPromptContext();
       const {
         visibleUserPrompt,
         windowContextLabel,
         browserUrl,
         appSelectionLabel,
-        appSelectionLabels,
         activityLabel,
-        quotedText,
-        pastedTexts,
-        promptMessages,
+        journalDisplayContext,
+        userMessageMetadata,
         windowScreenshotAttachment,
-      } = buildChatPromptMessages({
-        userPrompt: payload.userPrompt,
-        selectedText:
-          payload.selectedText ?? payload.chatContext?.selectedText ?? null,
-        chatContext: payload.chatContext ?? null,
-        explicitImageAttachmentCount: modelImageAttachments.length,
+        modelImageAttachments,
+        spilledImageAttachments,
+        totalInlineImageBytes,
+        runPromptMessages,
+        mergedAttachments,
+      } = await prepareChatInput(payload, {
+        stellaDataDirPath: config.get().stellaDataDirPath,
+        // Resolve the provider/model this turn will run on so composer images
+        // are sized to that provider's real limits (best-effort; falls back to
+        // the safe conservative profile when no route resolves).
+        resolveImageTarget: async () =>
+          (await (
+            await runnerHandle.ensureInitialized()
+          ).resolveImageTarget(payload.agentType)) ?? undefined,
       });
-      const journalDisplayContext = {
-        ...(appSelectionLabel ? { appSelectionLabel } : {}),
-        ...(appSelectionLabels?.length ? { appSelectionLabels } : {}),
-        ...(activityLabel ? { activityLabel } : {}),
-        ...(quotedText ? { quotedText } : {}),
-        ...(pastedTexts?.length ? { pastedTexts } : {}),
-      };
-      const userMessageMetadata =
-        Object.keys(journalDisplayContext).length > 0
-          ? { context: journalDisplayContext }
-          : undefined;
-      let modelWindowScreenshotAttachment = windowScreenshotAttachment;
-      if (modelWindowScreenshotAttachment) {
-        const persistedWindowScreenshot = await spillImageAttachmentsToDisk({
-          stellaDataDirPath: config.get().stellaDataDirPath,
-          conversationId: payload.conversationId,
-          attachments: [modelWindowScreenshotAttachment],
-        });
-        [modelWindowScreenshotAttachment] = attachPersistedImagePaths(
-          [modelWindowScreenshotAttachment],
-          persistedWindowScreenshot,
-        );
-      }
-      const runPromptMessages: RuntimePromptMessage[] = [
-        ...(promptMessages ?? []),
-        ...(spilledImageAttachments.length > 0
-          ? [
-              {
-                text: buildSpilledAttachmentNotice(spilledImageAttachments),
-                uiVisibility: "hidden" as const,
-                messageType: "message" as const,
-                customType: "runtime.chat_context",
-              },
-            ]
-          : []),
-      ];
       const userMessageTimestamp =
         typeof payload.userMessageTimestamp === "number" &&
         Number.isFinite(payload.userMessageTimestamp)
@@ -1028,13 +929,6 @@ export const layer = Layer.effect(
         appendUserMessageEvent();
       }
 
-      const mergedAttachments = [
-        ...modelImageAttachments,
-        ...modelFileAttachments,
-        ...(modelWindowScreenshotAttachment
-          ? [modelWindowScreenshotAttachment]
-          : []),
-      ];
       logger.info("startChat.prompt-shape", {
         conversationId: payload.conversationId,
         visibleUserPrompt,

@@ -154,6 +154,13 @@ const UPDATE_MERGE_WAIT_MS = 60 * 60_000;
 const FORK_FIRST_SYNC_DELAY_MS = 20_000;
 const FORK_SYNC_INTERVAL_MS = 30 * 60_000;
 const RECENT_COUNT = 20;
+/**
+ * A history row and what Undo takes out for it: the commits in
+ * `base..commit.sha`, which arrived together.
+ */
+type RecentRow = { commit: AppSourceCommit; base: string };
+/** Where HEAD moved to a commit from, most recently, and when. */
+type HeadMove = { from: string; at: number };
 /** Under the git common dir: offers the user skipped, by key. */
 const SKIPPED_FILE = "stella-updates-skipped.json";
 const UPSTREAM_MERGE_SUBJECT = "Merge the published Stella update";
@@ -434,21 +441,30 @@ export class AppSourceService {
       if (!(await isAncestor(cwd, sha, head))) {
         throw new Error("That change is not part of the current version.");
       }
+      // The history row is the unit: everything that arrived with `sha`
+      // (a draft's commits fast-forwarded together, a catch-up with the
+      // fork) comes out together, since the earlier commits of one arrival
+      // can need the later ones to build. Anything else is its one commit.
+      const row = (await this.readRecent(cwd, await this.recentLog(cwd))).find(
+        (entry) => entry.commit.sha === sha,
+      );
+      const base = row?.base ?? (await git(cwd, ["rev-parse", `${sha}^`]));
       const subject = await git(cwd, ["log", "-1", "--format=%s", sha]);
-      // Three-way merge with the change as base and its parent as "theirs":
-      // HEAD minus the change, computed without touching the working tree.
+      // Three-way merge with the change as base and what it started from as
+      // "theirs": HEAD minus the change, computed without touching the
+      // working tree.
       const merge = await gitRaw(cwd, [
         "merge-tree",
         "--write-tree",
         "--merge-base",
         sha,
         head,
-        `${sha}^`,
+        base,
       ]);
       if (merge.code === 1) {
         return await this.dispatchUndo(
           cwd,
-          { sha, subject, head, conflicts: conflictedPaths(merge.stdout) },
+          { sha, base, subject, head, conflicts: conflictedPaths(merge.stdout) },
         );
       }
       if (merge.code !== 0) {
@@ -460,6 +476,26 @@ export class AppSourceService {
         ["commit-tree", tree, "-p", head, "-m", `Revert "${subject}"`],
         { env: await this.identityEnv(cwd) },
       );
+      // No text conflict is not the same as working: later work can still
+      // import what the change added. An undo is checked like a merged
+      // update, so it never lands a Stella that cannot start; one that fails
+      // goes to an agent like a conflict does.
+      const gate = await checkMergedUpdate(
+        cwd,
+        revert,
+        this.options.updateScratchDir,
+        this.options.log,
+      );
+      if (!gate.ok) {
+        return await this.dispatchUndo(cwd, {
+          sha,
+          base,
+          subject,
+          head,
+          conflicts: [],
+          buildOutput: gate.output,
+        });
+      }
       await git(cwd, ["merge", "--ff-only", revert]);
       // Undoing an agent's change (or an undo of it) stays that agent's.
       const change = await this.changeOf(cwd, sha);
@@ -648,7 +684,8 @@ export class AppSourceService {
   }
 
   /**
-   * An undo that later work conflicts with.
+   * An undo that later work conflicts with, or that leaves Stella unable to
+   * build.
    *
    * This is the one button whose result the app does not take by itself.
    * Pressing Undo is consent to remove a change; it is not consent to
@@ -661,7 +698,14 @@ export class AppSourceService {
    */
   private async dispatchUndo(
     cwd: string,
-    args: { sha: string; subject: string; head: string; conflicts: string[] },
+    args: {
+      sha: string;
+      base: string;
+      subject: string;
+      head: string;
+      conflicts: string[];
+      buildOutput?: string;
+    },
   ): Promise<{ background: true }> {
     const dispatch = this.options.dispatchAgentBrief;
     if (!dispatch) {
@@ -672,6 +716,7 @@ export class AppSourceService {
       from: "undo",
       sha: args.sha,
       conflicts: args.conflicts.length,
+      build: args.buildOutput !== undefined,
     });
     return { background: true };
   }
@@ -860,13 +905,7 @@ export class AppSourceService {
         "--format=%(refname)%00%(objectname)%00%(subject)",
         DRAFT_REF_PREFIX,
       ]),
-      git(cwd, [
-        "log",
-        "--first-parent",
-        `-n${RECENT_COUNT * 2}`,
-        "--format=%H%x00%s%x00%ct%x00%T%x00%P",
-        "HEAD",
-      ]),
+      this.recentLog(cwd),
     ]);
     const inProgress = new Set(worktrees.map((tree) => tree.branch));
     const ready: AppSourceDraft[] = [];
@@ -891,7 +930,7 @@ export class AppSourceService {
         ...(await this.draftShape(cwd, head, sha)),
       });
     }
-    const recent = await this.readRecent(cwd, log);
+    const recent = (await this.readRecent(cwd, log)).map((row) => row.commit);
     const forkRef = this.forkBranch ? `${FORK_REF_PREFIX}${this.forkBranch}` : null;
     const upstreamOffer = this.upstreamTracked
       ? await this.offerFrom(cwd, head, UPSTREAM_REF, null)
@@ -995,37 +1034,82 @@ export class AppSourceService {
     };
   }
 
+  /** First-parent history for `readRecent`, newest first. */
+  private recentLog(cwd: string) {
+    return git(cwd, [
+      "log",
+      "--first-parent",
+      `-n${RECENT_COUNT * 4}`,
+      "--format=%H%x00%s%x00%ct%x00%T%x00%P",
+      "HEAD",
+    ]);
+  }
+
   /**
-   * First-parent history in the user's terms, leaving out commits that
-   * changed no files: catching up with another computer's history, or a
-   * merge of a version this computer already had, is nothing to them.
+   * Every commit HEAD moved to, with where it moved from and when (the most
+   * recent such move). Read from HEAD's reflog file, which keeps the old
+   * value that `git reflog`'s formats leave out.
    */
-  private async readRecent(cwd: string, log: string): Promise<AppSourceCommit[]> {
+  private async headMoves(cwd: string): Promise<Map<string, HeadMove>> {
+    const moves = new Map<string, HeadMove>();
+    const file = await gitRaw(cwd, [
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-path",
+      "logs/HEAD",
+    ]);
+    if (file.code !== 0) return moves;
+    const text = await fs.readFile(file.stdout.trim(), "utf8").catch(() => "");
+    for (const line of text.split("\n")) {
+      // `<old> <new> <name> <<email>> <unix time> <zone>\t<message>`
+      const match = /^([0-9a-f]+) ([0-9a-f]+) .* (\d+) [-+]\d{4}$/.exec(
+        line.split("\t")[0] ?? "",
+      );
+      if (match) {
+        moves.set(match[2]!, { from: match[1]!, at: Number(match[3]) * 1000 });
+      }
+    }
+    return moves;
+  }
+
+  /**
+   * First-parent history in the user's terms, one row per thing that
+   * arrived. The commits one move of HEAD brought (a draft's commits
+   * fast-forwarded together, a catch-up with the owner's fork) are one row,
+   * and Undo takes out the whole row. Commits that changed no files are
+   * left out: catching up with another computer's history, or a merge of a
+   * version this computer already had, is nothing to them.
+   */
+  private async readRecent(cwd: string, log: string): Promise<RecentRow[]> {
     // The ref as last fetched, even before this launch has synced: until
     // then a published version must not read as a change that can be undone.
     const published = new Set(
       (await gitRaw(cwd, ["rev-list", "-n", "5000", UPSTREAM_REF])).stdout.split("\n"),
     );
-    // When the checkout arrived at each commit, where git noted it: a
-    // version published days ago but taken just now was applied just now.
-    const arrived = new Map<string, number>();
-    const reflog = await gitRaw(cwd, ["reflog", "-n200", "--date=unix", "--format=%H %gd", "HEAD"]);
-    for (const line of reflog.stdout.split("\n")) {
-      const match = /^([0-9a-f]+) \S*@\{(\d+)\}$/.exec(line.trim());
-      if (match && !arrived.has(match[1]!)) arrived.set(match[1]!, Number(match[2]) * 1000);
-    }
+    const moves = await this.headMoves(cwd);
     const lines = log.split("\n").filter(Boolean).map((line) => line.split("\0"));
-    const commits: AppSourceCommit[] = [];
-    // Commits between two places HEAD stopped at arrived together, when the
-    // newer one did.
+    const position = new Map(lines.map(([sha = ""], index) => [sha, index]));
+    const rows: RecentRow[] = [];
+    // When the checkout arrived at each commit: a version published days
+    // ago but taken just now was applied just now. Commits between two
+    // places HEAD stopped at arrived together, when the newer one did.
     let arrival: number | undefined;
+    /** The move under way: the last line it brought, and its newest row. */
+    let move: { last: number; row: RecentRow | null } | null = null;
     for (const [index, line] of lines.entries()) {
-      if (commits.length >= RECENT_COUNT) break;
       const [sha = "", subject = "", seconds = "0", tree = "", parents = ""] = line;
-      arrival = arrived.get(sha) ?? arrival;
+      const [firstParent = "", ...others] = parents.split(" ").filter(Boolean);
+      const moved = moves.get(sha);
+      if (moved) {
+        arrival = moved.at;
+        // Only a move from an older first-parent commit brought a range.
+        const from = position.get(moved.from);
+        move = { last: from !== undefined && from > index ? from - 1 : index, row: null };
+      } else if (move && index > move.last) {
+        move = null;
+      }
       const parentTree = lines[index + 1]?.[3];
       if (parentTree !== undefined && parentTree === tree) continue;
-      const others = parents.split(" ").filter(Boolean).slice(1);
       const kind: AppSourceCommit["kind"] =
         subject.startsWith(REMOTE_MERGE_SUBJECT)
           ? "other-computer"
@@ -1034,20 +1118,36 @@ export class AppSourceService {
               others.some((parent) => published.has(parent))
             ? "version"
             : "change";
+      // Arrived with the row above, and the same kind of thing: one row.
       // Published versions taken one after another are one new version.
-      if (kind === "version" && commits.at(-1)?.kind === "version") continue;
+      const joins =
+        move?.row && move.row.commit.kind === kind
+          ? move.row
+          : kind === "version" && rows.at(-1)?.commit.kind === "version"
+            ? rows.at(-1)!
+            : null;
+      if (joins) {
+        joins.base = firstParent;
+        continue;
+      }
+      if (rows.length >= RECENT_COUNT) break;
       const change = await this.changeOf(cwd, sha);
-      commits.push({
-        sha,
-        subject,
-        date: arrival ?? Number(seconds) * 1000,
-        kind,
-        ...(change
-          ? { agentId: change.agentId, ...(change.undone ? { undone: true } : {}) }
-          : {}),
-      });
+      const row: RecentRow = {
+        commit: {
+          sha,
+          subject,
+          date: arrival ?? Number(seconds) * 1000,
+          kind,
+          ...(change
+            ? { agentId: change.agentId, ...(change.undone ? { undone: true } : {}) }
+            : {}),
+        },
+        base: firstParent,
+      };
+      rows.push(row);
+      if (move) move.row = row;
     }
-    return commits;
+    return rows;
   }
 
   /** The tree taking `tip` onto `onto` makes, or null when it conflicts. */

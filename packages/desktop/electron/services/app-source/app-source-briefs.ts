@@ -137,25 +137,33 @@ Keep what the change was for: take the current version's code, then carry the ch
 });
 
 /**
- * An undo later changes conflict with. Unlike the merges above, the result is
- * not taken by the app: removing a change that other work was built on top of
- * has no single right answer, so the user sees what it came to and applies it
- * themselves.
+ * An undo later changes conflict with, or one that leaves Stella unable to
+ * build. Unlike the merges above, the result is not taken by the app:
+ * removing a change that other work was built on top of has no single right
+ * answer, so the user sees what it came to and applies it themselves.
  */
 export const undoBrief = (args: {
   sha: string;
+  /** The change is the commits in `base..sha`, which arrived together. */
+  base: string;
   subject: string;
   head: string;
   conflicts: string[];
+  /** The build's complaint, when taking the change out lifts cleanly but breaks the build. */
+  buildOutput?: string;
 }): AgentBrief => ({
   description: `Undo "${args.subject}"`,
-  prompt: `The user asked to undo a change to Stella, and it cannot be lifted out mechanically: work that came after it builds on it.
+  prompt: `The user asked to undo a change to Stella, and it cannot be lifted out mechanically: ${
+    args.buildOutput !== undefined
+      ? "taking it out leaves Electron main or preload unable to build, so work that came after it depends on it."
+      : "work that came after it builds on it."
+  }
 
-Follow the "Rebase, merge, or undo for the user" section of the modify-stella skill, the "undo that conflicts" case: start a draft, \`git revert ${args.sha}\`, resolve, check, finish. Finish it the normal way and tell the user it is ready — this one they apply themselves, because what to keep of the later work is a judgement and they should see it first.
+Follow the "Rebase, merge, or undo for the user" section of the modify-stella skill, the "undo that conflicts or doesn't build" case: start a draft, \`git revert --no-edit ${args.base}..${args.sha}\`, resolve, check, finish. Finish it the normal way and tell the user it is ready — this one they apply themselves, because what to keep of the later work is a judgement and they should see it first.
 
 State the app established, so you do not have to:
 
-- Change to undo: \`${args.sha}\` — "${args.subject}"
+- Change to undo: the commits in \`${args.base}..${args.sha}\` (they arrived together) — "${args.subject}"
 - This checkout's HEAD: \`${args.head}\`
 - Files later work and this undo disagree about: ${args.conflicts.length}
 
@@ -163,6 +171,16 @@ ${
   args.conflicts.length > 0
     ? `Disagreeing files:
 ${listing(args.conflicts)}
+
+`
+    : ""
+}${
+  args.buildOutput !== undefined
+    ? `The build of HEAD with the change taken out:
+
+\`\`\`
+${args.buildOutput}
+\`\`\`
 
 `
     : ""

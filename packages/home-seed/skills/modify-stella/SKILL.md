@@ -70,7 +70,7 @@ Do the work in a draft and finish as above, with these differences:
 
 - **Stale draft** (a finished change of theirs made against an older version): work on its existing branch — `git worktree add "$STELLA_DRAFTS_DIR/<name>" draft/<name>` (no `-b`) — rebase onto the checkout's current branch, resolve, check, finish. **Stella takes it when you are done**; don't ask the user to press Update.
 - **Changes from another computer diverged:** the fork is at `refs/remotes/stella-fork/<branch>`. Start a draft named `update-<sha12>` of the fork's tip, `git merge refs/remotes/stella-fork/<branch>`, resolve, check, finish. Keep the merge commit; do not squash or rebase it. Both sides are the user's own work, so neither wins by default. **Stella takes this one too.**
-- **Undo that conflicts:** start a draft, `git revert <sha>`, resolve, check, finish. **This one the user applies themselves** — what to keep of the work built on top of the change is a judgement, so tell them it is ready and let them see it before it lands. Say plainly in your completion if the change and the later work are genuinely incompatible.
+- **Undo that conflicts or doesn't build:** start a draft, `git revert --no-edit <base>..<sha>` (the brief gives the range: everything that arrived together), resolve, check, finish. **This one the user applies themselves** — what to keep of the work built on top of the change is a judgement, so tell them it is ready and let them see it before it lands. Say plainly in your completion if the change and the later work are genuinely incompatible.
 
 If a worktree directory was deleted by hand, run `git -C "$STELLA_APP_DIR" worktree prune`.
 

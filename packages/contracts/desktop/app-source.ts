@@ -22,7 +22,13 @@ export type AppSourceDraft = {
   restart: boolean;
 };
 
+/**
+ * One row of the Updates history: what one move of the checkout brought.
+ * Commits that arrived together (a draft's commits, a catch-up with the
+ * fork) are one row, named by the newest, and Undo takes all of them out.
+ */
 export type AppSourceCommit = {
+  /** The newest commit of the row. */
   sha: string;
   subject: string;
   /** Commit time, ms since epoch. */

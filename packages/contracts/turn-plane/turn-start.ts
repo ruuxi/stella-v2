@@ -61,6 +61,13 @@ export type CloudAgentThreadControl = {
     | "canceled";
 };
 
+/**
+ * The agent runtime a conversation runs on. `pi` is Stella's runtime on
+ * pi-durable; absent is the established loop. Chosen by the turn that
+ * creates the conversation and kept for its life.
+ */
+export type CloudAgentRuntime = "pi";
+
 export type CloudTurnStartRequest = {
   protocol: typeof TURN_PLANE_PROTOCOL;
   clientMsgId: string;
@@ -80,6 +87,8 @@ export type CloudTurnStartRequest = {
   hiddenMessage?: boolean;
   /** Service-only: lifecycle control for `wake` turns. */
   agentThreadControl?: CloudAgentThreadControl;
+  /** Honored only on the turn that creates the conversation. */
+  agentRuntime?: CloudAgentRuntime;
 };
 
 export type CloudTurnStartResponse = {

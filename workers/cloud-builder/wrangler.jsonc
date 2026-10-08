@@ -20,6 +20,7 @@
     "watch_dir": [
       "src",
       "scripts/build-worker.mjs",
+      "../../packages/agent/src",
       "../../packages/contracts",
       "../../packages/executor-cloud/src",
       "../../packages/executor-cloud/package.json",

@@ -146,6 +146,18 @@ const DEEPSEEK_V4_FLASH_MODEL_CONFIG: ModeConfig = {
   providerOptions: DEEPSEEK_V4_1_FLASH_PROVIDER_OPTIONS,
 };
 
+/** OpenAI GPT-6 Luna through OpenRouter: Stella's default for every mode. */
+export const GPT_6_LUNA_MODEL = "openai/gpt-6-luna";
+export const GPT_6_LUNA_MAX_OUTPUT_TOKENS = 128_000;
+
+const GPT_6_LUNA_MODEL_CONFIG: ModeConfig = {
+  model: GPT_6_LUNA_MODEL,
+  managedGatewayProvider: "openrouter",
+  api: "openai-completions",
+  maxOutputTokens: GPT_6_LUNA_MAX_OUTPUT_TOKENS,
+  providerOptions: { openai: { reasoningEffort: "high" } },
+};
+
 /**
  * Gateway overrides for pinnable upstream ids whose slug does not encode
  * their gateway. A raw `stella/<model>` pin resolves its gateway purely via
@@ -157,6 +169,7 @@ export const MANAGED_MODEL_GATEWAY_OVERRIDES: Readonly<
   Record<string, ManagedGatewayProvider>
 > = {
   [DEEPSEEK_V4_1_FLASH_MODEL]: "openrouter",
+  [GPT_6_LUNA_MODEL]: "openrouter",
 };
 
 /**
@@ -170,6 +183,7 @@ export const MANAGED_MODEL_API_OVERRIDES: Readonly<
   Record<string, ManagedProtocol>
 > = {
   [DEEPSEEK_V4_1_FLASH_MODEL]: "openai-completions",
+  [GPT_6_LUNA_MODEL]: "openai-completions",
 };
 
 const GEMINI_3_1_FLASH_LITE_IMAGE_DESCRIPTION_CONFIG: ModelConfig = {
@@ -203,15 +217,15 @@ type InternalModelConfigKey = keyof typeof INTERNAL_MODEL_CONFIGS;
 type TaskModelSelection = ModelMode | InternalModelConfigKey;
 
 // Legacy mode names remain parseable so old clients fail over cleanly. All
-// modes use DeepSeek V4.1 Flash through OpenRouter, restricted to inference-net.
+// modes use OpenAI GPT-6 Luna through OpenRouter.
 const BASE_MODE_CONFIGS: Record<ModelMode, ModeConfig> = {
-  standard: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
-  priority: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
-  light: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
-  builder: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
-  designer: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
-  vision: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
-  max: DEEPSEEK_V4_FLASH_MODEL_CONFIG,
+  standard: GPT_6_LUNA_MODEL_CONFIG,
+  priority: GPT_6_LUNA_MODEL_CONFIG,
+  light: GPT_6_LUNA_MODEL_CONFIG,
+  builder: GPT_6_LUNA_MODEL_CONFIG,
+  designer: GPT_6_LUNA_MODEL_CONFIG,
+  vision: GPT_6_LUNA_MODEL_CONFIG,
+  max: GPT_6_LUNA_MODEL_CONFIG,
 };
 
 const AUDIENCE_MODE_OVERRIDES: Record<
@@ -296,6 +310,7 @@ const PRO_ALLOWED_STELLA_MODEL_IDS: ReadonlySet<string> = new Set<string>([
   `stella/${DEEPSEEK_V4_FLASH_FIREWORKS_MODEL}`,
   `stella/${DEEPSEEK_V4_FLASH_DIRECT_MODEL}`,
   `stella/${DEEPSEEK_V4_1_FLASH_MODEL}`,
+  `stella/${GPT_6_LUNA_MODEL}`,
 ]);
 
 /**

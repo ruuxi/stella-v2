@@ -207,6 +207,17 @@ export const STATIC_MANAGED_MODEL_PRICE_OVERRIDES: Record<
     modalitiesInput: ["text", "image"],
     modalitiesOutput: ["text"],
   },
+  // OpenRouter rates for OpenAI GPT-6 Luna, verified 2026-10-08.
+  "openai/gpt-6-luna": {
+    sourceProvider: "openrouter",
+    sourceModelId: "gpt-6-luna",
+    inputPerMillionUsd: 0.1,
+    outputPerMillionUsd: 0.5,
+    cacheReadPerMillionUsd: 0.01,
+    reasoningPerMillionUsd: 0.5,
+    modalitiesInput: ["text", "image"],
+    modalitiesOutput: ["text"],
+  },
   "meta/muse-spark-1.2": {
     sourceProvider: "meta",
     sourceModelId: "muse-spark-1.2",

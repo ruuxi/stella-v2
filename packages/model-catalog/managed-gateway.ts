@@ -1,4 +1,7 @@
-import { STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL } from "@stella/contracts/stella-api";
+import {
+  STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL,
+  STELLA_DEFAULT_UPSTREAM_MODEL,
+} from "@stella/contracts/stella-api";
 export const MANAGED_GATEWAY_PROVIDERS = [
   "openrouter",
   "fireworks",
@@ -151,7 +154,12 @@ export function resolveManagedGatewayApiKeyFromEnv(
 export function inferManagedGatewayProviderFromModel(
   model: string,
 ): ManagedGatewayProvider | undefined {
-  if (model === STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL) return "openrouter";
+  if (
+    model === STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL ||
+    model === STELLA_DEFAULT_UPSTREAM_MODEL
+  ) {
+    return "openrouter";
+  }
   const directProvider = DIRECT_MODEL_PROVIDER_PREFIXES.find(([prefix]) =>
     model.startsWith(prefix),
   )?.[1];

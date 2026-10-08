@@ -8,8 +8,8 @@ export const STELLA_MODELS_PATH = `${STELLA_API_BASE_PATH}/models`;
 export const STELLA_PROMPTS_PATH = `${STELLA_API_BASE_PATH}/prompts`;
 export const STELLA_DEFAULT_MODEL = "stella/default";
 export const STELLA_STANDARD_MODEL = "stella/standard";
-/** DeepSeek V4.1 Flash on OpenRouter, restricted to inference-net. */
-export const STELLA_DEFAULT_UPSTREAM_MODEL = "deepseek/deepseek-v4.1-flash";
+/** OpenAI GPT-6 Luna on OpenRouter. */
+export const STELLA_DEFAULT_UPSTREAM_MODEL = "openai/gpt-6-luna";
 /** Shared Flash route identity for clients and the gateway. */
 export const STELLA_DEEPSEEK_V4_FLASH_UPSTREAM_MODEL =
   "deepseek/deepseek-v4.1-flash";

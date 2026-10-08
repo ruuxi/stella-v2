@@ -60,6 +60,7 @@ export type StellaDefaultEntry = {
 };
 
 const DISPLAY_NAMES: Record<string, string> = {
+  "openai/gpt-6-luna": "GPT-6 Luna",
   "deepseek/deepseek-v4.1-flash": "DeepSeek V4.1 Flash",
   "accounts/fireworks/models/deepseek-v4-flash-0731": "DeepSeek V4 Flash 0731",
   "deepseek/deepseek-v4-flash": "DeepSeek V4 Flash",

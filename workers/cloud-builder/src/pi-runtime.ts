@@ -236,6 +236,15 @@ export type PiRuntimeOptions = {
   agentGuard?(authority: PiAuthority, turnId: string): Promise<PiAgentGuard>;
 };
 
+/** A tool the root conversation started or finished, for clients' live view. */
+export type PiToolActivity = {
+  toolCallId: string;
+  name: string;
+  phase: "start" | "end";
+  args?: unknown;
+  isError?: boolean;
+};
+
 /** One agent run's hold on the owner's purge fence (`PiRuntimeOptions.agentGuard`). */
 export type PiAgentGuard = {
   /** A model request, sent only under a valid grant. */
@@ -500,6 +509,8 @@ export class PiConversationRuntime {
       executionContext: async () =>
         this.#binding?.sources.executionContext ?? (await this.#agentState()).executionContext,
       locale: async () => (this.#binding ? this.#binding.sources.locale : (await this.#agentState()).locale),
+      // The orchestrator's code reads the journal while memory is on; agents' code has no history.
+      codeHistory: async (agentType) => agentType === "orchestrator" && (await turn()).memory.enabled,
     };
   }
 
@@ -1017,6 +1028,7 @@ export class PiConversationRuntime {
     afterEntryId: number,
     onEntry: (entry: EntryRecord) => void,
     context: Context,
+    onTool?: (tool: PiToolActivity) => void,
   ): Promise<AgentEventStream> {
     const { harness, root } = await this.open();
     const stream = await watchEvents(harness, root.id, context);
@@ -1031,6 +1043,17 @@ export class PiConversationRuntime {
       for (const event of events) {
         if (event.type === "message_end" || event.type === "entry_appended") take(event.entry);
         else if (event.type === "snapshot") for (const entry of event.entries) take(entry);
+        else if (event.type === "tool_execution_start") {
+          onTool?.({ toolCallId: event.toolCallId, name: event.toolName, phase: "start", args: event.args });
+        } else if (event.type === "tool_execution_end") {
+          const result = event.entry?.model?.[0] as { role?: string; isError?: boolean } | undefined;
+          onTool?.({
+            toolCallId: event.toolCallId,
+            name: event.toolName,
+            phase: "end",
+            isError: result?.role === "toolResult" && result.isError === true,
+          });
+        }
       }
     });
     return stream;

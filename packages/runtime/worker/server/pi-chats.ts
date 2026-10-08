@@ -36,6 +36,19 @@ type DesktopChats = import("@stella/agent/host/desktop-chats").DesktopChats;
 export const piRuntimeEnabled = (): boolean => process.env.STELLA_AGENT_RUNTIME === "pi";
 
 const chatsBySession = new WeakMap<OpenSession, Promise<DesktopChats>>();
+/** The same chats once loaded, for synchronous checks. */
+const loadedBySession = new WeakMap<OpenSession, DesktopChats>();
+
+/** Whether pi has work in flight in this session: the worker stays up for it. */
+export const piChatsBusy = (session: OpenSession): boolean => loadedBySession.get(session)?.busy() ?? false;
+
+/** Close the session's pi chats (their harnesses, mirrors and environments), if they were opened. */
+export const closePiChats = async (session: OpenSession): Promise<void> => {
+  const chats = chatsBySession.get(session);
+  chatsBySession.delete(session);
+  loadedBySession.delete(session);
+  await (await chats?.catch(() => undefined))?.close();
+};
 
 export const piChatsFor = (
   session: OpenSession,
@@ -99,11 +112,26 @@ export const piChatsFor = (
       }),
       journal: (conversationId) => cloudJournalFor(session, conversationId),
       cloudAgents: (conversationId) => cloudAgentsFor(session, conversationId),
+      // The loop's notice for a finished task, from pi's agents.
+      agentReported: (agent) => {
+        void hostBus
+          .request(METHOD_NAMES.HOST_NOTIFICATION_SHOW, {
+            title: agent.description.trim() || "Task complete",
+            body: "",
+            sound: "Glass",
+          })
+          .catch((error) => console.debug("[pi-chat] agent notification failed", error));
+      },
       emit: (payload) => hostBus.notify(NOTIFICATION_NAMES.PI_CHAT_EVENTS, payload),
       report: (error) => console.error("[pi-chat]", error),
     }),
   );
-  void chats.catch(() => chatsBySession.delete(session));
+  void chats.then(
+    (loaded) => {
+      if (chatsBySession.get(session) === chats) loadedBySession.set(session, loaded);
+    },
+    () => chatsBySession.delete(session),
+  );
   chatsBySession.set(session, chats);
   return chats;
 };

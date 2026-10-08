@@ -24,7 +24,7 @@ import { ProtocolMismatchError } from "./errors.js";
 import * as HostBus from "./host-bus.js";
 import * as ModelCatalog from "./model-catalog.js";
 import * as RunnerModule from "./runner-module.js";
-import { resumePiChats } from "./pi-chats.js";
+import { closePiChats, piChatsBusy, resumePiChats } from "./pi-chats.js";
 import * as SessionConfig from "./session/config.js";
 import * as SessionStorage from "./session/storage.js";
 import * as RunEventBus from "./session/run-events.js";
@@ -340,7 +340,12 @@ export const layer = Layer.effect(
       const session = currentSession;
       currentSession = null;
       if (!session) return Effect.void;
-      return Scope.close(session.scope, Exit.void);
+      // pi's chats run on the runner's tools: they close first.
+      return Effect.promise(() =>
+        closePiChats(session).catch((error) => {
+          console.warn("[runtime-worker] pi chat close failed:", (error as Error).message);
+        }),
+      ).pipe(Effect.andThen(Scope.close(session.scope, Exit.void)));
     });
 
     // The whole initialize path holds the session lock and runs under an
@@ -616,8 +621,8 @@ export const layer = Layer.effect(
       });
 
     const hasSessionWork = () => {
-      // Keep this in sync with host-side shouldKeepWorkerAlive plus
-      // worker-only work that the host cannot observe after disconnect.
+      // Everything a worker shutdown would interrupt, the work the host
+      // cannot observe after a disconnect included.
       const session = currentSession;
       const voicePinned =
         (session?.voice.isBusy() ?? false) ||
@@ -627,6 +632,7 @@ export const layer = Layer.effect(
       return Boolean(
         runner?.getActiveOrchestratorRun() ||
           (runner?.getActiveAgentCount() ?? 0) > 0 ||
+          (session ? piChatsBusy(session) : false) ||
           requestPinned ||
           voicePinned,
       );

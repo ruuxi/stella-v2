@@ -6093,6 +6093,14 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           mirrored = Math.max(mirrored, entry.id);
         },
         context,
+        // Every client shows a turn's tools as they run, as the loop's.
+        (tool) =>
+          this.noteTurnTool(
+            turn,
+            { toolCallId: tool.toolCallId, name: tool.name, args: tool.args },
+            tool.phase,
+            tool.isError,
+          ),
       );
       await assertExactTurnActive();
       if (turn.piAgent) {
@@ -7216,7 +7224,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     }
   }
 
-  private noteCliTool(
+  private noteTurnTool(
     turn: ChatTurnRequest,
     call: { toolCallId: string; name: string; args: unknown },
     phase: "start" | "end",
@@ -7350,7 +7358,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             startedAt: Date.now(),
           } satisfies OrchestratorCliToolCallRecord,
         });
-        this.noteCliTool(turn, forward, "start");
+        this.noteTurnTool(turn, forward, "start");
         let message: AgentMessage;
         if (call.lostExecution) {
           // Its first execution started in an isolate that is gone: rerun a
@@ -7414,7 +7422,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         if (appended) this.publish(appended.record);
         const isError =
           (message as { isError?: boolean }).isError === true;
-        this.noteCliTool(turn, forward, "end", isError);
+        this.noteTurnTool(turn, forward, "end", isError);
         const stored = this.journal.messageByWriterKey(writerKey) ?? message;
         return {
           ok: true,

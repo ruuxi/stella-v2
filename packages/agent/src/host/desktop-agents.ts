@@ -11,8 +11,11 @@ import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import type { RemoteAgentHost, StellaAgentsHost } from "../stella/agents.ts";
 import { describePlacement, placementOf, StellaPlacementDoc } from "../stella/placement.ts";
 
-export function desktopAgentsHost(options: { deviceId?: string; cloud?: RemoteAgentHost } = {}): StellaAgentsHost {
+export function desktopAgentsHost(
+  options: { deviceId?: string; cloud?: RemoteAgentHost; agentReported?: StellaAgentsHost["agentReported"] } = {},
+): StellaAgentsHost {
   return {
+    ...(options.agentReported ? { agentReported: options.agentReported } : {}),
     rootPlacement: { kind: "local" },
     place: (destination, caller) => {
       if (destination.kind === "here") return caller;

@@ -64,6 +64,8 @@ export type DesktopSourcesOptions = {
   media?: () => MediaAccess | undefined;
   /** The response language the user's latest message asked for. */
   locale?: () => Promise<string | undefined>;
+  /** The conversation is stored in the cloud, whose journal `history` reads. */
+  cloudStored?: boolean;
 };
 
 export function desktopContextSources(options: DesktopSourcesOptions): StellaContextSources {
@@ -89,5 +91,6 @@ export function desktopContextSources(options: DesktopSourcesOptions): StellaCon
         media: options.media?.(),
       }),
     locale: async () => options.locale?.(),
+    codeHistory: async () => options.cloudStored === true,
   };
 }

@@ -46,6 +46,9 @@ yarn-error.log*
 /.wrangler/
 .dev.vars*
 
+# vercel cli project link (machine-local, not shared)
+/.vercel/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

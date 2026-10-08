@@ -60,6 +60,8 @@ import {
   type StellaToolSpec,
 } from "@stella/agent/stella/host-tools";
 import type { StellaContextSources, StellaMemory } from "@stella/agent/stella/context";
+import { importJournal, JournalSyncDoc, type JournalMessage } from "@stella/agent/stella/journal-sync";
+export { journalSeqOf } from "@stella/agent/stella/journal-sync";
 import { placementOf, StellaPlacementDoc } from "@stella/agent/stella/placement";
 import type { AgentModelReasoningEffort, CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ExecutionContextSnapshot } from "@stella/contracts/execution-context";
@@ -264,6 +266,16 @@ const toolSpec = (tool: CloudCodeSourceAgentTool): StellaToolSpec => ({
     ? { codeOnly: { ...(tool.demoted.searchTerms ? { searchTerms: tool.demoted.searchTerms } : {}) } }
     : {}),
 });
+
+/** A journal record as `importJournal` reads it; only messages are imported. */
+export type JournalRecordLike = {
+  seq: number;
+  kind: string;
+  turnId: string;
+  role?: "user" | "assistant" | "toolResult";
+  hidden?: boolean;
+  payload?: unknown;
+};
 
 export class PiConversationRuntime {
   readonly #options: PiRuntimeOptions;
@@ -763,6 +775,42 @@ export class PiConversationRuntime {
     const { harness } = await this.open();
     const inspection = await harness.inspect(context);
     return inspection.tasks.length > 0 || inspection.submissions.length > 0;
+  }
+
+  /**
+   * Write what other writers journaled into the root conversation before a
+   * turn answers: a computer's mirrored turns, another engine's. A record of
+   * a turn this conversation ran itself (submitted as `turn:<id>`) is its own,
+   * and so is the turn about to run. `read` gives journal records after a seq.
+   */
+  async importJournal(
+    read: (afterSeq: number) => { records: readonly JournalRecordLike[]; complete: boolean },
+    currentTurnId: string,
+    context: Context,
+  ): Promise<number> {
+    const { harness, root } = await this.open();
+    let after = (await harness.snapshot(JournalSyncDoc, root.id, context))?.importedSeq ?? -1;
+    const ran = new Map<string, boolean>();
+    let written = 0;
+    for (;;) {
+      const page = read(after);
+      const messages: JournalMessage[] = [];
+      for (const record of page.records) {
+        if (record.kind !== "message" || !record.role || record.turnId === currentTurnId) continue;
+        let own = ran.get(record.turnId);
+        if (own === undefined) {
+          own = Boolean(await root.commit((tx) => tx.submissionByRequest(root.id, `turn:${record.turnId}`), context));
+          ran.set(record.turnId, own);
+        }
+        const message = record.payload as JournalMessage["message"] | null;
+        if (own || !message || typeof message !== "object" || message.role !== record.role) continue;
+        messages.push({ seq: record.seq, turnId: record.turnId, role: record.role, hidden: record.hidden === true, message });
+      }
+      const through: number = page.records.at(-1)?.seq ?? after;
+      written += await importJournal(harness, root, messages, through, context);
+      if (page.complete || through <= after) return written;
+      after = through;
+    }
   }
 
   /** Entries of the root conversation as they commit, from `afterEntryId` on. */

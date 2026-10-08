@@ -96,6 +96,39 @@ Restoring a deployment that lost them is a normal deploy of this config
 but it restores that version's vars with them, so it is only for an emergency
 where those vars are still correct.
 
+#### When `--strict` refuses to deploy
+
+Every prod deploy script passes `--strict`, which aborts when the live
+deployment carries changes Wrangler did not make. An API upload is exactly
+that, so after one — the 06:04 UTC rewrite above — `--strict` refuses forever,
+non-interactively, with no way to accept: the very state it blocks is the one
+a deploy has to replace. Overwriting is the point, and that is what the
+warning it prints means (`last updated via the script API`).
+
+So when it refuses, read the live deployment first and confirm the repo is
+what should win, then deploy that once without `--strict`:
+
+```bash
+cd workers/<worker>
+env -u CLOUDFLARE_API_TOKEN bunx wrangler deployments list --env production
+env -u CLOUDFLARE_API_TOKEN bunx wrangler versions view <id> --env production
+env -u CLOUDFLARE_API_TOKEN bunx wrangler deploy --env production
+```
+
+`versions view` prints every var, binding and secret name the live version
+holds; compare it to the `env.production` block before overwriting, because a
+deploy without `--keep-vars` deletes vars absent from the config (secrets are
+never deleted). Keep the flag in the scripts: the next deploy is Wrangler's
+own, so it stops objecting on its own. Do **not** drop the container checks
+around it — they are separate commands and the real guard.
+
+The check also found what `--strict` was right to worry about: the model
+gateway's `env.production` bound `CONFIG_SNAPSHOT` with no `id`, so a deploy
+could have provisioned a fresh namespace and orphaned the live one. A binding
+with no id is a bug; read the deployed id and pin it rather than deploying
+past it. Prod was repaired and pinned on 2026-10-08.
+
+
 worker's `wrangler.jsonc` too (bindings and vars don't inherit), regenerate
 types (`node scripts/generate-worker-types.mjs` in cloud-builder), and set prod
 secrets before the prod deploy: `... | bunx wrangler secret put NAME --env production`.
@@ -247,6 +280,24 @@ target build exactly: revert the native-only patch, restore files the target sti
 has, and put `app.json` back to the target's version. Prove two things before
 publishing — the exported bundle really carries the change, and an export differing
 only by the restored files is byte-identical.
+
+A *new native dependency* is the harder version of this, because its JS is in
+the bundle: master's JS imports a module the store binary cannot load. Removing
+the dependency is not enough — the call site has to go too, and the release-only
+commit stands or falls on how contained it is. Check with
+`rg "<package>|<ExportName>"` before assuming the whole feature is stranded:
+one call site behind an existing failure path is a two-line change, while a
+module used across screens means waiting for the store build. On 2026-10-08
+`expo-video-thumbnails` (added by `b7a12c812` for the reply attachment strip)
+had exactly one call, in `src/lib/chat-evidence-previews.ts`, whose caller
+already turns a thrown preview into a pill row — the same fallback an
+unreadable codec takes. Replacing that call with the throw, dropping the
+dependency from `packages/mobile/package.json`, re-resolving `bun.lock`, and
+restoring the store build's CarPlay plugin let **all** of the day's mobile JS
+ride the OTA, costing only video poster frames. Confirm `bun install` reports
+`Removed: 1` and nothing else moved, and re-run `--native-match`: it is the
+only thing that actually proves the tree is publishable.
+
 
 **Runtimes, not versions, decide who receives an update.** A binary asks for its
 channel and its own fingerprint runtime, so every live build needs its own group. The

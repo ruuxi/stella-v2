@@ -1,21 +1,25 @@
 import { describe, expect, test } from "bun:test";
 
-import { buildCloudSystemPrompt } from "../src/cloud-prompt.js";
+import { stellaPromptTools } from "@stella/contracts/stella-prompts";
+
+import { buildCloudSystemPrompt, CANONICAL_PROMPTS } from "../src/cloud-prompt.js";
 
 describe("cloud prompt", () => {
   test("memory-off system prompt exposes no Remember tool contract", () => {
     const prompt = buildCloudSystemPrompt({
-      canonicalBody: "canonical",
+      canonicalBody: CANONICAL_PROMPTS.orchestratorBody,
+      tools: stellaPromptTools(["code", "spawn_agent", "Read", "drive"], {
+        history: false,
+      }),
       personalityBody: null,
       localeDirective: undefined,
       residentSection: "",
       skillSection: "",
-      memoryEnabled: false,
       threadId: "conversation-1",
     });
-    expect(prompt).toContain("The owner has disabled cloud memory");
-    expect(prompt).not.toContain("Read, Remember");
-    expect(prompt).not.toContain("with Remember");
-    expect(prompt).toContain("Read, drive, spawn_agent");
+    expect(prompt).toContain("the owner has disabled cloud memory");
+    expect(prompt).not.toContain("with `Remember`");
+    expect(prompt).not.toContain("`history.sql(query, params)`");
+    expect(prompt).not.toContain("<!--");
   });
 });

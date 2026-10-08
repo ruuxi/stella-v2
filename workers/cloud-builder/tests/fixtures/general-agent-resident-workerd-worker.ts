@@ -298,7 +298,7 @@ export class ResidentTurnHarness extends DurableObject {
       modelGateway: MODEL_GATEWAY,
       sql: this.ctx.storage.sql,
       tools: await residentTools(this.env),
-      workspacePrompt: { office: false },
+      workspacePrompt: {},
       now: () => TERMINAL.timestamp,
       createModel: async () => MODEL,
       streamFn: scriptedStream(script),

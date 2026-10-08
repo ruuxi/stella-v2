@@ -56,6 +56,7 @@ import {
 import {
   hydrateDriveForAgentTurn,
   prepareCloudToolFilesystem,
+  resolveOfficeBinPath,
 } from "./agent-turn.js";
 import {
   collectProducedFiles,
@@ -466,6 +467,7 @@ export const runAttachedToolHost = (
         catch: asError,
       });
 
+      const officeBinPath = resolveOfficeBinPath();
       const toolHost: ToolHost = yield* Effect.acquireRelease(
         Effect.sync(() =>
           createToolHost({
@@ -473,6 +475,7 @@ export const runAttachedToolHost = (
             stellaDataDir: CLOUD_HOST_STATE,
             recoverStaleSecrets: false,
             enableShellShims: false,
+            ...(officeBinPath ? { stellaOfficeBinPath: officeBinPath } : {}),
           }),
         ),
         (host) =>

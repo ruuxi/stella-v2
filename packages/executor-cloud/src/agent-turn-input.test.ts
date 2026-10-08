@@ -18,6 +18,7 @@ const CAPABILITY = "eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJvd25lciJ9.c2ln";
 
 const input: AgentTurnInput = {
   role: "agent",
+  systemPrompt: "You are a Stella agent.",
   kind: "agent",
   ownerId: "owner-1",
   ownerGeneration: "generation-1",

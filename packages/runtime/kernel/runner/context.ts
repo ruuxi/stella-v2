@@ -45,7 +45,13 @@ import {
   formatRuntimeThreadStatusLabel,
 } from "../runtime-threads.js";
 import type { LocalAgentContext } from "../agents/local-agent-manager.js";
-import { loadAgentSystemPrompt } from "../agents/home-agent-prompt.js";
+import {
+  loadAgentSystemPrompt,
+  renderDesktopAgentPrompt,
+} from "../agents/home-agent-prompt.js";
+import { stellaPromptTools } from "@stella/contracts/stella-prompts";
+import { getRequestedRuntimeToolNames } from "../agent-runtime/tool-adapters.js";
+import { CODE_TOOL_NAME } from "../tools/code-tool.js";
 import { renderSkillCatalogBlock } from "../shared/skill-catalog.js";
 import type {
   RunnerContext,
@@ -1602,9 +1608,16 @@ export const buildAgentContext = async (
   // Resolve the live prompt body: the user's selected prompt preset when set,
   // else the shipped bundled body (mtime-gated — unchanged files are not
   // re-read). Falls back to the registered prompt for extension agents.
+  // The prompt's tool fences follow what this agent can really call: its
+  // allowlist after the file-edit rewrite, and `history` inside `code`.
+  const requestedToolNames = getRequestedRuntimeToolNames(toolsAllowlist);
+  const promptTools = stellaPromptTools(requestedToolNames, {
+    history: requestedToolNames.includes(CODE_TOOL_NAME),
+  });
   const bundledSystemPrompt = await loadAgentSystemPrompt(
     agent?.id ?? args.agentType,
     context.stellaDataDir,
+    promptTools,
   );
   const injectsCoreMemory = agentHasCapability(
     args.agentType,
@@ -1621,7 +1634,9 @@ export const buildAgentContext = async (
   return {
     systemPrompt:
       bundledSystemPrompt ??
-      agent?.systemPrompt ??
+      (agent?.systemPrompt
+        ? renderDesktopAgentPrompt(agent.systemPrompt, promptTools)
+        : undefined) ??
       defaultPromptForAgentType(args.agentType, context.stellaDataDir),
     dynamicContextSections,
     orchestratorReminderText: activeThreadsPrompt || undefined,

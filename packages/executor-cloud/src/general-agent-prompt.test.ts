@@ -4,9 +4,8 @@ import { buildGeneralAgentPrompt } from "./general-agent-prompt.js";
 describe("general agent prompt", () => {
   test("rejects an oversized skill catalog", () => {
     expect(() =>
-      buildGeneralAgentPrompt({
+      buildGeneralAgentPrompt("You are a Stella agent.", {
         workspace: "lazy",
-        office: false,
         skills: {
           loadedAt: 1,
           root: "/tmp/stella-cloud-skills",
@@ -25,9 +24,8 @@ describe("general agent prompt", () => {
 
   test("lazy rejects a skill root outside the pinned sandbox path", () => {
     expect(() =>
-      buildGeneralAgentPrompt({
+      buildGeneralAgentPrompt("You are a Stella agent.", {
         workspace: "lazy",
-        office: false,
         skills: {
           loadedAt: 1,
           root: "/tmp/stella-cloud-skills",

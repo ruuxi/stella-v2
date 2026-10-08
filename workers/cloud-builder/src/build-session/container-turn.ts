@@ -114,6 +114,8 @@ import {
 } from "@stella/contracts/cloud-turn-attempt";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 import { attachedToolPaths } from "@stella/executor-cloud/attached-tool-protocol";
+import { cloudGeneralToolNames } from "@stella/executor-cloud/cloud-general-tools";
+import { renderCloudAgentPrompt } from "../prompts/bundled.js";
 import {
   runToolEffect,
   sleepWithAbort,
@@ -1482,7 +1484,16 @@ export const runAgentAttempt = async (
     // nothing here reaches a durable backup. The executor unlinks it before
     // any model or tool process exists.
     turnExecution.assertActive();
-    let roleInput: CloudCliTurnRoleInput = { role: "agent" };
+    // An agent turn runs `general.md` rendered here, from this deploy's
+    // bundle, for exactly the tools the executor will give this engine;
+    // its `code` has no history client. The image never supplies prose.
+    let roleInput: CloudCliTurnRoleInput = {
+      role: "agent",
+      systemPrompt: renderCloudAgentPrompt("agents/general.md", {
+        names: cloudGeneralToolNames(admitted.engine),
+        history: false,
+      }),
+    };
     if (orchestrator) {
       // The admitted dispatch carries the spec; the stored copy covers a
       // turn object rebuilt from the durable record.

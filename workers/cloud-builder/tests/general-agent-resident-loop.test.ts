@@ -226,7 +226,7 @@ const harness = (args: {
       modelGateway: MODEL_GATEWAY,
       sql: fake.sql,
       tools: RESIDENT_TOOLS,
-      workspacePrompt: { office: false },
+      workspacePrompt: {},
       now: () => 1_800_000_000_000,
       createModel: async () => MODEL,
       streamFn: scriptedStream(args.script, contexts),

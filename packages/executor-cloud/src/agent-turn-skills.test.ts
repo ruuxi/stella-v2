@@ -5,7 +5,7 @@ describe("general cloud skill prompt", () => {
   test("rejects a descriptor outside the ephemeral skill root", () => {
     expect(() =>
       CLOUD_GENERAL_PROMPT({
-        office: false,
+        body: "You are a Stella agent.",
         skills: {
           loadedAt: 1,
           root: "/tmp/stella-cloud-skills",

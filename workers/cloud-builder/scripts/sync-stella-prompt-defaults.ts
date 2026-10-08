@@ -1,19 +1,24 @@
 /**
  * Bundle Stella's system prompts into cloud-builder.
  *
- * Reads the runtime-owned prompt sources, strips agent frontmatter and writes
- * `src/prompts/defaults.generated.ts`, which cloud turns import directly and
- * `GET /api/stella/prompts` serves to desktop. Publishing a prompt change is
- * deploying cloud-builder. `--check` fails when the generated file drifts.
+ * Reads the runtime-owned prompt sources, strips agent frontmatter, validates
+ * condition fences (`renderStellaPrompt` in @stella/contracts/stella-prompts)
+ * and writes `src/prompts/defaults.generated.ts`, which cloud turns import
+ * directly and `GET /api/stella/prompts` serves to desktop. Sources are
+ * bundled raw; each consumer renders them for its environment and tools.
+ * Publishing a prompt change is deploying cloud-builder. `--check` fails when
+ * the generated file drifts.
  */
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import {
+  hasStellaPromptFences,
   STELLA_PROMPT_IDS,
   STELLA_PROMPT_MAX_CONTENT_BYTES,
   STELLA_PROMPT_MAX_TOTAL_CONTENT_BYTES,
+  validateStellaPromptFences,
 } from "@stella/contracts/stella-prompts";
 
 type PromptSourceKind = "agent-metadata" | "prompt";
@@ -74,6 +79,21 @@ const promptBody = (raw: string, kind: PromptSourceKind, id: string): string => 
   if (body !== `${body.trim()}\n`) {
     throw new Error(
       `Runtime prompt source for ${id} must have no surrounding blank lines and one trailing newline.`,
+    );
+  }
+  // Every consumer renders agent prompts through `renderStellaPrompt`, so a
+  // fence there must be well formed; nothing renders the auxiliary prompts,
+  // so a fence there would reach a model verbatim.
+  if (kind === "agent-metadata") {
+    const errors = validateStellaPromptFences(body);
+    if (errors.length > 0) {
+      throw new Error(
+        `Condition fences in ${id} are invalid:\n${errors.map((error) => `  ${error}`).join("\n")}`,
+      );
+    }
+  } else if (hasStellaPromptFences(body)) {
+    throw new Error(
+      `${id} has condition fences; only agents/*.md prompts are rendered.`,
     );
   }
   return body;

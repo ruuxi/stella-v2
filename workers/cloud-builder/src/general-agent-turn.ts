@@ -66,6 +66,7 @@ import { assertTurnExecutionActive } from "./turn-cancellation.js";
 import type { SteerMessage } from "./steer-mailbox.js";
 
 import { loadRuntimeAgent } from "./runtime-agent.js";
+import { renderCloudAgentPrompt } from "./prompts/bundled.js";
 
 export type { CanonicalTranscriptReceipt } from "./agent-control-plane.js";
 
@@ -715,8 +716,11 @@ export type ResidentStellaLoopInput = Readonly<{
     drain(): Promise<SteerMessage[]>;
     acknowledge(ids: readonly string[]): void;
   }>;
+  /**
+   * The facts the prompt states about this turn. Its prose is
+   * `agents/general.md`, rendered for the cloud and `tools` below.
+   */
   workspacePrompt: Readonly<{
-    office: boolean;
     skills?: GeneralAgentPromptSkills;
     /** `history` works inside this turn's `code`. */
     history?: boolean;
@@ -1027,18 +1031,22 @@ export const runResidentStellaLoop = async (
     assertTurnExecutionActive(context.cancellation, context.signal);
     const agent = new Agent({
       initialState: {
-        systemPrompt: buildGeneralAgentPrompt({
-          workspace: "lazy",
-          office: input.workspacePrompt.office,
-          threadId: turn.identity.threadId,
-          history: input.workspacePrompt.history === true,
-          ...(input.workspacePrompt.executionContext
-            ? { executionContext: input.workspacePrompt.executionContext }
-            : {}),
-          ...(input.workspacePrompt.skills
-            ? { skills: input.workspacePrompt.skills }
-            : {}),
-        }),
+        systemPrompt: buildGeneralAgentPrompt(
+          renderCloudAgentPrompt("agents/general.md", {
+            names: input.tools.map((tool) => tool.name),
+            history: input.workspacePrompt.history === true,
+          }),
+          {
+            workspace: "lazy",
+            threadId: turn.identity.threadId,
+            ...(input.workspacePrompt.executionContext
+              ? { executionContext: input.workspacePrompt.executionContext }
+              : {}),
+            ...(input.workspacePrompt.skills
+              ? { skills: input.workspacePrompt.skills }
+              : {}),
+          },
+        ),
         model,
         tools: [...input.tools],
         messages: resuming

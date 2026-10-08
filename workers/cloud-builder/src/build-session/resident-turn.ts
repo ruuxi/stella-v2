@@ -985,7 +985,6 @@ export const runResidentAgentTurn = async (
           ),
       },
       workspacePrompt: {
-        office: false,
         history: Boolean(jsSandbox && history),
         ...(turn.agentDepth < MAX_CLOUD_AGENT_DEPTH
           ? {

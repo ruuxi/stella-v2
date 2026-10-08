@@ -232,7 +232,7 @@ export class WiredTurnHarness extends DurableObject {
           modelGateway: MODEL_GATEWAY,
           sql: this.ctx.storage.sql,
           tools: TOOLS,
-          workspacePrompt: { office: false },
+          workspacePrompt: {},
           now: () => NOW,
           createModel: async () => MODEL,
           streamFn: scriptedStream(),

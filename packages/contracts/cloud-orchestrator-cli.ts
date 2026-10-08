@@ -43,15 +43,28 @@ export type CloudOrchestratorCliTurnSpec = {
 };
 
 /**
- * Role fields of turn-input.json. Every turn input carries `role`; only an
- * orchestrator turn carries a system prompt and tool catalog, and an agent
- * turn keeps building its own.
+ * Role fields of turn-input.json. Every turn input carries `role` and the
+ * system prompt the worker rendered for it. An orchestrator turn carries the
+ * DO's whole prompt and its tool catalog. An agent turn carries
+ * `agents/general.md` rendered for the cloud and the executor's tools
+ * (`cloudGeneralToolNames`); the executor appends the facts only it knows,
+ * such as the drive it just synchronized, and keeps its own tools. Either way
+ * a prompt edit reaches the container with the worker deploy, never through
+ * the image.
  */
 export type CloudCliTurnRoleInput =
-  | { role: "agent"; systemPrompt?: never; toolCatalog?: never }
+  | { role: "agent"; systemPrompt: string; toolCatalog?: never }
   | ({ role: "orchestrator" } & CloudOrchestratorCliTurnSpec);
 
 export const CLOUD_ORCHESTRATOR_SYSTEM_PROMPT_MAX_CHARS = 512 * 1024;
+
+/** The agent role's rendered prompt body, or null when missing or oversized. */
+export const parseCloudAgentSystemPrompt = (value: unknown): string | null =>
+  typeof value === "string" &&
+  value.trim().length > 0 &&
+  value.length <= CLOUD_ORCHESTRATOR_SYSTEM_PROMPT_MAX_CHARS
+    ? value
+    : null;
 export const CLOUD_ORCHESTRATOR_TOOL_CATALOG_MAX_TOOLS = 128;
 /** Serialized size of the whole catalog, descriptions and schemas included. */
 export const CLOUD_ORCHESTRATOR_TOOL_CATALOG_MAX_BYTES = 512 * 1024;

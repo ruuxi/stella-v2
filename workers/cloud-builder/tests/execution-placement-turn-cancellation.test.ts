@@ -320,13 +320,13 @@ const cloudAgentTool = async (
     | "pause_agent"
     | "agent_status",
 ): Promise<ExecutableCloudTool> => {
-  const tools = await (
+  const { tools } = await (
     instance["createTools"] as (
       turn: ReturnType<typeof turn>,
       agentHome: { available: boolean },
       skillCatalog: Record<string, never>,
       memoryEnabled: boolean,
-    ) => Promise<ExecutableCloudTool[]>
+    ) => Promise<{ tools: ExecutableCloudTool[] }>
   )(targetTurn, { available: false }, {}, false);
   const tool = tools.find((candidate) => candidate.name === name);
   if (!tool) throw new Error(`Missing cloud agent tool: ${name}`);

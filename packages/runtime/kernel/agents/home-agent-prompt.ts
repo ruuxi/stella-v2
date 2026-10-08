@@ -15,11 +15,14 @@
  * Both sources are read live (mtime+size gated) so edits apply on the next
  * turn without an extension reload. Frontmatter is stripped; capability
  * metadata (tools, model, maxAgentDepth) always comes from the registered
- * agent.
+ * agent. Whichever body wins is rendered for the desktop and the agent's
+ * tools, the same condition fences the cloud renders for itself.
  */
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+
+import { renderStellaPrompt } from "@stella/contracts/stella-prompts";
 
 import { extractFrontmatter } from "../frontmatter.js";
 import { getPromptPresetSelection } from "../preferences/local-preferences.js";
@@ -75,7 +78,37 @@ const selectedPresetPath = (
   );
 };
 
+/**
+ * Render an agent prompt source for this desktop and the agent's tools (see
+ * `renderStellaPrompt`). A preset is the user's own text and may carry a
+ * malformed fence; it is then used as written rather than leaving the agent
+ * without a prompt.
+ */
+export const renderDesktopAgentPrompt = (
+  source: string,
+  tools: ReadonlySet<string>,
+): string => {
+  try {
+    return renderStellaPrompt(source, { env: "desktop", tools }).trim();
+  } catch {
+    return source;
+  }
+};
+
+/**
+ * `tools` is the agent's tool set for this turn (`stellaPromptTools`); the
+ * shipped, served and preset bodies all render through the same fences.
+ */
 export const loadAgentSystemPrompt = async (
+  agentType: string,
+  stellaDataDir?: string,
+  tools: ReadonlySet<string> = new Set(),
+): Promise<string | undefined> => {
+  const body = await loadAgentPromptSource(agentType, stellaDataDir);
+  return body === undefined ? undefined : renderDesktopAgentPrompt(body, tools);
+};
+
+const loadAgentPromptSource = async (
   agentType: string,
   stellaDataDir?: string,
 ): Promise<string | undefined> => {

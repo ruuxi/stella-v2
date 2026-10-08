@@ -557,7 +557,9 @@ describe("worker shell router", () => {
   });
 
   test("the prompt names only commands the worker shell runs", () => {
-    const prompt = buildGeneralAgentPrompt({ workspace: "lazy", office: false });
+    const prompt = buildGeneralAgentPrompt("You are a Stella agent.", {
+      workspace: "lazy",
+    });
     const listed = /ordinary text and file commands \(([^)]+)\)/u.exec(prompt)?.[1];
     expect(listed).toBeDefined();
     for (const name of listed!.split(",").map((value) => value.trim())) {

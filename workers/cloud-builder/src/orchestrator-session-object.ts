@@ -240,6 +240,7 @@ import {
   CANONICAL_PROMPTS,
   type CanonicalPrompts,
 } from "./cloud-prompt.js";
+import { stellaPromptTools } from "@stella/contracts/stella-prompts";
 import { getResponseLanguageSystemPrompt } from "@stella/runtime/kernel/runner/locale-prompt.js";
 import { createMemoryTools } from "./orchestrator-tools.js";
 import { resolveOpenToolCall } from "./tool-replay.js";
@@ -4933,14 +4934,20 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           memoryEnabled,
           revision: memoryPreference.revision,
         });
+        const turnTools = await this.createTools(
+          turn,
+          agentHome,
+          skillCatalog,
+          memoryEnabled,
+        );
         const freshSystemPrompt = buildCloudSystemPrompt({
           canonicalBody: canonicalPrompts.orchestratorBody,
+          tools: turnTools.promptTools,
           personalityBody:
             personalityOverride ?? canonicalPrompts.personalityBody,
           localeDirective: getResponseLanguageSystemPrompt(locale),
           residentSection: buildResidentMemorySection(memoryDocuments),
           skillSection: buildCloudSkillsBlock(skillCatalog),
-          memoryEnabled,
           threadId: turn.conversationId,
         });
         const compaction = await compactCloudHistory({
@@ -4986,12 +4993,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           previous: previousContext,
           policy: memoryPreference,
           systemPrompt: freshSystemPrompt,
-          tools: await this.createTools(
-            turn,
-            agentHome,
-            skillCatalog,
-            memoryEnabled,
-          ),
+          tools: turnTools.tools,
           startSeq: contextStartSeq,
           journalEpoch,
         });
@@ -5181,25 +5183,26 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         if (!range || previousContext.startSeq !== range.startSeq) {
           throw new ChatTurnNotResumableError("context_range");
         }
+        const turnTools = await this.createTools(
+          turn,
+          agentHome,
+          skillCatalog,
+          memoryPreference.memoryEnabled,
+        );
         const context = preparePromptContext({
           previous: previousContext,
           policy: memoryPreference,
           systemPrompt: buildCloudSystemPrompt({
             canonicalBody: canonicalPrompts.orchestratorBody,
+            tools: turnTools.promptTools,
             personalityBody:
               personalityOverride ?? canonicalPrompts.personalityBody,
             localeDirective: getResponseLanguageSystemPrompt(locale),
             residentSection: buildResidentMemorySection(memoryDocuments),
             skillSection: buildCloudSkillsBlock(skillCatalog),
-            memoryEnabled: memoryPreference.memoryEnabled,
             threadId: turn.conversationId,
           }),
-          tools: await this.createTools(
-            turn,
-            agentHome,
-            skillCatalog,
-            memoryPreference.memoryEnabled,
-          ),
+          tools: turnTools.tools,
           startSeq: range.startSeq,
           journalEpoch,
         });
@@ -5759,23 +5762,25 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     await assertExactTurnActive();
     const { memoryPreference, memoryDocuments, personalityOverride, skillCatalog } =
       home;
+    const { tools, promptTools } = await args.measurePreparation(
+      "toolsMs",
+      () =>
+        this.createTools(
+          turn,
+          args.agentHome,
+          skillCatalog,
+          memoryPreference.memoryEnabled,
+        ),
+    );
     const systemPrompt = buildCloudSystemPrompt({
       canonicalBody: canonicalPrompts.orchestratorBody,
+      tools: promptTools,
       personalityBody: personalityOverride ?? canonicalPrompts.personalityBody,
       localeDirective: getResponseLanguageSystemPrompt(locale),
       residentSection: buildResidentMemorySection(memoryDocuments),
       skillSection: buildCloudSkillsBlock(skillCatalog),
-      memoryEnabled: memoryPreference.memoryEnabled,
       threadId: turn.conversationId,
     });
-    const tools = await args.measurePreparation("toolsMs", () =>
-      this.createTools(
-        turn,
-        args.agentHome,
-        skillCatalog,
-        memoryPreference.memoryEnabled,
-      ),
-    );
     const spec = parseCloudOrchestratorCliTurnSpec({
       systemPrompt,
       toolCatalog: orchestratorCliToolCatalog(tools),
@@ -10830,7 +10835,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     agentHome: AgentHome,
     skillCatalog: CloudSkillCatalogSnapshot,
     memoryEnabled: boolean,
-  ): Promise<AgentTool[]> {
+  ): Promise<{ tools: AgentTool[]; promptTools: ReadonlySet<string> }> {
     const toolContext = {
       ownerId: turn.ownerId,
       ownerGeneration: turn.ownerGeneration,
@@ -11522,7 +11527,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     const direct = tools.filter(
       (tool) => !tool.demoted || toolRequiresExplicitApproval(tool.approval),
     );
-    return [codeTool, ...direct];
+    return {
+      tools: [codeTool, ...direct],
+      // The prompt renders against everything this turn can call, demoted
+      // tools inside code included, and `history` only when code has it.
+      promptTools: stellaPromptTools(
+        [codeTool.name, ...tools.map((tool) => tool.name)],
+        { history: memoryEnabled },
+      ),
+    };
   }
 
   /**

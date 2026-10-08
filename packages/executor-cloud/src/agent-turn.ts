@@ -33,7 +33,10 @@ import type {
 import type { TSchema } from "@sinclair/typebox";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import type { CloudCliTurnRoleInput } from "@stella/contracts/cloud-orchestrator-cli";
+import {
+  parseCloudAgentSystemPrompt,
+  type CloudCliTurnRoleInput,
+} from "@stella/contracts/cloud-orchestrator-cli";
 import type {
   CloudBrowserResumeReceipt,
   CloudBrowserSuspension,
@@ -44,6 +47,7 @@ import {
   createClaudeCodeToolMcpHost,
   type ClaudeCodeToolMcpHost,
 } from "@stella/runtime/kernel/integrations/claude-code-tool-mcp-host.js";
+import { buildClaudeCodeNativeToolRuntimePrompt } from "@stella/runtime/kernel/integrations/claude-code-session-runtime.js";
 import {
   TOOL_RESULT_AUTHORIZED_IMAGES,
   type ToolMetadata,
@@ -82,6 +86,7 @@ import {
   buildGeneralAgentPrompt,
   type GeneralAgentPromptSkills,
 } from "./general-agent-prompt.js";
+import { cloudGeneralToolNames } from "./cloud-general-tools.js";
 import {
   toolStateDir,
   worldDriveWorkspace,
@@ -284,37 +289,7 @@ export const createSuspendedAgentTurnResult = (args: {
   turnStateCheckpoint: args.turnStateCheckpoint,
 });
 
-/**
- * Pinned in code, not read from agent-metadata: the sandbox image's home-seed
- * copy is agent-writable in principle, and the cloud contract is that
- * allowlists governing execution surfaces are never data-driven.
- *
- * The document and media stack adds no tool names — the host exposes
- * `stella-office`, poppler and `mediainfo` as shell commands, so they arrive
- * through `Bash`. `Read` is the one catalog addition they need: a
- * plain-text read of extracted document text that does not cost a PTY turn.
- * File mutation and search are advertised here too, although resident turns
- * execute them in the world Durable Object rather than this container host.
- */
-const CLOUD_GENERAL_TOOLS = [
-  "Bash",
-  "write_stdin",
-  "apply_patch",
-  "web",
-  "Read",
-  "Write",
-  "Edit",
-  "Grep",
-  "ask_user",
-  "request_secure_input",
-] as const;
-
-const CLOUD_STELLA_TOOLS = [...CLOUD_GENERAL_TOOLS, "code"] as const;
-
-export const cloudGeneralToolNames = (
-  engine: CloudExecutionSelection["engine"],
-): readonly string[] =>
-  engine === "stella" ? CLOUD_STELLA_TOOLS : CLOUD_GENERAL_TOOLS;
+export { cloudGeneralToolNames };
 
 /** Only Claude Code owns a native CLI loop; Codex uses Stella's Agent loop. */
 export const usesNativeCloudRuntime = (
@@ -495,10 +470,12 @@ export const commitTurnStateBeforeTranscript = async (args: {
 
 /**
  * The office CLI ships inside the image next to the runtime. The tool host
- * turns this into a `stella-office` shell function plus `STELLA_OFFICE_BIN`,
- * so document work runs through `Bash` rather than a dedicated tool.
+ * turns this into `STELLA_OFFICE_BIN`, so document work runs through `Bash`
+ * rather than a dedicated tool. Both cloud tool hosts (this executor and the
+ * attached daemon) configure it the same way, because both render the same
+ * `general.md`, which tells the agent `stella-office` is there.
  */
-const resolveOfficeBinPath = (): string | undefined => {
+export const resolveOfficeBinPath = (): string | undefined => {
   const candidate =
     process.env.STELLA_OFFICE_BIN?.trim() ||
     fileURLToPath(
@@ -508,19 +485,21 @@ const resolveOfficeBinPath = (): string | undefined => {
 };
 
 /**
- * The container path's prompt: the world is on disk and the drive was
- * synchronized before the model ran, so it renders the materialized variant.
+ * The container path's prompt: `body` is the `general.md` render the worker
+ * sent for this engine's tools, and the world is on disk with the drive
+ * synchronized before the model ran, so it appends the materialized variant.
  * Kept as a named export because prompt tests assert on the sentences a given
  * `DriveSyncResult` produces.
  */
 export const CLOUD_GENERAL_PROMPT = (options: {
-  office: boolean;
+  body: string;
+  threadId?: string;
   drive?: DriveSyncResult;
   skills?: GeneralAgentPromptSkills;
 }): string =>
-  buildGeneralAgentPrompt({
+  buildGeneralAgentPrompt(options.body, {
     workspace: "materialized",
-    office: options.office,
+    ...(options.threadId ? { threadId: options.threadId } : {}),
     ...(options.drive ? { drive: options.drive } : {}),
     ...(options.skills ? { skills: options.skills } : {}),
   });
@@ -577,6 +556,17 @@ export const runAgentTurn = (
         return yield* Effect.promise(() =>
           runOrchestratorTurn({ input, broker }),
         );
+      }
+      const promptBody = parseCloudAgentSystemPrompt(input.systemPrompt);
+      if (!promptBody) {
+        return {
+          ok: false,
+          finalText: "",
+          error:
+            "Stella lost this agent's instructions before it could run. Try again.",
+          usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0 },
+          checkpointPolicy: "preserve_prior",
+        };
       }
       const native = usesNativeCloudRuntime(input.execution);
       const modelGateway = native
@@ -746,7 +736,8 @@ export const runAgentTurn = (
 
       const officeBinPath = resolveOfficeBinPath();
       const cloudSystemPrompt = CLOUD_GENERAL_PROMPT({
-        office: Boolean(officeBinPath),
+        body: promptBody,
+        threadId: input.threadId,
         ...(input.skills ? { skills: input.skills } : {}),
         drive: driveSync,
       });
@@ -947,7 +938,10 @@ export const runAgentTurn = (
                   conversationId: input.conversationId,
                 }),
                 prompt: input.prompt,
-                systemPrompt: cloudSystemPrompt,
+                // Built-ins are off (`--tools ""`), the same as the cloud
+                // orchestrator's Claude Code turn, so it gets the same note.
+                systemPrompt:
+                  buildClaudeCodeNativeToolRuntimePrompt(cloudSystemPrompt),
                 execution: nativeExecution,
                 claudeAccount: claudeAccount!,
                 threadId: input.threadId,

@@ -6082,6 +6082,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           log: (event, fields) => log("info", event, fields),
           deliverReport: (report, authority) =>
             this.deliverPiAgentReport(report, authority),
+          agentTools: (authority) => this.createPiAgentTools(authority),
           heartbeat: () => {
             void (async () => {
               await this.ctx.storage.put(PI_LIVE_KEY, true);
@@ -12307,6 +12308,46 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         { history: memoryEnabled, memory: memory !== undefined },
       ),
     };
+  }
+
+  /**
+   * A pi-durable cloud agent's own tools: web, and code with the owner's
+   * connectors (its files and shell are its container's). Built on the
+   * authority the agents keep, since they run between turns.
+   */
+  private async createPiAgentTools(authority: {
+    ownerId: string;
+    ownerGeneration: string;
+    conversationId: string;
+  }): Promise<CloudCodeSourceAgentTool[]> {
+    const ownerInternal = async (name: string, args: unknown) =>
+      unwrapRpc(
+        await this.ownerGate(authority.ownerId).ownerInternal({
+          name,
+          args,
+          ownerGeneration: authority.ownerGeneration,
+        }),
+      );
+    const web = createCloudWebTool({ ownerInternal });
+    const connectors = new CloudConnectorDirectory({
+      source: {
+        catalog: () => listIntegrationCatalog(this.env),
+        actions: (args) => listIntegrationActions(this.env, args),
+        connections: async () =>
+          (await ownerInternal("integrations.connections", {})) as {
+            connections: Array<{ id: string; connected: boolean }>;
+          },
+        run: (args) => ownerInternal("integrations.run", args),
+      },
+      declines: this.connectorDeclines(),
+    });
+    const code = await createCloudCodeAgentTool({
+      loader: this.env.LOADER,
+      tools: [web],
+      executionScope: `${authority.ownerGeneration}:${authority.conversationId}:pi-agents`,
+      connect: createCloudConnectClient(connectors),
+    });
+    return [code, web];
   }
 
   /**

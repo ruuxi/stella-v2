@@ -4,11 +4,15 @@
 // verifier, then polls the conversation's canonical history on the worker
 // until the turn's final assistant message lands.
 //
-//   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--email <owner>] [--wait 180] [--agent-runtime pi]
+//   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--email <owner>] [--wait 180] [--agent-runtime pi] [--watch-pi]
 //   (--prompt-file <path> instead of --prompt for prompts too long for one argument)
 //
 // `--agent-runtime pi` creates the conversation on the pi-durable runtime; it
 // only takes effect on the turn that creates the conversation.
+//
+// `--watch-pi` also opens the conversation socket with `pi=1`, prints the pi
+// view's frames as they arrive, and folds them with the clients' reducer
+// (`@stella/contracts/pi-chat`) into the final state it prints.
 //
 // A follow-up into an existing conversation must arrive as the same owner, so
 // pass the `--email` the first run printed together with its `--conversation`.
@@ -39,6 +43,7 @@ if (!prompt) {
 }
 const waitSeconds = Number(flag("--wait", "180"));
 const agentRuntime = flag("--agent-runtime");
+const watchPi = args.includes("--watch-pi");
 const devVarsPath = new URL("../../../workers/cloud-builder/.dev.vars", import.meta.url).pathname;
 const devVar = (name) => {
   if (!existsSync(devVarsPath)) return "";
@@ -86,6 +91,38 @@ const startedBody = await started.json().catch(() => null);
 console.log(JSON.stringify({ ownerId, email, conversationId, status: started.status, response: startedBody }));
 if (!started.ok) process.exit(1);
 
+// The pi view over the conversation socket, folded as a client folds it.
+let pi;
+if (watchPi) {
+  const { emptyPiChat, reducePiChat, piMessageText } = await import("../../../packages/contracts/pi-chat.ts");
+  pi = { state: emptyPiChat(), frames: 0, piMessageText };
+  const socket = new WebSocket(
+    `${builderUrl.replace(/^http/, "ws")}/conversations/${conversationId}/socket?protocol=1&pi=1`,
+    ["stella.v1", `stella.token.${session.token}`],
+  );
+  pi.socket = socket;
+  const brief = (entry) => ({ id: entry.id, kind: entry.kind, text: piMessageText(entry.model?.[0]).slice(0, 80) });
+  socket.onmessage = (message) => {
+    const frame = JSON.parse(String(message.data));
+    if (frame.type === "pi.snapshot") {
+      pi.frames += 1;
+      pi.state = reducePiChat({ ...pi.state, hasOlder: frame.hasOlder }, [frame.snapshot]);
+      console.log(JSON.stringify({ pi: "snapshot", entries: frame.snapshot.entries.length, running: Boolean(frame.snapshot.run), hasOlder: frame.hasOlder }));
+    } else if (frame.type === "pi.events") {
+      pi.frames += 1;
+      pi.state = reducePiChat(pi.state, frame.events);
+      for (const event of frame.events) {
+        if (event.type === "message_update") continue;
+        const entry = event.entry ? brief(event.entry) : undefined;
+        console.log(JSON.stringify({ pi: event.type, ...(entry ? { entry } : {}), ...(event.record ? { submission: event.record.status } : {}) }));
+      }
+    } else if (frame.type === "error") {
+      console.log(JSON.stringify({ pi: "socket-error", frame }));
+    }
+  };
+  socket.onclose = (event) => console.log(JSON.stringify({ pi: "socket-closed", code: event.code }));
+}
+
 // Poll `GET /conversations/:id/history` (the canonical window a local turn is
 // seeded from) and print each message that lands after the prompt. The turn
 // is done when the newest message is an assistant message that does not stop
@@ -116,4 +153,19 @@ while (Date.now() < deadline) {
     break;
   }
   await new Promise((resolve) => setTimeout(resolve, 5000));
+}
+
+if (pi) {
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+  const answers = pi.state.entries.filter((entry) => entry.kind === "pi.assistant");
+  console.log(
+    JSON.stringify({
+      pi: "state",
+      frames: pi.frames,
+      entries: pi.state.entries.length,
+      running: pi.state.running,
+      lastAnswer: pi.piMessageText(answers.at(-1)?.model?.[0]).slice(0, 200),
+    }),
+  );
+  pi.socket.close();
 }

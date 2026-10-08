@@ -396,6 +396,10 @@ export interface ConversationHub {
    * clients whole on `broadcastRecord`, never as deltas.
    */
   broadcastTool(tool: ToolInput): void;
+  /** A batch of pi-durable events for the sockets watching the pi view. Must never throw. */
+  broadcastPi(events: readonly unknown[]): void;
+  /** How many sockets watch the pi view. */
+  piSocketCount(): number;
   /** A turn reached a terminal phase: drop any retained live state. */
   endTurn(turnId: string): void;
   closeAll(code: number): void;
@@ -428,6 +432,22 @@ export interface ConversationHubDeps {
   log: ConversationLogger;
   /** Verifies a mid-life `auth` frame's token with the worker's own keys. */
   verifyToken: (token: string) => Promise<import("./auth-jwt.js").VerifyResult>;
+  /** The pi-durable view, for conversations that run on it. */
+  pi?: PiSocketSource;
+}
+
+/**
+ * A pi-durable conversation's view for sockets that ask for it (`pi=1`):
+ * the snapshot a socket starts from, its event batches (`broadcastPi`), and
+ * older history on request (`@stella/contracts/pi-chat`).
+ */
+export interface PiSocketSource {
+  enabled(): Promise<boolean>;
+  /** A fresh snapshot; attaching also sends it to every pi socket as an event. */
+  attach(): Promise<{ snapshot: unknown; hasOlder: boolean }>;
+  older(beforeEntryId: number): Promise<{ entries: unknown[]; hasOlder: boolean }>;
+  /** No pi socket is left. */
+  detach(): void;
 }
 
 export type ConversationHubFactory = (
@@ -456,6 +476,10 @@ export class NullConversationHub implements ConversationHub {
   async onError(): Promise<void> {}
   broadcastRecord(): void {}
   broadcastTool(): void {}
+  broadcastPi(): void {}
+  piSocketCount(): number {
+    return 0;
+  }
   endTurn(): void {}
   closeAll(): void {}
 }

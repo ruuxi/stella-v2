@@ -19,6 +19,8 @@ import {
 import type { ExecutionDestination } from "@stella/contracts/execution-context";
 import {
   mergePiEntries,
+  piEntriesForClients,
+  piEventsForClients,
   type PiChatEvent,
   type PiChatEventsPayload,
   type PiChatOlderResult,
@@ -36,6 +38,8 @@ import { desktopContextSources } from "./desktop-sources.ts";
 
 /** The newest entries a client gets when it attaches, and per older page. */
 const HISTORY_PAGE = 200;
+/** A page of entries over IPC stays small enough to parse off the frame budget. */
+const CLIENT_PAGE_BYTES = 2 * 1024 * 1024;
 /** How often an open conversation is checked for being idle again. */
 const IDLE_CHECK_MS = 30_000;
 /** Until signed in, recovered work retries the provider this often. */
@@ -196,7 +200,8 @@ export function desktopChats(options: DesktopChatsOptions) {
       undefined,
       context,
     );
-    return { entries: [...page.items].reverse() as unknown as PiEntry[], hasOlder: page.next !== undefined };
+    const { entries, trimmed } = piEntriesForClients([...page.items].reverse() as unknown as PiEntry[], CLIENT_PAGE_BYTES);
+    return { entries, hasOlder: page.next !== undefined || trimmed };
   };
 
   /**
@@ -210,10 +215,10 @@ export function desktopChats(options: DesktopChatsOptions) {
     chat.stream = stream;
     stream.start(async (events) => {
       if (chat.stream !== stream) return;
-      options.emit({ conversationId, events: events as unknown as PiChatEvent[] });
+      options.emit({ conversationId, events: piEventsForClients(events as unknown as PiChatEvent[]) });
     });
     if (previous) {
-      options.emit({ conversationId, events: [stream.snapshot as unknown as PiChatEvent] });
+      options.emit({ conversationId, events: piEventsForClients([stream.snapshot as unknown as PiChatEvent]) });
       await previous.stop().catch(() => undefined);
     }
     return stream;
@@ -224,7 +229,7 @@ export function desktopChats(options: DesktopChatsOptions) {
     chat.watchers += 1;
     const stream = await attach(conversationId, chat);
     const { entries, hasOlder } = await history(chat);
-    const snapshot = stream.snapshot as unknown as PiChatWatchResult["snapshot"];
+    const [snapshot] = piEventsForClients([stream.snapshot as unknown as PiChatEvent]) as [PiChatWatchResult["snapshot"]];
     return { snapshot: { ...snapshot, entries: mergePiEntries(entries, snapshot.entries) }, hasOlder };
   };
 

@@ -31,6 +31,7 @@ import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import {
   AssistantEntry,
+  type EntryId,
   ProviderDoc,
   watchEvents,
   type AgentEventStream,
@@ -57,6 +58,13 @@ import type { StellaContextSources, StellaMemory } from "@stella/agent/stella/co
 import { placementOf, StellaPlacementDoc } from "@stella/agent/stella/placement";
 import type { AgentModelReasoningEffort, CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ExecutionContextSnapshot } from "@stella/contracts/execution-context";
+import {
+  mergePiEntries,
+  piEntriesForClients,
+  piEventsForClients,
+  type PiChatEvent,
+  type PiEntry,
+} from "@stella/contracts/pi-chat";
 import { gatewayRelayBaseUrl } from "@stella/contracts/gateway/api";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 import { mintTurnCapability } from "./capability-signer.js";
@@ -79,6 +87,10 @@ const CONTAINER_SLOT_POLL_MS = 5_000;
 const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60_000;
 /** Storage key of what agents need between turns. */
 const PI_AGENT_STATE_KEY = "piAgentState";
+/** The newest entries a client starts from, and per older page. */
+const CLIENT_HISTORY_PAGE = 200;
+/** A client frame of entries stays well under the socket's message limit. */
+const CLIENT_FRAME_BYTES = 512 * 1024;
 
 export type PiStellaExecution = Extract<CloudExecutionSelection, { engine: "stella" }>;
 
@@ -236,6 +248,8 @@ export class PiConversationRuntime {
   readonly #containers = new Map<number, AgentContainer>();
   /** Requests waiting for a transport: `root`, or an agent's session id. */
   readonly #waiting = new Map<string, Set<() => void>>();
+  /** The root conversation's events for clients watching the pi view. */
+  #clientStream: AgentEventStream | undefined;
 
   constructor(options: PiRuntimeOptions) {
     this.#options = options;
@@ -693,6 +707,66 @@ export class PiConversationRuntime {
     if (settled.status !== "done" || settled.type !== "input") return "";
     const { root } = await this.open();
     return assistantText(await root.commit((tx) => tx.entry(AssistantEntry, settled.answer), context));
+  }
+
+  // ---- the clients' view (`@stella/contracts/pi-chat`) ----------------------
+
+  /**
+   * (Re)attach the root conversation's event stream for clients: every batch
+   * goes to `onEvents`, the new snapshot first, so a client attached to an
+   * older stream misses nothing. Returns the snapshot widened to the newest
+   * page of the whole history.
+   */
+  async watchForClients(
+    onEvents: (events: PiChatEvent[]) => void,
+    context: Context,
+  ): Promise<{ snapshot: unknown; hasOlder: boolean }> {
+    const { harness, root } = await this.open();
+    const previous = this.#clientStream;
+    const stream = await watchEvents(harness, root.id, context);
+    this.#clientStream = stream;
+    const [snapshot] = piEventsForClients([stream.snapshot as unknown as PiChatEvent]) as [
+      Extract<PiChatEvent, { type: "snapshot" }>,
+    ];
+    if (previous) onEvents([snapshot]);
+    stream.start(async (events) => {
+      if (this.#clientStream === stream) onEvents(piEventsForClients(events as unknown as PiChatEvent[]));
+    });
+    await previous?.stop().catch(() => undefined);
+    const page = await root.entries({}, CLIENT_HISTORY_PAGE, undefined, context);
+    const history = [...page.items].reverse() as unknown as PiEntry[];
+    const { entries, trimmed } = piEntriesForClients(
+      mergePiEntries(history, snapshot.entries),
+      CLIENT_FRAME_BYTES,
+    );
+    return { snapshot: { ...snapshot, entries }, hasOlder: page.next !== undefined || trimmed };
+  }
+
+  /** Whether the clients' stream is attached in this isolate. */
+  get watchingForClients(): boolean {
+    return this.#clientStream !== undefined;
+  }
+
+  async stopWatchingForClients(): Promise<void> {
+    const stream = this.#clientStream;
+    this.#clientStream = undefined;
+    await stream?.stop().catch(() => undefined);
+  }
+
+  /** History before `beforeEntryId`, as clients receive it. */
+  async olderForClients(beforeEntryId: number, context: Context): Promise<{ entries: PiEntry[]; hasOlder: boolean }> {
+    const { root } = await this.open();
+    const page = await root.entries(
+      { maxEntryId: (beforeEntryId - 1) as EntryId },
+      CLIENT_HISTORY_PAGE,
+      undefined,
+      context,
+    );
+    const { entries, trimmed } = piEntriesForClients(
+      [...page.items].reverse() as unknown as PiEntry[],
+      CLIENT_FRAME_BYTES,
+    );
+    return { entries, hasOlder: page.next !== undefined || trimmed };
   }
 
   /** Closes pi's in-memory side. Its durable state is untouched. */

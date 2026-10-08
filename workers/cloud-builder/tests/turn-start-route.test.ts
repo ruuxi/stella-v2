@@ -126,6 +126,7 @@ const environment = (
       },
       OWNER_GATES: {
         getByName: (ownerId: string) => ({
+          noteIdentity: async () => undefined,
           submit: async (input: unknown) => {
             submissions.push({ ownerId, input });
             return {

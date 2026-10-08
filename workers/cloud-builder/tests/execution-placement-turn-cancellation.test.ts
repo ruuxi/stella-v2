@@ -524,7 +524,7 @@ const terminateCurrentAgentSession = async (
 };
 
 describe("BuildSession sandbox termination", () => {
-  test("turn end deletes its session and leaves the shared container running", async () => {
+  test("turn end deletes its session and releases its agent container", async () => {
     const harness = buildSessionHarness();
     const current = { ...agentTurn("agent-admitted"), workspace: "stella" };
     const sandboxId = `world-${"a".repeat(40)}`;
@@ -557,13 +557,15 @@ describe("BuildSession sandbox termination", () => {
       requestSnapshot: async () => undefined,
       deleteSession: async (sessionId: string) =>
         calls.push(`delete:${sessionId}`),
+      release: async () => calls.push("release"),
       destroy: async () => calls.push("destroy"),
     });
 
     await terminateCurrentAgentSession(harness.instance, current);
 
-    // The container is shared by the owner's agents, so a turn's teardown
-    // kills only its own daemon and never the container-wide process table.
+    // A turn's teardown kills only its own daemon and never the
+    // container-wide process table, then releases the agent's container
+    // (snapshot, then stop) rather than destroying it.
     expect(calls.some((call) => call.startsWith("kill:"))).toBe(false);
     expect(calls).toContain(
       `daemon:${`attached-daemon-agent-run-${current.turnId}`.slice(0, 64)}`,
@@ -574,6 +576,7 @@ describe("BuildSession sandbox termination", () => {
         call.includes(`/workspace/attached/${current.turnId}-1`),
       ),
     ).toBe(true);
+    expect(calls.at(-1)).toBe("release");
     expect(calls).not.toContain("destroy");
   });
 
@@ -607,11 +610,12 @@ describe("BuildSession sandbox termination", () => {
       requestSnapshot: async () => undefined,
       deleteSession: async (sessionId: string) =>
         calls.push(`delete:${sessionId}`),
+      release: async () => calls.push("release"),
     });
 
     await terminateCurrentAgentSession(harness.instance, finished);
 
-    expect(calls).toEqual([`delete:agent-run-${finished.turnId}`]);
+    expect(calls).toEqual([`delete:agent-run-${finished.turnId}`, "release"]);
   });
 
   test("a missing predecessor session does not break follow-up cleanup", async () => {
@@ -634,11 +638,12 @@ describe("BuildSession sandbox termination", () => {
       requestSnapshot: async () => undefined,
       deleteSession: async (sessionId: string) =>
         calls.push(`delete:${sessionId}`),
+      release: async () => calls.push("release"),
     });
 
     await terminateCurrentAgentSession(harness.instance, current);
 
-    expect(calls).toEqual([`delete:agent-run-${current.turnId}`]);
+    expect(calls).toEqual([`delete:agent-run-${current.turnId}`, "release"]);
   });
 
   test("still fences the shared sandbox mirror on the current turn", async () => {
@@ -4325,6 +4330,7 @@ const residentStopHarness = (turnId: string) => {
       },
       requestSnapshot: async () => undefined,
       deleteSession: async () => undefined,
+      release: async () => undefined,
       destroy: async () => {
         destroyed.push({ sandboxId, size });
       },
@@ -4624,6 +4630,9 @@ describe("BuildSession teardown never revives the container it retires", () => {
       deleteSession: async (sessionId: string) => {
         calls.push(`delete:${sessionId}`);
       },
+      release: async () => {
+        calls.push("release");
+      },
     });
 
     await harness.instance["releaseAgentSessionResources"]({
@@ -4641,6 +4650,7 @@ describe("BuildSession teardown never revives the container it retires", () => {
       "process:attached-daemon-agent-run-agent-gone-session-shell:SIGKILL",
       "exec:rm -rf -- '/workspace/attached/agent-gone-session-shell-1'",
       "delete:agent-run-agent-gone-session-shell",
+      "release",
     ]);
     expect(calls.some((call) => call.includes("killAllProcesses"))).toBe(false);
   });

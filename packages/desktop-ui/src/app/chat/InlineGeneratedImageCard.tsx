@@ -10,6 +10,7 @@ import {
   useMaterializedMediaPayloadSnapshot,
 } from "@/app/media/media-materializer-state";
 import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
+import type { MediaJob } from "@stella/contracts/backend/media";
 import { useDisplayFileBlobs } from "@/shared/hooks/use-display-file-data";
 import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
 import { notifyAssistantScrollFollowLayoutChange } from "@/shell/chat-scroll-follow";
@@ -29,23 +30,7 @@ type StripTileSpec = {
 const filenameOf = (filePath: string): string =>
   filePath.split(/[\\/]/).pop() ?? filePath;
 
-export type MediaJobLookup = {
-  jobId: string;
-  capability: string;
-  request?: {
-    prompt?: string;
-    aspectRatio?: string;
-    input?: Record<string, unknown>;
-  };
-  output?: unknown;
-  status?: string;
-  error?: {
-    message?: string;
-    code?: string;
-  };
-  completedAt?: number;
-  updatedAt: number;
-} | null;
+export type MediaJobLookup = MediaJob | null;
 
 export const requestedSizeFromInput = (
   input: Record<string, unknown> | undefined,
@@ -92,11 +77,10 @@ const previewAspectRatio = (
   job: MediaJobLookup | undefined,
 ): string => {
   const requestedSize =
-    payload.requestedSize ?? requestedSizeFromInput(job?.request?.input);
+    payload.requestedSize ?? requestedSizeFromInput(job?.input);
   if (requestedSize) return `${requestedSize.width} / ${requestedSize.height}`;
   return (
     ratioFromAspectRatio(payload.aspectRatio) ??
-    ratioFromAspectRatio(job?.request?.aspectRatio) ??
     "4 / 3"
   );
 };
@@ -339,10 +323,7 @@ export const InlineGeneratedImageCardFrame = ({
   );
   const primaryFile = files[0] ?? null;
   const primaryPath = filePaths[0];
-  const jobFailed =
-    job?.status === "failed" ||
-    job?.status === "canceled" ||
-    job?.status === "unknown";
+  const jobFailed = job?.status === "failed" || job?.status === "canceled";
   const frameStyle = {
     "--inline-generated-image-aspect-ratio": previewAspectRatio(
       effectivePayload,

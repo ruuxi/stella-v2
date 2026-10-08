@@ -5,7 +5,8 @@ import {
   publishMaterializedMediaPayload,
   useMaterializedMediaPayload,
 } from "@/app/media/media-materializer-state";
-import { extractOutput, saveOutputToStella } from "@/app/media/media-store";
+import { extractOutput, saveOutputToStella } from "@/app/media/media-output";
+import { mediaModel } from "@stella/contracts/media-models";
 import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
 import {
   InlineGeneratedImageCardFrame,
@@ -42,16 +43,15 @@ const mediaPayloadFromJob = async (
         kind: "media",
         asset: { kind: "image", filePaths },
         jobId: job.jobId,
-        capability: job.capability,
-        ...(job.request?.prompt ? { prompt: job.request.prompt } : {}),
-        ...(job.request?.aspectRatio
-          ? { aspectRatio: job.request.aspectRatio }
+        madeBy: mediaModel(job.model)?.name ?? job.model,
+        ...(typeof job.input.prompt === "string"
+          ? { prompt: job.input.prompt }
           : {}),
-        ...(requestedSizeFromInput(job.request?.input)
-          ? { requestedSize: requestedSizeFromInput(job.request?.input)! }
+        ...(requestedSizeFromInput(job.input)
+          ? { requestedSize: requestedSizeFromInput(job.input)! }
           : {}),
-        ...(numImagesFromJobRequest(job.request?.input)
-          ? { numImages: numImagesFromJobRequest(job.request?.input)! }
+        ...(numImagesFromJobRequest(job.input)
+          ? { numImages: numImagesFromJobRequest(job.input)! }
           : {}),
         createdAt: job.completedAt ?? job.updatedAt,
       };

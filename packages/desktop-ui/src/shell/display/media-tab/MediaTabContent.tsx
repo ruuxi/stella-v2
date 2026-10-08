@@ -1,5 +1,5 @@
 /**
- * Media viewer for one generated asset: the capability chip, prompt and
+ * Media viewer for one generated asset: the model chip, prompt and
  * action bar over a full-bleed preview. Which asset is showing is the Files
  * section's business, so this takes the item it should render.
  */
@@ -34,9 +34,9 @@ export const MediaTabContent = ({ item }: { item: MediaTabItem }) => {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="media-tab__hero-bar-top">
-              {item.capability ? (
+              {item.madeBy ? (
                 <span className="media-tab__hero-cap">
-                  {item.capability.replace(/_/g, " ")}
+                  {item.madeBy}
                 </span>
               ) : null}
               <div
@@ -54,7 +54,7 @@ export const MediaTabContent = ({ item }: { item: MediaTabItem }) => {
               asset={item.asset}
               inDialog
               {...(item.prompt ? { prompt: item.prompt } : {})}
-              {...(item.capability ? { capability: item.capability } : {})}
+              {...(item.madeBy ? { madeBy: item.madeBy } : {})}
             />
           </div>
         </div>

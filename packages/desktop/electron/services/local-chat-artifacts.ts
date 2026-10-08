@@ -505,8 +505,8 @@ const imageGenPayload = (event: ArtifactEventRecord): DisplayPayload | null => {
     createdAt: event.timestamp,
     ...(typeof record.jobId === "string" ? { jobId: record.jobId } : {}),
     ...(toolCallId ? { toolCallId } : {}),
-    ...(typeof record.capability === "string"
-      ? { capability: record.capability }
+    ...(typeof record.madeBy === "string"
+      ? { madeBy: record.madeBy }
       : {}),
     ...(typeof record.prompt === "string" ? { prompt: record.prompt } : {}),
     ...(typeof record.aspectRatio === "string"

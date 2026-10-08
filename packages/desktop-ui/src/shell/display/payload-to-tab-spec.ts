@@ -66,7 +66,7 @@ export type GeneratedMediaItem = {
   id: string;
   asset: Extract<DisplayPayload, { kind: "media" }>["asset"];
   prompt?: string;
-  capability?: string;
+  madeBy?: string;
   createdAt: number;
 };
 
@@ -148,7 +148,7 @@ const toFileEntry = (item: GeneratedMediaItem): FileEntry => {
     asset: item.asset,
     createdAt: item.createdAt,
     ...(item.prompt ? { prompt: item.prompt } : {}),
-    ...(item.capability ? { capability: item.capability } : {}),
+    ...(item.madeBy ? { madeBy: item.madeBy } : {}),
   };
   const filePath = filePathForMediaItem(item);
   return {
@@ -215,7 +215,7 @@ const addGeneratedMediaItem = (
         id,
         asset: entry.asset,
         ...(entry.prompt ? { prompt: entry.prompt } : {}),
-        ...(entry.capability ? { capability: entry.capability } : {}),
+        ...(entry.madeBy ? { madeBy: entry.madeBy } : {}),
         createdAt: entry.createdAt,
       });
     }
@@ -444,11 +444,11 @@ const localPayloadToTabSpec = (
         id: item.id,
         kind: displayTabKindForPayload(payload),
         title: titleForMediaItem(item),
-        ...(payload.capability ? { tooltip: payload.capability } : {}),
+        ...(payload.madeBy ? { tooltip: payload.madeBy } : {}),
         metadata: {
           kind: "media",
           ...(payload.jobId ? { jobId: payload.jobId } : {}),
-          ...(payload.capability ? { capability: payload.capability } : {}),
+          ...(payload.madeBy ? { madeBy: payload.madeBy } : {}),
           ...(payload.prompt ? { prompt: payload.prompt } : {}),
         },
         render: () => createElement(MediaTabContent, { item }),

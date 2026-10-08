@@ -90,7 +90,7 @@ export type DisplayPayload = {
       kind: "media";
       asset: MediaAsset;
       jobId?: string;
-      capability?: string;
+      madeBy?: string;
       prompt?: string;
       aspectRatio?: string;
       requestedSize?: { width: number; height: number };
@@ -233,7 +233,7 @@ export const getDisplayPayloadTitle = (payload: DisplayPayload): string => {
   }
   // payload.kind === "media"
   if (payload.prompt) return payload.prompt;
-  if (payload.capability) return payload.capability.replace(/_/g, " ");
+  if (payload.madeBy) return payload.madeBy;
   switch (payload.asset.kind) {
     case "image":
       return payload.asset.filePaths.length > 1

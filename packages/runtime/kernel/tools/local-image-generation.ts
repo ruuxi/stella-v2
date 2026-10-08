@@ -22,6 +22,7 @@ import { materializeMediaArtifact } from "./media-artifact-store.js";
 import type { ManagedImageTerminalResult } from "./managed-image-job.js";
 import type { ToolContext, ToolHandlerExtras, ToolResult } from "./types.js";
 import { sleepWithAbort } from "./effect-runtime.js";
+import { BYOK_IMAGE_MODELS, stellaImageRequest } from "@stella/contracts/media-models";
 
 type LocalImageGenerationInput = {
   args: Record<string, unknown>;
@@ -55,6 +56,14 @@ export const localImagePollSleep = (
 
 const sleep = localImagePollSleep;
 
+const falSize = (value: unknown): { width: number; height: number } | null => {
+  if (!value || typeof value !== "object") return null;
+  const { width, height } = value as { width?: unknown; height?: unknown };
+  return typeof width === "number" && typeof height === "number"
+    ? { width, height }
+    : null;
+};
+
 const normalizeCount = (value: unknown): number =>
   typeof value === "number" && Number.isFinite(value)
     ? Math.max(1, Math.min(4, Math.floor(value)))
@@ -75,10 +84,10 @@ const providerModel = (
 ): string => {
   const fallback =
     provider === "openai"
-      ? "gpt-image-2"
+      ? BYOK_IMAGE_MODELS.openai
       : provider === "fal"
-        ? "fal-ai/flux-2-pro"
-        : "openai/gpt-image-2";
+        ? BYOK_IMAGE_MODELS.fal.image
+        : BYOK_IMAGE_MODELS.openrouter;
   const model = configured?.trim() || fallback;
   const prefix = `${provider}/`;
   return model.startsWith(prefix) ? model.slice(prefix.length) : model;
@@ -231,7 +240,6 @@ const terminalToolResult = (
   }
   const details = {
     jobId: terminal.job.jobId,
-    capability: terminal.job.capability,
     provider,
     model,
     prompt,
@@ -442,7 +450,33 @@ export const runLocalImageGeneration = async (
         operationId: operation.operationId,
       });
     } else {
-      const endpoint = references.length ? `${model}/edit` : model;
+      // Stella's own image model unless another was configured, with its
+      // edit endpoint when there are references.
+      const falRequest =
+        model === BYOK_IMAGE_MODELS.fal.image
+          ? stellaImageRequest({
+              prompt: input.prompt,
+              aspectRatio: input.aspectRatio,
+              size: falSize(input.args.size),
+              quality: asString(input.args.quality),
+              numImages: normalizeCount(input.args.num_images),
+              outputFormat,
+              imageUrls: references,
+            })
+          : {
+              model: references.length ? `${model}/edit` : model,
+              input: {
+                prompt: input.prompt,
+                quality: asString(input.args.quality) ?? "low",
+                image_size: input.args.size ?? "auto",
+                output_format: outputFormat,
+                num_images: normalizeCount(input.args.num_images),
+                ...(references.length ? { image_urls: references } : {}),
+              },
+            };
+      const endpoint = falRequest.model;
+      // Request-scoped routes drop the endpoint's sub-path: `owner/app/requests/<id>`.
+      const requestBase = endpoint.split("/").slice(0, 2).join("/");
       let requestId = operation.jobId;
       if (!requestId) {
         const response = await fetch(`https://queue.fal.run/${endpoint}`, {
@@ -451,14 +485,7 @@ export const runLocalImageGeneration = async (
             Authorization: `Key ${apiKey}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            prompt: input.prompt,
-            quality: asString(input.args.quality) ?? "low",
-            image_size: input.args.size ?? "auto",
-            output_format: outputFormat,
-            num_images: normalizeCount(input.args.num_images),
-            ...(references.length ? { image_urls: references } : {}),
-          }),
+          body: JSON.stringify(falRequest.input),
           signal: input.extras?.signal,
         });
         if (!response.ok) {
@@ -485,7 +512,7 @@ export const runLocalImageGeneration = async (
         if (input.extras?.signal?.aborted)
           throw abortError(input.extras.signal);
         const response = await fetch(
-          `https://queue.fal.run/${endpoint}/requests/${requestId}`,
+          `https://queue.fal.run/${requestBase}/requests/${requestId}`,
           {
             headers: { Authorization: `Key ${apiKey}` },
             signal: input.extras?.signal,
@@ -538,7 +565,7 @@ export const runLocalImageGeneration = async (
       ok: true,
       job: {
         jobId,
-        capability: references.length ? "image_edit" : "text_to_image",
+        model,
         status: "succeeded",
         completedAt: Date.now(),
       },

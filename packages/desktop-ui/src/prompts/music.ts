@@ -11,16 +11,10 @@ type RuntimeAgentApi = {
 
 export type MusicMood = "Auto" | "Focus" | "Calm" | "Energy" | "Sleep" | "Lo-fi"
 
+/** One generation: a short name for the player and the music model's prompt. */
 export type PromptSet = {
   label: string
-  prompts: { text: string; weight: number }[]
-  config: {
-    bpm: number
-    density: number
-    brightness: number
-    guidance: number
-    temperature: number
-  }
+  prompt: string
 }
 
 const MOOD_GUIDANCE: Record<MusicMood, string> = {
@@ -38,27 +32,17 @@ const MOOD_GUIDANCE: Record<MusicMood, string> = {
     "Lo-fi hip hop and chill beats. Moderate-slow tempo (72-90 BPM), medium density. Vinyl crackle, jazz chords, tape-saturated drums, warm analog sound.",
 }
 
-const MUSIC_SYSTEM_PROMPT = `You are a music director for Lyria, Google's AI music generator. You write rich, descriptive prompts that paint a vivid sonic picture.
+const MUSIC_SYSTEM_PROMPT = `You are a music director for Lyria, Google's AI music generator. You write one rich, descriptive prompt that paints a vivid sonic picture.
 
-Write detailed natural-language prompts describing genre, mood, instrumentation, tempo, arrangement, production quality, and vocals only when lyrics are enabled. Use vivid, specific sonic language instead of comma-separated keywords.
+Describe genre, mood, instrumentation, tempo in BPM, arrangement and production quality in vivid, specific sonic language instead of comma-separated keywords. You may lay out the structure with timed sections such as "[0:00-0:20] Intro: ...". Describe vocals and write lyrics only when lyrics are enabled; otherwise say it is instrumental, with no vocals.
 
 Output ONLY valid JSON with this schema:
 {
   "label": "A short 2-3 word name",
-  "prompts": [
-    { "text": "A rich, descriptive Lyria prompt", "weight": 1.0 }
-  ],
-  "config": {
-    "bpm": 95,
-    "density": 0.5,
-    "brightness": 0.5,
-    "guidance": 4,
-    "temperature": 1
-  }
+  "prompt": "The full Lyria prompt"
 }
 
 Rules:
-- Config values must stay within the requested ranges.
 - Each generation should feel distinct from the previous one while staying within the mood.
 - If user instructions are provided, use them as the primary creative direction.
 - Do not include real artist names, song titles, or copyrighted material.`
@@ -89,7 +73,7 @@ export async function generateMusicPrompt(
   const agentApi = (window as unknown as { electronAPI?: { agent?: RuntimeAgentApi } })
     .electronAPI?.agent
   if (!agentApi?.oneShotCompletion) {
-    return getFallbackPrompt(mood)
+    return getFallbackPrompt(mood, lyrics)
   }
 
   try {
@@ -105,104 +89,58 @@ export async function generateMusicPrompt(
     })
     const responseText = result?.text ?? ""
     if (!responseText) {
-      return getFallbackPrompt(mood)
+      return getFallbackPrompt(mood, lyrics)
     }
 
     const cleaned = responseText.replace(/```(?:json)?\s*/g, "").replace(/```\s*/g, "").trim()
     const parsed = JSON.parse(cleaned) as PromptSet
 
-    if (
-      !parsed.label ||
-      !Array.isArray(parsed.prompts) ||
-      parsed.prompts.length === 0 ||
-      !parsed.config
-    ) {
-      return getFallbackPrompt(mood)
+    if (typeof parsed.label !== "string" || typeof parsed.prompt !== "string" || !parsed.prompt.trim()) {
+      return getFallbackPrompt(mood, lyrics)
     }
-
-    parsed.config.bpm = clamp(parsed.config.bpm, 55, 145)
-    parsed.config.density = clamp(parsed.config.density, 0.05, 0.9)
-    parsed.config.brightness = clamp(parsed.config.brightness, 0.1, 0.8)
-    parsed.config.guidance = clamp(parsed.config.guidance, 2.0, 5.0)
-    parsed.config.temperature = clamp(parsed.config.temperature, 0.6, 1.4)
-
-    return parsed
+    return { label: parsed.label, prompt: parsed.prompt }
   } catch {
-    return getFallbackPrompt(mood)
+    return getFallbackPrompt(mood, lyrics)
   }
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, value))
 }
 
 const FALLBACKS: Record<MusicMood, PromptSet> = {
   Auto: {
     label: "Golden hour",
-    prompts: [
-      {
-        text: "A smooth Jazz Fusion piece with a laid-back groove. Rhodes Piano provides warm chords over a Precision Bass walking line. Alto Saxophone plays a dreamy, improvised melody. Relaxed brushed drums with a tight groove. Late-night cafe atmosphere.",
-        weight: 1,
-      },
-    ],
-    config: { bpm: 95, density: 0.5, brightness: 0.5, guidance: 4, temperature: 1.1 },
+    prompt:
+      "A smooth Jazz Fusion piece with a laid-back groove. Rhodes Piano provides warm chords over a Precision Bass walking line. Alto Saxophone plays a dreamy, improvised melody. Relaxed brushed drums with a tight groove. Late-night cafe atmosphere. Around 95 BPM.",
   },
   Focus: {
     label: "Deep focus",
-    prompts: [
-      {
-        text: "A calm and focused Indie Electronic ambient piece. Layered Synth Pads with slow, evolving textures and sustained chords. Rhodes Piano plays a subdued, repeating melody. Minimal percussion - just a soft pulse keeping steady time. Spacious reverb, clean production.",
-        weight: 1,
-      },
-    ],
-    config: { bpm: 105, density: 0.4, brightness: 0.45, guidance: 4, temperature: 1 },
+    prompt:
+      "A calm and focused Indie Electronic ambient piece. Layered Synth Pads with slow, evolving textures and sustained chords. Rhodes Piano plays a subdued, repeating melody. Minimal percussion - just a soft pulse keeping steady time. Spacious reverb, clean production. Around 105 BPM.",
   },
   Calm: {
     label: "Still water",
-    prompts: [
-      {
-        text: "A peaceful and serene ambient soundscape. Smooth Pianos play gentle, floating arpeggios. Harp adds delicate ornamental touches. Soft, evolving Synth Pads create an ethereal ambience. Very slow tempo with spacious reverb. Dreamy, nature-inspired textures.",
-        weight: 1,
-      },
-    ],
-    config: { bpm: 70, density: 0.25, brightness: 0.35, guidance: 4, temperature: 1 },
+    prompt:
+      "A peaceful and serene ambient soundscape. Smooth Pianos play gentle, floating arpeggios. Harp adds delicate ornamental touches. Soft, evolving Synth Pads create an ethereal ambience. Very slow tempo with spacious reverb. Dreamy, nature-inspired textures. Around 70 BPM.",
   },
   Energy: {
     label: "Neon rush",
-    prompts: [
-      {
-        text: "An energetic EDM track with a driving beat and massive energy. TR-909 Drum Machine provides a four-on-the-floor kick with crispy hi-hats. Dirty Synths build tension with rising filter sweeps. Fat Beats and a boomy bass drop. Bright, danceable, festival-ready production with high-quality mastering.",
-        weight: 1,
-      },
-    ],
-    config: { bpm: 128, density: 0.75, brightness: 0.7, guidance: 4.5, temperature: 1.2 },
+    prompt:
+      "An energetic EDM track with a driving beat and massive energy. TR-909 Drum Machine provides a four-on-the-floor kick with crispy hi-hats. Dirty Synths build tension with rising filter sweeps. Fat Beats and a boomy bass drop. Bright, danceable, festival-ready production with high-quality mastering. Around 128 BPM.",
   },
   Sleep: {
     label: "Dreamscape",
-    prompts: [
-      {
-        text: "An ultra-soft ambient soundscape for deep sleep. Barely audible Synth Pads drift in and out like slow breathing. Kalimba plays sparse, gentle notes with long decay. No percussion at all. Extremely slow, spacious, with warm low-frequency drones. Like floating through clouds in the dark.",
-        weight: 1,
-      },
-    ],
-    config: { bpm: 60, density: 0.15, brightness: 0.2, guidance: 3, temperature: 0.8 },
+    prompt:
+      "An ultra-soft ambient soundscape for deep sleep. Barely audible Synth Pads drift in and out like slow breathing. Kalimba plays sparse, gentle notes with long decay. No percussion at all. Extremely slow, spacious, with warm low-frequency drones. Like floating through clouds in the dark. Around 60 BPM.",
   },
   "Lo-fi": {
     label: "Rainy tape",
-    prompts: [
-      {
-        text: "A nostalgic Lo-Fi Hip Hop beat with warm, tape-saturated production. Rhodes Piano plays jazzy chords with subtle pitch wobble. Warm Acoustic Guitar adds fingerpicked texture. Soft, lo-fi drums with vinyl crackle and room tone. Chill, intimate, late-night study vibes. Tight groove with a head-nodding swing.",
-        weight: 1,
-      },
-    ],
-    config: { bpm: 85, density: 0.5, brightness: 0.4, guidance: 4, temperature: 1.1 },
+    prompt:
+      "A nostalgic Lo-Fi Hip Hop beat with warm, tape-saturated production. Rhodes Piano plays jazzy chords with subtle pitch wobble. Warm Acoustic Guitar adds fingerpicked texture. Soft, lo-fi drums with vinyl crackle and room tone. Chill, intimate, late-night study vibes. Tight groove with a head-nodding swing. Around 85 BPM.",
   },
 }
 
-function getFallbackPrompt(mood: MusicMood): PromptSet {
+function getFallbackPrompt(mood: MusicMood, lyrics: boolean): PromptSet {
+  const fallback = FALLBACKS[mood]
   return {
-    ...FALLBACKS[mood],
-    prompts: FALLBACKS[mood].prompts.map((prompt) => ({ ...prompt })),
-    config: { ...FALLBACKS[mood].config },
+    label: fallback.label,
+    prompt: `${fallback.prompt} ${lyrics ? "Include tasteful sung vocals." : "Instrumental only, no vocals."}`,
   }
 }

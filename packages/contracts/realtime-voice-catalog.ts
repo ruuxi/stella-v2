@@ -121,7 +121,6 @@ export const GEMINI_TTS_VOICES: readonly RealtimeVoiceCatalogEntry[] = [
   { id: "Sulafat", label: "Sulafat", description: "Warm." },
 ];
 
-export const DEFAULT_GEMINI_TTS_MODEL = "gemini-3.8-flash-lite-tts";
 export const DEFAULT_GEMINI_TTS_VOICE = "Kore";
 
 export const isGeminiTtsVoice = (voice: string): boolean =>

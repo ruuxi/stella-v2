@@ -18,6 +18,7 @@ import type { TSchema } from "@sinclair/typebox";
 import { sleepWithAbort } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import type { AgentTool } from "@stella/runtime/kernel/agent-core/types.js";
 import type { MediaGenerateAccepted, MediaJob } from "@stella/contracts/backend/media";
+import { stellaImageRequest } from "@stella/contracts/media-models";
 import { readBoundedResponseBytes } from "./bounded-body.js";
 import { sha256Hex } from "./hash.js";
 import { RpcError } from "./owner-store/errors.js";
@@ -92,7 +93,7 @@ export type CloudImageGenDetails =
   | {
       status: "succeeded";
       jobId: string;
-      capability: string;
+      model: string;
       prompt: string;
       aspectRatio?: string;
       requestedSize?: { width: number; height: number };
@@ -124,7 +125,7 @@ export const CLOUD_IMAGE_GEN_TOOL_PARAMETERS = {
     aspectRatio: {
       type: "string",
       description:
-        "Optional aspect ratio (e.g. '1:1', '16:9', '9:16', '4:3'). Defaults to the gateway's recommended ratio.",
+        "Optional aspect ratio (e.g. '1:1', '16:9', '9:16', '4:3'). Defaults to the model's choice.",
     },
     size: {
       type: "object",
@@ -138,16 +139,16 @@ export const CLOUD_IMAGE_GEN_TOOL_PARAMETERS = {
     },
     quality: {
       type: "string",
-      enum: ["low", "medium", "high"],
+      enum: ["low", "medium", "high", "xhigh", "max"],
       description:
-        "Optional quality. Defaults to 'low'; use 'medium' or 'high' only when the user explicitly requests more fidelity.",
+        "Optional quality. Defaults to 'low'; use a higher one only when the user explicitly asks for more fidelity.",
     },
     referenceImageUrls: {
       type: "array",
       items: { type: "string" },
       maxItems: MAX_REFERENCE_ITEMS,
       description:
-        "Optional public http(s) image URLs to use as reference inputs. At most four references in total across URLs and drive paths. When any reference is provided the gateway switches from text_to_image to image_edit.",
+        "Optional public http(s) image URLs to use as reference inputs. At most four references in total across URLs and drive paths. When any reference is provided the image is an edit of them.",
     },
     referenceDrivePaths: {
       type: "array",
@@ -389,17 +390,7 @@ export const createCloudImageGenTool = (
         : [];
     const imageUrls = [...referenceUrls, ...driveReferenceUrls];
 
-    const input: Record<string, unknown> = {};
-    if (quality) input.quality = quality;
-    if (requestedSize) input.image_size = requestedSize;
-    if (imageUrls.length > 0) input.image_urls = imageUrls;
-    const capability = imageUrls.length > 0 ? "image_edit" : "text_to_image";
-    const requestBody = {
-      capability,
-      prompt,
-      ...(aspectRatio ? { aspectRatio } : {}),
-      ...(Object.keys(input).length > 0 ? { input } : {}),
-    };
+    const requestBody = stellaImageRequest({ prompt, aspectRatio, size: requestedSize, quality, imageUrls });
     const sleep = context.sleep ?? defaultSleep;
     const fetchImpl = context.fetchImpl ?? fetch;
     const timeoutMs = context.timeoutMs ?? JOB_TIMEOUT_MS;
@@ -533,7 +524,7 @@ export const createCloudImageGenTool = (
                 const details: CloudImageGenDetails = {
                   status: "succeeded",
                   jobId,
-                  capability: value.capability,
+                  model: value.model,
                   prompt,
                   ...(aspectRatio ? { aspectRatio } : {}),
                   ...(requestedSize ? { requestedSize } : {}),

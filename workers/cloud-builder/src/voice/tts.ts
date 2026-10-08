@@ -1,14 +1,11 @@
 import { Mp3Encoder } from "@breezystack/lamejs";
-import {
-  DEFAULT_GEMINI_TTS_MODEL,
-  DEFAULT_GEMINI_TTS_VOICE,
-  isGeminiTtsVoice,
-} from "@stella/contracts/realtime-voice-catalog";
+import { STELLA_MEDIA_MODELS } from "@stella/contracts/media-models";
+import { DEFAULT_GEMINI_TTS_VOICE, isGeminiTtsVoice } from "@stella/contracts/realtime-voice-catalog";
 import { Effect, Fiber } from "effect";
-import { pickMediaProvider, type MediaProvider } from "../media/providers.js";
 
 // ---------------------------------------------------------------------------
-// Read-aloud synthesis with Gemini 3.8 Flash Lite TTS, on OpenRouter or fal.
+// Read-aloud synthesis with the speech model in `@stella/contracts/media-models`
+// (Gemini 3.8 Flash Lite TTS), on OpenRouter or fal.
 //
 // Both providers yield 16-bit mono PCM at 24 kHz (OpenRouter raw from
 // `/audio/speech`, fal as a WAV file). Long text is split into sentence-sized
@@ -21,7 +18,7 @@ import { pickMediaProvider, type MediaProvider } from "../media/providers.js";
 // thousand characters. `STELLA_MEDIA_PROVIDER` overrides the choice.
 // ---------------------------------------------------------------------------
 
-export const TTS_MODEL = `google/${DEFAULT_GEMINI_TTS_MODEL}`;
+export const TTS_MODEL = STELLA_MEDIA_MODELS.speech;
 export const PCM_SAMPLE_RATE = 24_000;
 const PCM_BYTES_PER_SECOND = PCM_SAMPLE_RATE * 2;
 const MP3_KBPS = 48;
@@ -39,10 +36,28 @@ const CHUNKS_IN_FLIGHT = 4;
 // so internal spend is never underestimated.
 const AUDIO_TOKENS_PER_SECOND_ESTIMATE = 40;
 
-export type TtsProvider = MediaProvider;
+export type TtsProvider = "openrouter" | "fal";
 
-/** The provider read-aloud uses on this deployment, with its key, or null when it is not set up. */
-export const ttsProvider = (env: object) => pickMediaProvider(env, ["openrouter", "fal"]);
+const KEY_NAMES: Record<TtsProvider, string> = { openrouter: "OPENROUTER_API_KEY", fal: "FAL_KEY" };
+
+const read = (env: object, name: string): string | null => {
+  const value = (env as Record<string, unknown>)[name];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+};
+
+/**
+ * The provider read-aloud uses on this deployment, with its key, or null when
+ * it is not set up: OpenRouter when both keys are set, unless
+ * `STELLA_MEDIA_PROVIDER` names fal.
+ */
+export const ttsProvider = (env: object): { provider: TtsProvider; apiKey: string } | null => {
+  const configured = (["openrouter", "fal"] as const).flatMap((provider) => {
+    const apiKey = read(env, KEY_NAMES[provider]);
+    return apiKey ? [{ provider, apiKey }] : [];
+  });
+  const forced = read(env, "STELLA_MEDIA_PROVIDER")?.toLowerCase();
+  return configured.find((entry) => entry.provider === forced) ?? configured[0] ?? null;
+};
 
 export const resolveGeminiTtsVoice = (voice: unknown): string =>
   typeof voice === "string" && isGeminiTtsVoice(voice.trim()) ? voice.trim() : DEFAULT_GEMINI_TTS_VOICE;

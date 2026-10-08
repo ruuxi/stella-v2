@@ -143,8 +143,9 @@ export const useMaterializedMediaPayloadSnapshot = (): ReadonlyMap<
 
 /**
  * Mark a jobId as already-handled so the materializer skips it. Use this
- * from any UI that materializes its own jobs (e.g. MediaStudio) so we don't
- * double-download or pop the workspace panel over the user's active surface.
+ * from any UI that materializes its own jobs (e.g. the inline image card) so
+ * we don't double-download or pop the workspace panel over the user's
+ * active surface.
  */
 export const markMediaJobMaterialized = (jobId: string): void => {
   if (materializedJobs.has(jobId)) return;

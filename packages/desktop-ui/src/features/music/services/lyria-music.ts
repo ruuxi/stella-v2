@@ -1,4 +1,6 @@
 import { backendClient } from "@/platform/backend/backend-client";
+import type { MediaJob } from "@stella/contracts/backend/media";
+import { STELLA_MEDIA_MODELS } from "@stella/contracts/media-models";
 import { generateMusicPrompt, type MusicMood } from "@/prompts/music";
 import { maybeShowPaidMediaTierToast } from "@/global/billing/paid-media-tier-toast";
 
@@ -11,24 +13,6 @@ export type MusicServiceState = {
   elapsedSeconds: number;
   userHint: string;
   lyrics: boolean;
-};
-
-type GeneratedMusicResponse = {
-  audio?: {
-    data?: string;
-    url?: string;
-    mimeType?: string;
-  };
-  output?: {
-    audio?: {
-      url?: string;
-      mimeType?: string;
-    };
-    promptLabel?: string | null;
-    textParts?: string[];
-  };
-  promptLabel?: string | null;
-  textParts?: string[];
 };
 
 type StateListener = (state: MusicServiceState) => void;
@@ -170,56 +154,57 @@ function fadeOutAudio() {
   }, 250);
 }
 
-function base64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i += 1) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes.buffer;
-}
+const TERMINAL = new Set(["succeeded", "failed", "canceled"]);
 
-function dataUrlToArrayBuffer(dataUrl: string): {
-  buffer: ArrayBuffer;
-  mimeType: string | null;
-} {
-  const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/s);
-  if (!match) {
-    throw new Error("Music generation returned an unsupported audio URL.");
-  }
-  return {
-    buffer: base64ToArrayBuffer(match[2]),
-    mimeType: match[1],
+/** Run the music model on `prompt` and wait for its clip: the clip's URL and any lyrics. */
+async function generateClip(
+  prompt: string,
+): Promise<{ url: string; lyrics: string | null }> {
+  const accepted = await backendClient.call("media.generate", {
+    model: STELLA_MEDIA_MODELS.music,
+    input: { prompt },
+  });
+  const job = await new Promise<MediaJob>((resolve, reject) => {
+    let settled = false;
+    let stop: (() => void) | null = null;
+    const settle = (finish: () => void) => {
+      if (settled) return;
+      settled = true;
+      finish();
+      // The first value can arrive before `watch` returns.
+      queueMicrotask(() => stop?.());
+    };
+    stop = backendClient.watch(
+      "media.job",
+      { jobId: accepted.jobId },
+      (value) => {
+        if (!value || !TERMINAL.has(value.status)) return;
+        settle(() =>
+          value.status === "succeeded"
+            ? resolve(value)
+            : reject(new Error(value.error?.message ?? "Music generation failed.")),
+        );
+      },
+      (error) => settle(() => reject(error)),
+    );
+  });
+  const output = (job.output ?? {}) as {
+    audio?: { url?: unknown };
+    lyrics?: unknown;
   };
-}
-
-async function audioUrlToArrayBuffer(
-  url: string,
-): Promise<{ buffer: ArrayBuffer; mimeType: string | null }> {
-  if (url.startsWith("data:")) {
-    return dataUrlToArrayBuffer(url);
-  }
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to download generated music (${response.status})`);
-  }
+  const url = typeof output.audio?.url === "string" ? output.audio.url : null;
+  if (!url) throw new Error("Music generation returned no audio.");
   return {
-    buffer: await response.arrayBuffer(),
-    mimeType: response.headers.get("content-type"),
+    url,
+    lyrics: typeof output.lyrics === "string" && output.lyrics.trim() ? output.lyrics : null,
   };
 }
 
 async function playGeneratedAudio(
-  payload: GeneratedMusicResponse,
+  clip: { url: string; lyrics: string | null },
+  label: string,
   generation: number,
 ): Promise<void> {
-  const encodedAudio = payload.audio?.data;
-  const outputAudioUrl = payload.output?.audio?.url;
-  const mimeType = payload.audio?.mimeType ?? payload.output?.audio?.mimeType;
-  if ((!encodedAudio || !mimeType) && !outputAudioUrl) {
-    throw new Error("Music generation returned no audio.");
-  }
-
   const { ctx, gain } = ensureAudioGraph();
   if (ctx.state === "suspended") {
     await ctx.resume();
@@ -230,11 +215,11 @@ async function playGeneratedAudio(
 
   stopCurrentSource();
 
-  const audioData = outputAudioUrl
-    ? await audioUrlToArrayBuffer(outputAudioUrl)
-    : { buffer: base64ToArrayBuffer(encodedAudio!), mimeType };
-  const resolvedMimeType = audioData.mimeType ?? mimeType ?? "audio/mpeg";
-  const decoded = await ctx.decodeAudioData(audioData.buffer.slice(0));
+  const response = await fetch(clip.url);
+  if (!response.ok) {
+    throw new Error(`Failed to download generated music (${response.status})`);
+  }
+  const decoded = await ctx.decodeAudioData(await response.arrayBuffer());
   if (generation !== playbackGeneration) {
     return;
   }
@@ -265,18 +250,13 @@ async function playGeneratedAudio(
   setState({
     status: "playing",
     error: null,
-    currentPromptLabel:
-      payload.output?.promptLabel?.trim() ||
-      payload.promptLabel?.trim() ||
-      state.currentPromptLabel,
+    currentPromptLabel: label || state.currentPromptLabel,
     elapsedSeconds: 0,
   });
 
   logMusic("Started generated music playback.", {
-    mimeType: resolvedMimeType,
     durationSeconds: decoded.duration,
-    textParts:
-      payload.output?.textParts?.length ?? payload.textParts?.length ?? 0,
+    lyrics: clip.lyrics !== null,
   });
 }
 
@@ -309,27 +289,8 @@ export async function play(): Promise<void> {
       return;
     }
 
-    const accepted = await backendClient.call(
-      "media.generate",
-      {
-        capability: "text_to_music",
-        prompt: promptSet.prompts[0]?.text ?? state.userHint,
-        input: {
-          promptLabel: promptSet.label,
-          weightedPrompts: promptSet.prompts,
-          musicGenerationConfig: {
-            bpm: promptSet.config.bpm,
-            density: promptSet.config.density,
-            brightness: promptSet.config.brightness,
-            guidance: promptSet.config.guidance,
-            temperature: promptSet.config.temperature,
-            ...(state.lyrics ? { musicGenerationMode: "VOCALIZATION" } : {}),
-          },
-        },
-      },
-    );
-    logMusic("Music generation finished.", { jobId: accepted.jobId });
-    const payload = { output: accepted.output } as GeneratedMusicResponse;
+    const clip = await generateClip(promptSet.prompt);
+    logMusic("Music generation finished.");
     if (generation !== playbackGeneration) {
       return;
     }
@@ -341,7 +302,7 @@ export async function play(): Promise<void> {
       elapsedSeconds: 0,
     });
 
-    await playGeneratedAudio(payload, generation);
+    await playGeneratedAudio(clip, promptSet.label, generation);
   } catch (error) {
     if (generation !== playbackGeneration) {
       return;

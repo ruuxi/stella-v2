@@ -228,7 +228,7 @@ describe("VoiceRuntimeService direct tool execution", () => {
         "image_gen job job-1 submitted. The generated image will appear automatically when it finishes.",
       details: {
         jobId: "job-1",
-        capability: "text_to_image",
+        model: "openai/gpt-image-2.5/flare/text-to-image",
         prompt: "a product mockup",
         numImages: 3,
         status: "submitted",
@@ -248,7 +248,7 @@ describe("VoiceRuntimeService direct tool execution", () => {
 
     expect(result.details).toMatchObject({
       jobId: "job-1",
-      capability: "text_to_image",
+      model: "openai/gpt-image-2.5/flare/text-to-image",
       prompt: "a product mockup",
       numImages: 3,
       status: "submitted",
@@ -260,7 +260,7 @@ describe("VoiceRuntimeService direct tool execution", () => {
       toolName: "image_gen",
       agentType: "orchestrator",
       jobId: "job-1",
-      capability: "text_to_image",
+      model: "openai/gpt-image-2.5/flare/text-to-image",
       prompt: "a product mockup",
       numImages: 3,
       details: {

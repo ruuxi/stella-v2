@@ -1,6 +1,5 @@
 import type { MetadataRoute } from "next";
 import { FIX_PAGES } from "@/lib/fix-pages";
-import { MEDIA_DOCS_KINDS } from "@/lib/media-docs";
 import { getSiteUrl } from "@/lib/site-url";
 
 type Route = {
@@ -55,12 +54,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "monthly",
       priority: 0.4,
     },
-    ...MEDIA_DOCS_KINDS.map((kind) => ({
-      url: new URL(`/docs/media/${kind}`, base).href,
-      lastModified: now,
-      changeFrequency: "monthly" as const,
-      priority: 0.4,
-    })),
   ];
 
   return [...pages, ...fixEntries, ...docsEntries];

@@ -112,7 +112,7 @@ describe("normalizeDisplayPayload", () => {
         filePaths: ["/.stella/media/outputs/job_0.png"],
       },
       jobId: "job-1",
-      capability: "text_to_image",
+      madeBy: "GPT Image 2.5 Flare",
       prompt: "a cat",
       createdAt: 123,
     };

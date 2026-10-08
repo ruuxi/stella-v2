@@ -56,7 +56,7 @@ const OfficeArtifactPanel = lazy(() =>
 
 type WithMediaMeta = {
   prompt?: string;
-  capability?: string;
+  madeBy?: string;
 };
 
 export { MediaTabContent } from "./media-tab";
@@ -685,14 +685,14 @@ export const SourceDiffTabContent = () => {
 export const ImageTabContent = ({
   filePaths,
   prompt,
-  capability,
+  madeBy,
 }: { filePaths: string[] } & WithMediaMeta) => (
   <div className="right-sidebar__rich right-sidebar__rich--media">
     <Suspense fallback={null}>
       <MediaPreviewCard
         asset={{ kind: "image", filePaths }}
         {...(prompt ? { prompt } : {})}
-        {...(capability ? { capability } : {})}
+        {...(madeBy ? { madeBy } : {})}
       />
     </Suspense>
   </div>
@@ -701,14 +701,14 @@ export const ImageTabContent = ({
 export const VideoTabContent = ({
   filePath,
   prompt,
-  capability,
+  madeBy,
 }: { filePath: string } & WithMediaMeta) => (
   <div className="right-sidebar__rich right-sidebar__rich--media">
     <Suspense fallback={null}>
       <MediaPreviewCard
         asset={{ kind: "video", filePath }}
         {...(prompt ? { prompt } : {})}
-        {...(capability ? { capability } : {})}
+        {...(madeBy ? { madeBy } : {})}
       />
     </Suspense>
   </div>
@@ -717,14 +717,14 @@ export const VideoTabContent = ({
 export const AudioTabContent = ({
   filePath,
   prompt,
-  capability,
+  madeBy,
 }: { filePath: string } & WithMediaMeta) => (
   <div className="right-sidebar__rich right-sidebar__rich--media">
     <Suspense fallback={null}>
       <MediaPreviewCard
         asset={{ kind: "audio", filePath }}
         {...(prompt ? { prompt } : {})}
-        {...(capability ? { capability } : {})}
+        {...(madeBy ? { madeBy } : {})}
       />
     </Suspense>
   </div>
@@ -734,14 +734,14 @@ export const Model3dTabContent = ({
   filePath,
   label,
   prompt,
-  capability,
+  madeBy,
 }: { filePath: string; label?: string } & WithMediaMeta) => (
   <div className="right-sidebar__rich right-sidebar__rich--media">
     <Suspense fallback={null}>
       <MediaPreviewCard
         asset={{ kind: "model3d", filePath, ...(label ? { label } : {}) }}
         {...(prompt ? { prompt } : {})}
-        {...(capability ? { capability } : {})}
+        {...(madeBy ? { madeBy } : {})}
       />
     </Suspense>
   </div>
@@ -751,14 +751,14 @@ export const DownloadTabContent = ({
   filePath,
   label,
   prompt,
-  capability,
+  madeBy,
 }: { filePath: string; label: string } & WithMediaMeta) => (
   <div className="right-sidebar__rich right-sidebar__rich--media">
     <Suspense fallback={null}>
       <MediaPreviewCard
         asset={{ kind: "download", filePath, label }}
         {...(prompt ? { prompt } : {})}
-        {...(capability ? { capability } : {})}
+        {...(madeBy ? { madeBy } : {})}
       />
     </Suspense>
   </div>
@@ -767,14 +767,14 @@ export const DownloadTabContent = ({
 export const TextTabContent = ({
   text,
   prompt,
-  capability,
+  madeBy,
 }: { text: string } & WithMediaMeta) => (
   <div className="right-sidebar__rich right-sidebar__rich--media">
     <Suspense fallback={null}>
       <MediaPreviewCard
         asset={{ kind: "text", text }}
         {...(prompt ? { prompt } : {})}
-        {...(capability ? { capability } : {})}
+        {...(madeBy ? { madeBy } : {})}
       />
     </Suspense>
   </div>

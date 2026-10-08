@@ -10,6 +10,6 @@ export type MediaTabItem = {
   id: string;
   asset: Extract<DisplayPayload, { kind: "media" }>["asset"];
   prompt?: string;
-  capability?: string;
+  madeBy?: string;
   createdAt: number;
 };

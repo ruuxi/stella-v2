@@ -1,419 +1,63 @@
 /**
- * Agent-facing docs for the Stella managed media API.
+ * Agent-facing docs for Stella's media API, served as plain text
+ * (llms.txt-style) at https://stella.sh/docs/media. Audience: AI agents and
+ * scripts, not human readers.
  *
- * Served as plain text (llms.txt-style) at:
- *   - https://stella.sh/docs/media          (overview)
- *   - https://stella.sh/docs/media/images   (image generation + edit)
- *   - https://stella.sh/docs/media/video    (text, image, and reference-to-video)
- *   - https://stella.sh/docs/media/audio    (audio generation, transcription)
- *   - https://stella.sh/docs/media/music    (text-to-music)
- *   - https://stella.sh/docs/media/3d       (text-to-3d)
- *
- * Audience: AI agents driving the Stella desktop app, not human readers.
- * Optimized for `curl` consumption — no headers, no nav, no boilerplate.
- *
- * Source of truth for what the backend *accepts* lives in the cloud-builder
- * worker (`workers/cloud-builder/src/media/catalog.ts`). Keep the capability
- * IDs here in sync when that catalog changes.
+ * The models come straight from `@stella/contracts/media-models`, the same
+ * list the backend serves, so this page never needs editing when a model
+ * changes. Each model's input and output are documented on its own page
+ * (`docsUrl`); Stella passes them through untouched.
  */
 
-export const MEDIA_DOCS_KINDS = [
-  "images",
-  "video",
-  "audio",
-  "music",
-  "3d",
-] as const;
-export type MediaDocsKind = (typeof MEDIA_DOCS_KINDS)[number];
+import { MEDIA_MODELS } from "@stella/contracts/media-models";
 
-const isMediaDocsKind = (value: string): value is MediaDocsKind =>
-  (MEDIA_DOCS_KINDS as readonly string[]).includes(value);
+export const renderMediaDocsOverview = (): string => `# Stella media API
 
-export const parseMediaDocsKind = (value: string): MediaDocsKind | null =>
-  isMediaDocsKind(value) ? value : null;
+Run Stella's media models (images, video, music, speech, transcription, 3D)
+on the user's Stella account. Inside Stella, use the \`stella-media\` CLI
+(\`stella-media models\`, \`stella-media generate --wait --request '<json>'\`);
+the HTTP API below is what it calls.
 
-const SHARED_CONTRACT = `
-## Endpoint
+## Models
 
+${MEDIA_MODELS.map((model) => `- \`${model.id}\` (${model.kind}): ${model.does}\n  Input and output: ${model.docsUrl}`).join("\n")}
+
+The current list is also served at \`GET <stella-api>/api/media/v1/models\`.
+
+## Start a job
+
+\`\`\`
 POST <stella-api>/api/media/v1/generate
 Content-Type: application/json
 Authorization: Bearer <stella-session-token>
+Idempotency-Key: <optional; a retry with the same key and body reattaches>
 
-Where \`<stella-api>\` is the Stella backend base URL the desktop app is signed
-in against. Reuse the user's existing session token — do not invent your own
-credentials. An optional \`Idempotency-Key\` header makes retries safe: the
-same key and body reattach to the first job instead of starting another.
-
-## Request body
-
-\`\`\`json
-{
-  "capability": "<id>",          // required; see per-kind sections below
-  "prompt": "...",               // optional convenience field; mapped to the capability's prompt key
-  "aspectRatio": "16:9",         // optional convenience field for image/video; mapped to aspect_ratio
-  "sourceUrl": "https://...",    // optional; for capabilities that take a public URL
-  "source": "data:image/png;base64,...", // optional; for local files (preferred)
-  "sources": { "video": "data:...", "audio": "data:..." }, // for multi-input capabilities
-  "input": { /* provider-specific overrides, merged on top of the convenience fields */ }
-}
+{ "model": "<model id>", "input": { ...the model's own input... } }
 \`\`\`
 
-\`source\` accepts a \`data:\` URI string or \`{ "base64": "...", "mimeType": "image/png" }\`.
-The backend wraps the value into the right shape for the picked endpoint
-(e.g. \`image_urls: ["data:..."]\` for image edit).
+\`<stella-api>\` is the Stella backend the user is signed in to; reuse their
+session token. \`input\` is exactly what the model's page documents, with its
+field names and values; Stella does not rename or fill in anything. A file can
+be an http(s) URL or a \`data:<mime>;base64,...\` URI anywhere in \`input\` (the
+whole body is limited to 24 MB); data URIs are stored and passed on as URLs.
 
-## Response (202 Accepted)
+Answer (202): \`{ "jobId": "...", "model": "...", "status": "queued" }\`.
 
-\`\`\`json
-{
-  "jobId": "job_123",
-  "capability": "text_to_image",
-  "status": "queued"
-}
-\`\`\`
+## Watch it
 
-Music and transcription finish inside the request, so their response is
-\`"status": "succeeded"\` with the result in \`output\`.
+\`GET <stella-api>/api/media/v1/job?jobId=<jobId>\` until \`status\` is
+\`succeeded\`, \`failed\` or \`canceled\`. A succeeded job's \`output\` is the
+model's own output, with every file \`url\` replaced by a signed copy Stella
+keeps (valid for an hour from each read). A failed job's \`error.message\` is the
+model's complaint, which says what to change in the input.
 
-## Watching for completion
-
-Use the local \`stella-media\` command when you want normal
-\`Bash\`-style behavior: one call that waits for the result. It submits the
-same gateway request, can wait until the job reaches a terminal state, and
-saves completed outputs to
-\`state/media/outputs/\`.
-
-\`\`\`bash
-cat > /tmp/stella-media-request.json <<'JSON'
-{
-  "capability": "text_to_image",
-  "prompt": "a clean product render of a translucent blue desk lamp",
-  "aspectRatio": "1:1"
-}
-JSON
-
-stella-media generate --request-file /tmp/stella-media-request.json --wait --timeout 240
-\`\`\`
-
-Without \`--wait\`, \`stella-media generate\` returns after submit with a
-\`jobId\`. To check a job later:
-
-\`\`\`bash
-stella-media status --job-id <jobId> --save
-\`\`\`
-
-The Stella desktop renderer also subscribes to every succeeded media job for
-the signed-in user, downloads the output to
-\`state/media/outputs/<jobId>_<i>.<ext>\`, and pops it open in the Display
-sidebar automatically. If generation fails, Stella shows a failure
-notification.
-
-If you do need the raw status, poll
-\`GET <stella-api>/api/media/v1/job?jobId=<jobId>\` with the same bearer token.
-Status values: \`queued\`, \`running\`, \`succeeded\`, \`failed\`,
-\`canceled\`. A succeeded job's \`output\` keeps the provider's shape, with each
-file \`url\` pointing at a signed, time-limited copy Stella stored.
-
-## Auth failure (401)
-
-If the user is not signed in, the endpoint returns a structured 401:
-
-\`\`\`json
-{
-  "error": "Sign in to Stella to use media generation.",
-  "code": "auth_required",
-  "action": "Ask the user to open the Stella desktop app and finish signing in (Settings → Account, or the welcome screen on first launch). Once they're signed in, retry the same request — no payload changes needed.",
-  "docsUrl": "https://stella.sh/docs/media"
-}
-\`\`\`
-
-When you see \`code: "auth_required"\`:
-1. Stop the in-flight job — do not retry on a backoff.
-2. Surface \`action\` to the user verbatim so they know what to do.
-3. Once they confirm sign-in, re-run the original request with the same payload.
+Cancel: \`DELETE <stella-api>/api/media/v1/job\` with the job's
+\`Idempotency-Key\`.
 
 ## Errors
 
-All other errors return \`{ "error": "human-readable message" }\` with an
-appropriate status. Upstream provider errors (content policy, validation,
-rate limits) are parsed and forwarded as-is — show the message to the user.
-`.trim();
-
-const KIND_DESCRIPTIONS: Record<MediaDocsKind, string> = {
-  images: "image generation and editing",
-  video: "text-to-video, image-to-video, and reference-to-video",
-  audio:
-    "audio generation (speech, dialogue, sound effects, ambient) and speech-to-text",
-  music: "text-to-music generation",
-  "3d": "text-to-3d asset generation",
-};
-
-const renderHeader = (title: string, blurb: string): string =>
-  `# ${title}\n\n${blurb}\n\nAudience: AI agents. Plain text on purpose. Curl me.`;
-
-export const renderMediaDocsOverview = (): string =>
-  [
-    renderHeader(
-      "Stella Managed Media API",
-      "One HTTP endpoint, many capabilities. Submit a job, report success to the user. Outputs land on disk and in the Display sidebar automatically.",
-    ),
-    "",
-    "## Per-kind docs",
-    "",
-    ...MEDIA_DOCS_KINDS.map(
-      (kind) =>
-        `- \`https://stella.sh/docs/media/${kind}\` — ${KIND_DESCRIPTIONS[kind]}`,
-    ),
-    "",
-    SHARED_CONTRACT,
-  ].join("\n");
-
-const SECTION_IMAGES = `
-## Capabilities
-
-### \`text_to_image\` — generate images from text with GPT Image 2
-
-- Convenience fields: \`prompt\`, \`aspectRatio\`.
-- Useful \`input\` overrides: \`quality\` (\`low\` | \`medium\` | \`high\`; defaults to \`low\`), \`num_images\` (1–4), \`output_format\` (\`png\` | \`jpeg\` | \`webp\`).
-
-\`\`\`bash
-curl -X POST "$STELLA_API/api/media/v1/generate" \\
-  -H "Authorization: Bearer $STELLA_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "capability": "text_to_image",
-    "prompt": "cinematic rainy Tokyo alley at night",
-    "aspectRatio": "9:16",
-    "input": { "quality": "high", "num_images": 1 }
-  }'
-\`\`\`
-
-### \`image_edit\` — edit an existing image with GPT Image 2 Edit
-
-- Required: \`source\` (or \`sourceUrl\`) of the image to edit.
-- Convenience fields: \`prompt\`, \`aspectRatio\` (defaults to \`auto\`).
-- Useful \`input\` overrides: \`quality\` (defaults to \`low\`), \`num_images\`, \`mask_url\` (only when the deployment runs images on fal; OpenRouter has no masked edits).
-
-\`\`\`bash
-curl -X POST "$STELLA_API/api/media/v1/generate" \\
-  -H "Authorization: Bearer $STELLA_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "capability": "image_edit",
-    "prompt": "remove the background, keep the subject sharp",
-    "source": "data:image/png;base64,<base64>"
-  }'
-\`\`\`
-
-## Notes for agents
-
-- If you need to know whether generation completed, use
-  \`stella-media generate --request-file ... --wait --timeout 240\`. The
-  command exits nonzero on failure or timeout and prints saved output paths on
-  success.
-- If you only need to kick off generation, submit without \`--wait\` and tell
-  the user what you started. The Display sidebar will open with the result
-  automatically when it finishes.
-- For multi-image jobs, the materializer writes \`<jobId>_0.png\`, \`<jobId>_1.png\`, …
-  to \`state/media/outputs/\` and shows them as a gallery.
-`.trim();
-
-const SECTION_VIDEO = `
-## Capabilities
-
-### \`text_to_video\` — generate a video from text with MiniMax H3 Max
-
-- Convenience fields: \`prompt\`, \`aspectRatio\`.
-- Useful \`input\` fields: \`duration\` (5–15 seconds; defaults to 5), \`resolution\` (\`480P\` | \`768P\`; defaults to \`768P\`), \`prompt_expansion_mode\` (\`balanced\` | \`quality\`).
-
-### \`image_to_video\` — animate a still image
-
-- Required: \`source\` (or \`sourceUrl\`) of the still image.
-- Convenience fields: \`prompt\`, \`aspectRatio\`.
-- Useful \`input\` fields: \`end_image_url\` (optional final frame), \`duration\`, \`resolution\`, \`prompt_expansion_mode\`.
-
-\`\`\`bash
-curl -X POST "$STELLA_API/api/media/v1/generate" \\
-  -H "Authorization: Bearer $STELLA_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "capability": "image_to_video",
-    "prompt": "slow cinematic push-in",
-    "aspectRatio": "16:9",
-    "source": "data:image/png;base64,<base64>",
-    "input": { "duration": 5 }
-  }'
-\`\`\`
-
-### \`reference_to_video\` — generate from image, video, and audio references
-
-- Required: at least one reference image or video. \`source\` maps to \`reference_video_urls\` for the common video-reference case.
-- Convenience fields: \`prompt\`, \`aspectRatio\`.
-- Useful \`input\` fields: \`reference_image_urls\`, \`reference_video_urls\`, \`reference_audio_urls\`, \`duration\`, \`resolution\`, \`prompt_expansion_mode\`.
-- Reference images, videos, and audio may total at most 12 files. Audio cannot be the only reference.
-- Runs on fal only; a deployment without fal answers that it is not set up.
-
-## Notes for agents
-
-- Video jobs are slow (tens of seconds to minutes). After submitting, give the
-  user a one-line "I've kicked off the video render" and move on — the
-  Display sidebar will open with the finished clip when it's ready.
-- The materializer writes the output to \`state/media/outputs/<jobId>_0.<ext>\`.
-`.trim();
-
-const SECTION_AUDIO = `
-## Capabilities
-
-### \`audio_generation\` — speech, dialogue, sound effects, ambient
-
-- ByteDance Seed Audio 1.0 handles spoken lines, multi-speaker dialogue, Foley/sound effects, and background ambience. For music, use \`text_to_music\`.
-- Convenience field: \`prompt\` describes what to generate.
-- Useful \`input\` overrides: \`voice\` (preset voice id), \`audio_urls\` (up to 3 reference clips for voice cloning — reference them inline in the prompt as \`@Audio1\`/\`@Audio2\`/\`@Audio3\`), \`image_url\` (single reference image; can't be combined with audio refs), \`output_format\` (\`wav\` | \`mp3\` | \`pcm\` | \`ogg_opus\`), \`sample_rate\`, \`speed\`, \`volume\`, \`pitch\`. On deployments that run audio on OpenRouter the output is always MP3 and only \`voice\`, \`audio_urls\`, \`image_url\` and \`speed\` apply.
-
-\`\`\`bash
-curl -X POST "$STELLA_API/api/media/v1/generate" \\
-  -H "Authorization: Bearer $STELLA_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "capability": "audio_generation",
-    "prompt": "Welcome to Stella. How can I help today?"
-  }'
-\`\`\`
-
-For a sound effect or ambience, just describe it:
-
-\`\`\`bash
-curl -X POST "$STELLA_API/api/media/v1/generate" \\
-  -H "Authorization: Bearer $STELLA_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "capability": "audio_generation",
-    "prompt": "heavy rain on a tin roof with distant thunder",
-    "input": { "output_format": "wav" }
-  }'
-\`\`\`
-
-### \`speech_to_text\` — transcribe audio
-
-- Required: \`source\` (or \`sourceUrl\`) of the audio file.
-- Output includes \`text\`, segments, and detected language.
-
-## Notes for agents
-
-- Audio outputs land in \`state/media/outputs/\` as \`.mp3\` / \`.wav\` and play
-  inline in the Display sidebar — no need to manage playback yourself.
-- For long transcriptions, the provider may take a while; keep the user
-  updated only if the job is still pending after ~30s.
-`.trim();
-
-const SECTION_MUSIC = `
-## Capabilities
-
-### \`text_to_music\` — generate a short music clip
-
-- Google Lyria 3 Pro (on fal or OpenRouter, depending on the deployment). The call answers with the finished MP3.
-- Convenience field: \`prompt\` becomes a single weighted prompt if \`weightedPrompts\` is not supplied.
-- Useful \`input\` fields: \`promptLabel\`, \`weightedPrompts\`, \`musicGenerationConfig\`.
-- \`musicGenerationConfig\` fields: \`bpm\` (55–145), \`density\` (0.05–0.9), \`brightness\` (0.1–0.8), \`guidance\` (2–5), \`temperature\` (0.6–1.4), optional \`musicGenerationMode: "VOCALIZATION"\`.
-
-\`\`\`bash
-curl -X POST "$STELLA_API/api/media/v1/generate" \\
-  -H "Authorization: Bearer $STELLA_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "capability": "text_to_music",
-    "prompt": "warm lo-fi keys, soft vinyl texture, gentle drums",
-    "input": {
-      "promptLabel": "Rainy tape",
-      "musicGenerationConfig": {
-        "bpm": 85,
-        "density": 0.5,
-        "brightness": 0.4,
-        "guidance": 4,
-        "temperature": 1.1
-      }
-    }
-  }'
-\`\`\`
-
-For more control, pass explicit weighted prompts:
-
-\`\`\`json
-{
-  "capability": "text_to_music",
-  "input": {
-    "promptLabel": "Neon focus",
-    "weightedPrompts": [
-      { "text": "steady ambient electronica with soft arpeggios", "weight": 1 },
-      { "text": "harsh distorted guitars", "weight": -0.6 }
-    ],
-    "musicGenerationConfig": {
-      "bpm": 104,
-      "density": 0.45,
-      "brightness": 0.5,
-      "guidance": 4,
-      "temperature": 1
-    }
-  }
-}
-\`\`\`
-
-## Notes for agents
-
-- Music jobs return a normal media job and also materialize into \`state/media/outputs/\`.
-- The generated clip is about 30 seconds. Use \`musicGenerationMode: "VOCALIZATION"\` only when the user asks for sung elements; otherwise keep it instrumental.
-- Do not use real artist names, song titles, or copyrighted material in the prompt.
-`.trim();
-
-const SECTION_3D = `
-## Capabilities
-
-### \`text_to_3d\` — generate a 3D asset with Hunyuan 3D v3.1 Pro
-
-- Convenience field: \`prompt\`.
-- Useful \`input\` fields: \`generate_type\` (\`Normal\` | \`Geometry\`), \`face_count\` (40,000–1,500,000), \`enable_pbr\`.
-
-\`\`\`bash
-curl -X POST "$STELLA_API/api/media/v1/generate" \\
-  -H "Authorization: Bearer $STELLA_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "capability": "text_to_3d",
-    "prompt": "a low-poly stylized fox, neutral pose"
-  }'
-\`\`\`
-
-## Notes for agents
-
-- Output is a 3D asset URL (typically \`.glb\` or similar). The Display sidebar
-  shows it as a downloadable card with a label — the user can open it in any
-  3D viewer they prefer. You don't need to convert formats yourself.
-`.trim();
-
-const SECTIONS: Record<MediaDocsKind, string> = {
-  images: SECTION_IMAGES,
-  video: SECTION_VIDEO,
-  audio: SECTION_AUDIO,
-  music: SECTION_MUSIC,
-  "3d": SECTION_3D,
-};
-
-const KIND_TITLES: Record<MediaDocsKind, string> = {
-  images: "Stella Managed Media — Images",
-  video: "Stella Managed Media — Video",
-  audio: "Stella Managed Media — Audio",
-  music: "Stella Managed Media — Music",
-  "3d": "Stella Managed Media — 3D",
-};
-
-export const renderMediaDocsForKind = (kind: MediaDocsKind): string =>
-  [
-    renderHeader(
-      KIND_TITLES[kind],
-      `Capabilities for ${KIND_DESCRIPTIONS[kind]}.`,
-    ),
-    "",
-    SECTIONS[kind],
-    "",
-    SHARED_CONTRACT,
-  ].join("\n");
+- 400: unknown model, or the model refused the input (the message says why).
+- 401 \`auth_required\`: the user is signed out. Show them \`action\`, then retry.
+- 402 \`CAPABILITY_REQUIRED\`: their plan does not include this kind of media.
+- 429: their usage limit or the request rate is reached; \`retryAfterMs\` says when.
+`;

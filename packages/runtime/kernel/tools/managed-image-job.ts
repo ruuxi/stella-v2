@@ -39,8 +39,8 @@ type MediaJobError = {
 
 export type ManagedMediaJob = {
   jobId: string;
-  capability: string;
-  request?: { prompt?: string; aspectRatio?: string; input?: unknown };
+  model: string;
+  input?: Record<string, unknown>;
   status: MediaJobStatus;
   upstreamStatus?: string;
   output?: unknown;
@@ -205,7 +205,7 @@ const isManagedMediaJob = (value: unknown): value is ManagedMediaJob => {
   const record = value as Record<string, unknown>;
   return Boolean(
     asNonEmptyString(record.jobId) &&
-    asNonEmptyString(record.capability) &&
+    asNonEmptyString(record.model) &&
     parseJobStatus(record.status),
   );
 };

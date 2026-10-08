@@ -40,7 +40,7 @@ export const createImageGenTool = (
         aspectRatio: {
           type: "string",
           description:
-            "Optional aspect ratio (e.g. '1:1', '16:9', '9:16', '4:3'). Defaults to the gateway's recommended ratio.",
+            "Optional aspect ratio (e.g. '1:1', '16:9', '9:16', '4:3'). Defaults to the model's choice.",
         },
         size: {
           type: "object",
@@ -54,16 +54,16 @@ export const createImageGenTool = (
         },
         quality: {
           type: "string",
-          enum: ["low", "medium", "high"],
+          enum: ["low", "medium", "high", "xhigh", "max"],
           description:
-            "Optional GPT Image 2 quality. Defaults to 'low'; use 'medium' or 'high' only when the user explicitly requests more fidelity.",
+            "Optional quality. Defaults to 'low'; use a higher one only when the user explicitly asks for more fidelity.",
         },
         referenceImagePaths: {
           type: "array",
           items: { type: "string" },
           maxItems: MAX_MANAGED_IMAGE_REFERENCE_ITEMS,
           description:
-            "Optional local image paths to use as reference inputs. At most four total references may be supplied across paths and URLs. Managed generation safely normalizes local bytes into a bounded upload envelope. When any reference is provided the gateway switches from text_to_image to image_edit.",
+            "Optional local image paths to use as reference inputs. At most four total references may be supplied across paths and URLs. Managed generation safely normalizes local bytes into a bounded upload envelope. When any reference is provided the image is an edit of them.",
         },
         referenceImageUrls: {
           type: "array",

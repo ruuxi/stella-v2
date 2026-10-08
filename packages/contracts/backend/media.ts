@@ -1,17 +1,19 @@
 /**
- * Managed media generation: images, video, audio, music, 3D and speech to
- * text, run on Stella's provider accounts and billed to the owner's plan.
+ * Managed media generation on Stella's fal account, billed to the owner's
+ * plan. The models are the list in `@stella/contracts/media-models`; a
+ * request names one and sends that model's own input, untouched.
  *
  * A job is one row in the owner's object. Provider outputs are copied into
- * Stella's media bucket, and a job's `output` keeps the provider's shape
+ * Stella's media bucket, and a job's `output` keeps the model's own shape
  * with every file `url` replaced by a presigned GET (`r2Key` names the
- * stored object). Music and speech to text finish inside `media.generate`;
- * everything else settles later through the provider's webhook, so clients
- * watch `media.job`.
+ * stored object). Jobs settle through fal's webhook, so clients watch
+ * `media.job`.
  *
  * The same calls are served over HTTP for the CLI and API clients:
- * `/api/media/v1/{capabilities,generate,job}` on the backend origin.
+ * `/api/media/v1/{models,generate,job}` on the backend origin.
  */
+
+import type { MediaModelKind } from "../media-models.js";
 
 export type MediaJobStatus =
   | "queued"
@@ -26,27 +28,15 @@ export type MediaJobError = {
   details?: Record<string, unknown>;
 };
 
-/** A source file inline: base64 bytes and their type. */
-export type MediaBase64Source = {
-  base64: string;
-  mimeType: string;
-  fileName?: string;
-};
-
-/** An http(s) URL, a `data:` URI, or inline base64. */
-export type MediaSourceReference = string | MediaBase64Source;
-
 export type MediaGenerateRequest = {
-  /** A capability id from `media.capabilities`, e.g. `text_to_image`. */
-  capability: string;
-  prompt?: string;
-  aspectRatio?: string;
-  sourceUrl?: string;
-  source?: MediaSourceReference;
-  /** Named sources, e.g. `{ image, video, audio, reference_image }`. */
-  sources?: Record<string, MediaSourceReference>;
-  /** Provider input, merged under the convenience fields above. */
-  input?: Record<string, unknown>;
+  /** A model id from `media.models`, e.g. `google/lyria-3.5`. */
+  model: string;
+  /**
+   * The model's own input, as its docs page describes it. A file may be an
+   * http(s) URL or a `data:` URI anywhere in it; data URIs are stored and
+   * passed on as URLs.
+   */
+  input: Record<string, unknown>;
   /**
    * Idempotency key: a retry with the same key and request reattaches to
    * the first job; the same key with a different request is a conflict.
@@ -58,26 +48,21 @@ export type MediaGenerateRequest = {
 
 export type MediaGenerateAccepted = {
   jobId: string;
-  capability: string;
+  model: string;
   status: MediaJobStatus;
   /** True when this answer reattached to an existing idempotent request. */
   reattached?: boolean;
-  /** Present when the job finished inside the call (music, speech to text). */
+  /** Present when the job had already finished. */
   output?: unknown;
-};
-
-export type MediaRequestSummary = {
-  prompt?: string;
-  aspectRatio?: string;
-  /** The provider input as submitted; inline sources appear as signed URLs. */
-  input?: Record<string, unknown>;
 };
 
 export type MediaJob = {
   jobId: string;
-  capability: string;
+  model: string;
+  kind: MediaModelKind;
   status: MediaJobStatus;
-  request: MediaRequestSummary;
+  /** The input as submitted; inline sources appear as signed URLs. */
+  input: Record<string, unknown>;
   output?: unknown;
   error?: MediaJobError;
   createdAt: number;
@@ -85,26 +70,19 @@ export type MediaJob = {
   completedAt?: number;
 };
 
-export type MediaCapability = {
+/** A model as `media.models` lists it. */
+export type MediaModelListing = {
   id: string;
   name: string;
-  description: string;
-  category: "audio" | "image" | "video" | "3d";
-  provider: "fal" | "openrouter";
-  endpointId: string;
+  kind: MediaModelKind;
+  does: string;
   docsUrl: string;
-  promptKey?: string;
-  sourceUrlKey?: string;
-  requiresSourceUrl?: boolean;
-  supportsAspectRatio?: boolean;
-  inputHints: string[];
-  outputHints: string[];
 };
 
 export type MediaCalls = {
-  "media.capabilities": {
+  "media.models": {
     args: Record<string, never>;
-    result: { data: MediaCapability[]; docsUrl: string };
+    result: { data: MediaModelListing[]; docsUrl: string };
   };
   /**
    * Start a job. Refused with `FORBIDDEN` (reason `capability_required`)

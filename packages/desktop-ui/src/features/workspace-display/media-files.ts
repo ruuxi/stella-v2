@@ -69,7 +69,7 @@ export const importLocalMedia = async (file: File): Promise<void> => {
   const payload: DisplayPayload = {
     kind: "media",
     asset,
-    capability: "imported",
+    madeBy: "imported",
     createdAt: Date.now(),
   };
   openDisplayPayloadTab(payload);

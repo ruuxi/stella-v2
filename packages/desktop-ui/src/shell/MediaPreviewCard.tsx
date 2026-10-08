@@ -20,7 +20,7 @@ import { useT } from "@/shared/i18n";
 type MediaPreviewCardProps = {
   asset: MediaAsset;
   prompt?: string;
-  capability?: string;
+  madeBy?: string;
   inDialog?: boolean;
   initialIndex?: number;
 };
@@ -34,17 +34,17 @@ const expandDisplayPanel = () => {
 
 const PromptHeader = ({
   prompt,
-  capability,
+  madeBy,
 }: {
   prompt?: string;
-  capability?: string;
+  madeBy?: string;
 }) => {
-  if (!prompt && !capability) return null;
+  if (!prompt && !madeBy) return null;
   return (
     <div className="display-media-meta">
-      {capability && (
+      {madeBy && (
         <span className="display-media-meta__cap">
-          {capability.replace(/_/g, " ")}
+          {madeBy}
         </span>
       )}
       {prompt && <p className="display-media-meta__prompt">{prompt}</p>}
@@ -126,13 +126,13 @@ const MediaActions = ({
 const ImageGallery = ({
   filePaths,
   prompt,
-  capability,
+  madeBy,
   inDialog,
   initialIndex,
 }: {
   filePaths: string[];
   prompt?: string;
-  capability?: string;
+  madeBy?: string;
   inDialog?: boolean;
   initialIndex?: number;
 }) => {
@@ -152,7 +152,7 @@ const ImageGallery = ({
 
   return (
     <div className="display-media display-media--image">
-      <PromptHeader prompt={prompt} capability={capability} />
+      <PromptHeader prompt={prompt} madeBy={madeBy} />
       {error && <p className="display-media__error">{error}</p>}
       <MediaActions
         filePath={filePaths[safeIndex]}
@@ -220,12 +220,12 @@ const ImageGallery = ({
 const VideoCard = ({
   filePath,
   prompt,
-  capability,
+  madeBy,
   inDialog,
 }: {
   filePath: string;
   prompt?: string;
-  capability?: string;
+  madeBy?: string;
   inDialog?: boolean;
 }) => {
   const t = useT();
@@ -233,7 +233,7 @@ const VideoCard = ({
   const streamUrl = localMediaUrl(filePath);
   return (
     <div className="display-media display-media--video">
-      <PromptHeader prompt={prompt} capability={capability} />
+      <PromptHeader prompt={prompt} madeBy={madeBy} />
       {unavailable ? (
         <div className="display-media__missing">
           File no longer available — {filenameOf(filePath)} was moved or
@@ -273,12 +273,12 @@ const VideoCard = ({
 const AudioCard = ({
   filePath,
   prompt,
-  capability,
+  madeBy,
   inDialog,
 }: {
   filePath: string;
   prompt?: string;
-  capability?: string;
+  madeBy?: string;
   inDialog?: boolean;
 }) => {
   const t = useT();
@@ -286,7 +286,7 @@ const AudioCard = ({
   const streamUrl = localMediaUrl(filePath);
   return (
     <div className="display-media display-media--audio">
-      <PromptHeader prompt={prompt} capability={capability} />
+      <PromptHeader prompt={prompt} madeBy={madeBy} />
       <div className="display-media__audio-card">
         {unavailable ? (
           <div className="display-media__missing">
@@ -324,14 +324,14 @@ const DownloadCard = ({
   filePath,
   label,
   prompt,
-  capability,
+  madeBy,
   variant,
   inDialog,
 }: {
   filePath: string;
   label: string;
   prompt?: string;
-  capability?: string;
+  madeBy?: string;
   variant: "model3d" | "download";
   inDialog?: boolean;
 }) => {
@@ -346,7 +346,7 @@ const DownloadCard = ({
         variant === "model3d" ? "model3d" : "download"
       }`}
     >
-      <PromptHeader prompt={prompt} capability={capability} />
+      <PromptHeader prompt={prompt} madeBy={madeBy} />
       <div className="display-media__download-card">
         <div className="display-media__download-icon" aria-hidden>
           {variant === "model3d" ? "◆" : "↓"}
@@ -387,14 +387,14 @@ const DownloadCard = ({
 const TextCard = ({
   text,
   prompt,
-  capability,
+  madeBy,
 }: {
   text: string;
   prompt?: string;
-  capability?: string;
+  madeBy?: string;
 }) => (
   <div className="display-media display-media--text">
-    <PromptHeader prompt={prompt} capability={capability} />
+    <PromptHeader prompt={prompt} madeBy={madeBy} />
     <MediaActions copyText={text} />
     <div className="display-media__text">{text}</div>
   </div>
@@ -403,7 +403,7 @@ const TextCard = ({
 export const MediaPreviewCard = ({
   asset,
   prompt,
-  capability,
+  madeBy,
   inDialog,
   initialIndex,
 }: MediaPreviewCardProps) => {
@@ -413,7 +413,7 @@ export const MediaPreviewCard = ({
         <ImageGallery
           filePaths={asset.filePaths}
           {...(prompt ? { prompt } : {})}
-          {...(capability ? { capability } : {})}
+          {...(madeBy ? { madeBy } : {})}
           {...(inDialog ? { inDialog } : {})}
           {...(initialIndex !== undefined ? { initialIndex } : {})}
         />
@@ -423,7 +423,7 @@ export const MediaPreviewCard = ({
         <VideoCard
           filePath={asset.filePath}
           {...(prompt ? { prompt } : {})}
-          {...(capability ? { capability } : {})}
+          {...(madeBy ? { madeBy } : {})}
           {...(inDialog ? { inDialog } : {})}
         />
       );
@@ -432,7 +432,7 @@ export const MediaPreviewCard = ({
         <AudioCard
           filePath={asset.filePath}
           {...(prompt ? { prompt } : {})}
-          {...(capability ? { capability } : {})}
+          {...(madeBy ? { madeBy } : {})}
           {...(inDialog ? { inDialog } : {})}
         />
       );
@@ -443,7 +443,7 @@ export const MediaPreviewCard = ({
           label={asset.label ?? "3D model"}
           variant="model3d"
           {...(prompt ? { prompt } : {})}
-          {...(capability ? { capability } : {})}
+          {...(madeBy ? { madeBy } : {})}
           {...(inDialog ? { inDialog } : {})}
         />
       );
@@ -454,7 +454,7 @@ export const MediaPreviewCard = ({
           label={asset.label}
           variant="download"
           {...(prompt ? { prompt } : {})}
-          {...(capability ? { capability } : {})}
+          {...(madeBy ? { madeBy } : {})}
           {...(inDialog ? { inDialog } : {})}
         />
       );
@@ -463,7 +463,7 @@ export const MediaPreviewCard = ({
         <TextCard
           text={asset.text}
           {...(prompt ? { prompt } : {})}
-          {...(capability ? { capability } : {})}
+          {...(madeBy ? { madeBy } : {})}
         />
       );
   }

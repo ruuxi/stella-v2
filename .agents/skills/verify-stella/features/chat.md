@@ -12,7 +12,7 @@ Chat is Stella's primary desktop surface. Stella is one long-running conversatio
   over `/dictation/socket` and see live partial text; a socket that fails ends
   the session with a visible dictation error. Otherwise the whole recording is
   transcribed when stopped (managed `/api/dictation/transcribe` with
-  `microsoft/mai-transcribe-2`, or the user's own OpenRouter key through
+  `elevenlabs/scribe-v2`, or the user's own OpenRouter key through
   Electron main). A Stella without managed dictation and no saved OpenRouter
   key opens "Turn on dictation" instead.
 

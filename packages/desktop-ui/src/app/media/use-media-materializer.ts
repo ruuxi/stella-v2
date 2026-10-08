@@ -1,8 +1,8 @@
 /**
  * Subscribes to every succeeded media job for the current viewer and
  * materializes its outputs into `~/.stella/media/outputs/`. This is the single
- * place that turns a remote media job (started by MediaStudio, by the
- * agent's `MediaGenerate` tool, by a CLI, …) into a local file plus a
+ * place that turns a remote media job (started by `image_gen`, by an
+ * agent's `stella-media`, by the music player, …) into a local file plus a
  * `DisplayPayload` the sidebar can render when the user opens it.
  *
  * Decoupling production from materialization is what makes "all generated
@@ -14,6 +14,8 @@
 
 import { useEffect, useMemo, useRef } from "react"
 import { useBackendView } from "@/platform/backend/use-backend-view"
+import type { MediaJob } from "@stella/contracts/backend/media"
+import { mediaModel } from "@stella/contracts/media-models"
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state"
 import type {
   DisplayPayload,
@@ -24,7 +26,7 @@ import {
   extractOutput,
   saveOutputToStella,
   type OutputMedia,
-} from "./media-store"
+} from "./media-output"
 import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload"
 import { showToast } from "@/ui/toast"
 import { imageGenerationFailureKey } from "./media-error-copy"
@@ -78,30 +80,8 @@ const toMediaAsset = (output: OutputMedia): MediaAsset | null => {
   }
 }
 
-type MaterializerJob = {
-  jobId: string
-  capability: string
-  request?: { prompt?: string }
-  output?: unknown
-  error?: {
-    message?: string
-    code?: string
-  }
-  completedAt?: number
-  updatedAt: number
-  createdAt: number
-}
-
-const IMAGE_CAPABILITIES = new Set(["text_to_image", "image_edit", "icon"])
-
 type UseMediaMaterializerOptions = {
   onMaterialized: (payload: DisplayTabPayload) => void
-  /**
-   * If true, suppress the `onMaterialized` dispatch (the file is still
-   * downloaded to disk, but no payload is fired). Used when the user is
-   * already on the `/media` route so we don't fight MediaStudio.
-   */
-  suppress?: boolean
 }
 
 /**
@@ -110,7 +90,6 @@ type UseMediaMaterializerOptions = {
  */
 export const useMediaMaterializer = ({
   onMaterialized,
-  suppress = false,
 }: UseMediaMaterializerOptions): void => {
   const t = useT()
   const { hasConnectedAccount } = useAuthSessionState()
@@ -122,19 +101,17 @@ export const useMediaMaterializer = ({
 
   const onPayloadRef = useRef(onMaterialized)
   onPayloadRef.current = onMaterialized
-  const suppressRef = useRef(suppress)
-  suppressRef.current = suppress
 
   const inFlightRef = useRef<Set<string>>(new Set())
 
-  const jobs: MaterializerJob[] | undefined = useBackendView(
+  const jobs: MediaJob[] | undefined = useBackendView(
     "media.jobs",
     hasConnectedAccount
       ? { since: bootSince, status: "succeeded", limit: 50 }
       : "skip",
   ).value
 
-  const failedJobs: MaterializerJob[] | undefined = useBackendView(
+  const failedJobs: MediaJob[] | undefined = useBackendView(
     "media.jobs",
     hasConnectedAccount ? { since: bootSince, status: "failed", limit: 50 } : "skip",
   ).value
@@ -170,8 +147,10 @@ export const useMediaMaterializer = ({
             kind: "media",
             asset,
             jobId: job.jobId,
-            capability: job.capability,
-            ...(job.request?.prompt ? { prompt: job.request.prompt } : {}),
+            madeBy: mediaModel(job.model)?.name ?? job.model,
+            ...(typeof job.input.prompt === "string"
+              ? { prompt: job.input.prompt }
+              : {}),
             createdAt: completedAt,
           }
 
@@ -184,9 +163,7 @@ export const useMediaMaterializer = ({
             })
           }
 
-          if (!suppressRef.current) {
-            onPayloadRef.current(payload)
-          }
+          onPayloadRef.current(payload)
         } catch {
           // Swallow per-job errors; we'll retry on the next subscription
           // tick (entry stays out of the materialized set).
@@ -206,7 +183,7 @@ export const useMediaMaterializer = ({
     )
 
     for (const job of ordered) {
-      if (!IMAGE_CAPABILITIES.has(job.capability)) continue
+      if (job.kind !== "image") continue
       if (failedNotifiedJobs.has(job.jobId)) continue
       failedNotifiedJobs.add(job.jobId)
       // Bound the in-memory set, matching the persist-time cap.

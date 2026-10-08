@@ -16,6 +16,7 @@ import {
 } from "./managed-image-references.js";
 import { runLocalImageGeneration } from "./local-image-generation.js";
 import { pruneImageOperationLedger } from "./image-operation-store.js";
+import { stellaImageRequest } from "@stella/contracts/media-models";
 
 export const IMAGE_GEN_TOOL_NAME = "image_gen";
 
@@ -74,22 +75,17 @@ const createImageGenHandler =
       }
     }
 
-    const input: Record<string, unknown> = {};
     const aspectRatio =
       asNonEmptyString(args.aspectRatio) ?? asNonEmptyString(args.aspect_ratio);
     const quality = asNonEmptyString(args.quality);
-    if (quality) input.quality = quality;
     const outputFormat = asNonEmptyString(args.output_format);
-    if (outputFormat) input.output_format = outputFormat;
     const numImages =
-      typeof args.num_images === "number"
-        ? Math.floor(args.num_images)
-        : undefined;
-    if (typeof numImages === "number" && Number.isFinite(numImages)) {
-      input.num_images = Math.max(1, Math.min(numImages, 4));
-    }
+      typeof args.num_images === "number" && Number.isFinite(args.num_images)
+        ? Math.max(1, Math.min(Math.floor(args.num_images), 4))
+        : null;
+    let size: { width: number; height: number } | null = null;
 
-    // Optional explicit pixel dimensions. Validate the GPT Image 2 envelope
+    // Optional explicit pixel dimensions. Validate the image model's envelope
     // locally so the agent gets a clear error instead of a 4xx from upstream.
     const sizeArg = args.size as
       { width?: unknown; height?: unknown } | undefined;
@@ -126,7 +122,7 @@ const createImageGenHandler =
           error: `image_gen size aspect ratio ${maxEdge}:${minEdge} is steeper than 3:1.`,
         };
       }
-      input.image_size = { width, height };
+      size = { width, height };
     }
 
     // Reference paths are authorized and signature-checked before any read.
@@ -208,9 +204,6 @@ const createImageGenHandler =
         },
       };
     }
-    const useImageEdit = imageUrls.length > 0;
-    if (useImageEdit) input.image_urls = imageUrls;
-    const capability = useImageEdit ? "image_edit" : "text_to_image";
 
     if (!options.getCloudBackendAuth) {
       return {
@@ -227,17 +220,15 @@ const createImageGenHandler =
       };
     }
 
-    const requestBody = {
-      capability,
+    const requestBody = stellaImageRequest({
       prompt,
-      ...(aspectRatio ? { aspectRatio } : {}),
-      ...(Object.keys(input).length > 0 ? { input } : {}),
-      ...(context.connectorDeliveryTarget
-        ? {
-            connectorRequestId: context.connectorDeliveryTarget.requestId,
-          }
-        : {}),
-    };
+      aspectRatio,
+      size,
+      quality,
+      numImages,
+      outputFormat,
+      imageUrls,
+    });
     if (
       Buffer.byteLength(JSON.stringify(requestBody), "utf8") >
       MAX_MANAGED_IMAGE_REQUEST_BYTES
@@ -275,15 +266,11 @@ const createImageGenHandler =
 
     const details = {
       jobId: terminal.job.jobId,
-      capability: terminal.job.capability,
+      model: terminal.job.model,
       prompt,
       ...(aspectRatio ? { aspectRatio } : {}),
-      ...(sizeArg && typeof sizeArg === "object" && input.image_size
-        ? { requestedSize: input.image_size }
-        : {}),
-      ...(typeof input.num_images === "number"
-        ? { numImages: input.num_images as number }
-        : {}),
+      ...(size ? { requestedSize: size } : {}),
+      ...(numImages ? { numImages } : {}),
       status: "succeeded",
       filePaths: terminal.filePaths,
       artifacts: terminal.artifacts,

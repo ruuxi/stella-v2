@@ -23,13 +23,8 @@ type MediaJobError = {
 
 type MediaJob = {
   jobId: string;
-  capability?: string;
-  profile?: string;
-  request?: {
-    prompt?: string;
-  };
+  model?: string;
   status: MediaJobStatus;
-  upstreamStatus?: string;
   output?: unknown;
   error?: MediaJobError;
   completedAt?: number;
@@ -38,10 +33,8 @@ type MediaJob = {
 
 type AcceptedMediaJob = {
   jobId: string;
-  capability?: string;
-  profile?: string;
+  model?: string;
   status?: MediaJobStatus;
-  upstreamStatus?: string;
 };
 
 type OutputFile = {
@@ -62,13 +55,18 @@ type CliOptions = {
   pollIntervalMs: number;
 };
 
-const usage = `stella-media - submit and watch Stella managed media jobs
+const usage = `stella-media - run Stella's media models (images, video, music, speech, transcription, 3D)
 
 Usage:
-  stella-media capabilities [--json]
-  stella-media generate --request '<json>' [--wait] [--timeout 240] [--json]
-  stella-media generate --request-file request.json [--wait] [--timeout 240] [--json]
+  stella-media models [--json]
+  stella-media generate --request '<json>' [--wait] [--timeout 600] [--json]
+  stella-media generate --request-file request.json [--wait] [--timeout 600] [--json]
   stella-media status --job-id <jobId> [--save] [--json]
+
+A request is {"model": "<id from models>", "input": {...}}: the model's own
+input, exactly as the docs page \`models\` lists for it describes. A local
+file goes in as a file:// URL (e.g. "image_url": "file:///home/me/cat.png");
+it is uploaded with the request.
 
 Environment:
   STELLA_MEDIA_BASE_URL       Stella backend URL
@@ -99,7 +97,7 @@ const parseArgs = (argv: string[]): CliOptions => {
     wait: false,
     save: false,
     json: false,
-    timeoutMs: 240_000,
+    timeoutMs: 600_000,
     pollIntervalMs: 2_000,
   };
 
@@ -199,13 +197,51 @@ const fetchJson = async <T>(url: string, init: RequestInit): Promise<T> => {
   return (await response.json()) as T;
 };
 
-const readRequestBody = async (options: CliOptions): Promise<unknown> => {
-  if (options.request) return JSON.parse(options.request) as unknown;
-  if (options.requestFile) {
-    const raw = await readFile(path.resolve(options.requestFile), "utf-8");
-    return JSON.parse(raw) as unknown;
+const MIME_TYPES: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+  webm: "video/webm",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  m4a: "audio/mp4",
+  ogg: "audio/ogg",
+  flac: "audio/flac",
+};
+
+/** Every `file://` URL in the input, read and sent inline as a data URI. */
+const inlineLocalFiles = async (value: unknown): Promise<unknown> => {
+  if (typeof value === "string" && value.startsWith("file://")) {
+    const filePath = new URL(value).pathname;
+    const extension = path.extname(filePath).slice(1).toLowerCase();
+    const mimeType = MIME_TYPES[extension] ?? "application/octet-stream";
+    return `data:${mimeType};base64,${(await readFile(filePath)).toString("base64")}`;
   }
-  throw new Error("generate requires --request or --request-file.");
+  if (Array.isArray(value)) return await Promise.all(value.map(inlineLocalFiles));
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      out[key] = await inlineLocalFiles(entry);
+    }
+    return out;
+  }
+  return value;
+};
+
+const readRequestBody = async (options: CliOptions): Promise<unknown> => {
+  const raw = options.request
+    ? options.request
+    : options.requestFile
+      ? await readFile(path.resolve(options.requestFile), "utf-8")
+      : null;
+  if (raw === null) {
+    throw new Error("generate requires --request or --request-file.");
+  }
+  return await inlineLocalFiles(JSON.parse(raw) as unknown);
 };
 
 const submitJob = async (body: unknown): Promise<AcceptedMediaJob> => {
@@ -256,52 +292,14 @@ const waitForJob = async (
       Math.min(options.pollIntervalMs, Math.max(250, deadline - Date.now())),
     );
   }
-  throw new Error("Image generation took too long");
+  throw new Error(
+    `Media job ${jobId} is still running; check it later with: stella-media status --job-id ${jobId} --save`,
+  );
 };
 
-const friendlyMediaFailure = (error: MediaJobError | undefined): string => {
-  const code = typeof error?.code === "string" ? error.code.toLowerCase() : "";
-  switch (code) {
-    case "request_timeout":
-    case "timeout":
-      return "Image generation took too long";
-    case "startup_timeout":
-      return "Image generation took too long to start";
-    case "runner_scheduling_failure":
-    case "runner_connection_timeout":
-    case "runner_disconnected":
-    case "runner_connection_refused":
-    case "runner_connection_error":
-      return "Image service is busy";
-    case "runner_incomplete_response":
-    case "payload_error":
-      return "Image result could not be read";
-    case "runner_server_error":
-    case "internal_error":
-      return "Image service hit a temporary error";
-    case "bad_request":
-      return "Image request was invalid";
-  }
-
-  const message =
-    typeof error?.message === "string" ? error.message.toLowerCase() : "";
-  if (/\b(policy|safety|moderation|blocked|nsfw)\b/i.test(message)) {
-    return "Image request was blocked";
-  }
-  if (/\b(rate|429|concurrency|busy|capacity)\b/i.test(message)) {
-    return "Image service is busy";
-  }
-  if (/\b(auth|api key|unauthorized|forbidden|401|403)\b/i.test(message)) {
-    return "Image service is not configured";
-  }
-  if (/\b(required|invalid|validation|422|bad request)\b/i.test(message)) {
-    return "Image request was invalid";
-  }
-  if (/\b(timeout|timed out|deadline)\b/i.test(message)) {
-    return "Image generation took too long";
-  }
-  return "Image generation failed";
-};
+/** The model's own complaint, which says what to change in the input. */
+const mediaFailure = (error: MediaJobError | undefined): string =>
+  `Media generation failed: ${error?.message || "unknown error"}${error?.code ? ` (${error.code})` : ""}`;
 
 const extensionFromUrl = (
   url: string,
@@ -319,6 +317,15 @@ const extensionFromUrl = (
   return fallback;
 };
 
+const KIND_BY_KEY: Record<string, { kind: OutputFile["kind"]; ext: string }> = {
+  images: { kind: "image", ext: "png" },
+  image: { kind: "image", ext: "png" },
+  video: { kind: "video", ext: "mp4" },
+  audio: { kind: "audio", ext: "mp3" },
+  audio_file: { kind: "audio", ext: "mp3" },
+};
+
+/** Every file the output names (`{ url }` anywhere in it), each once. */
 const outputUrls = (
   output: unknown,
 ): Array<{
@@ -326,48 +333,32 @@ const outputUrls = (
   url: string;
   fallbackExt: string;
 }> => {
-  if (!output || typeof output !== "object") return [];
-  const record = output as Record<string, unknown>;
-  if (Array.isArray(record.images)) {
-    return record.images
-      .map((entry) =>
-        entry && typeof entry === "object"
-          ? (entry as { url?: unknown }).url
-          : undefined,
-      )
-      .filter((url): url is string => typeof url === "string" && url.length > 0)
-      .map((url) => ({ kind: "image", url, fallbackExt: "png" }));
-  }
-  const video = record.video;
-  if (video && typeof video === "object") {
-    const url = (video as { url?: unknown }).url;
-    if (typeof url === "string")
-      return [{ kind: "video", url, fallbackExt: "mp4" }];
-  }
-  for (const key of ["audio_file", "audio"]) {
-    const audio = record[key];
-    if (audio && typeof audio === "object") {
-      const url = (audio as { url?: unknown }).url;
-      if (typeof url === "string")
-        return [{ kind: "audio", url, fallbackExt: "mp3" }];
+  const found = new Map<
+    string,
+    { kind: OutputFile["kind"]; url: string; fallbackExt: string }
+  >();
+  const visit = (
+    value: unknown,
+    as: { kind: OutputFile["kind"]; ext: string },
+    depth: number,
+  ) => {
+    if (depth > 8 || !value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const entry of value) visit(entry, as, depth + 1);
+      return;
     }
-  }
-  const model = record.model_mesh;
-  if (model && typeof model === "object") {
-    const url = (model as { url?: unknown }).url;
-    if (typeof url === "string") {
-      return [{ kind: "download", url, fallbackExt: "glb" }];
-    }
-  }
-  for (const value of Object.values(record)) {
-    if (value && typeof value === "object") {
-      const url = (value as { url?: unknown }).url;
-      if (typeof url === "string") {
-        return [{ kind: "download", url, fallbackExt: "bin" }];
+    const record = value as Record<string, unknown>;
+    if (typeof record.url === "string" && /^https?:/i.test(record.url)) {
+      if (!found.has(record.url)) {
+        found.set(record.url, { kind: as.kind, url: record.url, fallbackExt: as.ext });
       }
     }
-  }
-  return [];
+    for (const [key, entry] of Object.entries(record)) {
+      visit(entry, KIND_BY_KEY[key] ?? as, depth + 1);
+    }
+  };
+  visit(output, { kind: "download", ext: "bin" }, 0);
+  return [...found.values()];
 };
 
 const saveOutputs = async (job: MediaJob): Promise<OutputFile[]> => {
@@ -387,7 +378,7 @@ const saveOutputs = async (job: MediaJob): Promise<OutputFile[]> => {
       item.fallbackExt,
       response.headers.get("content-type"),
     );
-    const suffix = item.kind === "image" || urls.length > 1 ? `_${index}` : "";
+    const suffix = urls.length > 1 ? `_${index}` : "";
     const filePath = path.join(outputDir, `${job.jobId}${suffix}.${ext}`);
     await pipeline(response.body, createWriteStream(filePath));
     files.push({ kind: item.kind, url: item.url, path: filePath });
@@ -422,7 +413,7 @@ const handleTerminalJob = async (
     return 0;
   }
 
-  const message = friendlyMediaFailure(job.error);
+  const message = mediaFailure(job.error);
   if (options.json) {
     print({ job, error: message }, true);
   } else {
@@ -438,13 +429,21 @@ const run = async (): Promise<number> => {
     return 0;
   }
 
-  if (options.command === "capabilities") {
+  if (options.command === "models") {
     const auth = getAuth();
-    const result = await fetchJson<unknown>(
-      mediaUrl(auth.baseUrl, "/api/media/v1/capabilities"),
-      { method: "GET", headers: requestHeaders(auth) },
-    );
-    print(result, options.json);
+    const result = await fetchJson<{
+      data: Array<{ id: string; kind: string; does: string; docsUrl: string }>;
+    }>(mediaUrl(auth.baseUrl, "/api/media/v1/models"), {
+      method: "GET",
+      headers: requestHeaders(auth),
+    });
+    if (options.json) {
+      print(result, true);
+    } else {
+      for (const model of result.data) {
+        print(`${model.id}  [${model.kind}]  ${model.does}\n  docs: ${model.docsUrl}`, false);
+      }
+    }
     return 0;
   }
 

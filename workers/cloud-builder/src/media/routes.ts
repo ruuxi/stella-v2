@@ -1,12 +1,11 @@
 /**
  * Managed media over HTTP, for the CLI, the desktop runtime and API clients:
  *
- *   GET    /api/media/v1/capabilities     the catalog (public)
+ *   GET    /api/media/v1/models           the model list (public)
  *   POST   /api/media/v1/generate         `media.generate`; `Idempotency-Key` is its client request key
  *   GET    /api/media/v1/job              one job by `jobId` or `clientRequestKey`, outputs freshly signed
  *   DELETE /api/media/v1/job              `media.cancel` for the `Idempotency-Key`
  *   POST   /api/media/v1/webhooks/fal     fal's completion webhook (fal ED25519 + our routing HMAC)
- *   POST   /api/music/stream              a Lyria clip, answered when it is ready
  *
  * Bearer JWTs are verified here and the work runs in the owner's object,
  * exactly as `/api/rpc` does; these routes only adapt the wire shape.
@@ -16,11 +15,11 @@ import { rpcErrorStatus, type RpcResponse } from "@stella/contracts/backend/prot
 import { sha256Hex } from "../hash.js";
 import { verifyCaller } from "../owner-store/routes.js";
 import type { OwnerCaller } from "../owner-store/registry.js";
-import { MEDIA_DOCS_URL, mediaCapabilities } from "./catalog.js";
+import { MEDIA_MODELS } from "@stella/contracts/media-models";
+import { MEDIA_DOCS_URL } from "../owner-store/domains/media.js";
 import { FAL_WEBHOOK_PATH, verifyFalSignature, verifyFalWebhookToken } from "./fal.js";
 
 const BASE = "/api/media/v1";
-const MUSIC_STREAM_PATH = "/api/music/stream";
 /** Inline sources ride in the body; the owner object stages them in R2. */
 const MAX_BODY_BYTES = 24 * 1024 * 1024;
 const MAX_WEBHOOK_BYTES = 4 * 1024 * 1024;
@@ -145,37 +144,16 @@ const falWebhook = async (request: Request, env: RouteEnv): Promise<Response> =>
   return json(response.value);
 };
 
-const musicStream = async (request: Request, env: RouteEnv): Promise<Response> => {
-  const auth = await authenticate(request, env);
-  if (!auth.ok) return auth.response;
-  let input: unknown;
-  try {
-    input = await request.json();
-  } catch {
-    return fail(400, "Invalid JSON body.");
-  }
-  if (!input || typeof input !== "object" || Array.isArray(input)) return fail(400, "Invalid JSON body.");
-  const response = await rpc(env, auth.caller, "media.generate", { capability: "text_to_music", input });
-  if (!response.ok) return failRpc(response);
-  const output = (response.value as { output?: Record<string, unknown> }).output ?? {};
-  const audio = (output.audio ?? {}) as { url?: string; mimeType?: string };
-  return json({
-    audio: { url: audio.url, mimeType: audio.mimeType },
-    promptLabel: output.promptLabel ?? null,
-    textParts: output.textParts ?? [],
-  });
-};
-
 /** The media routes, or null when the path is someone else's. */
 export const handleMediaRoute = async (request: Request, env: RouteEnv): Promise<Response | null> => {
   const path = new URL(request.url).pathname;
-  if (path === MUSIC_STREAM_PATH) {
-    return request.method === "POST" ? await musicStream(request, env) : fail(405, "Method not allowed.");
-  }
   if (!path.startsWith(`${BASE}/`)) return null;
-  if (path === `${BASE}/capabilities`) {
+  if (path === `${BASE}/models`) {
     return request.method === "GET"
-      ? json({ data: mediaCapabilities(env), docsUrl: MEDIA_DOCS_URL })
+      ? json({
+          data: MEDIA_MODELS.map(({ id, name, kind, does, docsUrl }) => ({ id, name, kind, does, docsUrl })),
+          docsUrl: MEDIA_DOCS_URL,
+        })
       : fail(405, "Method not allowed.");
   }
   if (path === `${BASE}/generate`) {

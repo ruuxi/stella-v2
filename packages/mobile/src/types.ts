@@ -124,7 +124,7 @@ export type MobileDisplayPayload =
       asset: MobileMediaAsset;
       createdAt: number;
       prompt?: string;
-      capability?: string;
+      madeBy?: string;
       presentation?: "inline-image";
       aspectRatio?: string;
       numImages?: number;

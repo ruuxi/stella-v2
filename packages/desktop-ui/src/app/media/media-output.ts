@@ -1,11 +1,7 @@
 /**
- * Persistent media studio state — history + form state backed by the shared
- * UI state store.
+ * A finished media job's output, read for the files it produced and saved
+ * under the Stella media folder.
  */
-
-import { uiState } from "@/platform/ui-state";
-
-/* ── Types ── */
 
 export type OutputMedia =
   | {
@@ -19,89 +15,6 @@ export type OutputMedia =
   | { kind: "text"; text: string }
   | { kind: "download"; url: string; label: string; localPath?: string }
   | { kind: "unknown" };
-
-export type HistoryEntry = {
-  id: string;
-  capability: string;
-  capabilityName: string;
-  prompt?: string;
-  timestamp: number;
-  output: OutputMedia | null;
-  thumb?: string; // small data URL for the strip (kept in the shared UI state store)
-  status: "pending" | "succeeded" | "failed";
-  error?: string;
-};
-
-export type FormState = {
-  category: string;
-  capabilityId: string | null;
-  prompt: string;
-  aspectRatio: string | null;
-  quality: "low" | "medium" | "high" | null;
-  extraValues: Record<string, number>;
-};
-
-/* ── Keys ── */
-
-const HISTORY_KEY = "stella-media-history";
-const FORM_KEY = "stella-media-form";
-const MAX_HISTORY = 100;
-
-/* ── History ── */
-
-export function loadHistory(): HistoryEntry[] {
-  try {
-    return JSON.parse(uiState.getItem(HISTORY_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-export function saveHistory(entries: HistoryEntry[]): void {
-  uiState.setItem(HISTORY_KEY, JSON.stringify(entries.slice(0, MAX_HISTORY)));
-}
-
-export function addHistoryEntry(entry: HistoryEntry): HistoryEntry[] {
-  const entries = [entry, ...loadHistory().filter((e) => e.id !== entry.id)];
-  saveHistory(entries);
-  return entries;
-}
-
-export function updateHistoryEntry(
-  id: string,
-  patch: Partial<HistoryEntry>,
-): HistoryEntry[] {
-  const entries = loadHistory().map((e) =>
-    e.id === id ? { ...e, ...patch } : e,
-  );
-  saveHistory(entries);
-  return entries;
-}
-
-/* ── Form state ── */
-
-const DEFAULT_FORM: FormState = {
-  category: "image",
-  capabilityId: null,
-  prompt: "",
-  aspectRatio: null,
-  quality: null,
-  extraValues: {},
-};
-
-export function loadFormState(): FormState {
-  try {
-    const raw = uiState.getItem(FORM_KEY);
-    if (!raw) return DEFAULT_FORM;
-    return { ...DEFAULT_FORM, ...JSON.parse(raw) };
-  } catch {
-    return DEFAULT_FORM;
-  }
-}
-
-export function saveFormState(state: FormState): void {
-  uiState.setItem(FORM_KEY, JSON.stringify(state));
-}
 
 /* ── Output extraction ── */
 
@@ -212,43 +125,4 @@ export async function saveOutputToStella(
   } catch {
     return output;
   }
-}
-
-/* ── Thumbnail generation ── */
-
-const THUMB_SIZE = 80;
-
-/** Downscale an image URL to a tiny JPEG data URL for the shared UI state store. */
-export function generateThumb(url: string): Promise<string | null> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const scale = Math.min(
-        THUMB_SIZE / img.naturalWidth,
-        THUMB_SIZE / img.naturalHeight,
-        1,
-      );
-      const w = Math.round(img.naturalWidth * scale);
-      const h = Math.round(img.naturalHeight * scale);
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL("image/jpeg", 0.6));
-    };
-    img.onerror = () => resolve(null);
-    img.src = url;
-  });
-}
-
-/* ── Open outputs folder ── */
-
-export async function openOutputsFolder(): Promise<void> {
-  const dir = await window.electronAPI?.media?.getStellaMediaDir();
-  if (!dir) return;
-  // showItemInFolder needs a file, but we want the folder — create a
-  // placeholder reference so the OS opens the directory.
-  const folderPath = `${dir}${dir.includes("\\") ? "\\" : "/"}outputs`;
-  window.electronAPI?.system?.showItemInFolder(folderPath);
 }

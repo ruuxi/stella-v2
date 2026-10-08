@@ -1,39 +1,34 @@
 ---
 name: stella-media
-description: Generate images, video, audio, and 3D through Stella's managed media gateway. Use when the user asks for any generated media. Don't call provider APIs directly — the gateway handles auth, billing, and persistence centrally.
+description: Generate images, video, music, speech and 3D models, or transcribe audio, through Stella's media models. Use when the user asks for any generated media or a transcription. Don't call provider APIs directly — Stella handles auth, billing, and keeping the files.
 ---
 
 # Generating media via Stella
 
-Stella ships a managed media gateway that fronts every supported provider. Use it instead of calling provider APIs directly.
+`stella-media` (on PATH in Bash) runs Stella's media models on Stella's account, billed to the user's plan.
 
-## Still images
+## 1. Pick a model
 
-General does not call `image_gen` directly. The orchestrator's `image_gen` honors the image provider selected in Settings: Stella uses the managed gateway, while OpenAI, OpenRouter, and Fal use the user's locally saved provider credential directly. The call stays pending through generation and local artifact materialization, then returns terminal success, failure, cancellation, or a distinct unknown outcome. Do not poll or resubmit it. Local references sent through Stella managed generation require explicit per-call upload consent; BYOK references bypass Stella managed storage. Use the documented `stella-media` command for General-agent `Bash` workflows.
+```bash
+stella-media models
+```
 
-## Video, audio, 3D — read the relevant doc page first
+Each line is a model id, what it does, and its docs page. Read the docs page (`web` fetch it) before the first call to a model: it is the model's own input and output schema, and Stella passes your input to the model untouched.
 
-`web` fetch the URL for the operation you need, then call the gateway accordingly:
+## 2. Run it
 
-| Domain   | URL                                   | Operations                                                    |
-| -------- | ------------------------------------- | ------------------------------------------------------------- |
-| Overview | `https://stella.sh/docs/media`        | Request/response shape, auth contract                         |
-| Images   | `https://stella.sh/docs/media/images` | `text_to_image`, `image_edit`                                 |
-| Video    | `https://stella.sh/docs/media/video`  | `text_to_video`, `image_to_video`, `reference_to_video`       |
-| Audio    | `https://stella.sh/docs/media/audio`  | `audio_generation`, `speech_to_text`                          |
-| Music    | `https://stella.sh/docs/media/music`  | `text_to_music`                                               |
-| 3D       | `https://stella.sh/docs/media/3d`     | `text_to_3d`                                                  |
+```bash
+stella-media generate --wait --request '{"model":"<id>","input":{ ...the model's own input... }}'
+```
 
-Examples/references: `desktop/src/app/media/MediaStudio.tsx` and `desktop/src/features/music/services/lyria-music.ts`.
+- `input` is exactly what the model's docs page describes, with the same field names and values.
+- A local file goes in as a `file://` URL anywhere a URL goes (`"image_url": "file:///Users/me/photo.png"`); it is uploaded with the request. Public http(s) URLs work as they are.
+- `--wait` waits for the result and saves every file it produced under `~/.stella/media/outputs/`, printing the paths. Video and 3D take minutes; if it is still running at the timeout, it prints the job id — check later with `stella-media status --job-id <id> --save`. Never resubmit a job that is still running.
+- A failed job prints the model's own error, which says what to change in the input.
 
-## Don't call provider APIs directly
+## Rules
 
-Unless the task explicitly requires something the gateway doesn't support, route through the gateway. Direct provider calls bypass billing, auth, and persistence.
-
-## 401 means the user is signed out
-
-The 401 body has `code: "auth_required"` and an `action` string. Stop the job, surface `action` to the user verbatim via the Orchestrator, and retry once they confirm sign-in. Don't loop.
-
-## Backlinks
-
-- General agent prompt: backend-owned `prompts/stella-runtime/agents/general.md`
+- Use Stella's models for generated media unless the task needs something they can't do. Calling providers directly bypasses the user's plan and Stella's copy of the files.
+- Set the length and quality the user asked for; don't pick the most expensive options on your own (video bills per second, so set `duration` instead of leaving it to the model).
+- **Signed out:** the error says to sign in. Stop, tell the Orchestrator to ask the user to sign in, and retry once they confirm. Don't loop.
+- Still images in the chat are the Orchestrator's `image_gen`; use this skill for everything else, and for images when you need the files.

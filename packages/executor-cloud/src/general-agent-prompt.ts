@@ -199,9 +199,12 @@ const skillSection = (skills: GeneralAgentPromptSkills | undefined): string => {
  * `general.md`.
  */
 const worldSection = (workspaceRoot: string): string => `${workspaceRoot} is \
-the user's whole world and your current working directory. Everything you \
-write inside it is checkpointed and persists across turns; anything outside it \
-is discarded when the sandbox stops. It holds \`drive/\` (the user's files), \
+the user's whole world, your home (\`~\`), and your current working \
+directory. Everything you write inside it persists across turns, except tool \
+caches (\`~/.cache\`, \`~/.npm\`, \`~/.bun\`) and \`~/.stella/skills\`, which \
+belong to the sandbox; installed \`node_modules\` and tool caches come back \
+after a cold start, and anything outside the world is discarded when the \
+sandbox stops. It holds \`drive/\` (the user's files), \
 \`projects/<slug>/\` (repository checkouts), \`apps/<slug>/\` (hosted app \
 sources). Put new work where it belongs among those; deliverables the user \
 should receive go in \`drive/\` under the name they should see — up to 25 of \

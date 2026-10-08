@@ -13,7 +13,14 @@ export type OutputMedia =
   | { kind: "video"; url: string; localPath?: string }
   | { kind: "audio"; url: string; localPath?: string }
   | { kind: "text"; text: string }
-  | { kind: "download"; url: string; label: string; localPath?: string }
+  | {
+      kind: "download";
+      url: string;
+      label: string;
+      /** The model's own file name, whose extension says what the file is. */
+      fileName?: string;
+      localPath?: string;
+    }
   | { kind: "unknown" };
 
 /* ── Output extraction ── */
@@ -52,20 +59,24 @@ export function extractOutput(output: unknown): OutputMedia {
 
   if (typeof o.text === "string") return { kind: "text", text: o.text };
 
-  if (o.model_mesh && typeof o.model_mesh === "object") {
-    const url = (o.model_mesh as { url?: string }).url;
-    if (url) return { kind: "download", url, label: "Download 3D model" };
-  }
+  const download = (value: unknown, label: string): OutputMedia | null => {
+    if (!value || typeof value !== "object") return null;
+    const { url, file_name } = value as { url?: unknown; file_name?: unknown };
+    if (typeof url !== "string" || !url) return null;
+    return {
+      kind: "download",
+      url,
+      label,
+      ...(typeof file_name === "string" ? { fileName: file_name } : {}),
+    };
+  };
+
+  const mesh = download(o.model_mesh, "Download 3D model");
+  if (mesh) return mesh;
 
   for (const val of Object.values(o)) {
-    if (
-      val &&
-      typeof val === "object" &&
-      "url" in (val as Record<string, unknown>)
-    ) {
-      const url = (val as { url: string }).url;
-      if (url) return { kind: "download", url, label: "Download result" };
-    }
+    const found = download(val, "Download result");
+    if (found) return found;
   }
 
   return { kind: "unknown" };
@@ -114,7 +125,14 @@ export async function saveOutputToStella(
       case "video":
       case "audio":
       case "download": {
-        const result = await saveApi(output.url, `${jobId}.${ext(output.url)}`);
+        const fileExt =
+          output.kind === "download"
+            ? output.fileName?.match(/\.([a-z0-9]{2,5})$/i)?.[1]
+            : undefined;
+        const result = await saveApi(
+          output.url,
+          `${jobId}.${fileExt?.toLowerCase() ?? ext(output.url)}`,
+        );
         return result.ok && result.path
           ? { ...output, localPath: result.path }
           : output;

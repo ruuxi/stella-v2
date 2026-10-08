@@ -332,10 +332,11 @@ const outputUrls = (
   kind: OutputFile["kind"];
   url: string;
   fallbackExt: string;
+  fileExt?: string;
 }> => {
   const found = new Map<
     string,
-    { kind: OutputFile["kind"]; url: string; fallbackExt: string }
+    { kind: OutputFile["kind"]; url: string; fallbackExt: string; fileExt?: string }
   >();
   const visit = (
     value: unknown,
@@ -350,7 +351,17 @@ const outputUrls = (
     const record = value as Record<string, unknown>;
     if (typeof record.url === "string" && /^https?:/i.test(record.url)) {
       if (!found.has(record.url)) {
-        found.set(record.url, { kind: as.kind, url: record.url, fallbackExt: as.ext });
+        // The model's own file name says what it is (`.glb`, `.wav`, …).
+        const fileExt =
+          typeof record.file_name === "string"
+            ? record.file_name.match(/\.([a-z0-9]{2,5})$/i)?.[1]?.toLowerCase()
+            : undefined;
+        found.set(record.url, {
+          kind: as.kind,
+          url: record.url,
+          fallbackExt: as.ext,
+          ...(fileExt ? { fileExt } : {}),
+        });
       }
     }
     for (const [key, entry] of Object.entries(record)) {
@@ -373,11 +384,13 @@ const saveOutputs = async (job: MediaJob): Promise<OutputFile[]> => {
     if (!response.ok || !response.body) {
       throw new Error(`Failed to download media output (${response.status}).`);
     }
-    const ext = extensionFromUrl(
-      item.url,
-      item.fallbackExt,
-      response.headers.get("content-type"),
-    );
+    const ext =
+      item.fileExt ??
+      extensionFromUrl(
+        item.url,
+        item.fallbackExt,
+        response.headers.get("content-type"),
+      );
     const suffix = urls.length > 1 ? `_${index}` : "";
     const filePath = path.join(outputDir, `${job.jobId}${suffix}.${ext}`);
     await pipeline(response.body, createWriteStream(filePath));

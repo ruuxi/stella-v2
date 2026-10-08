@@ -346,6 +346,20 @@ const withoutInlineSources = (value: unknown, depth = 0): unknown => {
 const storeOutputs = async (ctx: OwnerContext, jobPrefix: string, payload: unknown): Promise<unknown> => {
   let index = 0;
   const now = Date.now();
+  // A model can name one file under several keys (Tripo's `model_mesh` and
+  // `model_urls.glb`); each source URL is copied once.
+  const copies = new Map<string, Promise<{ url: string; r2Key: string }>>();
+  const copy = async (url: string, declaredType: unknown): Promise<{ url: string; r2Key: string }> => {
+    const key = `${jobPrefix}${index++}`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(10 * 60_000) });
+    if (!response.ok || !response.body) throw new Error(`Media output download failed (${response.status}).`);
+    const declared = Number(response.headers.get("content-length"));
+    const contentType =
+      response.headers.get("content-type")?.split(";")[0]?.trim() ||
+      (typeof declaredType === "string" ? declaredType : "application/octet-stream");
+    await putStream(bucketOf(ctx), key, response.body, Number.isSafeInteger(declared) && declared > 0 ? declared : null, contentType);
+    return { url: await signGet(signerOf(ctx), key, OUTPUT_URL_SECONDS, now), r2Key: key };
+  };
   const visit = async (value: unknown, depth: number): Promise<unknown> => {
     if (depth > 8) return value;
     if (Array.isArray(value)) return await Promise.all(value.map((entry) => visit(entry, depth + 1)));
@@ -353,24 +367,9 @@ const storeOutputs = async (ctx: OwnerContext, jobPrefix: string, payload: unkno
     const out: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value)) out[key] = await visit(entry, depth + 1);
     const url = value.url;
-    // An entry with an `r2Key` is already ours (music writes its clip directly).
-    if (typeof url === "string" && typeof value.r2Key !== "string" && /^https?:\/\//i.test(url) && index < MAX_OUTPUT_FILES) {
-      const key = `${jobPrefix}${index++}`;
-      const response = await fetch(url, { signal: AbortSignal.timeout(10 * 60_000) });
-      if (!response.ok || !response.body) throw new Error(`Media output download failed (${response.status}).`);
-      const declared = Number(response.headers.get("content-length"));
-      const contentType =
-        response.headers.get("content-type")?.split(";")[0]?.trim() ||
-        (typeof value.content_type === "string" ? value.content_type : "application/octet-stream");
-      await putStream(
-        bucketOf(ctx),
-        key,
-        response.body,
-        Number.isSafeInteger(declared) && declared > 0 ? declared : null,
-        contentType,
-      );
-      out.url = await signGet(signerOf(ctx), key, OUTPUT_URL_SECONDS, now);
-      out.r2Key = key;
+    if (typeof url === "string" && /^https?:\/\//i.test(url) && (copies.has(url) || copies.size < MAX_OUTPUT_FILES)) {
+      if (!copies.has(url)) copies.set(url, copy(url, value.content_type));
+      Object.assign(out, await copies.get(url)!);
     }
     return out;
   };

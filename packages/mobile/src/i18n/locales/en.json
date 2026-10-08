@@ -622,7 +622,7 @@
       "confirmBody": "Stella will ask you to sign in again next time.",
       "confirmTitle": "Sign out of all sites?",
       "defaultProfile": "Saved sign-ins",
-      "description": "Sites Stella has signed in to for you. Reset to sign out of all of them.",
+      "description": "Sites Stella has signed in to for you.",
       "reset": "Reset",
       "resetComplete": "Signed out of all sites.",
       "resetFailed": "Couldn't sign out. Try again.",
@@ -1720,24 +1720,24 @@
           "syncing": "Syncing…"
         },
         "memory": {
-          "error": "Couldn't sync just now. Stella will try again.",
-          "heldOtherAccount": "This computer's memory syncs with a different Stella account, so it stays out of this one.",
-          "heldWiped": "Paused. Cloud memory was erased, and this computer still has memory from before. Choose below what happens to it.",
-          "lastSynced": "Last synced {time}.",
-          "merging": "Changed here and in the cloud at the same time. A background agent is merging the two.",
-          "off": "Memory is off, so nothing syncs.",
-          "refused": "Too long to sync, so kept on this computer only: {files}",
-          "signedOut": "Sign in to keep memory the same on this computer and in the cloud.",
-          "synced": "Kept the same on this computer and in the cloud. A change on either side syncs to the other.",
-          "syncing": "Syncing with the cloud…"
+          "error": "Couldn't sync. Retrying soon.",
+          "heldOtherAccount": "Synced with a different Stella account.",
+          "heldWiped": "Paused after cloud Memory was erased. Choose below.",
+          "lastSynced": "Synced {time}",
+          "merging": "Merging changes from both sides…",
+          "off": "Memory is off.",
+          "refused": "Too large to sync: {files}",
+          "signedOut": "Sign in to sync.",
+          "synced": "Synced",
+          "syncing": "Syncing…"
         },
         "skillsLabel": "Skills",
         "summary": {
-          "attention": "Cloud Home kept existing cloud copies where local data differed. Review the details below.",
-          "checking": "Checking this computer's skills…",
-          "current": "Cloud Home is current. Skill packages uploaded: {skillCount}.",
-          "intro": "Stella securely uploads this computer's custom skills to your cloud account.",
-          "unavailable": "Cloud Home sync is currently unavailable."
+          "attention": "Some skills differ from the cloud copies.",
+          "checking": "Checking…",
+          "current": "Up to date · {skillCount} uploaded",
+          "intro": "Uploads this computer's custom skills.",
+          "unavailable": "Unavailable right now."
         },
         "title": "Cloud Home"
       },
@@ -1769,7 +1769,7 @@
         "view": "View"
       },
       "signOut": {
-        "action": "Sign Out",
+        "action": "Sign out",
         "description": "Sign out of Stella on this device.",
         "label": "Sign out"
       },

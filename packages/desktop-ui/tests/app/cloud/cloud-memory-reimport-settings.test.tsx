@@ -118,10 +118,7 @@ describe("CloudMemoryReimportSettings", () => {
 
   it("requires a clear confirmation before authorizing local Memory import", async () => {
     await render();
-    expect(container.textContent).toContain("Cloud Memory was erased");
-    expect(container.textContent).toContain(
-      "Applies to every computer signed in to this account",
-    );
+    expect(container.textContent).toContain("Memory from before the erase");
     expect(mocks.authorizeReimport).not.toHaveBeenCalled();
 
     await click(

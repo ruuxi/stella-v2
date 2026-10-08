@@ -22,8 +22,8 @@ export type StellaToolRole = "orchestrator" | "general";
 
 /**
  * Tools the harness has itself, under these names or older ones: the agent
- * tools, an agent's file and shell tools, and `code`. A host's catalog
- * offers the rest.
+ * tools and an agent's file and shell tools. A host's catalog offers the
+ * rest, `code` included.
  */
 export const STELLA_HARNESS_TOOL_NAMES: ReadonlySet<string> = new Set([
   "spawn_agent",
@@ -39,7 +39,6 @@ export const STELLA_HARNESS_TOOL_NAMES: ReadonlySet<string> = new Set([
   "Grep",
   "multi_tool_use_parallel",
   "NoResponse",
-  "code",
   "node_repl",
   // Moving the chat belongs to the old runtimes; pi places agents per conversation.
   "switch_destination",
@@ -55,7 +54,7 @@ export type StellaToolSpec = {
    * their work once per call id, so a rerun is as safe as a `safe` one.
    */
   replay?: "safe" | "keyed" | "unsafe";
-  /** A demoted tool: reached through `code` when the agent has it. */
+  /** A demoted tool: reached only through `code` when the agent has it, directly otherwise. */
   codeOnly?: { searchTerms?: readonly string[] };
 };
 
@@ -116,10 +115,19 @@ const register = (role: StellaToolRole, spec: StellaToolSpec, host: StellaToolHo
   },
 });
 
+/** Stella's Code Mode tool: nested calls reach the host's tools through it (`tools.<name>`). */
+export const STELLA_CODE_TOOL_NAME = "code";
+
 /** The orchestrator's and the agents' tool extensions, from the host's current specs. */
 export function stellaToolExtensions(host: StellaToolHost | undefined): Extension[] {
-  const build = (role: StellaToolRole, name: string) =>
-    defineExtension({ name, tools: host ? host.specs(role).map((spec) => register(role, spec, host)) : [] });
+  const build = (role: StellaToolRole, name: string) => {
+    const specs = host?.specs(role) ?? [];
+    const code = specs.some((spec) => spec.name === STELLA_CODE_TOOL_NAME);
+    return defineExtension({
+      name,
+      tools: host ? specs.filter((spec) => !(code && spec.codeOnly)).map((spec) => register(role, spec, host)) : [],
+    });
+  };
   return [build("orchestrator", STELLA_ORCHESTRATOR_TOOLS), build("general", STELLA_AGENT_TOOLS)];
 }
 

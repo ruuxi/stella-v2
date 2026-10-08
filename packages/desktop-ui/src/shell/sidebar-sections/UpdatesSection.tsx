@@ -9,7 +9,9 @@ import {
   useAppSourceState,
 } from "@/features/app-source/app-source-store";
 import {
+  addOffer,
   ago,
+  deviceLabel,
   subjectOf,
   useAppSourceAction,
   useNow,
@@ -38,9 +40,6 @@ const reverted = (subject: string): { inner: string; depth: number } => {
   const deeper = reverted(inner);
   return { inner: deeper.inner, depth: deeper.depth + 1 };
 };
-
-/** "Rahuls-MacBook-Air" reads as "Rahuls MacBook Air". */
-const deviceLabel = (device: string) => device.replace(/[-_]+/g, " ").trim();
 
 const WaitingItem = ({
   offer,
@@ -192,14 +191,6 @@ export function UpdatesSection() {
   }
   const blocked =
     state.busy || pending !== null || updateProgress(state)?.state === "merging";
-  const add = (offer: AppSourceWaiting) => {
-    if (offer.kind === "version") {
-      const draft = offer.draft;
-      return draft ? api.apply(draft) : api.applyUpstream();
-    }
-    if (offer.kind === "other-computer") return api.applyRemote();
-    return api.apply(offer.name);
-  };
   return (
     <div className="updates-section sidebar-section__scroll" data-testid="updates-section">
       <h2 className="updates-section__heading">{t("shell.appSource.updates.waiting")}</h2>
@@ -215,7 +206,7 @@ export function UpdatesSection() {
               offer={offer}
               pending={pending === offer.key}
               blocked={blocked}
-              onAdd={() => void run(offer.key, () => add(offer))}
+              onAdd={() => void run(offer.key, () => addOffer(offer))}
               onSkip={() => void run(`skip:${offer.key}`, () => api.skip(offer.key))}
             />
           ))}
@@ -231,7 +222,7 @@ export function UpdatesSection() {
                 offer={offer}
                 pending={pending === offer.key}
                 blocked={blocked}
-                onAdd={() => void run(offer.key, () => add(offer))}
+                onAdd={() => void run(offer.key, () => addOffer(offer))}
               />
             ))}
           </ul>

@@ -2429,6 +2429,7 @@
       "undoneAgo": "Desfeito {ago}",
       "undoneJustNow": "Desfeito agora mesmo",
       "update": "Atualizar",
+      "updateAvailable": "Atualização disponível",
       "updatedAgo": "Atualizado {ago}",
       "updatedJustNow": "Atualizado agora mesmo",
       "updates": {
@@ -2442,11 +2443,6 @@
         "justNow": "Agora mesmo",
         "newVersion": "Nova versão do Stella",
         "newVersionDetail": "Melhorias e correções da equipe do Stella",
-        "pill": {
-          "many": "{count} atualizações",
-          "one": "{count} atualização",
-          "other": "{count} atualizações"
-        },
         "readyChange": "Uma alteração pronta para adicionar",
         "removed": "Removido: {change}",
         "skip": "Pular",
@@ -2454,7 +2450,8 @@
         "undoing": "Desfazendo…",
         "upToDate": "Nada aguardando",
         "waiting": "Aguardando"
-      }
+      },
+      "updating": "Atualizando…"
     },
     "audioPlayer": {
       "pause": "Pausar",

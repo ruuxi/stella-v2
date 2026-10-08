@@ -2429,6 +2429,7 @@
       "undoneAgo": "Anulat {ago}",
       "undoneJustNow": "Anulat chiar acum",
       "update": "Actualizează",
+      "updateAvailable": "Actualizare disponibilă",
       "updatedAgo": "Actualizat {ago}",
       "updatedJustNow": "Actualizat chiar acum",
       "updates": {
@@ -2442,11 +2443,6 @@
         "justNow": "Chiar acum",
         "newVersion": "Versiune nouă de Stella",
         "newVersionDetail": "Îmbunătățiri și remedieri de la echipa Stella",
-        "pill": {
-          "few": "{count} actualizări",
-          "one": "{count} actualizare",
-          "other": "{count} de actualizări"
-        },
         "readyChange": "O modificare gata de adăugat",
         "removed": "Eliminat: {change}",
         "skip": "Omite",
@@ -2454,7 +2450,8 @@
         "undoing": "Se anulează…",
         "upToDate": "Nimic în așteptare",
         "waiting": "În așteptare"
-      }
+      },
+      "updating": "Se actualizează…"
     },
     "audioPlayer": {
       "pause": "Pauză",

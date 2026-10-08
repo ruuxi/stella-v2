@@ -2417,6 +2417,7 @@
       "undoneAgo": "{ago} geri alındı",
       "undoneJustNow": "Az önce geri alındı",
       "update": "Güncelle",
+      "updateAvailable": "Güncelleme mevcut",
       "updatedAgo": "{ago} güncellendi",
       "updatedJustNow": "Az önce güncellendi",
       "updates": {
@@ -2430,10 +2431,6 @@
         "justNow": "Az önce",
         "newVersion": "Stella'nın yeni sürümü",
         "newVersionDetail": "Stella ekibinden iyileştirmeler ve düzeltmeler",
-        "pill": {
-          "one": "{count} güncelleme",
-          "other": "{count} güncelleme"
-        },
         "readyChange": "Eklenmeye hazır bir değişiklik",
         "removed": "Kaldırıldı: {change}",
         "skip": "Atla",
@@ -2441,7 +2438,8 @@
         "undoing": "Geri alınıyor…",
         "upToDate": "Bekleyen bir şey yok",
         "waiting": "Bekliyor"
-      }
+      },
+      "updating": "Güncelleniyor…"
     },
     "audioPlayer": {
       "pause": "Duraklat",

@@ -2417,6 +2417,7 @@
       "undoneAgo": "Αναιρέθηκε {ago}",
       "undoneJustNow": "Αναιρέθηκε μόλις τώρα",
       "update": "Ενημέρωση",
+      "updateAvailable": "Διαθέσιμη ενημέρωση",
       "updatedAgo": "Ενημερώθηκε {ago}",
       "updatedJustNow": "Ενημερώθηκε μόλις τώρα",
       "updates": {
@@ -2430,10 +2431,6 @@
         "justNow": "Μόλις τώρα",
         "newVersion": "Νέα έκδοση του Stella",
         "newVersionDetail": "Βελτιώσεις και διορθώσεις από την ομάδα του Stella",
-        "pill": {
-          "one": "{count} ενημέρωση",
-          "other": "{count} ενημερώσεις"
-        },
         "readyChange": "Μια αλλαγή έτοιμη για προσθήκη",
         "removed": "Αφαιρέθηκε: {change}",
         "skip": "Παράλειψη",
@@ -2441,7 +2438,8 @@
         "undoing": "Αναίρεση…",
         "upToDate": "Τίποτα σε αναμονή",
         "waiting": "Σε αναμονή"
-      }
+      },
+      "updating": "Ενημέρωση…"
     },
     "audioPlayer": {
       "pause": "Παύση",

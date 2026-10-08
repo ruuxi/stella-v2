@@ -2417,6 +2417,7 @@
       "undoneAgo": "Ongedaan gemaakt {ago}",
       "undoneJustNow": "Zojuist ongedaan gemaakt",
       "update": "Bijwerken",
+      "updateAvailable": "Update beschikbaar",
       "updatedAgo": "Bijgewerkt {ago}",
       "updatedJustNow": "Zojuist bijgewerkt",
       "updates": {
@@ -2430,10 +2431,6 @@
         "justNow": "Zojuist",
         "newVersion": "Nieuwe versie van Stella",
         "newVersionDetail": "Verbeteringen en oplossingen van het Stella-team",
-        "pill": {
-          "one": "{count} update",
-          "other": "{count} updates"
-        },
         "readyChange": "Een wijziging klaar om toe te voegen",
         "removed": "Verwijderd: {change}",
         "skip": "Overslaan",
@@ -2441,7 +2438,8 @@
         "undoing": "Ongedaan maken…",
         "upToDate": "Niets in afwachting",
         "waiting": "Wachtend"
-      }
+      },
+      "updating": "Bijwerken…"
     },
     "audioPlayer": {
       "pause": "Pauzeren",

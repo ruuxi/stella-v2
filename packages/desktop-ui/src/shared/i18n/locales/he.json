@@ -2429,6 +2429,7 @@
       "undoneAgo": "בוטל {ago}",
       "undoneJustNow": "בוטל הרגע",
       "update": "עדכן",
+      "updateAvailable": "עדכון זמין",
       "updatedAgo": "עודכן {ago}",
       "updatedJustNow": "עודכן הרגע",
       "updates": {
@@ -2442,11 +2443,6 @@
         "justNow": "עכשיו",
         "newVersion": "גרסה חדשה של Stella",
         "newVersionDetail": "שיפורים ותיקונים מצוות Stella",
-        "pill": {
-          "one": "עדכון אחד",
-          "other": "{count} עדכונים",
-          "two": "שני עדכונים"
-        },
         "readyChange": "שינוי מוכן להוספה",
         "removed": "הוסר: {change}",
         "skip": "דילוג",
@@ -2454,7 +2450,8 @@
         "undoing": "מבטל…",
         "upToDate": "אין דבר שממתין",
         "waiting": "ממתין"
-      }
+      },
+      "updating": "מעדכן…"
     },
     "audioPlayer": {
       "pause": "השהה",

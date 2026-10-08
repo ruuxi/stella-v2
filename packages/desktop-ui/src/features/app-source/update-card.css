@@ -17,14 +17,12 @@
   padding: 0 24px;
 }
 
-/* Pinned above the composer with the other offers there; GrowIn animates
-   it in and out, so it has no entrance of its own. */
+/* Pinned above the composer with the other offers there. */
 .app-update-card--composer {
   /* The composer's own measure, so the two line up. */
   max-width: min(var(--full-chat-composer-max-width, 50rem), calc(100% - 48px));
   margin: 0 auto 10px;
   background: var(--surface-inset);
-  animation: none;
 }
 
 @keyframes app-update-card-enter {

@@ -115,10 +115,6 @@ const AboveComposerCards = memo(function AboveComposerCards({
       {/* Sign-in / plan-limit / provider notices pin here too, so the
           thing blocking the composer sits right above it. */}
       <ComposerNotice conversationId={conversationId} />
-      {/* Changes to Stella no agent here made (the user's other computers,
-          drafts made by hand). Agents' changes show on their messages; new
-          versions are the top bar's. */}
-      <AppSourceOffers />
     </>
   );
 });
@@ -368,6 +364,20 @@ export const ChatColumn = memo(function ChatColumn({
     [dismissReplyPeek, replyPeekText, replyPeekVisible, scrollToBottom],
   );
 
+  // Changes to Stella no agent here made (the user's other computers, drafts
+  // made by hand) are Stella's latest messages in the chat. Agents' changes
+  // show on their own messages; new versions are the top bar's.
+  const extraTail = conversation.extraTail;
+  const chatTail = useMemo(
+    () => (
+      <>
+        {extraTail}
+        <AppSourceOffers />
+      </>
+    ),
+    [extraTail],
+  );
+
   // Home content is an overlay ON TOP of the always-mounted chat, not a
   // replacement for it — so navigating home and back never unmounts the
   // LegendList. That preserves the user's scroll position and removes the
@@ -421,7 +431,7 @@ export const ChatColumn = memo(function ChatColumn({
                   className="session-content"
                   contentContainerStyle={FULL_CHAT_CONTENT_STYLE}
                   estimatedItemSize={140}
-                  extraTail={conversation.extraTail}
+                  extraTail={chatTail}
                 />
               </MessageReplyContext.Provider>
 

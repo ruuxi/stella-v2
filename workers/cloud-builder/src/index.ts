@@ -16,9 +16,10 @@ export { CodeEgress } from "./code-egress.js";
 
 /**
  * Every sandbox, of either size and either workload, is one object in this
- * namespace; it starts its container through `ctx.container`.
+ * namespace; it starts its container through `ctx.container`. `SandboxCode`
+ * hands an agent container this version's code bundle as it starts.
  */
-export { Sandbox, SandboxEgress } from "./sandbox-container.js";
+export { Sandbox, SandboxCode, SandboxEgress } from "./sandbox-container.js";
 
 /**
  * Moves a world's caches and dependencies archive between its container and

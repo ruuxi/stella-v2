@@ -29,6 +29,15 @@ import {
   parseDependencyProbe,
   type StoredDependencyBackup,
 } from "./sandbox-dependencies.js";
+import {
+  SANDBOX_CODE_HOST,
+  SANDBOX_CODE_INSTALL,
+  parseSandboxCodeInstall,
+  sandboxCode,
+  sandboxCodeAssetPath,
+  sandboxCodeUrl,
+  type SandboxCodeInstall,
+} from "./sandbox-code.js";
 import type { Env } from "./build-session/shared/env.js";
 import type { ContainerSnapshot } from "./world-store.js";
 
@@ -253,6 +262,33 @@ export class SandboxEgress extends WorkerEntrypoint<Env, EgressProps> {
   }
 }
 
+/**
+ * Serves an agent container the one code bundle its start asked for, from
+ * this Worker version's own static assets (`src/sandbox-code.ts`). Registered
+ * on `SANDBOX_CODE_HOST` only; the container checks the bytes' hash itself.
+ */
+export class SandboxCode extends WorkerEntrypoint<Env, { sha256: string }> {
+  async fetch(request: Request): Promise<Response> {
+    const { sha256 } = this.ctx.props;
+    const { pathname } = new URL(request.url);
+    if (request.method !== "GET" || pathname !== `/${sha256}.tar.gz`) {
+      return new Response("Not found.\n", { status: 404 });
+    }
+    const asset = await this.env.ASSETS.fetch(
+      new URL(sandboxCodeAssetPath(sha256), "https://assets.invalid"),
+    );
+    if (!asset.ok || !asset.body) {
+      return new Response(
+        `This deployment has no code bundle ${sha256} (${asset.status}).\n`,
+        { status: 502 },
+      );
+    }
+    return new Response(asset.body, {
+      headers: { "content-type": "application/octet-stream" },
+    });
+  }
+}
+
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
@@ -313,9 +349,17 @@ export class Sandbox extends DurableObject<Env> {
   async #configure(boot: SandboxBoot): Promise<void> {
     const container = this.#container;
     const policy = boot.workload === "app-build" ? "sealed" : "general";
-    // The archive's own host must be registered before the catch-all, which
-    // takes every hostname registered after it.
+    // The archive's and the code bundle's hosts must be registered before the
+    // catch-all, which takes every hostname registered after it.
     if (boot.world) await this.#dependencyBackups(boot.world).intercept();
+    if (boot.workload === "world") {
+      await container.interceptOutboundHttp(
+        SANDBOX_CODE_HOST,
+        this.ctx.exports.SandboxCode({
+          props: { sha256: sandboxCode().sha256 },
+        }),
+      );
+    }
     await container.interceptAllOutboundHttp(
       this.ctx.exports.SandboxEgress({
         props: { containerId: this.ctx.id.toString(), policy },
@@ -355,6 +399,9 @@ export class Sandbox extends DurableObject<Env> {
    * caches and installed dependencies are already on disk; the world catches
    * up by sync. A snapshot cannot cross images; any other case starts clean,
    * with the owner's caches and dependencies brought back from their archive.
+   * The image holds no Stella code, so a deploy of Stella source keeps the
+   * image and its snapshots; every agent container installs the code bundle
+   * its Worker version names as it starts, from either source.
    */
   async #start(boot: SandboxBoot): Promise<void> {
     const container = this.#container;
@@ -389,6 +436,12 @@ export class Sandbox extends DurableObject<Env> {
     if (!restored) await this.#boot(boot, { image });
     // A baseline describes the disk it was taken against, which is gone.
     this.ctx.storage.kv.delete(DEPENDENCY_BASELINE_KEY);
+    // Stella's code goes in beside the caches and dependencies. Only the code
+    // is required: a container that cannot install it is stopped.
+    const installing = this.#installCode(boot).then(
+      (code) => ({ code }),
+      (error: unknown) => ({ error }),
+    );
     if (restored) {
       // Process records belong to the container that wrote them.
       await this.#run(["rm", "-rf", "--", PROCESS_ROOT]);
@@ -404,6 +457,12 @@ export class Sandbox extends DurableObject<Env> {
     } else if (boot.workload === "world" && boot.world) {
       await this.#restoreDependencies(boot.world);
     }
+    const installed = await installing;
+    if ("error" in installed) {
+      await this.#container.destroy().catch(() => undefined);
+      throw installed.error;
+    }
+    const { code } = installed;
     console.log(
       JSON.stringify({
         level: "info",
@@ -421,8 +480,59 @@ export class Sandbox extends DurableObject<Env> {
             }
           : {}),
         ...(stored && !snapshot ? { snapshotSkipped: "image_changed" } : {}),
+        // The Stella code this container runs until it stops.
+        ...(code
+          ? {
+              codeBundle: code.sha256,
+              codeSource: code.source,
+              codeFetchMs: code.fetchMs,
+              codeInstallMs: code.installMs,
+            }
+          : {}),
         readyMs: Date.now() - startedAt,
       }),
+    );
+  }
+
+  /**
+   * Install the code bundle this Worker version was built with
+   * (`src/sandbox-code.ts`). Only agent containers run Stella's code. The
+   * container verifies the bytes against the hash passed here and refuses
+   * anything else.
+   */
+  async #installCode(boot: SandboxBoot): Promise<SandboxCodeInstall | null> {
+    if (boot.workload !== "world") return null;
+    const { sha256 } = sandboxCode();
+    const startedAt = Date.now();
+    const result = await this.#run([
+      "timeout",
+      "-k",
+      "5",
+      "180s",
+      SANDBOX_CODE_INSTALL,
+      sha256,
+      sandboxCodeUrl(sha256),
+    ]);
+    const installed = result.success
+      ? parseSandboxCodeInstall(result.stdout, sha256)
+      : null;
+    if (installed) return installed;
+    const message =
+      result.stderr.trim().slice(-500) ||
+      `stella-code-install exited ${result.exitCode}`;
+    console.log(
+      JSON.stringify({
+        level: "error",
+        event: "sandbox_code_install_failed",
+        sandbox: this.ctx.id.toString().slice(0, 12),
+        codeBundle: sha256,
+        exitCode: result.exitCode,
+        installMs: Date.now() - startedAt,
+        message,
+      }),
+    );
+    throw new Error(
+      `The sandbox could not install Stella's code bundle ${sha256}: ${message}`,
     );
   }
 

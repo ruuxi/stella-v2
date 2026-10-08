@@ -59,6 +59,7 @@ import {
 } from "../workspace.js";
 import { issueWorldCapability } from "../world-capability.js";
 import { worldMaterializationCommand } from "../world-materialization.js";
+import { SANDBOX_EXECUTOR } from "../sandbox-code.js";
 import type { BuildSessionInternals } from "./host.js";
 import type { Env } from "./shared/env.js";
 import {
@@ -1594,8 +1595,7 @@ export const runAgentAttempt = async (
     const captureOutcome = capturedSessionExec(
       sandbox,
       [
-        "bun",
-        "packages/executor-cloud/src/cli.ts",
+        SANDBOX_EXECUTOR,
         "--agent-turn",
         CLOUD_TURN_ATTEMPT_DIRECTORY_FLAG,
         attemptPaths.directory,

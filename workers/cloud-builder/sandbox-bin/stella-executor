@@ -1,0 +1,18 @@
+#!/bin/sh
+# The cloud executor's entrypoint. Runs Stella's executor CLI from the code
+# bundle this container verified and installed when it started
+# (`stella-code-install`), passing every argument through. A container runs
+# the bundle it started with until it stops; a deploy reaches it on its next
+# start. Refuses to run when no verified bundle is installed.
+set -eu
+
+root=/run/stella-code
+dir=$(readlink -f "$root/current" 2>/dev/null || true)
+sha=${dir##*/}
+if [ -z "$dir" ] || [ "${dir%/*}" != "$root" ] || [ ! -d "$dir" ] ||
+  [ "$(stat -c %u "$dir")" != 0 ] ||
+  [ "$(cat "$dir/.stella-code" 2>/dev/null)" != "$sha" ]; then
+  echo "stella-executor: no verified Stella code bundle is installed in this container" >&2
+  exit 127
+fi
+exec /usr/local/bin/bun "$dir/packages/executor-cloud/src/cli.ts" "$@"

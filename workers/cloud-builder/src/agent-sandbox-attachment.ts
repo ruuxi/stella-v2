@@ -31,27 +31,18 @@ import {
   type AttachedToolResponse,
 } from "@stella/executor-cloud/attached-tool-protocol";
 import type { AttachBoot, SandboxAttachment } from "./agent-compute-ladder.js";
+import { SANDBOX_EXECUTOR } from "./sandbox-code.js";
 import type { TurnExecutionContext } from "./turn-cancellation.js";
 
-const DAEMON_ARGV = [
-  "bun",
-  "packages/executor-cloud/src/cli.ts",
-  "--attached-tool-host",
-] as const;
+/** The executor CLI from the code bundle the container installed at start. */
+const DAEMON_ARGV = [SANDBOX_EXECUTOR, "--attached-tool-host"] as const;
 
-const CLIENT_ARGV = [
-  "bun",
-  "packages/executor-cloud/src/cli.ts",
-  "--attached-tool-client",
-] as const;
+const CLIENT_ARGV = [SANDBOX_EXECUTOR, "--attached-tool-client"] as const;
 
 /**
- * Where the executor package lives in the image, and therefore the only
- * directory the relative `DAEMON_ARGV`/`CLIENT_ARGV` resolve from. The eager
- * container path passes the same directory explicitly; the Sandbox SDK applies
- * no session working directory to a background process, so without this the
- * daemon died on "Module not found" before it could listen and every bridged
- * tool call surfaced only the readiness probe's exit status.
+ * The working directory every executor process gets, as on the eager
+ * container path. The Sandbox SDK applies no session working directory to a
+ * background process, so the daemon names it explicitly.
  */
 const EXECUTOR_ROOT = "/opt/stella";
 

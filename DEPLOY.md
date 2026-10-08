@@ -66,6 +66,51 @@ cd ../model-gateway && env -u CLOUDFLARE_API_TOKEN bun run deploy:production
 
 New bindings, vars or secrets: add them to the `env.production` block of the
 
+### Sandbox image and code bundle (cloud-builder)
+
+The sandbox image (`workers/cloud-builder/Dockerfile`) holds the OS, tools,
+Bun, Claude Code, the office CLI and the third-party packages the executor
+imports, and **no Stella source**. It changes only when the Dockerfile,
+`sandbox-image.bun.lock` (refresh with `bun run image:lock:refresh` when the
+executor's dependencies change), the office CLI or `sandbox-bin/` changes. A
+container snapshot restores only onto the image it was taken from, so a deploy
+that changes only Stella source keeps every owner's snapshot.
+
+Stella's code (`packages/{contracts,runtime,executor-cloud,model-catalog}`)
+ships as a content-addressed bundle instead. The Worker build packs it into
+`.wrangler/sandbox-code/sandbox-code/<sha256>.tar.gz`, deploys it as a static
+asset of the same Worker version (`ASSETS`, never served publicly), and
+compiles the hash in. When an agent container starts, fresh or from a
+snapshot, the Sandbox object runs the image's `stella-code-install <sha256>`,
+which fetches the bundle over an intercepted host, refuses bytes with any
+other hash, and installs it root-owned under `/run/stella-code/<sha256>`.
+Every executor process starts through `/opt/stella/bin/stella-executor`. A
+container runs the bundle it started with until it stops; a deploy reaches it
+at its next start, so a turn in progress finishes on its old code.
+
+What a deploy prints:
+
+- `image:prepare`: `{"event":"sandbox_image_inputs","sha256":…}`. Same value
+  as the last deploy means the same image.
+- `[custom build] {…"sandboxCode":{"sha256":…}}`: the code bundle this version
+  serves.
+- Wrangler: `Image already exists remotely, skipping push` when the image is
+  unchanged; `containers:check` then shows the same
+  `Sandbox=…@sha256:<digest>` as the version before.
+
+The digest is stable only while the build machine's Docker cache holds the
+layers. A pruned cache or a different machine rebuilds them with new
+timestamps and a new digest, and every snapshot resets once (containers start
+from the image and the owner's dependency archive).
+
+Which code a container runs: `bunx wrangler tail --format json` shows
+`sandbox_container_started` with `source` (`snapshot` or `image`, plus
+`snapshotSkipped: "image_changed"` when the image moved), `codeBundle` (the
+bundle's sha256) and `codeSource` (`fetched`, or `cached` when a snapshot
+carried a tarball that still hashes). A failed install logs
+`sandbox_code_install_failed` and the container is stopped. Inside a
+container, `readlink /run/stella-code/current` names the bundle.
+
 ### Container image metadata (cloud-builder)
 
 A Worker **version** carries the `containers` image digest, and only a full
@@ -81,8 +126,9 @@ prod unable to start sandboxes.
 So **never change cloud-builder's vars, bindings or code outside
 `wrangler deploy`.** Change `wrangler.jsonc` and deploy. `deploy:dev`,
 `deploy:acceptance` and `deploy:production` now refuse to upload a config that
-declares no containers and fail after the deploy if the version receiving
-traffic lost them. To check a live deployment at any time:
+declares no containers or no `ASSETS` code bundle binding, and fail after the
+deploy if the version receiving traffic lost either. To check a live
+deployment at any time:
 
 ```bash
 cd workers/cloud-builder

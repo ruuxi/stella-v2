@@ -2,6 +2,7 @@ import {
   cp,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   stat,
@@ -13,6 +14,7 @@ import { builtinModules, createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { SANDBOX_CODE_PACKAGES } from "./sandbox-code.mjs";
 
 const workerRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -65,26 +67,42 @@ if (customOutput && !generatedRefreshRoot) {
 }
 await mkdir(path.join(imageRoot, "packages"), { recursive: true });
 
-const imagePackages = [
-  "contracts",
-  "runtime",
-  "executor-cloud",
-  "model-catalog",
-  // Document CLI. Only the wrapper + download scripts are staged; the native
-  // binary is fetched for the image's own platform during the Docker build.
-  "stella-office",
-];
+/**
+ * The image holds no Stella source. Its inputs are the OS and tool layers in
+ * the Dockerfile, the third-party packages the executor imports (this
+ * manifest and `sandbox-image.bun.lock`), the office CLI, and the two
+ * bootstrap scripts in `sandbox-bin/`; the image digest moves only when one of
+ * those does. Stella's own packages ship as the code bundle each container
+ * installs at start (`scripts/sandbox-code.mjs`), so a deploy of Stella
+ * source keeps every owner's container snapshot.
+ *
+ * Document CLI: only the wrapper + download scripts are staged; the native
+ * binary is fetched for the image's own platform during the Docker build. It
+ * stays in the image because the binary is pinned to the wrapper's version.
+ */
+const OFFICE_PACKAGE = "stella-office";
+
+const officeRoot = path.join(repoRoot, "packages", OFFICE_PACKAGE);
 
 /**
- * Files that must never reach the image. The checked-in stella-office
- * binaries are macOS-only (60 MB of dead weight in a Linux container) and its
- * vendor tree is the OfficeCLI C# source, which nothing at runtime reads.
+ * Office files that must never reach the image. Its vendor tree is the
+ * OfficeCLI C# source, which nothing at runtime reads, and native binaries are
+ * never staged from this checkout (the checked-in ones are macOS-only, and a
+ * locally downloaded Linux one would make the image depend on the machine
+ * that deploys): the Docker build downloads the pinned Linux release.
  */
-const isExcluded = (source) =>
-  source.split(path.sep).includes("node_modules") ||
-  source.includes(`${path.sep}.git${path.sep}`) ||
-  source.includes(`${path.sep}stella-office${path.sep}vendor`) ||
-  path.basename(source).startsWith("stella-office-darwin-");
+const isExcluded = (source) => {
+  const segments = path.relative(officeRoot, source).split(path.sep);
+  const name = segments.at(-1) ?? "";
+  return (
+    segments.includes("node_modules") ||
+    segments.includes(".git") ||
+    segments.includes("tests") ||
+    segments[0] === "vendor" ||
+    name.startsWith("stella-office-") ||
+    name === ".stella-office.json"
+  );
+};
 
 const rootPackage = JSON.parse(
   await readFile(path.join(repoRoot, "package.json"), "utf8"),
@@ -139,9 +157,9 @@ if (bunRuntimeVersion !== imageBunVersion) {
 /**
  * The npm packages the container can load: everything statically reachable
  * from the executor CLI, the only script the container runs, through the
- * staged workspaces. Bun installs each staged workspace's own dependencies;
- * the rest are pinned to the root manifest's versions. The root manifest is
- * the desktop app's, so it is never copied wholesale.
+ * code bundle's workspaces. Each is pinned to the version its workspace or
+ * the root manifest declares. The root manifest is the desktop app's, so it
+ * is never copied wholesale.
  */
 const EXECUTOR_ENTRY = path.join(repoRoot, "packages/executor-cloud/src/cli.ts");
 const tracedImports = async (declared) => {
@@ -185,23 +203,11 @@ const tracedImports = async (declared) => {
   });
   return [...names].sort();
 };
+// Every traced package goes at the image root, the one `node_modules` every
+// file of the code bundle resolves third-party imports from.
 const workspaceDependencies = new Set();
-for (const packageName of imagePackages) {
-  const manifest = JSON.parse(
-    await readFile(
-      path.join(repoRoot, "packages", packageName, "package.json"),
-      "utf8",
-    ),
-  );
-  for (const name of Object.keys(manifest.dependencies ?? {})) {
-    workspaceDependencies.add(name);
-  }
-}
-// Every traced package goes at the image root. Bun installs a workspace's own
-// dependencies beside that workspace, where a sibling workspace that imports
-// the same package cannot resolve it.
 const workspaceVersions = new Map();
-for (const packageName of imagePackages) {
+for (const packageName of SANDBOX_CODE_PACKAGES) {
   const manifest = JSON.parse(
     await readFile(
       path.join(repoRoot, "packages", packageName, "package.json"),
@@ -209,6 +215,7 @@ for (const packageName of imagePackages) {
     ),
   );
   for (const [name, version] of Object.entries(manifest.dependencies ?? {})) {
+    workspaceDependencies.add(name);
     if (!version.startsWith("workspace:")) workspaceVersions.set(name, version);
   }
 }
@@ -223,7 +230,7 @@ for (const name of await tracedImports(
     rootPackage.dependencies?.[name] ?? workspaceVersions.get(name);
   if (typeof version !== "string") {
     throw new Error(
-      `The cloud executor imports ${name}, but no staged workspace or the root manifest declares it.`,
+      `The cloud executor imports ${name}, but no code bundle workspace or the root manifest declares it.`,
     );
   }
   executorDependencies[name] = version;
@@ -233,7 +240,6 @@ const imagePackage = {
   name: "stella-cloud-executor-image",
   private: true,
   type: "module",
-  workspaces: imagePackages.map((name) => `packages/${name}`),
   dependencies: {
     ...executorDependencies,
     // Claude's native coding-agent runtime. This exact version is part of the
@@ -248,13 +254,13 @@ await writeFile(
   `${JSON.stringify(imagePackage, null, 2)}\n`,
 );
 
-for (const packageName of imagePackages) {
-  await cp(
-    path.join(repoRoot, "packages", packageName),
-    path.join(imageRoot, "packages", packageName),
-    { recursive: true, filter: (source) => !isExcluded(source) },
-  );
-}
+await cp(officeRoot, path.join(imageRoot, "packages", OFFICE_PACKAGE), {
+  recursive: true,
+  filter: (source) => !isExcluded(source),
+});
+await cp(path.join(workerRoot, "sandbox-bin"), path.join(imageRoot, "bin"), {
+  recursive: true,
+});
 
 const runBunLockCommand = ({ frozen }) => {
   const result = spawnSync(
@@ -291,10 +297,12 @@ const stagedLockPath = path.join(imageRoot, "bun.lock");
 if (refreshLock) {
   // Refresh is intentionally explicit: ordinary builds never consult registry
   // state to choose a dependency version. The generated lock is scoped to the
-  // staged workspaces rather than copying the monorepo's lockfile. Bun 1.4
+  // staged manifest rather than copying the monorepo's lockfile, and starts
+  // from the checked-in one so only what the manifest changed moves. Bun 1.4
   // does not emit a new lockfile when --production and --lockfile-only are
   // combined, so the lock records every staged dependency while the Docker
   // install still uses --production.
+  await cp(sourceLockPath, stagedLockPath);
   runBunLockCommand({ frozen: false });
   await cp(stagedLockPath, sourceLockPath);
 } else {
@@ -320,4 +328,32 @@ await writeFile(
 
 if (generatedRefreshRoot) {
   await rm(imageRoot, { recursive: true, force: true });
+} else {
+  // Everything Docker builds from: when this digest is unchanged, so are the
+  // build's cache keys, and the image keeps its digest.
+  const inputs = createHash("sha256").update(dockerfile);
+  const walk = async (directory) => {
+    const entries = await readdir(directory, { withFileTypes: true });
+    entries.sort((left, right) => (left.name < right.name ? -1 : 1));
+    for (const entry of entries) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await walk(absolute);
+        continue;
+      }
+      const info = await stat(absolute);
+      inputs.update(
+        `\0${path.relative(imageRoot, absolute)}\0${info.mode & 0o777}\0`,
+      );
+      inputs.update(await readFile(absolute));
+    }
+  };
+  await walk(imageRoot);
+  process.stdout.write(
+    `${JSON.stringify({
+      event: "sandbox_image_inputs",
+      sha256: inputs.digest("hex"),
+      dependencyLockSha256: `sha256:${lockSha256}`,
+    })}\n`,
+  );
 }

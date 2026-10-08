@@ -29,6 +29,15 @@ const sourceConfig = (config) => {
   return {
     ...rest,
     main: sourceEntry,
+    // Same for the static assets directory the build writes.
+    ...(config.assets?.directory
+      ? {
+          assets: {
+            ...config.assets,
+            directory: path.resolve(workerRoot, config.assets.directory),
+          },
+        }
+      : {}),
     // The derived config lives below .wrangler; resolve local image paths
     // against the original config directory. Registry image names stay intact.
     ...(config.containers

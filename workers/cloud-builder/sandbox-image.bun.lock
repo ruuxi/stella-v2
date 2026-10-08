@@ -29,55 +29,6 @@
         "zod": "^4.6.5",
       },
     },
-    "packages/contracts": {
-      "name": "@stella/contracts",
-      "version": "0.0.0",
-    },
-    "packages/executor-cloud": {
-      "name": "@stella/executor-cloud",
-      "version": "0.0.0",
-      "dependencies": {
-        "@sinclair/typebox": "0.34.52",
-        "@stella/contracts": "workspace:*",
-        "@stella/model-catalog": "workspace:*",
-        "@stella/runtime": "workspace:*",
-        "effect": "4.0.0",
-      },
-      "devDependencies": {
-        "@types/bun": "^1.4.2",
-        "@types/node": "^26.6.4",
-      },
-    },
-    "packages/model-catalog": {
-      "name": "@stella/model-catalog",
-      "version": "0.0.0",
-      "dependencies": {
-        "@stella/contracts": "workspace:*",
-      },
-    },
-    "packages/runtime": {
-      "name": "@stella/runtime",
-      "version": "0.0.0",
-      "dependencies": {
-        "@modelcontextprotocol/sdk": "1.32.0",
-        "@stella/contracts": "workspace:*",
-        "effect": "4.0.0",
-        "json5": "^2.2.3",
-        "parse5": "^8.0.1",
-        "turndown": "^7.2.4",
-        "ws": "^8.22.0",
-      },
-      "devDependencies": {
-        "@types/turndown": "^5.0.6",
-      },
-    },
-    "packages/stella-office": {
-      "name": "stella-office",
-      "version": "1.0.145",
-      "bin": {
-        "stella-office": "./bin/stella-office.js",
-      },
-    },
   },
   "packages": {
     "@anthropic-ai/claude-code": ["@anthropic-ai/claude-code@2.1.220", "", { "optionalDependencies": { "@anthropic-ai/claude-code-darwin-arm64": "2.1.220", "@anthropic-ai/claude-code-darwin-x64": "2.1.220", "@anthropic-ai/claude-code-linux-arm64": "2.1.220", "@anthropic-ai/claude-code-linux-arm64-musl": "2.1.220", "@anthropic-ai/claude-code-linux-x64": "2.1.220", "@anthropic-ai/claude-code-linux-x64-musl": "2.1.220", "@anthropic-ai/claude-code-win32-arm64": "2.1.220", "@anthropic-ai/claude-code-win32-x64": "2.1.220" }, "bin": { "claude": "bin/claude.exe" } }, "sha512-ogBrvwkqF9f8okmnXKxmRNHuvtFxFEffe5pWdqOV3iQDxlUOKirFqnyWC7NGXXnDA4WkkbPH8pvSbwyCR2Auyw=="],
@@ -144,21 +95,9 @@
 
     "@stablelib/base64": ["@stablelib/base64@1.0.1", "", {}, "sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ=="],
 
-    "@stella/contracts": ["@stella/contracts@workspace:packages/contracts"],
-
-    "@stella/executor-cloud": ["@stella/executor-cloud@workspace:packages/executor-cloud"],
-
-    "@stella/model-catalog": ["@stella/model-catalog@workspace:packages/model-catalog"],
-
-    "@stella/runtime": ["@stella/runtime@workspace:packages/runtime"],
-
-    "@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
-
     "@types/node": ["@types/node@26.6.4", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-ldVPDCzj7fsaGZrLB0NuHuTvJcsNasysBAqMolr/cgxrLd1xbqxIr3XJiPnHHJUCxj5sNF1vnRj9aWnrVh5Jcg=="],
 
     "@types/retry": ["@types/retry@0.12.0", "", {}, "sha512-wWKOClTTiizcZhXnPY4wikVAwmdYHp8q6DmC+EJUzAMsycb7HB32Kh9RN4+0gExjmPmZSAQjgURXIGATPegAvA=="],
-
-    "@types/turndown": ["@types/turndown@5.0.6", "", {}, "sha512-ru00MoyeeouE5BX4gRL+6m/BsDfbRayOskWqUvh7CLGW+UXxHQItqALa38kKnOiZPqJrtzJUgAC2+F0rL1S4Pg=="],
 
     "accepts": ["accepts@2.0.0", "", { "dependencies": { "mime-types": "^3.0.0", "negotiator": "^1.0.0" } }, "sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng=="],
 
@@ -175,8 +114,6 @@
     "body-parser": ["body-parser@2.3.0", "", { "dependencies": { "bytes": "^3.1.2", "content-type": "^2.0.0", "debug": "^4.4.3", "http-errors": "^2.0.1", "iconv-lite": "^0.7.2", "on-finished": "^2.4.1", "qs": "^6.15.2", "raw-body": "^3.0.2", "type-is": "^2.1.0" } }, "sha512-2cGmJupaNgg+QUwVLAucDuWuoMZ6EX9iHDRswZ5lsNYEmwPaRknMPCLZz07yTzVq/83p4o/wzbDZbBrTvGGTIw=="],
 
     "buffer-equal-constant-time": ["buffer-equal-constant-time@1.0.1", "", {}, "sha512-zRpUiDwd/xk6ADqPMATG8vc9VPrkck7T07OIx0gnjmJAnHnTVXNQG3vfvWNuiZIkwu9KrKdA1iJKfsfTVxE6NA=="],
-
-    "bun-types": ["bun-types@1.4.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-bxV1FgK7yBIzjRe5zBozIM4Bem11ZJcCXSrjWRG3YWLt8yFDePu4cLjpebO8OvPeIE9trbyPF4fuj3Cia4Fj3w=="],
 
     "bytes": ["bytes@3.1.2", "", {}, "sha512-/Nf7TyzTx6S3yRJObOAV7956r8cr2+Oj8AC5dt8wSP3BQAoeX58NoHyCU8P8zGkNXStjTSi6fzO6F0pBdcYbEg=="],
 
@@ -300,8 +237,6 @@
 
     "json-schema-typed": ["json-schema-typed@8.0.2", "", {}, "sha512-fQhoXdcvc3V28x7C7BMs4P5+kNlgUURe2jmUT1T//oBRMDrqy1QPelJimwZGo7Hg9VPV3EQV5Bnq4hbFy2vetA=="],
 
-    "json5": ["json5@2.2.3", "", { "bin": { "json5": "lib/cli.js" } }, "sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg=="],
-
     "jwa": ["jwa@2.0.1", "", { "dependencies": { "buffer-equal-constant-time": "^1.0.1", "ecdsa-sig-formatter": "1.0.11", "safe-buffer": "^5.0.1" } }, "sha512-hRF04fqJIP8Abbkq5NKGN0Bbr3JxlQ+qhZufXVr0DvujKy93ZCbXZMHDL4EOtodSbCWxOqR8MS1tXA5hwqCXDg=="],
 
     "jws": ["jws@4.0.1", "", { "dependencies": { "jwa": "^2.0.1", "safe-buffer": "^5.0.1" } }, "sha512-EKI/M/yqPncGUUh44xz0PxSidXFr/+r0pA70+gIYhjv+et7yxM+s29Y+VGDkovRofQem0fs7Uvf4+YmAdyRduA=="],
@@ -393,8 +328,6 @@
     "standardwebhooks": ["standardwebhooks@1.1.1", "", { "dependencies": { "@stablelib/base64": "^1.0.0", "fast-sha256": "^1.3.0" } }, "sha512-bCbX9ZEyFkWPsRz7Bl3NuQUJohmwGSev/yhr7vhaGPlc4AfIrspIRa6cPTBuI1ItmrTDJ4d/S2hCsfe4+vQGnQ=="],
 
     "statuses": ["statuses@2.0.2", "", {}, "sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw=="],
-
-    "stella-office": ["stella-office@workspace:packages/stella-office"],
 
     "toidentifier": ["toidentifier@1.0.1", "", {}, "sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA=="],
 

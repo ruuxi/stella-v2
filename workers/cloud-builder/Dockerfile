@@ -52,13 +52,17 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update \
   && update-ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
+# Third-party packages only. Stella's own code is not in the image: each
+# container fetches the code bundle its Worker version names, checks its
+# SHA-256 and installs it under /run/stella-code at start
+# (bin/stella-code-install), so a deploy of Stella source leaves this image,
+# and every snapshot taken from it, unchanged.
 COPY .image/package.json ./
-COPY .image/packages ./packages
 COPY .image/bun.lock ./bun.lock
 COPY .image/image-build.json ./image-build.json
 RUN node --input-type=commonjs -e \
       'const fs = require("node:fs"); const crypto = require("node:crypto"); const childProcess = require("node:child_process"); const metadata = JSON.parse(fs.readFileSync("image-build.json", "utf8")); const digest = `sha256:${crypto.createHash("sha256").update(fs.readFileSync("bun.lock")).digest("hex")}`; const bunVersion = childProcess.execFileSync("bun", ["--version"], { encoding: "utf8" }).trim(); if (metadata.dependencyLockSha256 !== digest) throw new Error("Sandbox image lock digest mismatch"); if (metadata.sandboxSdkVersion !== "1.0.0") throw new Error("Sandbox SDK and sandbox-tools image versions differ"); if (bunVersion !== "1.4.2") throw new Error("Sandbox image Bun version differs from the pinned lock runtime");' \
-  && bun install --production --frozen-lockfile \
+  && bun install --production --frozen-lockfile --linker isolated \
   # Claude Code ships glibc and musl native builds as optional packages; this
   # image is glibc, so the 258 MB musl binary is dead weight.
   && rm -rf node_modules/.bun/@anthropic-ai+claude-code-linux-x64-musl@* \
@@ -69,7 +73,11 @@ RUN node --input-type=commonjs -e \
 # The checked-in stella-office binaries are macOS-only and are filtered out of
 # the image staging; fetch the matching Linux build instead. The package's own
 # downloader owns the release URL and the platform-to-asset mapping.
+COPY .image/packages ./packages
 RUN node packages/stella-office/scripts/download-native.js
+
+# The code bundle's installer and the executor entrypoint that runs it.
+COPY --chmod=0755 .image/bin ./bin
 
 # Native CLI resume authority is root-only. Model-authored shell commands run
 # as stella-tools and cannot traverse its fixed directory. The tool identity
@@ -102,7 +110,9 @@ RUN groupadd --system --gid 42424 stella-tools \
   && test "$(stat -c '%u:%g:%a' /workspace)" = 0:42424:750 \
   && test "$(readlink -f /usr/bin/setpriv)" = /usr/bin/setpriv \
   && test "$(stat -c '%u:%g:%a:%h' /usr/bin/setpriv)" = 0:0:755:1 \
-  && mkdir -p /opt/stella/node_modules/@stella \
+  && test ! -e /opt/stella/node_modules/@stella \
+  && test "$(stat -c '%u:%g:%a' /opt/stella/bin/stella-code-install)" = 0:0:755 \
+  && test "$(stat -c '%u:%g:%a' /opt/stella/bin/stella-executor)" = 0:0:755 \
   && ln -s /opt/stella/node_modules/.bin/claude /usr/local/bin/claude
 
 ENTRYPOINT ["/usr/bin/tini", "--"]

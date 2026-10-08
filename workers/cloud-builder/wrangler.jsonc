@@ -33,6 +33,17 @@
       "../../packages/runtime/observability",
     ],
   },
+  // Stella's code for sandbox containers (src/sandbox-code.ts). The build
+  // writes `sandbox-code/<sha256>.tar.gz` here and compiles the hash into the
+  // Worker, so a version and its bundle always deploy together. Only the
+  // Sandbox object reads it, through the binding: run_worker_first keeps the
+  // Worker in front of every request, so the asset is never served publicly.
+  // Inherited by every environment.
+  "assets": {
+    "directory": ".wrangler/sandbox-code",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+  },
   "compatibility_date": "2026-07-22",
   // Pending service-binding calls, RPC, waitUntil and timers keep a Durable
   // Object alive (up to 15 minutes each). A resident agent turn waits on the

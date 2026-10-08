@@ -1,0 +1,104 @@
+#!/bin/sh
+# Install Stella's code bundle in this container and make it the code every
+# executor runs (`stella-executor`). The Sandbox Durable Object runs this as
+# root once per container start, fresh or restored from a snapshot, before any
+# executor:
+#
+#   stella-code-install <sha256> <url>
+#
+# <sha256> is the bundle the Worker version was built with; <url> is the
+# container's intercepted route to that Worker's copy. The tree is rebuilt on
+# every start from bytes this run hashed: a tarball a snapshot carried is
+# reused only when it still hashes to <sha256>, otherwise it is fetched again.
+# Bytes that hash to anything else are refused (exit 3) and nothing changes.
+# Every file is root-owned and writable by root alone, so the tool user
+# (uid 42424) can read the code but never alter it.
+#
+# Prints one JSON line on success.
+set -eu
+umask 022
+
+root=/run/stella-code
+image_modules=/opt/stella/node_modules
+
+fail() {
+  code=$1
+  shift
+  printf 'stella-code-install: %s\n' "$*" >&2
+  exit "$code"
+}
+
+[ "$#" -eq 2 ] || fail 2 "usage: stella-code-install <sha256> <url>"
+sha=$1
+url=$2
+case $sha in
+  *[!0-9a-f]* | '') fail 2 "invalid bundle hash: $sha" ;;
+esac
+[ "${#sha}" -eq 64 ] || fail 2 "invalid bundle hash: $sha"
+[ "$(id -u)" -eq 0 ] || fail 2 "must run as root"
+
+now_ms() { date +%s%3N; }
+started=$(now_ms)
+
+if [ -L "$root" ] || { [ -e "$root" ] && [ ! -d "$root" ]; }; then
+  rm -rf "$root"
+fi
+mkdir -p "$root"
+chown root:root "$root"
+chmod 0755 "$root"
+# Until this run succeeds nothing is runnable, whatever a snapshot carried.
+rm -f "$root/current"
+
+stage=$(mktemp -d "$root/.stage.XXXXXX")
+trap 'rm -rf "$stage"' EXIT
+archive="$root/$sha.tar.gz"
+tree="$root/$sha"
+
+source=cached
+fetch_ms=0
+if [ ! -f "$archive" ] || [ -L "$archive" ] ||
+  [ "$(sha256sum "$archive" | cut -d' ' -f1)" != "$sha" ]; then
+  source=fetched
+  rm -f "$archive"
+  fetch_started=$(now_ms)
+  curl -fsS --retry 3 --retry-delay 1 --retry-all-errors \
+    --connect-timeout 10 --max-time 120 \
+    -o "$stage/bundle.tar.gz" "$url" ||
+    fail 4 "could not fetch the code bundle from $url"
+  fetch_ms=$(($(now_ms) - fetch_started))
+  actual=$(sha256sum "$stage/bundle.tar.gz" | cut -d' ' -f1)
+  [ "$actual" = "$sha" ] ||
+    fail 3 "refusing code bundle: expected sha256 $sha, received $actual"
+  chmod 0600 "$stage/bundle.tar.gz"
+  mv -f "$stage/bundle.tar.gz" "$archive"
+fi
+bytes=$(stat -c %s "$archive")
+
+mkdir "$stage/tree"
+tar -xzf "$archive" -C "$stage/tree" --no-same-owner
+# Third-party packages resolve from the image's install; `@stella/*` resolve
+# to this bundle's own packages.
+for entry in "$image_modules"/* "$image_modules"/.[!.]*; do
+  name=${entry##*/}
+  if { [ -e "$entry" ] || [ -L "$entry" ]; } && [ "$name" != "@stella" ]; then
+    ln -s "$entry" "$stage/tree/node_modules/$name"
+  fi
+done
+chmod -R go-w "$stage/tree"
+printf '%s\n' "$sha" >"$stage/tree/.stella-code"
+chmod 0444 "$stage/tree/.stella-code"
+rm -rf "$tree"
+mv -T "$stage/tree" "$tree"
+ln -sfn "$sha" "$root/.current"
+mv -Tf "$root/.current" "$root/current"
+
+# This runs before any executor, so no process holds an older bundle open.
+for old in "$root"/* "$root"/.[!.]*; do
+  case $old in
+    "$tree" | "$archive" | "$root/current" | "$stage") ;;
+    *) rm -rf "$old" ;;
+  esac
+done
+
+printf '{"sha256":"%s","source":"%s","bytes":%s,"fetchMs":%s,"installMs":%s}\n' \
+  "$sha" "$source" "$bytes" "$fetch_ms" "$(($(now_ms) - started))"

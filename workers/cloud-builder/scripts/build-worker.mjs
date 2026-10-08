@@ -14,6 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isEntryPoint } from "../../../scripts/lib/entry-point.mjs";
 import { buildWorkerShellModules } from "./build-worker-shell.mjs";
+import { buildSandboxCode } from "./sandbox-code.mjs";
 
 const workerRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -30,6 +31,9 @@ export const buildWorker = async ({ outdir = workerBuildDirectory } = {}) => {
   // The worker shell's Dynamic Worker modules are imported lazily by the
   // BuildSession; regenerate them from the pinned just-bash first.
   await buildWorkerShellModules();
+  // Stella's code for sandbox containers: written into this version's static
+  // assets, and its hash compiled into the Sandbox object that installs it.
+  const sandboxCode = await buildSandboxCode();
   const result = await build({
     absWorkingDir: workerRoot,
     entryPoints: ["src/index.ts"],
@@ -55,7 +59,13 @@ export const buildWorker = async ({ outdir = workerBuildDirectory } = {}) => {
     // nodejs_compat supplies built-ins at runtime. Never replace native
     // subscription dependencies with stubs to shrink the Worker.
     external: ["cloudflare:*", "node:*", ...builtinModules],
-    define: { "process.env.NODE_ENV": '"production"' },
+    define: {
+      "process.env.NODE_ENV": '"production"',
+      __STELLA_SANDBOX_CODE__: JSON.stringify({
+        sha256: sandboxCode.sha256,
+        bytes: sandboxCode.bytes,
+      }),
+    },
     // Every isolate parses the eager modules at startup. Minified output keeps
     // that parse small; keepNames preserves class and function names, and the
     // uploaded source maps keep production stack traces readable.
@@ -92,6 +102,7 @@ export const buildWorker = async ({ outdir = workerBuildDirectory } = {}) => {
       .replaceAll(path.sep, "/");
   const manifest = {
     entry: relativeOutput(entry),
+    sandboxCode: { sha256: sandboxCode.sha256, bytes: sandboxCode.bytes },
     modules: modules.map(([file, output]) => ({
       file: relativeOutput(file),
       bytes: output.bytes,
@@ -153,6 +164,7 @@ if (isEntryPoint(import.meta.url)) {
       modules: manifest.modules.length,
       eagerBytes: manifest.eagerBytes,
       totalBytes: manifest.totalBytes,
+      sandboxCode: manifest.sandboxCode,
     })}\n`,
   );
 }

@@ -7,9 +7,15 @@
 // publishes a version without it and silently removes sandboxes from the
 // deployment. Production ran that way on 2026-10-07.
 //
-// `--config` refuses to deploy a config that would upload without containers.
-// `--deployed` reads the version actually receiving traffic and fails when its
-// metadata lost them. `bun run containers:check` runs both.
+// The sandbox image holds no Stella code: an agent container installs the code
+// bundle its Worker version serves from its static assets (`ASSETS`,
+// src/sandbox-code.ts). A version without that binding starts containers that
+// cannot run an executor, so the same checks cover it.
+//
+// `--config` refuses to deploy a config that would upload without containers
+// or the code bundle's assets. `--deployed` reads the version actually
+// receiving traffic and fails when its metadata lost either.
+// `bun run containers:check` runs both.
 
 import { spawnSync } from "node:child_process";
 import path from "node:path";
@@ -70,8 +76,19 @@ if (checkConfig) {
       );
     }
   }
+  // `assets` is inherited unless the environment sets its own.
+  const assets = envConfig.assets ?? rawConfig.assets;
+  if (
+    assets?.binding !== "ASSETS" ||
+    typeof assets.directory !== "string" ||
+    assets.run_worker_first !== true
+  ) {
+    fail(
+      `environment ${environment || "(default)"} must bind the sandbox code bundle's assets as ASSETS with run_worker_first: true; without them agent containers cannot install Stella's code.`,
+    );
+  }
   console.log(
-    `check-container-metadata: config ok — ${scriptName}: ${describeConfigured(configuredContainers)}`,
+    `check-container-metadata: config ok — ${scriptName}: ${describeConfigured(configuredContainers)}; code bundle assets ${assets.directory}`,
   );
 }
 
@@ -142,11 +159,27 @@ if (deployed.length === 0) {
   );
   process.exit(1);
 }
+const bindings = version?.resources?.bindings ?? [];
+if (
+  !bindings.some(
+    (binding) => binding?.name === "ASSETS" && binding?.type === "assets",
+  )
+) {
+  console.error(
+    [
+      `check-container-metadata: ${scriptName} version ${serving.version_id} (source ${source}) has no ASSETS binding, so it serves no sandbox code bundle.`,
+      "Agent containers on this deployment start but cannot install Stella's code, and every agent turn fails.",
+      "Restore it by deploying this config again (it builds and uploads the bundle):",
+      `  cd workers/cloud-builder && env -u CLOUDFLARE_API_TOKEN bun run deploy:${environment === "production" ? "production" : environment || "dev"}`,
+    ].join("\n"),
+  );
+  process.exit(1);
+}
 console.log(
   `check-container-metadata: deployed ok — ${scriptName} version ${serving.version_id} (source ${source}) carries ${deployed
     .map(
       (container) =>
         `${container.class_name}=${Object.values(container.images ?? {}).join(",")}`,
     )
-    .join("; ")}`,
+    .join("; ")} and the ASSETS code bundle binding`,
 );

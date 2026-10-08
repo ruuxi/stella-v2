@@ -31,7 +31,8 @@ that we publish, plus a private fork per user.
   added shows as an "N updates" pill above the composer, which opens the
   Updates section of the right sidebar (Add / Skip, then history with Undo).
   When an update conflicts with the user's own changes, an agent merges in the
-  background.
+  background, and the merged update then waits in Updates until the user adds
+  it; nothing relaunches the app without that click.
 - The checkout only ever moves forward. When histories diverge, the app takes
   a clean three-way merge (`git merge-tree`) itself once it builds; real
   conflicts, or a merge that does not build, go to a background agent.

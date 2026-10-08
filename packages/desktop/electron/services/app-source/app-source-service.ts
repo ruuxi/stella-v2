@@ -148,7 +148,6 @@ type SourceAccess = { fork: ForkAccess | null; upstream: AppSourceRemote };
 
 const STATE_POLL_MS = 10_000;
 /** How long "Stella is up to date" stays in the chat after an update lands. */
-const UPDATE_DONE_MS = 20_000;
 /** A merge that never arrives stops being announced after this. */
 const UPDATE_MERGE_WAIT_MS = 60 * 60_000;
 const FORK_FIRST_SYNC_DELAY_MS = 20_000;
@@ -270,20 +269,17 @@ export class AppSourceService {
   private upstreamTracked = false;
   private upstreamUnrelated = false;
   /**
-   * An official update Stella is taking by itself. "merging" names the draft
-   * an agent is preparing; "done" is the short line after one landed.
+   * An official update an agent is merging; "merging" names the draft it is
+   * preparing.
    */
   private updateState:
     | { state: "merging"; name: string; since: number; from: TakeSource["kind"] }
-    | { state: "done"; since: number }
     | null = null;
   private offers = new Map<string, Offer>();
   private catchingUp = false;
   private caughtUp = new Set<string>();
   private skipped: Set<string> | null = null;
   private offeredKeys: string[] = [];
-  private updateTimer: NodeJS.Timeout | null = null;
-  private takingUpdate = false;
   private disposed = false;
   private readonly onFocus = () => void this.refresh();
 
@@ -316,7 +312,6 @@ export class AppSourceService {
   dispose() {
     this.disposed = true;
     app.removeListener("browser-window-focus", this.onFocus);
-    if (this.updateTimer) clearTimeout(this.updateTimer);
     for (const timer of this.timers) clearTimeout(timer);
     this.timers = [];
     this.backend?.client.dispose();
@@ -722,41 +717,22 @@ export class AppSourceService {
   }
 
 
-  /** The update landed: say so once, briefly, then stop saying anything. */
-  private finishUpdate() {
-    if (this.updateTimer) clearTimeout(this.updateTimer);
-    this.updateState = { state: "done", since: Date.now() };
-    this.updateTimer = setTimeout(() => {
-      this.updateState = null;
-      void this.refresh();
-    }, UPDATE_DONE_MS);
-    this.updateTimer.unref?.();
-  }
-
   /**
-   * The agent's merge is ready: take it. Pressing Update was the go-ahead, so
-   * nothing asks again. A merge that never arrives is forgotten after a while
+   * The agent's merge is ready: stop saying Stella is updating and leave it in
+   * Updates. Pressing Update started the merge, but taking it means a relaunch
+   * minutes later, and that is the user's call, so it applies only when they
+   * press Add on it. A merge that never arrives is forgotten after a while
    * rather than leaving the chat saying Stella is updating forever.
    */
-  private takeFinishedUpdate(state: Omit<AppSourceState, "busy">) {
+  private settleFinishedMerge(state: Omit<AppSourceState, "busy">) {
     const pending = this.updateState;
     if (pending?.state !== "merging") return;
-    if (Date.now() - pending.since > UPDATE_MERGE_WAIT_MS) {
+    if (
+      Date.now() - pending.since > UPDATE_MERGE_WAIT_MS ||
+      state.ready.some((draft) => draft.name === pending.name)
+    ) {
       this.updateState = null;
-      return;
     }
-    if (this.takingUpdate) return;
-    if (!state.ready.some((draft) => draft.name === pending.name)) return;
-    this.takingUpdate = true;
-    void this.applyDraft(pending.name)
-      .then((result) => {
-        // Only an apply that actually landed is done; one that went back to
-        // an agent is still running.
-        if (result.ok && !result.background) this.finishUpdate();
-      })
-      .finally(() => {
-        this.takingUpdate = false;
-      });
   }
 
   private exclusive(
@@ -881,7 +857,7 @@ export class AppSourceService {
         try {
           const next = await this.readState();
           this.publish({ ...next, busy: this.busy });
-          this.takeFinishedUpdate(next);
+          this.settleFinishedMerge(next);
         } catch (error) {
           this.options.log("app-source.refresh-failed", {
             message: errorMessage(error),

@@ -24,6 +24,7 @@ import type { ExecutionDestination } from "@stella/contracts/execution-context";
 import { splitReplyRefs } from "@stella/contracts/reply-refs";
 import {
   mergePiEntries,
+  PI_REPORT_RE,
   piEntriesForClients,
   piMessageText,
   piEventsForClients,
@@ -55,6 +56,7 @@ import {
 } from "../provider/stella.ts";
 import { openBunSqliteStorage } from "../storage/bun-sqlite.ts";
 import { desktopAgentsHost, desktopEnvironments } from "./desktop-agents.ts";
+import { journalMirror, type DesktopJournal, type JournalMirror } from "./desktop-journal.ts";
 import { desktopGatewayAccess, resolveStellaModels } from "./desktop-gateway.ts";
 import { desktopContextSources } from "./desktop-sources.ts";
 
@@ -64,8 +66,8 @@ const HISTORY_PAGE = 200;
 const CLIENT_PAGE_BYTES = 2 * 1024 * 1024;
 /** How far back a voice call's history reaches, in entries. */
 const VOICE_HISTORY_ENTRIES = 200;
-/** An agent's report, which the user did not write. */
-const REPORT = /^\[(Agent completed|Task failed|Task canceled|Subagent paused)\]/;
+/** How long a turn waits for other devices' turns to be imported before it starts. */
+const JOURNAL_CATCH_UP_MS = 3_000;
 /** How often an open conversation is checked for being idle again. */
 const IDLE_CHECK_MS = 30_000;
 /** Until signed in, recovered work retries the provider this often. */
@@ -87,6 +89,8 @@ export type DesktopChatsOptions = {
   thinkingLevel?(): ModelThinkingLevel;
   /** Stella's own tools (web, html, image_gen, ask_user, …) for one conversation. */
   tools?(conversationId: string): StellaToolHost;
+  /** The cloud journal of a conversation stored in the cloud, which its turns are mirrored into. */
+  journal?(conversationId: string): DesktopJournal | undefined;
   /** A watched conversation's events, for every attached client. */
   emit(payload: PiChatEventsPayload): void;
   report(error: unknown): void;
@@ -99,6 +103,8 @@ type Chat = {
   startAgent: OpenStellaHarness["startAgent"];
   agentRecords: OpenStellaHarness["agentRecords"];
   messageAgent: OpenStellaHarness["messageAgent"];
+  /** For a conversation stored in the cloud: its journal mirror. */
+  mirror?: JournalMirror;
   stream?: AgentEventStream;
   watchers: number;
   idleCheck: ReturnType<typeof setInterval>;
@@ -253,15 +259,32 @@ export function desktopChats(options: DesktopChatsOptions) {
         // Recovered work needs the provider; it waits for sign-in otherwise.
         const alias = aliasOf((await root.agent(context)).model);
         void waitForProvider(alias).then(() => harness.resume());
+        const journal = options.journal?.(conversationId);
+        const mirror = journal
+          ? await journalMirror({ harness, root, journal, report: options.report, context })
+          : undefined;
+        void mirror?.importNow().catch((error: unknown) => options.report(error));
         const idleCheck = setInterval(() => {
           void harness.inspect(context).then(
             (inspection) =>
               markActive(conversationId, inspection.tasks.length > 0 || inspection.submissions.length > 0),
             (error: unknown) => options.report(error),
           );
+          // While someone looks at it, what other devices said shows up here too.
+          if (opened?.watchers) void mirror?.importNow().catch((error: unknown) => options.report(error));
         }, IDLE_CHECK_MS);
         idleCheck.unref?.();
-        opened = { harness, root, refreshTools, startAgent, agentRecords, messageAgent, watchers: 0, idleCheck };
+        opened = {
+          harness,
+          root,
+          refreshTools,
+          startAgent,
+          agentRecords,
+          messageAgent,
+          ...(mirror ? { mirror } : {}),
+          watchers: 0,
+          idleCheck,
+        };
         return opened;
       })().catch((error: unknown) => {
         chats.delete(conversationId);
@@ -323,6 +346,23 @@ export function desktopChats(options: DesktopChatsOptions) {
     await stream?.stop().catch(() => undefined);
   };
 
+  /**
+   * A conversation stored in the cloud answers with what other devices said
+   * too: their turns are imported first, waiting at most a moment for the
+   * journal.
+   */
+  const caughtUp = async (chat: Chat): Promise<void> => {
+    if (!chat.mirror) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      chat.mirror.importNow().catch((error: unknown) => options.report(error)),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, JOURNAL_CATCH_UP_MS);
+      }),
+    ]);
+    clearTimeout(timer);
+  };
+
   const submit = async (
     conversationId: string,
     requestId: string,
@@ -349,6 +389,7 @@ export function desktopChats(options: DesktopChatsOptions) {
       }, context);
     }
     await markActive(conversationId, true);
+    await caughtUp(chat);
     const submission = await chat.root.submit(
       // A message sent while Stella works joins the run at its next step.
       { type: "input", content, requestId, whenBusy: "steer" },
@@ -397,6 +438,7 @@ export function desktopChats(options: DesktopChatsOptions) {
     chat: Chat,
     turn: { requestId: string; prompt: string; visible: boolean; rejectIfBusy?: boolean },
   ): Promise<{ status: "ok"; finalText: string } | { status: "busy" | "error"; finalText: ""; error: string }> => {
+    await caughtUp(chat);
     let submission;
     try {
       submission = await chat.root.submit(
@@ -489,7 +531,7 @@ export function desktopChats(options: DesktopChatsOptions) {
         // What the user typed or said; not the context and notices sent along,
         // a report, or a prompt the app wrote.
         const text = piUserView(message).text || ((message as PiUserMessage).source === "voice" ? piMessageText(message) : "");
-        if (text.trim() && !REPORT.test(text.trimStart())) {
+        if (text.trim() && !PI_REPORT_RE.test(text.trimStart())) {
           items.push({ role: "user", content: text, timestamp: message.timestamp });
         }
       } else if (entry.kind === "pi.assistant" && message?.role === "assistant") {
@@ -569,6 +611,7 @@ export function desktopChats(options: DesktopChatsOptions) {
       for (const chat of opened) {
         if (!chat) continue;
         clearInterval(chat.idleCheck);
+        await chat.mirror?.stop();
         await chat.stream?.stop().catch(() => undefined);
         await chat.harness.close(context).catch(() => undefined);
       }

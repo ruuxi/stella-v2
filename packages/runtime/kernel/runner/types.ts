@@ -419,6 +419,8 @@ export type RunnerContext = {
   ) => Promise<import("@stella/contracts/agent-directory").AgentDirectoryAgentRow[]>;
   /** Desktop's writer into a cloud conversation's DO-resident transcript. */
   cloudTranscript: import("./cloud-transcript-write.js").CloudTranscriptWriter;
+  /** The signed-in owner's current data epoch, which cloud writes are fenced by. */
+  cloudOwnerGeneration: () => Promise<string>;
   linkedFilePublisher: import("../device-files/linked-file-publisher.js").LinkedFilePublisher;
   paths: RunnerPaths;
   state: RunnerState;
@@ -612,6 +614,18 @@ export type RunnerPublicApi = {
     timezone?: string;
   }) => void;
   appendCloudJournal: import("./cloud-transcript-write.js").CloudTranscriptWriter["append"];
+  /**
+   * A cloud-stored conversation's journal for a transcript this computer
+   * mirrors into it (pi-durable): the local-turn begin and finish, the
+   * out-of-turn append, and the owner epoch they are fenced by.
+   */
+  cloudJournal: {
+    begin: import("./cloud-transcript-write.js").CloudTranscriptWriter["begin"];
+    finish: import("./cloud-transcript-write.js").CloudTranscriptWriter["finish"];
+    append: import("./cloud-transcript-write.js").CloudTranscriptWriter["append"];
+    history: import("./cloud-transcript-write.js").CloudTranscriptWriter["history"];
+    ownerGeneration: () => Promise<string>;
+  };
   beginVoiceToolCallReceipt: RuntimeStore["beginVoiceToolCallReceipt"];
   completeVoiceToolCallReceipt: RuntimeStore["completeVoiceToolCallReceipt"];
   notifyOrchestratorHistoryChanged: (conversationId: string) => void;

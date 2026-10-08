@@ -367,6 +367,41 @@ export const piMessageText = (message: PiMessage | undefined): string => {
   return message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
 };
 
+/** An agent's report, which arrives as user input the user never wrote. */
+export const PI_REPORT_RE = /^\[(Agent completed|Task failed|Task canceled|Subagent paused)\]/;
+
+/**
+ * A user message as the conversation journal holds one, and its readers
+ * render it: the text the user typed or said, previews of what they attached
+ * (images as image blocks, files as declared attachments) and the context
+ * chips, without the parts the runtime added for the model. A message the user
+ * never wrote (an agent's report, a prompt the app sent) is hidden and keeps
+ * its whole text, so a reader can still tell what it answered.
+ */
+export const piJournalUserMessage = (message: PiUserMessage): { message: Record<string, unknown>; hidden: boolean } => {
+  const { text, display } = piUserView(message);
+  const hidden = PI_REPORT_RE.test(piMessageText(message).trimStart()) || (!text.trim() && !display);
+  const images: PiContentBlock[] = [];
+  const files: Array<Record<string, unknown>> = [];
+  for (const attachment of display?.attachments ?? []) {
+    const match = attachment.kind === "image" ? /^data:([^;,]+);base64,(.+)$/s.exec(attachment.url ?? "") : null;
+    if (match) images.push({ type: "image", mimeType: match[1]!, data: match[2]! });
+    else if (attachment.kind === "file") files.push({ ...attachment, kind: "file" });
+  }
+  return {
+    hidden,
+    message: {
+      role: "user",
+      content: [{ type: "text", text: hidden ? piMessageText(message) : text }, ...images],
+      timestamp: message.timestamp,
+      ...(message.source ? { source: message.source } : {}),
+      ...(message.voiceSession ? { voiceSession: message.voiceSession } : {}),
+      ...(files.length > 0 ? { attachments: files } : {}),
+      ...(display?.context ? { metadata: { context: display.context } } : {}),
+    },
+  };
+};
+
 /** What a user message shows: its unmarked text and what its marks display. */
 export const piUserView = (message: PiUserMessage): { text: string; display?: PiUserDisplay } => {
   if (typeof message.content === "string") return { text: message.content };

@@ -1,0 +1,106 @@
+/**
+ * A cloud-stored conversation's journal and a host's pi-durable transcript,
+ * kept in step. The journal is what every device shows and the record of
+ * every writer's turns; a host's transcript is what its orchestrator reads.
+ * What other writers journaled (a turn sent from the phone, another
+ * computer's) is written into the transcript, once each and marked with its
+ * journal seq, so the orchestrator answers with the whole conversation and a
+ * host never mirrors it back out.
+ */
+import type { Context } from "@earendil-works/chord";
+import type { Message } from "@earendil-works/pi-ai";
+import { defineDoc, type Conversation, type EntryRecord, type Harness } from "@earendil-works/pi-durable";
+
+/** One journaled message, as a reader of the journal gets it. */
+export type JournalMessage = {
+  seq: number;
+  /** The journal turn that wrote it. */
+  turnId: string;
+  role: "user" | "assistant" | "toolResult";
+  /** A prompt no client shows (a wake, a report); still model context. */
+  hidden: boolean;
+  message: Message;
+};
+
+/** The journal turn a transcript is mirroring now. */
+export type JournalOpenTurn = {
+  localTurnId: string;
+  leaseToken: string;
+  ownerGeneration: string;
+  /** Its assistant and tool-result entries so far. */
+  entries: number[];
+};
+
+export type JournalSyncState = {
+  /** Random per transcript, so its turn ids never repeat in the journal. */
+  syncId?: string;
+  /** The newest journal seq written into the transcript. */
+  importedSeq?: number;
+  /** The newest transcript entry mirrored into the journal. */
+  mirrored?: number;
+  open?: JournalOpenTurn;
+};
+
+/** How far the transcript and the journal are in step, per conversation. */
+export const JournalSyncDoc = defineDoc<JournalSyncState>({
+  kind: "stella.journal-sync",
+  version: 1,
+  scope: "conversation",
+  history: "latest",
+  fork: "current",
+  initial: () => ({}),
+});
+
+const ENTRY_KIND = { user: "pi.user", assistant: "pi.assistant", toolResult: "pi.tool-result" } as const;
+
+/** The journal seq of an entry written from the journal, which is never mirrored back. */
+export const journalSeqOf = (entry: Pick<EntryRecord, "data"> | undefined): number | undefined => {
+  const seq = (entry?.data as { journalSeq?: unknown } | undefined)?.journalSeq;
+  return typeof seq === "number" ? seq : undefined;
+};
+
+/** A hidden prompt's text parts are marked, as the host's own hidden prompts are. */
+const asWritten = ({ message, hidden }: JournalMessage): Message => {
+  if (message.role !== "user" || !hidden) return message;
+  const parts = typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
+  return {
+    ...message,
+    content: parts.map((part) => (part.type === "text" ? { ...part, stella: { hidden: true } } : part)),
+  } as Message;
+};
+
+/**
+ * Write what other writers journaled after the transcript's `importedSeq`
+ * into it, in journal order, and advance `importedSeq` to `throughSeq`. A
+ * write lands after whatever run is going on, like any passive entry.
+ */
+export async function importJournal(
+  harness: Harness,
+  root: Conversation,
+  messages: readonly JournalMessage[],
+  throughSeq: number,
+  context: Context,
+): Promise<number> {
+  const imported = (await harness.snapshot(JournalSyncDoc, root.id, context))?.importedSeq ?? -1;
+  let written = 0;
+  for (const record of messages) {
+    if (record.seq <= imported) continue;
+    await root.submit(
+      {
+        type: "write",
+        requestId: `journal:${record.seq}`,
+        entry: { kind: ENTRY_KIND[record.role], model: [asWritten(record)], data: { journalSeq: record.seq } },
+      },
+      context,
+    );
+    written += 1;
+  }
+  if (throughSeq > imported) {
+    await harness.commit(async (tx) => {
+      const doc = await tx.doc(JournalSyncDoc, root.id);
+      doc.importedSeq = Math.max(doc.importedSeq ?? -1, throughSeq);
+      return undefined;
+    }, context);
+  }
+  return written;
+}

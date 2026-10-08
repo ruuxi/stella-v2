@@ -690,9 +690,11 @@ export const createRunnerContext = ({
       (context.state?.authToken ?? envAuthToken ?? "").trim() || null,
     getBaseUrl: cloudRealtimeBaseUrl,
     getOwnerGeneration: getCloudOwnerGeneration,
-    // A turn the runtime resumes this boot replays its own begin.
+    // A turn the runtime resumes this boot replays its own begin; a
+    // pi-durable transcript's mirror re-adopts the turn it had open.
     isResumableTurn: (localTurnId: string) =>
-      runtimeStore.runTasks?.isResumeOwned(localTurnId) ?? false,
+      localTurnId.startsWith("pi:") ||
+      (runtimeStore.runTasks?.isResumeOwned(localTurnId) ?? false),
     ...(appendLocalChatEvent
       ? {
           onDurableDeliveryFailure: ({
@@ -1087,6 +1089,7 @@ export const createRunnerContext = ({
     notifyThreadActivityUpdated,
     getDefaultConversationId,
     cloudTranscript,
+    cloudOwnerGeneration: getCloudOwnerGeneration,
     linkedFilePublisher,
     loadExecutionContext: async () => {
       const authToken = context.state.authToken;

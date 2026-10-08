@@ -708,6 +708,13 @@ export const createStellaHostRunner = (
       });
     },
     appendCloudJournal: (request) => context.cloudTranscript.append(request),
+    cloudJournal: {
+      begin: (request) => context.cloudTranscript.begin(request),
+      finish: (request) => context.cloudTranscript.finish(request),
+      append: (request) => context.cloudTranscript.append(request),
+      history: (conversationId) => context.cloudTranscript.history(conversationId),
+      ownerGeneration: () => context.cloudOwnerGeneration(),
+    },
     beginVoiceToolCallReceipt: (request) =>
       context.runtimeStore.beginVoiceToolCallReceipt(request),
     completeVoiceToolCallReceipt: (request) =>

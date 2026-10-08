@@ -4,7 +4,7 @@
 // verifier, then polls the conversation's canonical history on the worker
 // until the turn's final assistant message lands.
 //
-//   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--email <owner>] [--wait 180] [--agent-runtime pi] [--watch-pi] [--locale es]
+//   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--email <owner>] [--wait 180] [--agent-runtime pi] [--watch-pi] [--locale es] [--attach <drive path>]
 //   (--prompt-file <path> instead of --prompt for prompts too long for one argument)
 //
 // `--agent-runtime pi` creates the conversation on the pi-durable runtime; it
@@ -47,6 +47,8 @@ if (!prompt) {
 const waitSeconds = Number(flag("--wait", "180"));
 const agentRuntime = flag("--agent-runtime");
 const locale = flag("--locale");
+// A file already in the owner's drive, attached to the turn as a client attaches one.
+const attach = flag("--attach");
 const watchPi = args.includes("--watch-pi");
 const devVarsPath = new URL("../../../workers/cloud-builder/.dev.vars", import.meta.url).pathname;
 const devVar = (name) => {
@@ -90,6 +92,7 @@ const started = await fetch(`${builderUrl}/conversations/${conversationId}/turns
     lane: "chat",
     ...(agentRuntime ? { agentRuntime } : {}),
     ...(locale ? { locale } : {}),
+    ...(attach ? { attachments: [attach] } : {}),
   }),
 });
 const startedBody = await started.json().catch(() => null);
@@ -113,6 +116,7 @@ if (watchPi) {
       pi.frames += 1;
       pi.state = reducePiChat({ ...pi.state, hasOlder: frame.hasOlder }, [frame.snapshot]);
       console.log(JSON.stringify({ pi: "snapshot", entries: frame.snapshot.entries.length, running: Boolean(frame.snapshot.run), hasOlder: frame.hasOlder }));
+      for (const entry of frame.snapshot.entries) console.log(JSON.stringify({ pi: "snapshot-entry", entry: brief(entry) }));
     } else if (frame.type === "pi.events") {
       pi.frames += 1;
       pi.state = reducePiChat(pi.state, frame.events);

@@ -638,6 +638,9 @@ class OwnerFenceRegistrationUncertainError extends Error {}
 const CHAT_WATCHDOG_MS = 5 * 60_000;
 /** Durable key: this conversation runs on pi-durable (`pi-runtime.ts`). */
 const AGENT_RUNTIME_KEY = "agentRuntime";
+/** Journal records read per batch when importing other writers' turns into pi. */
+const PI_JOURNAL_IMPORT_BATCH = 200;
+const PI_JOURNAL_IMPORT_BYTES = 4 * 1024 * 1024;
 /** The newest pi entry this conversation's journal has mirrored. */
 const PI_MIRRORED_KEY = "piMirroredEntry";
 /** Set while pi has work in flight here, so a wake after eviction resumes it. */
@@ -5940,6 +5943,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           mirrored = Math.max(mirrored, entry.id);
           if (entry.kind !== "pi.assistant" && entry.kind !== "pi.tool-result")
             return;
+          // Written from the journal: another writer's, already there.
+          if (pi.journalSeqOf(entry) !== undefined) return;
           const message = entry.model?.[0];
           if (!message) return;
           const appended = this.appendProduced(
@@ -5956,6 +5961,22 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         context,
       );
       await assertExactTurnActive();
+      // What other writers journaled since (a computer's turns, another
+      // engine's) is part of the conversation this turn answers.
+      const [, images] = await Promise.all([
+        runtime.importJournal(
+          (afterSeq) =>
+            this.journal.readResident(
+              afterSeq + 1,
+              Number.MAX_SAFE_INTEGER,
+              PI_JOURNAL_IMPORT_BATCH,
+              PI_JOURNAL_IMPORT_BYTES,
+            ),
+          turn.turnId,
+          context,
+        ),
+        this.loadChatAttachmentImages(turn, executionSignal),
+      ]);
       const { root } = await runtime.open();
       const clock = new Date().toISOString();
       const text = turn.hiddenMessage
@@ -5979,6 +6000,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                   },
                 ]
               : []),
+            ...images,
           ],
         },
         context,

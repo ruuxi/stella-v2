@@ -8,11 +8,10 @@
  * said is model history and stays out; the call's summary shows.
  */
 import {
+  PI_REPORT_RE as REPORT,
+  piJournalUserMessage,
   piMessageText,
-  piUserView,
   type PiChatState,
-  type PiContentBlock,
-  type PiUserMessage,
 } from "@stella/contracts/pi-chat";
 import type { MessageRecord } from "@stella/contracts/local-chat";
 import type { JournalRecord } from "@/features/cloud/conversation-protocol";
@@ -21,34 +20,6 @@ import {
   streamingAssistantOverlayId,
   type StreamingAssistantOverlay,
 } from "@/features/chat/streaming/streaming-types";
-
-const REPORT_RE = /^\[(Agent completed|Task failed|Task canceled|Subagent paused)\]/;
-
-/**
- * A user entry as the journal projection reads a user message: the text the
- * user typed, the attachment previews (images as image blocks, files as
- * declared attachments) and the context chips. Parts the runtime added for
- * the model are marked hidden and left out.
- */
-const userPayload = (message: PiUserMessage): Record<string, unknown> => {
-  const { text, display } = piUserView(message);
-  const images: PiContentBlock[] = [];
-  const files: Array<Record<string, unknown>> = [];
-  for (const attachment of display?.attachments ?? []) {
-    const match = attachment.kind === "image" ? /^data:([^;,]+);base64,(.+)$/s.exec(attachment.url ?? "") : null;
-    if (match) images.push({ type: "image", mimeType: match[1]!, data: match[2]! });
-    else if (attachment.kind === "file") files.push({ ...attachment, kind: "file" });
-  }
-  return {
-    role: "user",
-    content: [{ type: "text", text }, ...images],
-    timestamp: message.timestamp,
-    ...(message.source ? { source: message.source } : {}),
-    ...(message.voiceSession ? { voiceSession: message.voiceSession } : {}),
-    ...(files.length > 0 ? { attachments: files } : {}),
-    ...(display?.context ? { metadata: { context: display.context } } : {}),
-  };
-};
 
 type Turn = {
   userMessageId?: string;
@@ -79,9 +50,9 @@ export const projectPiChat = (state: Pick<PiChatState, "entries" | "requestIds">
     if (entry.kind === "pi.user" && message.role === "user") {
       turnId = `pi:${entry.id}`;
       const clientMsgId = state.requestIds[entry.id];
-      const view = piUserView(message);
-      const report = REPORT_RE.test(piMessageText(message).trimStart());
-      const automation = !report && !view.text.trim() && !view.display;
+      const { message: payload, hidden } = piJournalUserMessage(message);
+      // A report's reply shows; a turn the app started stays out whole.
+      const automation = hidden && !REPORT.test(piMessageText(message).trimStart());
       turn = {
         userMessageId: clientMsgId ?? `cloud:${turnId}:message:${entry.id}`,
         assistantMessages: 0,
@@ -91,9 +62,9 @@ export const projectPiChat = (state: Pick<PiChatState, "entries" | "requestIds">
         ...base,
         turnId,
         role: "user",
-        hidden: report || automation,
+        hidden,
         ...(clientMsgId ? { clientMsgId } : {}),
-        payload: userPayload(message),
+        payload,
       });
     } else if (entry.kind === "pi.assistant" && message.role === "assistant" && message.voiceSession) {
       // A voice call's summary shows wherever the call ended.

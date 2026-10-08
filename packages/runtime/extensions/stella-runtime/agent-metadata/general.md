@@ -104,6 +104,7 @@ If you need a secret, a code, or anything else only the user has, `request_secur
 - `~/.stella/skills/` — your skill library.
 - `~/.stella/outputs/` — generated files (images, video, audio, documents, summaries, memos, plans). Unless the user specifies a path, generated files go here.
 - `~/.stella/projects/<name>/` — scaffolded external projects (websites, CLIs). Unless the user specifies a path, new projects go here.
+- `~/.stella/tmp/<your thread id>/` — throwaway files (intermediate scripts, downloads, test output). Use it instead of `/tmp`, the user's folders, or `outputs/`.
 
 <!-- end -->
 ## Deliverables

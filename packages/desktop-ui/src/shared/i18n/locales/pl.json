@@ -2470,6 +2470,7 @@
       "undoneAgo": "Cofnięto {ago}",
       "undoneJustNow": "Cofnięto przed chwilą",
       "update": "Aktualizuj",
+      "updateAvailable": "Dostępna aktualizacja",
       "updatedAgo": "Zaktualizowano {ago}",
       "updatedJustNow": "Zaktualizowano przed chwilą",
       "updates": {
@@ -2483,12 +2484,6 @@
         "justNow": "Przed chwilą",
         "newVersion": "Nowa wersja Stelli",
         "newVersionDetail": "Ulepszenia i poprawki od zespołu Stelli",
-        "pill": {
-          "few": "{count} aktualizacje",
-          "many": "{count} aktualizacji",
-          "one": "{count} aktualizacja",
-          "other": "{count} aktualizacji"
-        },
         "readyChange": "Zmiana gotowa do dodania",
         "removed": "Usunięto: {change}",
         "skip": "Pomiń",
@@ -2496,7 +2491,8 @@
         "undoing": "Cofanie…",
         "upToDate": "Nic nie oczekuje",
         "waiting": "Oczekuje"
-      }
+      },
+      "updating": "Aktualizowanie…"
     },
     "audioPlayer": {
       "pause": "Wstrzymaj",

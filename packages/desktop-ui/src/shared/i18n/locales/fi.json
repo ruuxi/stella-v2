@@ -2446,6 +2446,7 @@
       "undoneAgo": "Kumottu {ago}",
       "undoneJustNow": "Kumottu juuri",
       "update": "Päivitä",
+      "updateAvailable": "Päivitys saatavilla",
       "updatedAgo": "Päivitetty {ago}",
       "updatedJustNow": "Päivitetty juuri",
       "updates": {
@@ -2459,10 +2460,6 @@
         "justNow": "Juuri nyt",
         "newVersion": "Uusi Stella-versio",
         "newVersionDetail": "Parannuksia ja korjauksia Stella-tiimiltä",
-        "pill": {
-          "one": "{count} päivitys",
-          "other": "{count} päivitystä"
-        },
         "readyChange": "Lisättävä muutos",
         "removed": "Poistettu: {change}",
         "skip": "Ohita",
@@ -2470,7 +2467,8 @@
         "undoing": "Kumotaan…",
         "upToDate": "Mitään ei odota",
         "waiting": "Odottaa"
-      }
+      },
+      "updating": "Päivitetään…"
     },
     "audioPlayer": {
       "pause": "Keskeytä",

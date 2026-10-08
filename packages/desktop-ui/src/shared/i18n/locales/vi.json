@@ -2434,6 +2434,7 @@
       "undoneAgo": "Đã hoàn tác {ago}",
       "undoneJustNow": "Vừa hoàn tác",
       "update": "Cập nhật",
+      "updateAvailable": "Có bản cập nhật",
       "updatedAgo": "Đã cập nhật {ago}",
       "updatedJustNow": "Vừa cập nhật",
       "updates": {
@@ -2447,9 +2448,6 @@
         "justNow": "Vừa xong",
         "newVersion": "Phiên bản Stella mới",
         "newVersionDetail": "Cải tiến và bản sửa lỗi từ nhóm Stella",
-        "pill": {
-          "other": "{count} bản cập nhật"
-        },
         "readyChange": "Thay đổi sẵn sàng để thêm",
         "removed": "Đã gỡ: {change}",
         "skip": "Bỏ qua",
@@ -2457,7 +2455,8 @@
         "undoing": "Đang hoàn tác…",
         "upToDate": "Không có gì đang chờ",
         "waiting": "Đang chờ"
-      }
+      },
+      "updating": "Đang cập nhật…"
     },
     "audioPlayer": {
       "pause": "Tạm dừng",

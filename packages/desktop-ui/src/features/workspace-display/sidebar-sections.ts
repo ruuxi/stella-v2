@@ -85,6 +85,23 @@ const restoreTabKind = (
   return null;
 };
 
+/**
+ * Surfaces that only ever have one tab: opening one again focuses the tab
+ * already open instead of adding another.
+ */
+const SINGLE_TAB_SECTIONS: ReadonlySet<SidebarSection> = new Set(["updates"]);
+
+/** Drop repeats of a single-tab surface (layouts saved before the rule). */
+const withoutRepeats = (tabs: SidebarTab[]): SidebarTab[] => {
+  const seen = new Set<SidebarSection>();
+  return tabs.filter((tab) => {
+    if (!SINGLE_TAB_SECTIONS.has(tab.kind)) return true;
+    if (seen.has(tab.kind)) return false;
+    seen.add(tab.kind);
+    return true;
+  });
+};
+
 /** A single open tab: a surface `kind` plus the specific item it shows. */
 export type SidebarTab = {
   id: string;
@@ -198,10 +215,11 @@ const readPersistedState = (): PersistedState => {
                   : null,
             });
           }
-          if (tabs.length > 0) {
+          const kept = withoutRepeats(tabs);
+          if (kept.length > 0) {
             const activeTabId =
               typeof record.activeTabId === "string" ? record.activeTabId : null;
-            return { tabs, activeTabId: withActive(tabs, activeTabId) };
+            return { tabs: kept, activeTabId: withActive(kept, activeTabId) };
           }
         }
       }
@@ -282,7 +300,8 @@ export const sidebarSections = {
    * Open an item as a tab.
    *
    * - If a tab for this exact concrete item (kind + location) is already open,
-   *   it is focused — never duplicated.
+   *   it is focused — never duplicated. A single-tab surface (Updates) is
+   *   focused wherever its one tab is.
    * - Else, if the active tab is a launcher/list surface (the empty Home
    *   launcher, or a Files/Apps list with nothing drilled in), that SAME tab is
    *   reused in place — selecting an item from a list/launcher is in-place
@@ -298,9 +317,11 @@ export const sidebarSections = {
     const loc = location ?? null;
 
     // Dedupe concrete items: focus an already-open tab for this exact item.
-    if (loc !== null) {
+    if (loc !== null || SINGLE_TAB_SECTIONS.has(kind)) {
       const existing = snapshot.tabs.find(
-        (tab) => tab.kind === kind && tab.location === loc,
+        (tab) =>
+          tab.kind === kind &&
+          (SINGLE_TAB_SECTIONS.has(kind) || tab.location === loc),
       );
       if (existing) {
         if (snapshot.activeTabId !== existing.id) {

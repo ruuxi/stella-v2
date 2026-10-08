@@ -2434,6 +2434,7 @@
       "undoneAgo": "{ago}に元に戻しました",
       "undoneJustNow": "たった今元に戻しました",
       "update": "アップデート",
+      "updateAvailable": "アップデートがあります",
       "updatedAgo": "{ago}に更新",
       "updatedJustNow": "たった今更新",
       "updates": {
@@ -2447,9 +2448,6 @@
         "justNow": "たった今",
         "newVersion": "Stella の新しいバージョン",
         "newVersionDetail": "Stella チームによる改善と修正",
-        "pill": {
-          "other": "{count} 件のアップデート"
-        },
         "readyChange": "追加できる変更",
         "removed": "削除済み: {change}",
         "skip": "スキップ",
@@ -2457,7 +2455,8 @@
         "undoing": "取り消し中…",
         "upToDate": "待機中のものはありません",
         "waiting": "待機中"
-      }
+      },
+      "updating": "アップデート中…"
     },
     "audioPlayer": {
       "pause": "一時停止",

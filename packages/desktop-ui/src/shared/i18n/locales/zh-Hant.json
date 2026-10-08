@@ -2434,6 +2434,7 @@
       "undoneAgo": "{ago}復原",
       "undoneJustNow": "剛剛復原",
       "update": "更新",
+      "updateAvailable": "有可用的更新",
       "updatedAgo": "{ago}更新",
       "updatedJustNow": "剛剛更新",
       "updates": {
@@ -2447,9 +2448,6 @@
         "justNow": "剛剛",
         "newVersion": "Stella 新版本",
         "newVersionDetail": "來自 Stella 團隊的改進與修正",
-        "pill": {
-          "other": "{count} 個更新"
-        },
         "readyChange": "可以加入的變更",
         "removed": "已移除：{change}",
         "skip": "略過",
@@ -2457,7 +2455,8 @@
         "undoing": "正在復原…",
         "upToDate": "沒有待加入的項目",
         "waiting": "待加入"
-      }
+      },
+      "updating": "正在更新…"
     },
     "audioPlayer": {
       "pause": "暫停",

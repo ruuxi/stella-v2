@@ -25,6 +25,7 @@ import {
 } from "react";
 import { ChevronDown } from "@/ui/icons";
 import { ConnectorConnectCard } from "./ConnectorConnectCard";
+import { AppSourceOffers } from "@/features/app-source/AppSourceCards";
 import { ComposerNotice } from "./ComposerNotice";
 import { CloudBrowserInterventionCard } from "@/features/cloud/CloudBrowserInterventionCard";
 import { CloudConnectorConnectCard } from "@/features/cloud/CloudConnectorConnectCard";
@@ -114,6 +115,10 @@ const AboveComposerCards = memo(function AboveComposerCards({
       {/* Sign-in / plan-limit / provider notices pin here too, so the
           thing blocking the composer sits right above it. */}
       <ComposerNotice conversationId={conversationId} />
+      {/* Changes to Stella no agent here made (the user's other computers,
+          drafts made by hand). Agents' changes show on their messages; new
+          versions are the top bar's. */}
+      <AppSourceOffers />
     </>
   );
 });
@@ -484,7 +489,10 @@ export const ChatColumn = memo(function ChatColumn({
               inert={showHomeContent ? undefined : true}
             >
               {showHomeContent ? (
-                <ComposerNotice conversationId={conversationId} />
+                <>
+                  <AppSourceOffers />
+                  <ComposerNotice conversationId={conversationId} />
+                </>
               ) : null}
               {renderComposer("home", null)}
             </div>

@@ -168,8 +168,9 @@ describe("worker shell in workerd", () => {
   });
 
   test("the drive, links out and outside paths are the sandbox's", async () => {
+    // The world never holds the drive, so nothing seeds it: a command that
+    // names it is the sandbox's whether or not a file is there.
     await seed("boundaries", {
-      "drive/report.md": "stale copy\n",
       "etc-link": { symlink: "/etc/passwd" },
     });
     for (const [script, reason] of [

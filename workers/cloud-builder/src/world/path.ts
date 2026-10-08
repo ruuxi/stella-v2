@@ -83,3 +83,14 @@ export const baseName = (path: string): string => {
 
 export const pathWithin = (path: string, prefix: string): boolean =>
   prefix === "" || path === prefix || path.startsWith(`${prefix}/`);
+
+/**
+ * The owner's drive, as the world names it. The drive is its own store (the
+ * owner object's rows and the drive's R2 bucket); a sandbox keeps a working
+ * copy of it under the world root, and the world never stores, exports or
+ * counts that copy.
+ */
+export const WORLD_DRIVE_DIR = "drive";
+
+export const isWorldDrivePath = (path: string): boolean =>
+  pathWithin(path, WORLD_DRIVE_DIR);

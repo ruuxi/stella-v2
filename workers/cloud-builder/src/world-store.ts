@@ -156,6 +156,10 @@ export class WorldStore extends DurableObject<Env> {
     return result;
   }
 
+  usage() {
+    return this.world.usage();
+  }
+
   statMany(paths: readonly string[]) {
     return this.world.statMany(paths);
   }

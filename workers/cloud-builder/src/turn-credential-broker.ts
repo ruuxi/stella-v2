@@ -42,12 +42,15 @@ const MAX_TURN_STATE_CHECKPOINT_BODY_BYTES = 5 * 1024 * 1024;
 export const TURN_BROKER_SEARCH_PATH = "/api/cloud/web-search";
 
 /**
- * The owner's drive: the turn reports what it produced and reads what its
- * workspace should hold. Served by the BuildSession through the owner's
- * object, under the turn's own identity.
+ * The owner's drive: the turn reads what its workspace should hold, and
+ * saves what it changed there — files (inline, or staged through a presigned
+ * PUT for anything larger) and deletions. Served by the BuildSession through
+ * the owner's object, under the turn's own identity.
  */
 export const TURN_BROKER_DRIVE_PATHS = {
   files: "/api/cloud/drive/files",
+  stage: "/api/cloud/drive/stage",
+  delete: "/api/cloud/drive/delete",
   sync: "/api/cloud/drive/sync",
 } as const;
 const DRIVE_PATHS = new Set<string>(Object.values(TURN_BROKER_DRIVE_PATHS));

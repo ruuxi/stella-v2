@@ -110,6 +110,13 @@ const absoluteWorldPath = (root: string, relative: string): string => {
 const isNodeModulesDirectory = (relative: string): boolean =>
   relative === "node_modules" || relative.endsWith("/node_modules");
 
+/**
+ * The user's drive is a working copy of its own store (`drive-sync.ts` and
+ * `drive-writeback.ts`), not part of the world: it is never pushed, and
+ * restoring the world from an export leaves it where it is.
+ */
+const isDriveCopy = (relative: string): boolean => relative === "drive";
+
 const indexedNodeModulesDirectories = (index: WorldIndex): Set<string> => {
   const directories = new Set<string>();
   for (const entryPath of Object.keys(index)) {
@@ -293,6 +300,7 @@ export const listWorldProjection = async (
       if (child === ".stella/world-manifest") continue;
       // HOME's caches and the mirrored skills live only on this disk.
       if (isWorldUnsyncedPath(child)) continue;
+      if (isDriveCopy(child)) continue;
       // Dependency installations are explicitly ephemeral. If a node_modules
       // subtree came from the durable index, however, scan it rather than
       // turning the policy into an accidental authoritative deletion.
@@ -494,7 +502,7 @@ const clearSyncedEntries = async (
   const absolute = relative ? absoluteWorldPath(root, relative) : root;
   for (const name of await readdir(absolute)) {
     const child = relative ? `${relative}/${name}` : name;
-    if (isWorldUnsyncedPath(child)) continue;
+    if (isWorldUnsyncedPath(child) || isDriveCopy(child)) continue;
     const childPath = absoluteWorldPath(root, child);
     if (WORLD_UNSYNCED_PATHS.some((entry) => entry.startsWith(`${child}/`))) {
       const stat = await lstat(childPath);
@@ -655,6 +663,7 @@ const indexRestoredNodeModules = async (root: string): Promise<WorldIndex> => {
       if (Buffer.byteLength(child, "utf8") > WORLD_PATH_LIMIT_BYTES) {
         throw new Error(`World path exceeds 1024 UTF-8 bytes: ${child}`);
       }
+      if (isDriveCopy(child)) continue;
       const stat = await lstat(absoluteWorldPath(root, child));
       if (!stat.isDirectory() || stat.isSymbolicLink()) continue;
       visited += 1;

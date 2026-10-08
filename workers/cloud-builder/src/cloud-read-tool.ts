@@ -4,8 +4,9 @@
  *
  *  - `~/.stella/skills/<slug>/...` — the owner's mirrored skills, pinned for
  *    the turn and integrity-checked by the cloud home store;
- *  - `/workspace/world/...` — the owner's world (drive, projects, apps),
- *    read through the world Durable Object exactly as a cloud agent does.
+ *  - `/workspace/world/...` — the owner's world (projects, apps) through the
+ *    world Durable Object, and its `drive/` through the user's drive itself,
+ *    exactly as a resident cloud agent reads them.
  *
  * An image under the world root is read as pixels, which is what the shared
  * description has always advertised: "inspect a local PNG, JPG, JPEG, GIF, or
@@ -51,7 +52,7 @@ const MAX_READ_LINES = 5000;
 /**
  * Decoded bytes of one image a cloud Read may inline. The refusal names this
  * number, because the readable size is a property of the session rather than
- * of the placement — a resident world hydrates at most 8MB per file, a
+ * of the placement — a resident read of the drive returns at most 8MB, a
  * container world materializes under its own export budget, and a device has
  * the real filesystem. No prompt can state one limit truthfully, so the error
  * carries it instead.

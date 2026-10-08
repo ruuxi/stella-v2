@@ -1,71 +1,31 @@
 /**
- * Delivery of a resident turn's reply-linked files straight from the world.
+ * The files card of a resident turn: the drive files its reply links.
  *
- * A turn that never attached a sandbox has no quiesce step, so the files it
- * wrote through the Durable Object's own Write/Edit tools would stay in the
- * world and never reach the owner's drive or the conversation's files card.
- * The bytes are already durable here, so this delivers them the same way the
- * sandbox does: register (and inline-upload) each reply-linked drive file
- * with the owner's drive under the turn's own authority, then
- * announce the delivered set with an `output_files` event, which the owner
- * turns into the files card both clients render on the completion.
+ * A turn that never attached a sandbox wrote the drive through its own file
+ * tools (`world-drive-files.ts`), which put every write in the user's drive
+ * the moment it returned. So there is nothing left to upload here — only to
+ * announce, with an `output_files` event, which of those files the reply
+ * hands the user; the owner turns that into the files card both clients
+ * render on the completion.
  *
  * The file list is the reply's own — markdown links in the final assistant
  * text, the same contract as everywhere else — and every linked path is an
- * agent-chosen string: only regular files under the drive root are read, by
- * their world-relative path, never by following anything.
+ * agent-chosen string: only drive files the drive actually holds are named,
+ * by their drive-relative path.
  */
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
-import { TURN_BROKER_DRIVE_PATHS } from "../turn-credential-broker.js";
 import { worldRelativeToolPath } from "../world/path.js";
-import {
-  driveRootForWorld,
-  worldName,
-  WORLD_ROOT,
-} from "../workspace.js";
+import { contentTypeForName } from "../world-drive-files.js";
+import { driveRootForWorld, WORLD_ROOT } from "../workspace.js";
 import type { TurnRequest } from "./shared/types.js";
 import type { BuildSessionInternals } from "./host.js";
-import { serveTurnDriveRequest } from "./turn-broker.js";
 
-/** Files at or above this size are registered but not uploaded inline. */
-const INLINE_LIMIT_BYTES = 8 * 1024 * 1024;
+export { contentTypeForName };
+
 /** A reply that "produced" more than this is reporting churn, not deliverables. */
 const MAX_REPORTED_FILES = 25;
 /** The tool host's private state directory is never a deliverable. */
 const STATE_DIR_SEGMENT = ".stella";
-
-const CONTENT_TYPES: Record<string, string> = {
-  md: "text/markdown; charset=utf-8",
-  markdown: "text/markdown; charset=utf-8",
-  txt: "text/plain; charset=utf-8",
-  csv: "text/csv; charset=utf-8",
-  tsv: "text/tab-separated-values; charset=utf-8",
-  json: "application/json; charset=utf-8",
-  html: "text/html; charset=utf-8",
-  htm: "text/html; charset=utf-8",
-  pdf: "application/pdf",
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  svg: "image/svg+xml",
-  mp3: "audio/mpeg",
-  wav: "audio/wav",
-  mp4: "video/mp4",
-  zip: "application/zip",
-  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-};
-
-export const contentTypeForName = (name: string): string => {
-  const extension = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
-  return (
-    (name.includes(".") && CONTENT_TYPES[extension]) ||
-    "application/octet-stream"
-  );
-};
 
 export type WorldLinkedTarget = {
   /** World-relative path (`drive/reports/a.md`). */
@@ -111,15 +71,6 @@ export const worldLinkedDriveTargets = (
   return targets;
 };
 
-const toBase64 = (bytes: Uint8Array): string => {
-  let binary = "";
-  const chunk = 0x8000;
-  for (let offset = 0; offset < bytes.byteLength; offset += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk));
-  }
-  return btoa(binary);
-};
-
 export type DeliveredWorldFile = {
   path: string;
   name: string;
@@ -128,20 +79,17 @@ export type DeliveredWorldFile = {
   stored: boolean;
 };
 
-type WorldFileReader = {
+/** The drive, as world-relative `drive/...` paths (`createDriveFileSession`). */
+type DriveFileReader = {
   stat(path: string): Promise<{ kind: string; size: number } | null>;
-  readFile(path: string): Promise<Uint8Array | null>;
 };
 
-export type WorldLinkedFilesHost = Pick<
-  BuildSessionInternals,
-  "env" | "emitTurnEvent"
->;
+export type WorldLinkedFilesHost = Pick<BuildSessionInternals, "emitTurnEvent">;
 
 /**
- * Deliver the reply-linked drive files of a turn that never attached a
+ * Announce the reply-linked drive files of a turn that never attached a
  * sandbox. Best-effort: a failure costs visibility, not the turn, and is
- * logged rather than thrown. Returns the drive paths that were delivered.
+ * logged rather than thrown. Returns the drive paths that were announced.
  */
 export const deliverWorldLinkedFiles = async (
   host: WorldLinkedFilesHost,
@@ -149,111 +97,35 @@ export const deliverWorldLinkedFiles = async (
     turn: TurnRequest;
     finalText: string;
     signal: AbortSignal;
-    known?: ReadonlyMap<string, number>;
-    /** Test seam: the world to read from and the drive to deliver to. */
-    world?: WorldFileReader;
-    drive?: (body: Record<string, unknown>) => Promise<Response>;
+    /** The drive this turn's file tools read and wrote. */
+    drive?: DriveFileReader;
     log?: (event: string, fields: Record<string, unknown>) => void;
   },
 ): Promise<string[]> => {
   const { turn } = args;
   const log = args.log ?? (() => undefined);
   const targets = worldLinkedDriveTargets(args.finalText, WORLD_ROOT);
-  if (targets.length === 0) return [];
-  const world: WorldFileReader =
-    args.world ?? host.env.WORLDS.getByName(await worldName(turn.ownerId));
-
-  const files: Array<{
-    path: string;
-    name: string;
-    sizeBytes: number;
-    contentType: string;
-    contentBase64?: string;
-    knownUpdatedAt?: number;
-  }> = [];
+  if (targets.length === 0 || !args.drive) return [];
+  const delivered: DeliveredWorldFile[] = [];
   for (const target of targets) {
-    const entry = await world.stat(target.worldPath).catch(() => null);
+    args.signal.throwIfAborted();
+    const entry = await args.drive.stat(target.worldPath).catch((error) => {
+      log("world_linked_file_unreadable", {
+        turnId: turn.turnId,
+        path: target.drivePath,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
     if (!entry || entry.kind !== "file") continue;
-    const file = {
+    delivered.push({
       path: target.drivePath,
       name: target.name,
       sizeBytes: entry.size,
       contentType: contentTypeForName(target.name),
-      ...(args.known?.has(target.drivePath)
-        ? { knownUpdatedAt: args.known.get(target.drivePath) }
-        : {}),
-    };
-    if (entry.size < INLINE_LIMIT_BYTES) {
-      const bytes = await world
-        .readFile(target.worldPath)
-        .catch(() => null);
-      if (bytes && bytes.byteLength === entry.size) {
-        files.push({ ...file, contentBase64: toBase64(bytes) });
-        continue;
-      }
-    }
-    files.push(file);
-  }
-  if (files.length === 0) return [];
-
-  const body = {
-    turnId: turn.turnId,
-    // The batch is the turn's, and a redelivery is the same writer.
-    batchKey: `${turn.turnId}:world:0`,
-    files,
-  };
-  let response: Response;
-  try {
-    args.signal.throwIfAborted();
-    response = args.drive
-      ? await args.drive(body)
-      : await serveTurnDriveRequest(host.env, turn, TURN_BROKER_DRIVE_PATHS.files, body);
-  } catch (error) {
-    log("world_linked_files_failed", {
-      turnId: turn.turnId,
-      message: error instanceof Error ? error.message : String(error),
+      stored: true,
     });
-    return [];
   }
-  // 413 is "nothing in this batch landed" with per-file reasons; anything
-  // else that is not ok delivered nothing.
-  if (!response.ok && response.status !== 413) {
-    log("world_linked_files_refused", {
-      turnId: turn.turnId,
-      status: response.status,
-    });
-    return [];
-  }
-  const outcome = (await response.json().catch(() => null)) as {
-    skipped?: Array<{ path?: string }>;
-    renamed?: Array<{ from?: string; to?: string }>;
-  } | null;
-  const refused = new Set(
-    (outcome?.skipped ?? [])
-      .map((entry) => entry.path)
-      .filter((path): path is string => typeof path === "string"),
-  );
-  const renamedBy = new Map(
-    (outcome?.renamed ?? [])
-      .filter(
-        (entry): entry is { from: string; to: string } =>
-          typeof entry.from === "string" && typeof entry.to === "string",
-      )
-      .map((entry) => [entry.from, entry.to]),
-  );
-  const delivered: DeliveredWorldFile[] = files
-    .filter((file) => !refused.has(file.path) && response.status !== 413)
-    .map((file) => {
-      const to = renamedBy.get(file.path);
-      const path = to ?? file.path;
-      return {
-        path,
-        name: path.slice(path.lastIndexOf("/") + 1),
-        sizeBytes: file.sizeBytes,
-        contentType: file.contentType,
-        stored: file.contentBase64 !== undefined,
-      };
-    });
   if (delivered.length === 0) return [];
   await host.emitTurnEvent(
     turn,

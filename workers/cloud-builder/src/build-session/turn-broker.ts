@@ -873,9 +873,9 @@ const driveJson = (body: unknown, status = 200): Response =>
 
 /**
  * A turn's drive request, served by the owner's object under the turn's own
- * identity and owner generation. The sandbox still sends the paths and bodies
- * the old control-plane routes took, and gets their answers: 200 with the result, 413
- * when a write landed nothing (with the per-file reasons), and the owner
+ * identity and owner generation. The sandbox sends the paths and bodies the
+ * old control-plane routes took, and gets their answers: 200 with the result,
+ * 413 when a write landed nothing (with the per-file reasons), and the owner
  * object's error status otherwise.
  *
  * Only an agent turn hydrates the drive into its workspace, which is what
@@ -887,24 +887,36 @@ export const serveTurnDriveRequest = async (
   path: string,
   body: Record<string, unknown>,
 ): Promise<Response> => {
-  const write = path === TURN_BROKER_DRIVE_PATHS.files;
-  if (!write && path !== TURN_BROKER_DRIVE_PATHS.sync) return brokerFailure(403);
-  const response = (await env.OWNER_GATES.getByName(turn.ownerId).ownerInternal({
-    name: write ? "drive.turnFiles" : "drive.turnSync",
-    args: write
+  const call =
+    path === TURN_BROKER_DRIVE_PATHS.files
       ? {
-          turnId: turn.turnId,
-          hydratesDrive: turn.kind === "agent",
-          source: body.source,
-          batchKey: body.batchKey,
-          files: body.files,
+          name: "drive.turnFiles",
+          args: {
+            turnId: turn.turnId,
+            hydratesDrive: turn.kind === "agent",
+            source: body.source,
+            batchKey: body.batchKey,
+            files: body.files,
+          },
         }
-      : {
-          turnId: turn.turnId,
-          include: body.include,
-          since: body.since,
-          have: body.have,
-        },
+      : path === TURN_BROKER_DRIVE_PATHS.stage
+        ? { name: "drive.turnStage", args: { turnId: turn.turnId, files: body.files } }
+        : path === TURN_BROKER_DRIVE_PATHS.delete
+          ? { name: "drive.turnDelete", args: { turnId: turn.turnId, files: body.files } }
+          : path === TURN_BROKER_DRIVE_PATHS.sync
+            ? {
+                name: "drive.turnSync",
+                args: {
+                  turnId: turn.turnId,
+                  include: body.include,
+                  since: body.since,
+                  have: body.have,
+                },
+              }
+            : null;
+  if (!call) return brokerFailure(403);
+  const response = (await env.OWNER_GATES.getByName(turn.ownerId).ownerInternal({
+    ...call,
     ownerGeneration: turn.ownerGeneration,
   })) as RpcResponse;
   if (!response.ok) {
@@ -913,7 +925,7 @@ export const serveTurnDriveRequest = async (
       rpcErrorStatus(response.error.code),
     );
   }
-  if (write) {
+  if (call.name === "drive.turnFiles") {
     const result = response.value as DriveTurnFilesResult;
     if (result.files.length === 0 && result.skipped.length > 0) {
       return driveJson(

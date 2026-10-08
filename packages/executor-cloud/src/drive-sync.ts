@@ -1,19 +1,23 @@
 /**
  * Materialize the owner's drive into the turn's workspace.
  *
- * The drive (owner-store rows + R2 bytes) and the sandbox workspace (a checkpoint
- * of one directory) are two views of the same files, and until this ran they
- * were disjoint: a file the user uploaded existed only in R2, so an agent told
- * "the files in your workspace are the user's files" could not read it — and,
- * asked to update it, would write a fresh one straight over the user's bytes.
+ * The drive (owner-store rows + R2 bytes) is the only durable home of the
+ * user's files. A sandbox holds a working copy of part of it at
+ * `/workspace/world/drive`, which the world never stores: it lives on this
+ * sandbox's disk only, so a fresh sandbox starts with none and a warm one
+ * keeps what its earlier turns hydrated. Without this, a file the user
+ * uploaded existed only in R2, so an agent told "the files in your workspace
+ * are the user's files" could not read it — and, asked to update it, would
+ * write a fresh one straight over the user's bytes.
  *
- * This is the read half. It runs before the tool host exists, so no
+ * This is the read half; `drive-writeback.ts` is the write half, which saves
+ * what the turn changed back to the drive. It runs before the tool host exists, so no
  * agent-controlled code is running while the signed URLs are live, and it is
  * best-effort: a hydration failure leaves the workspace as the checkpoint left
  * it and, because the turn then vouches for nothing, the write side refuses to
  * overwrite any upload rather than trusting a workspace it could not verify.
  *
- * It is also incremental. The restored checkpoint already holds what the last
+ * It is also incremental. A warm sandbox's disk already holds what its last
  * turn hydrated, so hydration downloads the difference: the ledger records the
  * row version and content hash behind every file this workspace is holding —
  * downloaded now or already on disk from an earlier turn — and a file whose
@@ -112,6 +116,8 @@ export type DriveSyncResult = {
    * other has never seen.
    */
   conflicts: Array<{ path: string; driveMoved: boolean }>;
+  /** The ledger once hydration finished: what this disk holds of the drive. */
+  ledger: DriveLedgerSnapshot;
 };
 
 export const emptyDriveSync = (): DriveSyncResult => ({
@@ -122,6 +128,7 @@ export const emptyDriveSync = (): DriveSyncResult => ({
   deleted: [],
   stale: [],
   conflicts: [],
+  ledger: { files: new Map(), syncedAt: 0, checkedThrough: "" },
 });
 
 /**
@@ -172,7 +179,23 @@ const TOMBSTONE_MAX = 500;
 const PRESENCE_MAX = 500;
 
 /** What this workspace last hydrated for a drive path. */
-type LedgerEntry = { updatedAt: number; sizeBytes: number; sha256: string };
+export type DriveLedgerEntry = {
+  updatedAt: number;
+  sizeBytes: number;
+  sha256: string;
+};
+type LedgerEntry = DriveLedgerEntry;
+
+/**
+ * The ledger as this turn's hydration left it, held by the trusted executor:
+ * the write half compares the turn's files against it rather than against the
+ * agent-writable copy on disk, and writes its own saves into it.
+ */
+export type DriveLedgerSnapshot = {
+  files: ReadonlyMap<string, DriveLedgerEntry>;
+  syncedAt: number;
+  checkedThrough: string;
+};
 type Ledger = {
   files: Map<string, LedgerEntry>;
   /**
@@ -313,7 +336,7 @@ const writeLedger = async (
   workspaceRoot: string,
   owner: WorkspaceOwner,
   ledger: Ledger,
-  expectedStat?: WorkspaceFileIdentity,
+  expectedStat?: WorkspaceFileIdentity | "replace",
 ): Promise<void> => {
   const rows = [...ledger.files.entries()]
     .sort((a, b) => b[1].updatedAt - a[1].updatedAt)
@@ -331,11 +354,93 @@ const writeLedger = async (
       file,
       workspaceRoot,
       bytes,
-      expectedStat ? { owner, expectedStat } : { owner, exclusive: true },
+      expectedStat === "replace"
+        ? { owner }
+        : expectedStat
+          ? { owner, expectedStat }
+          : { owner, exclusive: true },
     );
   } finally {
     bytes.fill(0);
   }
+};
+
+/**
+ * The ledger as it stands on disk now. Another turn sharing this sandbox may
+ * have hydrated or saved since this one started, so the write half reads it
+ * again rather than trusting its own snapshot. It is agent-written input, and
+ * what it can do is bounded the same way: an entry only ever spares an upload
+ * of bytes that hash to exactly what it records. Empty when unreadable.
+ */
+export const readDriveLedgerFiles = async (options: {
+  workspaceRoot: string;
+  stateDir: string;
+  owner: WorkspaceOwner;
+}): Promise<Map<string, DriveLedgerEntry>> => {
+  try {
+    const { ledger } = await readLedger(
+      path.join(path.resolve(options.stateDir), LEDGER_FILE),
+      path.resolve(options.workspaceRoot),
+      options.owner,
+    );
+    return ledger.files;
+  } catch {
+    return new Map();
+  }
+};
+
+/**
+ * Record what the write half saved and deleted. The changes are applied to
+ * the ledger as it stands on disk — whatever another turn in this sandbox
+ * wrote meanwhile survives — and the write is guarded by the identity of the
+ * copy it read, so a concurrent rewrite makes it read and apply again rather
+ * than overwrite. `fallback` stands in for a ledger that is missing or
+ * unreadable.
+ */
+export const recordDriveWriteBack = async (options: {
+  workspaceRoot: string;
+  stateDir: string;
+  owner: WorkspaceOwner;
+  saved: ReadonlyMap<string, DriveLedgerEntry>;
+  removed: ReadonlySet<string>;
+  fallback: DriveLedgerSnapshot;
+}): Promise<void> => {
+  const workspaceRoot = path.resolve(options.workspaceRoot);
+  const file = path.join(path.resolve(options.stateDir), LEDGER_FILE);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let read: LedgerRead | null;
+    try {
+      read = await readLedger(file, workspaceRoot, options.owner);
+    } catch {
+      read = null;
+    }
+    const ledger: Ledger =
+      read && read.ledger.files.size > 0
+        ? read.ledger
+        : {
+            files: new Map(options.fallback.files),
+            syncedAt: options.fallback.syncedAt,
+            checkedThrough: options.fallback.checkedThrough,
+          };
+    for (const drivePath of options.removed) ledger.files.delete(drivePath);
+    for (const [drivePath, entry] of options.saved) {
+      ledger.files.set(drivePath, entry);
+    }
+    try {
+      await writeLedger(
+        file,
+        workspaceRoot,
+        options.owner,
+        ledger,
+        read?.expectedStat ?? "replace",
+      );
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
 };
 
 /**
@@ -852,6 +957,7 @@ export const materializeDriveFiles = async (options: {
     deleted: [],
     stale: [],
     conflicts: [],
+    ledger: emptyDriveSync().ledger,
   };
 
   // Deletions first: a tombstoned path that a later manifest entry re-creates
@@ -1294,5 +1400,10 @@ export const materializeDriveFiles = async (options: {
     );
   }
   if (notes.length > 0) options.onProgress?.(notes.join(" "));
+  result.ledger = {
+    files: new Map(ledger.files),
+    syncedAt: ledger.syncedAt,
+    checkedThrough: ledger.checkedThrough,
+  };
   return result;
 };

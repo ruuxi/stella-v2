@@ -1,6 +1,7 @@
 import { sha256BytesHex, sha256Hex } from "../hash.js";
 import {
   baseName,
+  isWorldDrivePath,
   normalizeWorldPath,
   parentPath,
   pathWithin,
@@ -160,6 +161,28 @@ const rowEntry = (row: EntryRow): WorldEntry => ({
   ...(row.blob_sha256 ? { sha256: row.blob_sha256 } : {}),
   ...(row.target !== null ? { target: row.target } : {}),
 });
+
+/** Refuse a write into the drive's subtree, which the world never stores. */
+const assertStoredPath = (path: string): void => {
+  if (isWorldDrivePath(path)) {
+    throw new Error(
+      `${path} is in the user's drive, which is stored in the drive rather than in the world.`,
+    );
+  }
+};
+
+/** Bytes a listing charges against the world quota; the drive is not one. */
+const storedBytes = (
+  entries: Iterable<Pick<WorldEntry, "kind" | "path" | "size">>,
+): number => {
+  let total = 0;
+  for (const entry of entries) {
+    if (entry.kind === "file" && !isWorldDrivePath(entry.path)) {
+      total += entry.size;
+    }
+  }
+  return total;
+};
 
 const direntParts = (path: string): { parent: string; name: string } => ({
   parent: parentPath(path),
@@ -719,6 +742,7 @@ export class WorldSqlStore implements WorldToolFileApi {
     forkId: string,
   ): WorldEntry {
     const path = normalizeWorldPath(entry.path);
+    assertStoredPath(path);
     this.ensureParents(path, manifest, forkId);
     const mtime = entry.mtime ?? this.now();
     const node = this.sql
@@ -775,9 +799,13 @@ export class WorldSqlStore implements WorldToolFileApi {
       const prior = this.entryRow(path, manifest);
       if (prior && prior.kind !== "file")
         throw new Error(`Path is not a file: ${path}`);
-      const projectedSize = (await this.allEntries("", forkId))
-        .filter((entry) => entry.kind === "file" && entry.path !== path)
-        .reduce((total, entry) => total + entry.size, bytes.byteLength);
+      assertStoredPath(path);
+      const projectedSize =
+        storedBytes(
+          (await this.allEntries("", forkId)).filter(
+            (entry) => entry.path !== path,
+          ),
+        ) + bytes.byteLength;
       if (projectedSize > WORLD_QUOTA_BYTES)
         throw new Error("world_quota_exceeded");
       const sha256 = await this.storeBlob(bytes);
@@ -882,6 +910,7 @@ export class WorldSqlStore implements WorldToolFileApi {
     const mutation = await this.mutate(forkId, async () => {
       const from = normalizeWorldPath(fromInput);
       const to = normalizeWorldPath(toInput);
+      assertStoredPath(to);
       if (pathWithin(to, from))
         throw new Error("Cannot rename a path into itself.");
       const entries = await this.allEntries(from, forkId);
@@ -1325,8 +1354,13 @@ export class WorldSqlStore implements WorldToolFileApi {
     const current = new Map(
       (await this.allEntries("", forkId)).map((entry) => [entry.path, entry]),
     );
+    // A sandbox's working copy of the drive is not part of the world: a
+    // listing that still carries one is pushed without it, and whatever the
+    // world held there before is deleted.
     const incoming = new Map(
-      listing.map((entry) => [normalizeWorldPath(entry.path), entry]),
+      listing
+        .map((entry) => [normalizeWorldPath(entry.path), entry] as const)
+        .filter(([path]) => !isWorldDrivePath(path)),
     );
     const changed: string[] = [];
     for (const [path, entry] of incoming) {
@@ -1353,7 +1387,7 @@ export class WorldSqlStore implements WorldToolFileApi {
     const forkId = this.forkRow().fork_id;
     const missing = new Set<string>();
     for (const entry of input.entries) {
-      normalizeWorldPath(entry.path);
+      assertStoredPath(normalizeWorldPath(entry.path));
       if (
         !Number.isSafeInteger(entry.mode) ||
         entry.mode < 0 ||
@@ -1390,9 +1424,7 @@ export class WorldSqlStore implements WorldToolFileApi {
         mtime: entry.mtime ?? this.now(),
       });
     }
-    const projectedSize = [...projected.values()]
-      .filter((entry) => entry.kind === "file")
-      .reduce((total, entry) => total + entry.size, 0);
+    const projectedSize = storedBytes(projected.values());
     if (projectedSize > WORLD_QUOTA_BYTES)
       throw new Error("world_quota_exceeded");
     const mutation = await this.mutate(forkId, async () => {
@@ -1416,6 +1448,40 @@ export class WorldSqlStore implements WorldToolFileApi {
       }
     });
     return { missingBlobs: [], revision: mutation.revision };
+  }
+
+  /**
+   * What the live world holds against its quota, and anything it still
+   * lists under the drive's subtree, which it never counts or exports.
+   */
+  async usage(): Promise<{
+    revision: number;
+    files: number;
+    storedBytes: number;
+    quotaBytes: number;
+    driveEntries: number;
+    driveBytes: number;
+  }> {
+    let files = 0;
+    let driveEntries = 0;
+    let driveBytes = 0;
+    const entries = await this.allEntries("");
+    for (const entry of entries) {
+      if (isWorldDrivePath(entry.path)) {
+        driveEntries += 1;
+        if (entry.kind === "file") driveBytes += entry.size;
+      } else if (entry.kind === "file") {
+        files += 1;
+      }
+    }
+    return {
+      revision: this.revision(),
+      files,
+      storedBytes: storedBytes(entries),
+      quotaBytes: WORLD_QUOTA_BYTES,
+      driveEntries,
+      driveBytes,
+    };
   }
 
   /** Exact-path lookups in one call, without following any symlink. */
@@ -1567,6 +1633,9 @@ export class WorldSqlStore implements WorldToolFileApi {
     const entries: WorldEntry[] = [];
     const deleted: string[] = [];
     for (const row of rows) {
+      // Only a world that stored the drive before it moved out can name it
+      // here, and a sandbox's working copy is not the world's to change.
+      if (isWorldDrivePath(row.path)) continue;
       if (row.kind === "delete") {
         deleted.push(row.path);
         continue;
@@ -1673,6 +1742,9 @@ export class WorldSqlStore implements WorldToolFileApi {
         for (const row of rows) {
           assertLiveUnchanged();
           const entry = rowEntry(row);
+          // A world that stored the drive before it moved out still lists it
+          // until the next sandbox push deletes it; it is never exported.
+          if (isWorldDrivePath(entry.path)) continue;
           const pax = paxPayload(entry);
           if (pax) {
             yield tarHeader(entry, {

@@ -367,7 +367,12 @@ const FS_GLOBAL_SOURCE = String.raw`
       if (!normalized.startsWith(__FS_ROOT + "/")) {
         throw __fsError("EACCES", "only " + __FS_ROOT + " (~) is reachable from code", op, input);
       }
-      return normalized.slice(__FS_ROOT.length + 1);
+      const relative = normalized.slice(__FS_ROOT.length + 1);
+      // The user's drive is its own store, never in the world this reads.
+      if (relative === "drive" || relative.startsWith("drive/")) {
+        throw __fsError("EACCES", "the user's drive is not in this filesystem; use tools.Read, tools.Write or tools.Edit on " + __FS_ROOT + "/drive", op, input);
+      }
+      return relative;
     };
     const __fsPin = async () => {
       if (__fsBase !== null) return;

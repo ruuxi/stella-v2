@@ -38,7 +38,14 @@ import {
   type ResidentBrowserClient,
 } from "../resident-browser.js";
 import { createWorkerShellRouter } from "../worker-shell-router.js";
-import { hydrateResidentDrive } from "../resident-drive.js";
+import {
+  createDriveFileSession,
+  runWorldToolWithDrive,
+  type DriveFileSession,
+  type WorldStoreTools,
+} from "../world-drive-files.js";
+import { unwrapRpc } from "../owner-store/errors.js";
+import type { RpcResponse } from "@stella/contracts/backend/protocol";
 import {
   createWorkerShellRunner,
   type WorkerShellWorldCommit,
@@ -59,13 +66,9 @@ import {
   TURN_BROKER_MAX_TTL_MS,
   issueTurnBrokerCredential,
   turnBrokerStorageKey,
-  TURN_BROKER_DRIVE_PATHS,
 } from "../turn-credential-broker.js";
 import { issueWorldCapability } from "../world-capability.js";
-import {
-  forwardBrowserGatewayCommand,
-  serveTurnDriveRequest,
-} from "./turn-broker.js";
+import { forwardBrowserGatewayCommand } from "./turn-broker.js";
 import { deliverWorldLinkedFiles } from "./world-linked-files.js";
 import {
   agentTurnSessionId,
@@ -805,51 +808,38 @@ export const runResidentAgentTurn = async (
       execution: plan.execution,
     },
   });
-  let driveKnown = new Map<string, number>();
-  let hydration: Promise<boolean> | undefined;
-  const prepareWorkspace = (): Promise<boolean> => {
-    if (ladder.attached()) return Promise.resolve(false);
-    return (hydration ??= (async () => {
-      try {
-        driveKnown = await hydrateResidentDrive({
-          turnId: turn.turnId,
-          prompt: turn.prompt,
-          signal: execution.signal,
-          world: {
-            head: () => world.head(),
-            stat: (path) => world.stat(path),
-            list: (prefix, options) => world.list(prefix, options),
-            readFile: (path) => world.readFile(path),
-            putBlob: (stream, input) => world.putBlob(stream, input),
-            commitShell: (change) => world.commitShell(change),
-          },
-          post: async (body, signal) => {
-            signal.throwIfAborted();
-            return await serveTurnDriveRequest(
-              host.env,
-              turn,
-              TURN_BROKER_DRIVE_PATHS.sync,
-              body as Record<string, unknown>,
-            );
-          },
-        });
-        return true;
-      } catch (error) {
-        execution.assertActive();
-        log("info", "resident_drive_sandbox_fallback", {
-          turnId: turn.turnId,
-          message: errorMessage(error),
-        });
-        return false;
-      }
-    })());
+  // The user's drive is read and written where it lives and is never
+  // hydrated into the world: a resident file tool that names
+  // `/workspace/world/drive` reaches the drive itself, under this turn's
+  // owner generation, and is in the user's drive when it returns.
+  const drive = createDriveFileSession({
+    turnId: turn.turnId,
+    call: async (name, args) =>
+      unwrapRpc(
+        (await host.env.OWNER_GATES.getByName(turn.ownerId).ownerInternal({
+          name,
+          args,
+          ownerGeneration: turn.ownerGeneration,
+        })) as RpcResponse,
+      ),
+  });
+  const worldTools: WorldStoreTools = {
+    tool: async (call) => await world.tool(call),
+    stat: async (path) => await world.stat(path),
+    list: async (prefix, options) => await world.list(prefix, options),
+    readFile: async (path, options) => await world.readFile(path, options),
+    writeFile: async (path, bytes, options) =>
+      await world.writeFile(path, bytes, options),
+    remove: async (path, options) => await world.remove(path, options),
+    rename: async (from, to) => await world.rename(from, to),
+    listWorkspaceApps: async () => await world.listWorkspaceApps(),
   };
   const doLocal = createGeneralAgentDoLocalTools({
     control,
     agentControl,
     world: {
       tool: async (call, toolCallId) => {
-        if (!(await prepareWorkspace()) || ladder.attached()) {
+        if (ladder.attached()) {
           const result = await containerCalls.execute({
             toolCallId,
             toolName: call.name,
@@ -860,8 +850,10 @@ export const runResidentAgentTurn = async (
             : { ok: false, output: result.outcome.message };
         }
         return call.name === "Read" || call.name === "Grep"
-          ? world.tool(call)
-          : writeGate.exclusive(() => world.tool(call));
+          ? await runWorldToolWithDrive(call, worldTools, drive)
+          : await writeGate.exclusive(() =>
+              runWorldToolWithDrive(call, worldTools, drive),
+            );
       },
     },
     signal: execution.signal,
@@ -926,12 +918,9 @@ export const runResidentAgentTurn = async (
                   host.ctx.exports.WorldShellFs({
                     props: { worldName: ownerWorldName },
                   }),
-                // A cell's first `fs` touch is when the drive must be
-                // current in the world, exactly as for the worker shell.
-                head: async () => {
-                  await prepareWorkspace();
-                  return await world.head();
-                },
+                // `fs` reaches the world store only; the user's drive is not
+                // in it, and the cell reaches the drive through `tools.*`.
+                head: async () => await world.head(),
                 commitShell: worldWrites.commitShell,
               },
             },
@@ -950,7 +939,6 @@ export const runResidentAgentTurn = async (
   const compute = createWorkerShellRouter({
     ladder: containerCalls,
     root: workspaceRoot,
-    prepareWorkspace,
     signal: execution.signal,
     emitEvent: (kind, payload) => {
       void host
@@ -1068,7 +1056,7 @@ export const runResidentAgentTurn = async (
           finalText,
           control,
           commandTimeoutMs,
-          driveKnown,
+          drive,
         }),
     });
     // A turn that used the browser and is not handing it to the user saves
@@ -1268,7 +1256,8 @@ export const commitResidentTurnDurability = async (
     execution: TurnExecutionContext;
     ladder: ReturnType<typeof createAgentComputeLadder>;
     sealed: SealedTurnTranscript;
-    driveKnown?: ReadonlyMap<string, number>;
+    /** The drive the resident file tools wrote through, for the files card. */
+    drive?: DriveFileSession;
     /** The turn's final assistant text; delivered files derive from its links. */
     finalText: string;
     control: ReturnType<typeof createAgentControlPlane>;
@@ -1277,13 +1266,14 @@ export const commitResidentTurnDurability = async (
 ): Promise<Exclude<TurnDurability, { kind: "none" }>> => {
   const { turn, execution, ladder, sealed, control } = args;
   if (!ladder.attached()) {
-    // No sandbox ever quiesced for this turn, so its reply-linked files are
-    // delivered from the world the Durable Object's own tools wrote into.
+    // No sandbox ever quiesced for this turn. Its file tools wrote the drive
+    // directly, so the reply-linked files are already there and only the
+    // files card is left to announce.
     await deliverWorldLinkedFiles(host, {
       turn,
       finalText: args.finalText,
       signal: execution.signal,
-      known: args.driveKnown,
+      ...(args.drive ? { drive: args.drive } : {}),
       log: (event, fields) => log("error", event, fields),
     }).catch((error) => {
       log("error", "world_linked_files_failed", {

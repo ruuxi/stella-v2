@@ -422,8 +422,9 @@ export const normalizeToolWorkspaceRoot = async (
     `test "$(stat -c '%u:%g:%a' '${workspaceRoot}')" = 42424:42424:750`,
     ...(workspaceRoot !== APP_BUILD_ROOT
       ? [
-          // A world export restores `drive/` with the tarball's 0755; the
-          // boundary is 0750 like the root, so it is reset the same way.
+          // `drive/` holds the sandbox's working copy of the user's drive,
+          // which no world export carries; the boundary is 0750 like the
+          // root, so it is created or reset the same way.
           `if [ -e '${workspaceRoot}/drive' ] || [ -L '${workspaceRoot}/drive' ]; then test -d '${workspaceRoot}/drive' && test ! -L '${workspaceRoot}/drive'; else mkdir -m 0750 '${workspaceRoot}/drive'; fi`,
           `chown 42424:42424 '${workspaceRoot}/drive'`,
           `chmod 0750 '${workspaceRoot}/drive'`,

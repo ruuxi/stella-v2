@@ -51,10 +51,11 @@ export type WorkerShellLadder = Readonly<{
 export const WORKER_SHELL_TOOL_USER = "stella-tools";
 
 /**
- * The user's drive is hydrated into the world only when a sandbox attaches
- * (`hydrateDriveForAgentTurn`), so the world may not hold the user's latest
- * uploads. The worker shell leaves it to the sandbox rather than answer from
- * an older copy.
+ * The user's drive is not in the world at all: a sandbox hydrates a working
+ * copy of it when it attaches (`hydrateDriveForAgentTurn`) and writes back
+ * what changed, and the resident file tools reach the drive directly. The
+ * worker shell sees neither, so a command that touches it runs in the
+ * sandbox.
  */
 export const WORKER_SHELL_SANDBOX_ONLY: readonly string[] = ["drive"];
 
@@ -218,8 +219,6 @@ export type WorkerShellRouterInput = Readonly<{
   /** Absent on a deployment without the Worker Loader: everything attaches. */
   shell?: WorkerShellRunner;
   root: string;
-  /** Establish the current drive before shell reads; false attaches the sandbox. */
-  prepareWorkspace?: () => Promise<boolean>;
   signal?: AbortSignal;
   emitEvent?: (kind: string, payload: unknown) => void;
   now?: () => number;
@@ -261,11 +260,6 @@ export const createWorkerShellRouter = (
         dangerousReason: input.dangerousReason ?? loadDangerousReason,
       });
       if (route.route === "sandbox") return await toSandbox(call);
-      if (input.prepareWorkspace && !(await input.prepareWorkspace())) {
-        return await toSandbox(call);
-      }
-      // Hydration may have attached while another resident tool was running.
-      if (input.ladder.attached()) return await toSandbox(call);
       const started = now();
       const result = await shell.run(
         {
@@ -282,10 +276,7 @@ export const createWorkerShellRouter = (
           timeoutMs: route.timeoutMs,
           // HOME's caches and the mirrored skills exist only on the
           // sandbox's disk, so touching one hands the command over.
-          sandboxOnly: [
-            ...WORLD_UNSYNCED_PATHS,
-            ...(input.prepareWorkspace ? [] : WORKER_SHELL_SANDBOX_ONLY),
-          ],
+          sandboxOnly: [...WORLD_UNSYNCED_PATHS, ...WORKER_SHELL_SANDBOX_ONLY],
         },
         call.signal ?? input.signal,
       );

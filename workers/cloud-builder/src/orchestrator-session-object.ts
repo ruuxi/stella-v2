@@ -207,7 +207,7 @@ import { AgentHome } from "./agent-home.js";
 import type { CloudSkillCatalogSnapshot } from "./cloud-home-store.js";
 import { resolveCloudSpawnExecution } from "./cloud-spawn-model.js";
 import { sha256Hex, stableValueMarker } from "./hash.js";
-import { worldName } from "./workspace.js";
+import { WORLD_ROOT, worldName } from "./workspace.js";
 import {
   DEVICE_AGENT_QUEUED_NOTE,
   agentThreadElsewhereError,
@@ -269,6 +269,13 @@ import { createCloudHtmlTool } from "./cloud-html-tool.js";
 import { unwrapRpc } from "./owner-store/errors.js";
 import { createCloudDriveTool } from "./cloud-drive-tool.js";
 import { createCloudReadTool } from "./cloud-read-tool.js";
+import {
+  createDriveFileSession,
+  createWorldFilesWithDrive,
+  runWorldToolWithDrive,
+  type WorldStoreTools,
+} from "./world-drive-files.js";
+import { worldRelativeToolPath } from "./world/path.js";
 import { createCloudScheduleTools } from "./cloud-schedule-tools.js";
 import {
   createCloudConnectClient,
@@ -10837,24 +10844,48 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         ),
     };
     // Resolved on first use: a turn that never reads a world file never
-    // touches the world Durable Object.
+    // touches the world Durable Object. `drive/` is not in the world: a Read
+    // under it reaches the user's drive itself (`world-drive-files.ts`).
     const worldBinding = this.env.WORLDS as typeof this.env.WORLDS | undefined;
     const world = worldBinding
-      ? {
-          tool: async (call: { name: "Read"; arguments: Record<string, unknown> }) =>
-            worldBinding.getByName(await worldName(turn.ownerId)).tool(call),
-          // Read's image branch: the world's own Read is line-oriented and
-          // refuses binaries, so pixels come from the store directly.
-          stat: async (path: string) =>
-            await worldBinding.getByName(await worldName(turn.ownerId)).stat(path),
-          readFile: async (
-            path: string,
-            options?: { offset?: number; length?: number },
-          ) =>
-            await worldBinding
-              .getByName(await worldName(turn.ownerId))
-              .readFile(path, options ?? {}),
-        }
+      ? (() => {
+          const store = async () =>
+            worldBinding.getByName(await worldName(turn.ownerId));
+          const worldTools: WorldStoreTools = {
+            tool: async (call) => await (await store()).tool(call),
+            stat: async (path) => await (await store()).stat(path),
+            list: async (prefix, options) =>
+              await (await store()).list(prefix, options),
+            readFile: async (path, options) =>
+              await (await store()).readFile(path, options),
+            writeFile: async (path, bytes, options) =>
+              await (await store()).writeFile(path, bytes, options),
+            remove: async (path, options) =>
+              await (await store()).remove(path, options),
+            rename: async (from, to) => await (await store()).rename(from, to),
+          };
+          const drive = createDriveFileSession({
+            turnId: turn.turnId,
+            call: toolContext.ownerInternal,
+          });
+          const files = createWorldFilesWithDrive(worldTools, drive);
+          return {
+            tool: async (call: { name: "Read"; arguments: Record<string, unknown> }) =>
+              await runWorldToolWithDrive(call, worldTools, drive),
+            // Read's image branch: the world's own Read is line-oriented and
+            // refuses binaries, so pixels come from the files directly.
+            stat: async (path: string) =>
+              await files.stat(worldRelativeToolPath(path, WORLD_ROOT)),
+            readFile: async (
+              path: string,
+              options?: { offset?: number; length?: number },
+            ) =>
+              await files.readFile(
+                worldRelativeToolPath(path, WORLD_ROOT),
+                options ?? {},
+              ),
+          };
+        })()
       : undefined;
     const declines = this.connectorDeclines();
     // Connectors belong to the account: the same Store integrations the

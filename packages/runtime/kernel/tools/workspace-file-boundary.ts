@@ -364,6 +364,38 @@ export const readWorkspaceFileNoFollow = async (
   }
 };
 
+/**
+ * Hand `use` a descriptor-authorized, read-only handle on one workspace file,
+ * then prove the pathname still names that inode. For files too large to
+ * buffer: the caller streams from the handle and never reopens the path.
+ */
+export const withWorkspaceFileNoFollow = async <T>(
+  filePath: string,
+  workspaceRoot: string,
+  use: (
+    handle: FileHandle,
+    stat: Awaited<ReturnType<FileHandle["stat"]>>,
+  ) => Promise<T>,
+  options: { owner?: WorkspaceFileOwner } = {},
+): Promise<T> => {
+  const opened = await openWorkspaceFile({
+    filePath,
+    workspaceRoot,
+    flags: fsConstants.O_RDONLY,
+    ...(options.owner
+      ? { owner: options.owner, expectedFileOwner: options.owner }
+      : {}),
+  });
+  try {
+    const value = await use(opened.handle, await opened.handle.stat());
+    await assertEntryStillOpenedFile(opened);
+    return value;
+  } finally {
+    await opened.handle.close();
+    await closeAll(opened.parentHandles);
+  }
+};
+
 /** Descriptor-authorized metadata without reading file bytes. */
 export const statWorkspaceFileNoFollow = async (
   filePath: string,

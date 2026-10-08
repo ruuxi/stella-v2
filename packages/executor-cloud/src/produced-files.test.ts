@@ -175,7 +175,7 @@ describe("cloud produced-file boundary", () => {
     } as ProducedFileReport & { sourcePath: string };
 
     let posted: Record<string, unknown> | undefined;
-    await reportProducedFiles({
+    const delivery = await reportProducedFiles({
       turnId: "turn-2",
       files: [legacyPathReport],
       post: async (_route, body) => {
@@ -184,11 +184,12 @@ describe("cloud produced-file boundary", () => {
       },
     });
 
-    const entries = posted?.files as
-      | Array<{ contentBase64?: string }>
-      | undefined;
-    expect(entries).toHaveLength(1);
-    expect(entries![0]!.contentBase64).toBeUndefined();
+    // No authorized bytes and no staged upload: nothing is sent at all,
+    // because the drive keeps no row without its bytes.
+    expect(posted).toBeUndefined();
+    expect(delivery.skipped.map((entry) => entry.path)).toEqual([
+      "answer.txt",
+    ]);
   });
 
   test("builds git check-ignore behind the fixed strict setpriv trampoline", () => {

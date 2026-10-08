@@ -18,6 +18,10 @@
  * - **Turns:** agent and tool writes, workspace hydration and chat
  *   attachments are server-internal operations (`drive.turn*`), called by
  *   the turn broker and the orchestrator under the turn's owner generation.
+ *   The drive is the only durable home of these files: a cloud world holds a
+ *   working copy of some of them and never stores it, so every agent write
+ *   carries its bytes here — inline below `DRIVE_INLINE_FILE_LIMIT_BYTES`,
+ *   staged through a presigned PUT (`drive.turnStage`) above it.
  */
 
 import type {
@@ -36,21 +40,22 @@ import type { OwnerContext, OwnerDbReader, OwnerDomain } from "../registry.js";
 import { billingPlan } from "./billing.js";
 
 const MB = 1024 * 1024;
+const GB = 1024 * MB;
 
 type DriveQuota = { totalBytes: number; maxFiles: number; maxFileBytes: number };
 
 const PLAN_QUOTAS: Record<"free" | "go" | "pro", DriveQuota> = {
   free: { totalBytes: 256 * MB, maxFiles: 200, maxFileBytes: 25 * MB },
-  go: { totalBytes: 1_024 * MB, maxFiles: 1_000, maxFileBytes: 100 * MB },
-  pro: { totalBytes: 5_120 * MB, maxFiles: 5_000, maxFileBytes: 250 * MB },
+  go: { totalBytes: 10 * GB, maxFiles: 1_000, maxFileBytes: 100 * MB },
+  pro: { totalBytes: 50 * GB, maxFiles: 5_000, maxFileBytes: 250 * MB },
 };
 const UNLIMITED_QUOTA: DriveQuota = {
-  totalBytes: 204_800 * MB,
+  totalBytes: 200 * GB,
   maxFiles: 200_000,
   maxFileBytes: 2_048 * MB,
 };
 
-/** Bytes above this are reported as metadata only, never inlined. */
+/** Bytes above this are staged through a presigned PUT, never inlined. */
 export const DRIVE_INLINE_FILE_LIMIT_BYTES = 8 * MB;
 /** Inline bytes one produced-files report may carry. */
 const DRIVE_INLINE_REQUEST_LIMIT_BYTES = 32 * MB;
@@ -86,6 +91,16 @@ const SYNC_URL_EXPIRES_SECONDS = 1_800;
 const SYNC_MAX_INCLUDE = 25;
 const SYNC_MAX_DELETIONS = 100;
 const SYNC_MAX_PRESENCE = 500;
+/** One staging call; each entry is one presigned PUT. */
+const STAGE_MAX_FILES = 25;
+/** A staged PUT must start within this; the turn uploads right away. */
+const STAGE_URL_EXPIRES_SECONDS = 30 * 60;
+/** Unclaimed staged bytes are reclaimed after this. */
+const STAGE_TTL_MS = 2 * 60 * 60_000;
+/** Conditional deletes one turn report may carry. */
+const DELETE_MAX_FILES = 100;
+/** One resident read; matches the world's own read ceiling. */
+const READ_MAX_BYTES = 8 * MB;
 /** How long a deletion stays replayable to a workspace that has not synced. */
 const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60_000;
 const TOMBSTONE_PRUNE_EVERY_MS = 24 * 60 * 60_000;
@@ -289,11 +304,14 @@ export const driveRevisionPath = (path: string): string => {
   return `${path.slice(0, slash + 1)}${revised}`;
 };
 
-// Sub-megabyte values round to "0 MB"; drop to KB below 1 MB.
+// Sub-megabyte values round to "0 MB"; drop to KB below 1 MB, and say GB
+// from 1 GB up so a plan's ceiling reads the way the plan states it.
 const formatMb = (bytes: number): string =>
   bytes < MB
     ? `${Math.max(1, Math.round(bytes / 1024))} KB`
-    : `${Math.round((bytes / MB) * 10) / 10} MB`;
+    : bytes < GB
+      ? `${Math.round((bytes / MB) * 10) / 10} MB`
+      : `${Math.round((bytes / GB) * 10) / 10} GB`;
 
 // ── Storage ──────────────────────────────────────────────────────────────
 
@@ -433,10 +451,7 @@ const deleteFileRow = (
   if (expectedR2Key !== undefined && row.r2_key !== expectedR2Key) return false;
   ctx.db.run("DELETE FROM drive_files WHERE path = ?", path);
   recordTombstone(ctx, path, now);
-  // A workspace row is a claim about bytes that never left a sandbox.
-  if (row.source !== "workspace") {
-    queueCleanup(ctx, { path, r2Key: row.r2_key, notBefore: now + REPLACEMENT_GRACE_MS });
-  }
+  queueCleanup(ctx, { path, r2Key: row.r2_key, notBefore: now + REPLACEMENT_GRACE_MS });
   return true;
 };
 
@@ -648,7 +663,7 @@ const finalizeUpload = async (
       now,
       path,
     );
-    if (existing.source !== "workspace" && existing.r2_key !== finalKey) {
+    if (existing.r2_key !== finalKey) {
       queueCleanup(ctx, { path, r2Key: existing.r2_key, notBefore: now + REPLACEMENT_GRACE_MS });
     }
   } else {
@@ -678,13 +693,6 @@ const fileUrl = async (ctx: OwnerContext, args: { path: string }): Promise<Drive
   const path = normalizeDrivePath(args.path);
   const row = getFile(ctx.db, path);
   if (!row) throw new RpcError("NOT_FOUND", "That file is not in your drive.");
-  if (row.source === "workspace") {
-    throw new RpcError(
-      "NOT_FOUND",
-      "That file was too large to deliver, so it is still in the cloud workspace.",
-      { reason: "workspace_only" },
-    );
-  }
   const now = Date.now();
   return {
     path,
@@ -814,8 +822,7 @@ const locateDeviceFiles = (
       MAX_DEVICES_PER_SOURCE_PATH,
     );
     for (const row of rows) {
-      const copy = row.drive_path ? getFile(db, row.drive_path) : null;
-      const usableCopy = copy && copy.source !== "workspace" ? copy : null;
+      const usableCopy = row.drive_path ? getFile(db, row.drive_path) : null;
       files.push({
         sourcePath: row.source_path,
         deviceId: row.device_id,
@@ -860,7 +867,10 @@ export type DriveFileReport = {
   name?: string;
   sizeBytes?: number;
   contentType?: string;
+  /** The bytes, for a file below `DRIVE_INLINE_FILE_LIMIT_BYTES`. */
   contentBase64?: string;
+  /** A `drive.turnStage` upload whose PUT has finished, for anything larger. */
+  uploadId?: string;
   /** `updatedAt` of the row this turn hydrated: its claim that it read that version. */
   knownUpdatedAt?: number;
 };
@@ -871,6 +881,7 @@ type NormalizedReport = {
   contentType: string;
   sizeBytes: number;
   bytes: Uint8Array | null;
+  uploadId: string | null;
   knownUpdatedAt: number | null;
 };
 
@@ -885,8 +896,10 @@ const decodeBase64 = (value: string): Uint8Array => {
 };
 
 /**
- * Validate a produced-files report: inline bytes are capped per file and per
- * request; anything larger reports metadata only and stays in the workspace.
+ * Validate a produced-files report. Every file carries its bytes: inline,
+ * capped per file and per request, or as a staged upload for anything larger.
+ * There is no metadata-only row: a cloud world never stores the drive, so a
+ * row without bytes here would name a file that exists nowhere.
  */
 const normalizeReport = (files: unknown): NormalizedReport[] => {
   if (!Array.isArray(files) || files.length === 0) throw invalid("files must be a non-empty array.");
@@ -903,8 +916,10 @@ const normalizeReport = (files: unknown): NormalizedReport[] => {
       throw invalid(`${path} appears more than once in the same write. Send one version per path.`);
     }
     seen.add(path);
+    const uploadId = optionalString(file.uploadId, 200)?.trim() || null;
     let bytes: Uint8Array | null = null;
-    if (typeof file.contentBase64 === "string" && file.contentBase64.length > 0) {
+    if (typeof file.contentBase64 === "string") {
+      if (uploadId) throw invalid(`${path} carried both inline bytes and a staged upload.`);
       try {
         bytes = decodeBase64(file.contentBase64);
       } catch {
@@ -912,7 +927,7 @@ const normalizeReport = (files: unknown): NormalizedReport[] => {
       }
       if (bytes.byteLength > DRIVE_INLINE_FILE_LIMIT_BYTES) {
         throw invalid(
-          `${path} exceeds the ${formatMb(DRIVE_INLINE_FILE_LIMIT_BYTES)} inline limit. Report it without contentBase64.`,
+          `${path} exceeds the ${formatMb(DRIVE_INLINE_FILE_LIMIT_BYTES)} inline limit. Stage it with drive.turnStage instead.`,
         );
       }
       inlineTotal += bytes.byteLength;
@@ -921,6 +936,8 @@ const normalizeReport = (files: unknown): NormalizedReport[] => {
           `A produced-files report may carry at most ${formatMb(DRIVE_INLINE_REQUEST_LIMIT_BYTES)} of inline content.`,
         );
       }
+    } else if (!uploadId) {
+      throw invalid(`${path} carried neither its bytes nor a staged upload.`);
     }
     return {
       path,
@@ -928,6 +945,7 @@ const normalizeReport = (files: unknown): NormalizedReport[] => {
       contentType: normalizeContentType(optionalString(file.contentType, 10_000)),
       sizeBytes: bytes ? bytes.byteLength : normalizeSize(file.sizeBytes ?? 0),
       bytes,
+      uploadId,
       knownUpdatedAt: finiteNumber(file.knownUpdatedAt) ?? null,
     };
   });
@@ -943,6 +961,9 @@ const driveWriteKey = (turnId: string, batchKey: unknown): string | undefined =>
 };
 
 type Baseline = Map<string, { origin: string; writeKey: string | null; updatedAt: number }>;
+
+const renamedReason = (from: string, to: string): string =>
+  `${from} is a file you uploaded that this turn did not read, so this version was saved as ${to}.`;
 
 /**
  * Bytes the user uploaded are only replaceable by a turn that read them:
@@ -981,11 +1002,7 @@ const applyUploadWriteRule = (
       });
       continue;
     }
-    renamed.push({
-      from: file.path,
-      to,
-      reason: `${file.path} is a file you uploaded that this turn did not read, so this version was saved as ${to}.`,
-    });
+    renamed.push({ from: file.path, to, reason: renamedReason(file.path, to) });
     resolved.push({ ...file, path: to, name: fileNameFromPath(to) });
   }
   return { files: resolved, renamed, skipped };
@@ -1000,8 +1017,76 @@ export type DriveTurnFilesResult = {
 };
 
 /**
+ * Resolve a report's staged uploads against their claims. A staged write
+ * whose response was lost already installed its row, and the row carries the
+ * upload id wherever the upload rule filed it, so a redelivery of the same
+ * batch answers from that row instead of claiming the upload twice.
+ */
+const resolveStagedWrites = async (
+  ctx: OwnerContext,
+  files: NormalizedReport[],
+  writeKey: string | undefined,
+): Promise<{
+  files: NormalizedReport[];
+  staged: Map<string, UploadRow>;
+  replayed: Array<DriveFileRecord & { stored: boolean }>;
+  renamed: DriveRename[];
+  skipped: DriveSkip[];
+}> => {
+  const staged = new Map<string, UploadRow>();
+  const replayed: Array<DriveFileRecord & { stored: boolean }> = [];
+  const renamed: DriveRename[] = [];
+  const skipped: DriveSkip[] = [];
+  const resolved: NormalizedReport[] = [];
+  for (const file of files) {
+    if (!file.uploadId) {
+      resolved.push(file);
+      continue;
+    }
+    const installed = ctx.db.one<FileRow>(
+      "SELECT * FROM drive_files WHERE upload_id = ? LIMIT 1",
+      file.uploadId,
+    );
+    if (installed && writeKey !== undefined && installed.write_key === writeKey) {
+      replayed.push({ ...fileRecord(installed), stored: true });
+      if (installed.path !== file.path) {
+        renamed.push({ from: file.path, to: installed.path, reason: renamedReason(file.path, installed.path) });
+      }
+      continue;
+    }
+    const pending = ctx.db.one<UploadRow>("SELECT * FROM drive_uploads WHERE upload_id = ?", file.uploadId);
+    if (
+      !pending ||
+      pending.status !== "pending" ||
+      pending.path !== file.path ||
+      file.sizeBytes > pending.claimed_bytes
+    ) {
+      skipped.push({
+        path: file.path,
+        reason: `${file.path} could not be saved to your drive because its upload was no longer waiting to be saved.`,
+      });
+      continue;
+    }
+    // Storage, not the report, says how many bytes arrived.
+    const head = await bucketOf(ctx).head(pending.r2_key);
+    if (!head || head.size !== file.sizeBytes) {
+      retirePendingUpload(ctx, pending, Date.now());
+      skipped.push({
+        path: file.path,
+        reason: `${file.path} did not reach your drive in full, so it was not saved.`,
+      });
+      continue;
+    }
+    staged.set(file.uploadId, pending);
+    resolved.push(file);
+  }
+  return { files: resolved, staged, replayed, renamed, skipped };
+};
+
+/**
  * A turn's produced files: agent output, html canvases, generated images.
- * Inline bytes are written to immutable keys, then the rows land together,
+ * Inline bytes are written to immutable keys and staged uploads are copied out
+ * of their client-writable staging keys, then the rows land together,
  * re-checked against the quota. Nothing landing at all is the caller's to
  * report as a failure (`files` empty, `skipped` not).
  */
@@ -1014,7 +1099,9 @@ const turnFiles = async (ctx: OwnerContext, raw: unknown): Promise<DriveTurnFile
   const reported = optionalString(input.source, 200)?.trim().slice(0, 40) || "agent";
   // "upload" sets a row's permanent provenance; only the user earns it.
   const source = reported === "upload" ? "agent" : reported;
-  let files = normalizeReport(input.files);
+  const stagedWrites = await resolveStagedWrites(ctx, normalizeReport(input.files), writeKey);
+  let files = stagedWrites.files;
+  const { staged } = stagedWrites;
 
   const baseline: Baseline = new Map();
   for (const path of new Set(files.flatMap((file) => [file.path, driveRevisionPath(file.path)]))) {
@@ -1025,7 +1112,7 @@ const turnFiles = async (ctx: OwnerContext, raw: unknown): Promise<DriveTurnFile
   }
   const rule = applyUploadWriteRule(files, baseline, writeKey);
   files = rule.files;
-  const skipped: DriveSkip[] = [...rule.skipped];
+  const skipped: DriveSkip[] = [...stagedWrites.skipped, ...rule.skipped];
   const preflight = partitionWrite(ctx, files.map(({ path, sizeBytes }) => ({ path, sizeBytes })));
   skipped.push(...preflight.skipped);
   const acceptedSize = new Map(preflight.accepted.map((file) => [file.path, file.sizeBytes]));
@@ -1046,21 +1133,17 @@ const turnFiles = async (ctx: OwnerContext, raw: unknown): Promise<DriveTurnFile
   }
 
   const prefix = await driveOwnerPrefix(ctx.ownerId);
-  const entries: Array<NormalizedReport & { r2Key: string; source: string; debtId?: string }> = [];
+  const entries: Array<NormalizedReport & { r2Key: string; debtId?: string }> = [];
   for (const file of files) {
     entries.push({
       ...file,
-      // Metadata-only rows name the path's own key and carry no bytes.
-      r2Key: file.bytes
-        ? `${prefix}writes/${await sha256Hex(crypto.randomUUID())}/${file.path}`
-        : `${prefix}${file.path}`,
-      source: file.bytes ? source : "workspace",
+      r2Key: `${prefix}writes/${await sha256Hex(crypto.randomUUID())}/${file.path}`,
     });
   }
-  const withBytes = entries.filter((entry) => entry.bytes);
-  if (withBytes.length > 0) {
+  if (entries.length > 0) {
     const bucket = bucketOf(ctx);
-    for (const entry of withBytes) {
+    // Debt first, so a crash after any write or copy still reclaims it.
+    for (const entry of entries) {
       entry.debtId = queueCleanup(ctx, {
         path: entry.path,
         r2Key: entry.r2Key,
@@ -1068,13 +1151,25 @@ const turnFiles = async (ctx: OwnerContext, raw: unknown): Promise<DriveTurnFile
       });
     }
     try {
-      for (const entry of withBytes) {
-        await bucket.put(entry.r2Key, entry.bytes!, {
-          httpMetadata: { contentType: entry.contentType },
+      for (const entry of entries) {
+        if (entry.bytes) {
+          await bucket.put(entry.r2Key, entry.bytes, {
+            httpMetadata: { contentType: entry.contentType },
+          });
+          continue;
+        }
+        // The staging key stays writable by its presigned PUT, so the row
+        // only ever names a server-made copy of it.
+        await copyR2Object(signerOf(ctx), {
+          from: staged.get(entry.uploadId!)!.r2_key,
+          to: entry.r2Key,
         });
+        const copied = await bucket.head(entry.r2Key);
+        if (!copied || copied.size !== entry.sizeBytes) throw unavailable();
       }
     } catch {
-      // Every key written so far is debt that cleanup reclaims.
+      // Every key written so far is debt that cleanup reclaims, and the
+      // staged uploads are still pending, so the same report can be retried.
       throw unavailable();
     }
   }
@@ -1094,30 +1189,23 @@ const turnFiles = async (ctx: OwnerContext, raw: unknown): Promise<DriveTurnFile
     if (fits.get(entry.path) !== entry.sizeBytes) continue;
     const existing = getFile(ctx.db, entry.path);
     if (existing) {
-      // A workspace claim must never repoint a row that has real bytes.
-      if (entry.source === "workspace" && existing.source !== "workspace") {
-        skipped.push({
-          path: entry.path,
-          reason: `${entry.path} is too large to deliver, so the copy already in your drive was kept and this turn's version stayed in the workspace.`,
-        });
-        continue;
-      }
       ctx.db.run(
         `UPDATE drive_files SET r2_key = ?, name = ?, size_bytes = ?, content_type = ?, source = ?,
-           origin = ?, write_key = ?, upload_id = NULL, updated_at = ?
+           origin = ?, write_key = ?, upload_id = ?, updated_at = ?
          WHERE path = ?`,
         entry.r2Key,
         entry.name,
         entry.sizeBytes,
         entry.contentType,
-        entry.source,
+        source,
         // Provenance only rises to "upload"; an agent edit never spends it.
         existing.origin,
         writeKey ?? null,
+        entry.uploadId,
         now,
         entry.path,
       );
-      if (existing.source !== "workspace" && existing.r2_key !== entry.r2Key) {
+      if (existing.r2_key !== entry.r2Key) {
         queueCleanup(ctx, {
           path: entry.path,
           r2Key: existing.r2_key,
@@ -1128,15 +1216,16 @@ const turnFiles = async (ctx: OwnerContext, raw: unknown): Promise<DriveTurnFile
       ctx.db.run(
         `INSERT INTO drive_files (path, r2_key, name, size_bytes, content_type, source, origin,
            write_key, upload_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         entry.path,
         entry.r2Key,
         entry.name,
         entry.sizeBytes,
         entry.contentType,
-        entry.source,
-        entry.source,
+        source,
+        source,
         writeKey ?? null,
+        entry.uploadId,
         now,
         now,
       );
@@ -1144,7 +1233,7 @@ const turnFiles = async (ctx: OwnerContext, raw: unknown): Promise<DriveTurnFile
     written.push(entry);
   }
   const linked = new Set(written.map((entry) => entry.r2Key));
-  for (const entry of withBytes) {
+  for (const entry of entries) {
     if (linked.has(entry.r2Key)) {
       ctx.db.run("DELETE FROM drive_uploads WHERE upload_id = ?", entry.debtId!);
     } else {
@@ -1152,21 +1241,225 @@ const turnFiles = async (ctx: OwnerContext, raw: unknown): Promise<DriveTurnFile
       armJob(ctx, DRIVE_CLEANUP_JOB, now);
     }
   }
+  // A staged key is reclaimed once its PUT has aged out, landed or not.
+  for (const pending of staged.values()) retirePendingUpload(ctx, pending, now);
   const landed = new Set(written.map((entry) => entry.path));
   return {
     inlineLimitBytes: DRIVE_INLINE_FILE_LIMIT_BYTES,
-    files: written.map((entry) => ({
-      path: entry.path,
-      name: entry.name,
-      sizeBytes: entry.sizeBytes,
-      contentType: entry.contentType,
-      updatedAt: now,
-      stored: entry.source !== "workspace",
-    })),
+    files: [
+      ...stagedWrites.replayed,
+      ...written.map((entry) => ({
+        path: entry.path,
+        name: entry.name,
+        sizeBytes: entry.sizeBytes,
+        contentType: entry.contentType,
+        updatedAt: now,
+        stored: true,
+      })),
+    ],
     skipped,
-    renamed: rule.renamed,
+    renamed: [...stagedWrites.renamed, ...rule.renamed],
     replaced: replaced.filter((entry) => landed.has(entry.path)),
   };
+};
+
+/**
+ * Presigned PUTs for files too large to carry inline. Each one claims its
+ * size against the quota now and is checked again when the report naming it
+ * lands; the staged object is reclaimed whether or not that report ever comes.
+ */
+const turnStage = async (
+  ctx: OwnerContext,
+  raw: unknown,
+): Promise<{
+  uploads: Array<{ path: string; uploadId: string; url: string; expiresAt: number }>;
+  skipped: DriveSkip[];
+}> => {
+  const input = record(raw);
+  if (!optionalString(input.turnId, 512)?.trim()) throw invalid("turnId is required.");
+  const files = Array.isArray(input.files) ? input.files : [];
+  if (files.length === 0 || files.length > STAGE_MAX_FILES) {
+    throw invalid(`A staging request carries 1 to ${STAGE_MAX_FILES} files.`);
+  }
+  enforceOwnerRateLimit(
+    ctx.db,
+    ctx.now,
+    "drive.turnStage",
+    { count: 120, windowMs: 60_000 },
+    "Too many drive uploads. Wait a moment and try again.",
+  );
+  const claims = files.map((entry) => {
+    const file = record(entry);
+    if (typeof file.path !== "string") throw invalid("Every staged file needs a path.");
+    return { path: normalizeDrivePath(file.path), sizeBytes: normalizeSize(file.sizeBytes) };
+  });
+  const verdict = partitionWrite(ctx, claims);
+  const signer = verdict.accepted.length > 0 ? signerOf(ctx) : null;
+  const prefix = await driveOwnerPrefix(ctx.ownerId);
+  const now = Date.now();
+  const uploads: Array<{ path: string; uploadId: string; url: string; expiresAt: number }> = [];
+  for (const claim of verdict.accepted) {
+    const uploadId = crypto.randomUUID();
+    const r2Key = `${prefix}uploads/${uploadId}/${claim.path}`;
+    const url = await presignR2Url(signer!, {
+      method: "PUT",
+      key: r2Key,
+      expiresInSeconds: STAGE_URL_EXPIRES_SECONDS,
+      now,
+    });
+    ctx.db.run(
+      `INSERT INTO drive_uploads (upload_id, path, r2_key, status, claimed_bytes, created_at, expires_at)
+       VALUES (?, ?, ?, 'pending', ?, ?, ?)`,
+      uploadId,
+      claim.path,
+      r2Key,
+      claim.sizeBytes,
+      now,
+      now + STAGE_TTL_MS,
+    );
+    uploads.push({
+      path: claim.path,
+      uploadId,
+      url,
+      expiresAt: now + STAGE_URL_EXPIRES_SECONDS * 1_000,
+    });
+  }
+  if (uploads.length > 0) armJob(ctx, DRIVE_CLEANUP_JOB, now + STAGE_TTL_MS);
+  return { uploads, skipped: verdict.skipped };
+};
+
+/**
+ * A turn's deletions. A path is removed only while its row is still the
+ * version the turn read: anything newer is somebody else's write, and a turn
+ * deleting its own copy must not take that with it.
+ */
+const turnDelete = (
+  ctx: OwnerContext,
+  raw: unknown,
+): { deleted: string[]; kept: DriveSkip[] } => {
+  const input = record(raw);
+  if (!optionalString(input.turnId, 512)?.trim()) throw invalid("turnId is required.");
+  const files = Array.isArray(input.files) ? input.files : [];
+  if (files.length === 0 || files.length > DELETE_MAX_FILES) {
+    throw invalid(`A delete request carries 1 to ${DELETE_MAX_FILES} files.`);
+  }
+  const now = Date.now();
+  const deleted: string[] = [];
+  const kept: DriveSkip[] = [];
+  for (const entry of files) {
+    const file = record(entry);
+    if (typeof file.path !== "string") throw invalid("Every deleted file needs a path.");
+    const path = normalizeDrivePath(file.path);
+    const knownUpdatedAt = finiteNumber(file.knownUpdatedAt);
+    const row = getFile(ctx.db, path);
+    if (!row) {
+      deleted.push(path);
+      continue;
+    }
+    if (knownUpdatedAt === undefined || row.updated_at !== knownUpdatedAt) {
+      kept.push({
+        path,
+        reason: `${path} changed in your drive after this turn read it, so it was not deleted.`,
+      });
+      continue;
+    }
+    deleteFileRow(ctx, path, now, row.r2_key);
+    deleted.push(path);
+  }
+  return { deleted, kept };
+};
+
+/** One drive row as the cloud file tools see it. */
+export type DriveTurnEntry = {
+  path: string;
+  sizeBytes: number;
+  contentType: string;
+  origin: string;
+  updatedAt: number;
+};
+
+const turnEntry = (row: FileRow): DriveTurnEntry => ({
+  path: row.path,
+  sizeBytes: row.size_bytes,
+  contentType: row.content_type,
+  origin: row.origin,
+  updatedAt: row.updated_at,
+});
+
+/**
+ * One path, as a file or as the folder its rows' paths imply. The drive is
+ * flat; a folder is only ever the prefix of something in it.
+ */
+const turnStat = (
+  db: OwnerDbReader,
+  raw: unknown,
+): { file: DriveTurnEntry | null; directory: boolean } => {
+  const input = record(raw);
+  if (typeof input.path !== "string") throw invalid("A drive path is required.");
+  const path = normalizeDrivePath(input.path);
+  const row = getFile(db, path);
+  if (row) return { file: turnEntry(row), directory: false };
+  const child = db.one<{ present: number }>(
+    "SELECT 1 AS present FROM drive_files WHERE path > ? AND path < ? LIMIT 1",
+    `${path}/`,
+    `${path}/￿`,
+  );
+  return { file: null, directory: child !== null };
+};
+
+/** Rows under `prefix`, in path order, strictly after `after`. */
+const turnList = (
+  db: OwnerDbReader,
+  raw: unknown,
+): { files: DriveTurnEntry[]; more: boolean } => {
+  const input = record(raw);
+  const prefix =
+    typeof input.prefix === "string" && input.prefix ? `${normalizeDrivePath(input.prefix)}/` : "";
+  const after = typeof input.after === "string" ? input.after.slice(0, MAX_PATH_LENGTH + 1) : "";
+  const limit = Math.min(
+    MAX_LIST_LIMIT,
+    Math.max(1, Math.floor(finiteNumber(input.limit) ?? DEFAULT_LIST_LIMIT)),
+  );
+  const rows = prefix
+    ? db.all<FileRow>(
+        "SELECT * FROM drive_files WHERE path > ? AND path >= ? AND path < ? ORDER BY path LIMIT ?",
+        after,
+        prefix,
+        `${prefix}￿`,
+        limit + 1,
+      )
+    : db.all<FileRow>(
+        "SELECT * FROM drive_files WHERE path > ? ORDER BY path LIMIT ?",
+        after,
+        limit + 1,
+      );
+  return { files: rows.slice(0, limit).map(turnEntry), more: rows.length > limit };
+};
+
+/** A byte range of one file, for the cloud file tools that never hydrate. */
+const turnRead = async (
+  ctx: OwnerContext,
+  raw: unknown,
+): Promise<DriveTurnEntry & { bytes: Uint8Array }> => {
+  const input = record(raw);
+  if (typeof input.path !== "string") throw invalid("A drive path is required.");
+  const path = normalizeDrivePath(input.path);
+  const row = getFile(ctx.db, path);
+  if (!row) throw new RpcError("NOT_FOUND", "That file is not in your drive.");
+  const offset = Math.max(0, Math.floor(finiteNumber(input.offset) ?? 0));
+  const available = Math.max(0, row.size_bytes - offset);
+  const requested = finiteNumber(input.length);
+  if (requested !== undefined && requested > READ_MAX_BYTES) {
+    throw invalid(`A drive read returns at most ${formatMb(READ_MAX_BYTES)}.`);
+  }
+  const length = Math.min(
+    available,
+    Math.max(0, Math.floor(requested ?? READ_MAX_BYTES)),
+  );
+  if (length === 0) return { ...turnEntry(row), bytes: new Uint8Array() };
+  const object = await bucketOf(ctx).get(row.r2_key, { range: { offset, length } });
+  if (!object) throw new RpcError("NOT_FOUND", "The drive's copy of that file is missing.");
+  return { ...turnEntry(row), bytes: new Uint8Array(await object.arrayBuffer()) };
 };
 
 // ── Turn hydration (the workspace's view of the drive) ───────────────────
@@ -1256,20 +1549,9 @@ const turnSync = async (ctx: OwnerContext, raw: unknown): Promise<DriveSyncManif
   const rows = [...byPath.values()].filter((row) => row.path.startsWith(prefix));
   const files: DriveSyncManifest["files"] = [];
   const skipped: DriveSyncManifest["skipped"] = [];
-  for (const row of rows) {
-    if (row.source !== "workspace") continue;
-    skipped.push({
-      path: row.path,
-      sizeBytes: row.size_bytes,
-      reason:
-        "it was too large to deliver, so its bytes are in the workspace from the turn that made it rather than in the drive",
-      updatedAt: row.updated_at,
-      origin: row.origin,
-    });
-  }
-  const ordered = rows
-    .filter((row) => row.source !== "workspace")
-    .sort((a, b) => syncRank(a, wanted) - syncRank(b, wanted) || b.updated_at - a.updated_at);
+  const ordered = rows.sort(
+    (a, b) => syncRank(a, wanted) - syncRank(b, wanted) || b.updated_at - a.updated_at,
+  );
   const signer = ordered.length > 0 ? signerOf(ctx) : null;
   let usedBytes = 0;
   for (const row of ordered) {
@@ -1361,7 +1643,7 @@ const turnAttachments = async (ctx: OwnerContext, raw: unknown) => {
   const now = Date.now();
   for (const path of paths) {
     const row = getFile(ctx.db, path);
-    if (!row || row.source === "workspace") {
+    if (!row) {
       skipped.push({ path, reason: "not in the drive" });
       continue;
     }
@@ -1406,7 +1688,7 @@ const signImages = async (ctx: OwnerContext, raw: unknown): Promise<{ urls: stri
   const urls: string[] = [];
   for (const path of paths) {
     const row = getFile(ctx.db, path);
-    if (!row || row.source === "workspace") throw invalid(`${path} is not in the user's drive.`);
+    if (!row) throw invalid(`${path} is not in the user's drive.`);
     if (!row.content_type.toLowerCase().startsWith("image/")) {
       throw invalid(`${path} is not an image (${row.content_type}).`);
     }
@@ -1589,7 +1871,17 @@ export const driveDomain = {
     },
   },
   internal: {
+    /** What the drive holds against the plan's quota. */
+    "drive.usage": (ctx: OwnerContext) => {
+      const { plan, unlimited } = billingPlan(ctx);
+      return { ...usage(ctx.db), plan, unlimited, quota: unlimited ? UNLIMITED_QUOTA : PLAN_QUOTAS[plan] };
+    },
     "drive.turnFiles": turnFiles,
+    "drive.turnStage": turnStage,
+    "drive.turnDelete": turnDelete,
+    "drive.turnStat": (ctx: OwnerContext, raw: unknown) => turnStat(ctx.db, raw),
+    "drive.turnList": (ctx: OwnerContext, raw: unknown) => turnList(ctx.db, raw),
+    "drive.turnRead": turnRead,
     "drive.turnSync": turnSync,
     "drive.turnAttachments": turnAttachments,
     "drive.signImages": signImages,

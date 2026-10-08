@@ -58,11 +58,8 @@ import {
   prepareCloudToolFilesystem,
   resolveOfficeBinPath,
 } from "./agent-turn.js";
-import {
-  collectProducedFiles,
-  reportProducedFiles,
-  toDriveFile,
-} from "./produced-files.js";
+import { toDriveFile } from "./produced-files.js";
+import { snapshotDriveTree, writeBackDrive } from "./drive-writeback.js";
 import {
   takeTurnBrokerHandoff,
   TurnCredentialBrokerClient,
@@ -466,6 +463,11 @@ export const runAttachedToolHost = (
           }),
         catch: asError,
       });
+      // The write-back at quiesce saves what changes from here; the resident
+      // tools that ran before this sandbox attached wrote the drive itself.
+      const driveBefore = yield* Effect.promise(() =>
+        snapshotDriveTree(driveWorkspace.root).catch(() => new Map()),
+      );
 
       const officeBinPath = resolveOfficeBinPath();
       const toolHost: ToolHost = yield* Effect.acquireRelease(
@@ -582,24 +584,40 @@ export const runAttachedToolHost = (
           console.error(`world pull failed: ${asError(error).message}`);
         });
         await pushWorldProjection({ root: workspaceRoot, access: input.world });
-        const collected = await collectProducedFiles({
-          workspaceRoot: driveWorkspace.root,
+        // The drive copy is not part of the world: what this turn created,
+        // changed or deleted under drive/ reaches the drive only from here.
+        const writeBack = await writeBackDrive({
+          turnId: input.turnId,
+          driveRoot: driveWorkspace.root,
+          stateDir: driveWorkspace.stateDir,
+          identity: { ...CLOUD_TOOL_PROCESS_IDENTITY, home: workspaceRoot },
+          sync: driveSync,
+          before: driveBefore,
           linked: linkedPaths,
-          gitAware: false,
-          drivePrefix: "",
-          processIdentity: {
-            ...CLOUD_TOOL_PROCESS_IDENTITY,
-            home: workspaceRoot,
-          },
+          post: postJson,
         }).catch((error) => {
-          // Delivery is best-effort, but a swallowed failure here is the
-          // difference between a file the user can open and one that
-          // silently never reaches the chat.
-          console.error(`produced files failed: ${asError(error).message}`);
+          // Best-effort, but a swallowed failure here is the difference
+          // between a file the user can open and one that never reaches it.
+          console.error(`drive write-back failed: ${asError(error).message}`);
           return null;
         });
-        const files = collected?.files ?? [];
-        if (files.length === 0) {
+        const notice = writeBack
+          ? writeBack.notice.trim()
+          : "Saving this turn's drive changes failed, so they are only in this sandbox.";
+        if (notice) {
+          await postJson("/api/cloud/events", {
+            turnId: input.turnId,
+            attemptGeneration: input.attemptGeneration,
+            sessionId: input.threadId,
+            seq: "auto",
+            kind: "progress",
+            payload: { message: notice },
+          }).catch((error) => {
+            console.error(`event progress failed: ${asError(error).message}`);
+          });
+        }
+        const delivered = writeBack?.files ?? [];
+        if (delivered.length === 0) {
           // A reply that linked files but delivered none is worth a record
           // the turn's event stream keeps: what was linked, and what this
           // disk actually had at each path, so the gap is diagnosable from
@@ -644,25 +662,6 @@ export const runAttachedToolHost = (
           }
           return { bootNotices, deliveredFiles: [] };
         }
-        const delivery = await reportProducedFiles({
-          turnId: input.turnId,
-          files,
-          known: driveSync.known,
-          uploads: driveSync.uploads,
-          post: postJson,
-        });
-        const refused = new Set(delivery.skipped.map((entry) => entry.path));
-        const renamedBy = new Map(
-          delivery.renamed.map((entry) => [entry.from, entry.to]),
-        );
-        const delivered = files
-          .filter((file) => !refused.has(file.path))
-          .map((file) => {
-            const to = renamedBy.get(file.path);
-            return to
-              ? { ...file, path: to, name: to.slice(to.lastIndexOf("/") + 1) }
-              : file;
-          });
         // The container path announces its deliverables with an
         // `output_files` event, which is what the outbox turns into the
         // conversation's files card. The attached path must announce them
@@ -676,7 +675,7 @@ export const runAttachedToolHost = (
           payload: {
             files: delivered.map((file) => ({
               ...toDriveFile(file),
-              stored: delivery.stored.has(file.path),
+              stored: true,
             })),
           },
         }).catch((error) => {

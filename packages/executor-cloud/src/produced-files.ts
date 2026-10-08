@@ -7,9 +7,10 @@
  * the model wrote it into the reply — which is what a filesystem diff could
  * never tell apart from a dependency install.
  *
- * Reported files are registered in the owner's drive and, when small enough, uploaded to
- * R2 so the chat surface can hand them back to the user. Anything larger stays
- * in the checkpointed workspace and is reported as metadata only.
+ * Reported files are saved to the owner's drive with their bytes: inline when
+ * small enough, and through a staged upload (`drive-writeback.ts`) above
+ * that. The drive is the only place these files are kept — the world never
+ * stores its `drive/` — so a report never registers a file without them.
  *
  * A linked path is a string the agent chose, so every candidate is opened
  * component-by-component beneath the workspace descriptor and required to be
@@ -49,6 +50,11 @@ export type ProducedFileReport = {
   name: string;
   sizeBytes: number;
   contentType: string;
+  /**
+   * A `drive.turnStage` upload already holding this file's bytes, for a file
+   * at or above the inline limit.
+   */
+  uploadId?: string;
   /** Trusted-host-only bytes; omitted from JSON and never reconstructed. */
   [PRODUCED_FILE_AUTHORIZED_BYTES]?: Buffer;
 };
@@ -68,8 +74,8 @@ export const toDriveFile = (file: ProducedFileReport) => ({
   contentType: file.contentType,
 });
 
-/** Files at or above this size are registered but not uploaded inline. */
-const INLINE_LIMIT_BYTES = 8 * 1024 * 1024;
+/** Files at or above this size are staged rather than uploaded inline. */
+export const INLINE_LIMIT_BYTES = 8 * 1024 * 1024;
 /** A turn that "produced" more than this is reporting churn, not deliverables. */
 const MAX_REPORTED_FILES = 25;
 
@@ -99,7 +105,7 @@ const CONTENT_TYPES: Record<string, string> = {
   zip: "application/zip",
 };
 
-const contentTypeFor = (name: string): string => {
+export const contentTypeFor = (name: string): string => {
   const dot = name.lastIndexOf(".");
   if (dot <= 0) return "application/octet-stream";
   return (
@@ -200,8 +206,9 @@ const filterGitIgnored = async (
  * the tool host's state directory, before the descriptor-boundary
  * authorization below ever sees it.
  *
- * The 25-file report is spent in link order, and whatever it cannot fit comes
- * back as `omitted` so the turn can say so.
+ * The report (25 files unless `limit` says otherwise) is spent in link
+ * order, and whatever it cannot fit comes back as `omitted` so the turn can
+ * say so.
  *
  * `gitAware` runs the surviving paths past `.gitignore`, which is only
  * meaningful for a project checkout.
@@ -215,7 +222,10 @@ export const collectProducedFiles = async (options: {
   gitAware: boolean;
   /** Drive folder this workspace's files land under; "" for the drive itself. */
   drivePrefix: string;
+  /** Files the collection may hold; the rest come back as `omitted`. */
+  limit?: number;
 }): Promise<ProducedFileCollection> => {
+  const limit = options.limit ?? MAX_REPORTED_FILES;
   assertStrictProcessIdentity(options.processIdentity);
   const seen = new Set<string>();
   const candidates: string[] = [];
@@ -259,7 +269,7 @@ export const collectProducedFiles = async (options: {
     const metadataSize = safeFileSize(metadata.size);
     if (metadataSize === null) continue;
     const drivePath = `${options.drivePrefix}${relative}`;
-    if (files.length >= MAX_REPORTED_FILES) {
+    if (files.length >= limit) {
       omitted.push(drivePath);
       continue;
     }
@@ -313,6 +323,8 @@ export const collectProducedFiles = async (options: {
 export type ProducedFileDelivery = {
   /** Paths whose bytes actually reached the drive. */
   stored: Set<string>;
+  /** Of `stored`, the row version each now has, under its final path. */
+  versions: Map<string, number>;
   /** Paths the drive refused, with the reason to put in front of the user. */
   skipped: Array<{ path: string; reason: string }>;
   /** Paths saved under a different name to protect a file the user uploaded. */
@@ -327,9 +339,10 @@ export type ProducedFileDelivery = {
 };
 
 /**
- * Register the reported files with the backend, uploading bytes for everything
- * under the inline limit. Batched so one request never carries more than the
- * inline limit's worth of content.
+ * Save the reported files to the drive: inline bytes for everything under the
+ * inline limit, a staged upload's id for anything larger. Batched so one
+ * request never carries more than the inline limit's worth of content. A file
+ * that carries neither is not sent: the drive keeps no row without bytes.
  *
  * `known` carries, per drive path, the row version this turn hydrated. The
  * route only lets an agent write replace a file the user uploaded when that
@@ -354,11 +367,24 @@ export const reportProducedFiles = async (options: {
    * paths this checks before it retries.
    */
   uploads?: ReadonlySet<string>;
+  /** Separates the batches of several reports made by one turn. */
+  batchPrefix?: string;
   post: (route: string, body: unknown) => Promise<Response>;
 }): Promise<ProducedFileDelivery> => {
   type Payload = ReturnType<typeof toDriveFile> & {
     contentBase64?: string;
+    uploadId?: string;
     knownUpdatedAt?: number;
+  };
+  // A file too large to send inline is staged, so offering the user a
+  // download for one whose staging failed would hand them a URL with nothing
+  // behind it; it is never sent.
+  const delivery: ProducedFileDelivery = {
+    stored: new Set<string>(),
+    versions: new Map<string, number>(),
+    skipped: [],
+    renamed: [],
+    replaced: [],
   };
   const batches: Payload[][] = [];
   let batch: Payload[] = [];
@@ -369,16 +395,26 @@ export const reportProducedFiles = async (options: {
       ...toDriveFile(file),
       ...(knownUpdatedAt === undefined ? {} : { knownUpdatedAt }),
     };
-    if (file.sizeBytes < INLINE_LIMIT_BYTES) {
-      const bytes = file[PRODUCED_FILE_AUTHORIZED_BYTES];
-      if (bytes && bytes.byteLength === file.sizeBytes) {
-        payload = {
-          ...payload,
-          contentBase64: Buffer.from(bytes).toString("base64"),
-        };
-      }
+    const bytes = file[PRODUCED_FILE_AUTHORIZED_BYTES];
+    if (
+      file.sizeBytes < INLINE_LIMIT_BYTES &&
+      bytes &&
+      bytes.byteLength === file.sizeBytes
+    ) {
+      payload = {
+        ...payload,
+        contentBase64: Buffer.from(bytes).toString("base64"),
+      };
+    } else if (file.uploadId) {
+      payload = { ...payload, uploadId: file.uploadId };
+    } else {
+      delivery.skipped.push({
+        path: file.path,
+        reason: `${file.path} could not be read to save it to the drive, so it is only in this sandbox.`,
+      });
+      continue;
     }
-    const cost = payload.contentBase64 ? file.sizeBytes : 0;
+    const cost = payload.contentBase64 !== undefined ? file.sizeBytes : 0;
     if (batch.length > 0 && batchBytes + cost > INLINE_LIMIT_BYTES) {
       batches.push(batch);
       batch = [];
@@ -389,15 +425,6 @@ export const reportProducedFiles = async (options: {
   }
   if (batch.length > 0) batches.push(batch);
 
-  // A file too large to send inline is registered as metadata only, so
-  // offering the user a download for it would hand them a URL with nothing
-  // behind it.
-  const delivery: ProducedFileDelivery = {
-    stored: new Set<string>(),
-    skipped: [],
-    renamed: [],
-    replaced: [],
-  };
   // 413 is "nothing in this batch landed", which the per-file reasons in its
   // body already explain; any other failure has no body worth reading and is
   // answered with a null, so a single transient 5xx costs one retry rather
@@ -437,7 +464,9 @@ export const reportProducedFiles = async (options: {
    * read, and deletions are the hydration half's business. Null means the
    * question could not be answered at all.
    */
-  const applied = async (entries: Payload[]): Promise<Set<string> | null> => {
+  const applied = async (
+    entries: Payload[],
+  ): Promise<Map<string, number> | null> => {
     const response = await options
       .post("/api/cloud/drive/sync", {
         turnId: options.turnId,
@@ -448,12 +477,12 @@ export const reportProducedFiles = async (options: {
     if (!response?.ok) return null;
     const manifest = (await response.json().catch(() => null)) as {
       files?: Array<{ path?: string; sizeBytes?: number; updatedAt?: number }>;
-      skipped?: Array<{ path?: string; sizeBytes?: number }>;
+      skipped?: Array<{ path?: string; sizeBytes?: number; updatedAt?: number }>;
     } | null;
     if (!manifest) return null;
     const rows = new Map<string, { sizeBytes?: number; updatedAt?: number }>();
-    // A file too large to send inline registers as a metadata-only row, which
-    // the manifest reports as skipped rather than as something to hydrate.
+    // A row the turn's budget left out of hydration is reported as skipped,
+    // with the same version and size.
     for (const row of [
       ...(manifest.files ?? []),
       ...(manifest.skipped ?? []),
@@ -462,7 +491,7 @@ export const reportProducedFiles = async (options: {
         rows.set(row.path, row);
       }
     }
-    const landed = new Set<string>();
+    const landed = new Map<string, number>();
     for (const entry of entries) {
       const row = rows.get(entry.path);
       // The row carries this attempt's bytes at a version that is no longer
@@ -470,16 +499,17 @@ export const reportProducedFiles = async (options: {
       if (
         row &&
         row.sizeBytes === entry.sizeBytes &&
-        row.updatedAt !== entry.knownUpdatedAt
+        row.updatedAt !== entry.knownUpdatedAt &&
+        typeof row.updatedAt === "number"
       ) {
-        landed.add(entry.path);
+        landed.set(entry.path, row.updatedAt);
       }
     }
     return landed;
   };
 
   for (const [index, entries] of batches.entries()) {
-    const batchKey = String(index);
+    const batchKey = `${options.batchPrefix ?? ""}${index}`;
     let attempt = entries;
     let response = await send(attempt, batchKey);
     if (!response) {
@@ -503,14 +533,15 @@ export const reportProducedFiles = async (options: {
             settled.add(entry.path);
             delivery.skipped.push({
               path: entry.path,
-              reason: `${entry.path} could not be confirmed as delivered to the drive, so it is still in the workspace.`,
+              reason: `${entry.path} could not be confirmed as saved to the drive, so it is only in this sandbox.`,
             });
             continue;
           }
-          if (!landed.has(entry.path)) continue;
+          const version = landed.get(entry.path);
+          if (version === undefined) continue;
           settled.add(entry.path);
-          // Metadata-only rows have no bytes in the drive to offer.
-          if (entry.contentBase64) delivery.stored.add(entry.path);
+          delivery.stored.add(entry.path);
+          delivery.versions.set(entry.path, version);
         }
         attempt = attempt.filter((entry) => !settled.has(entry.path));
       }
@@ -522,19 +553,23 @@ export const reportProducedFiles = async (options: {
       for (const entry of attempt) {
         delivery.skipped.push({
           path: entry.path,
-          reason: `${entry.path} could not be delivered to the drive, so it is still in the workspace.`,
+          reason: `${entry.path} could not be saved to the drive, so it is only in this sandbox.`,
         });
       }
       continue;
     }
     const payload = (await response.json().catch(() => ({}))) as {
-      files?: Array<{ path?: string; stored?: boolean }>;
+      files?: Array<{ path?: string; stored?: boolean; updatedAt?: number }>;
       skipped?: Array<{ path?: string; reason?: string }>;
       renamed?: Array<{ from?: string; to?: string; reason?: string }>;
       replaced?: Array<{ path?: string; reason?: string }>;
     };
     for (const file of payload.files ?? []) {
-      if (file.stored && file.path) delivery.stored.add(file.path);
+      if (!file.stored || !file.path) continue;
+      delivery.stored.add(file.path);
+      if (typeof file.updatedAt === "number") {
+        delivery.versions.set(file.path, file.updatedAt);
+      }
     }
     for (const entry of payload.skipped ?? []) {
       if (entry.path) {

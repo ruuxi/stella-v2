@@ -15,7 +15,7 @@ export type DriveFile = {
   name: string;
   sizeBytes: number;
   contentType: string;
-  /** Who wrote the bytes there now: `upload`, `agent`, `html`, `image_gen`, `workspace`, ... */
+  /** Who wrote the bytes there now: `upload`, `agent`, `html`, `image_gen`, ... */
   source: string;
   createdAt: number;
   updatedAt: number;

@@ -3,6 +3,7 @@
  *
  *   GET  /api/admin/owners/lookup?ownerId=      snapshot identity, enforcement, billing and risk row
  *   GET  /api/admin/owners/top?limit=&status=   D1 `owner_risk` by score
+ *   GET  /api/admin/owners/storage?ownerId=     the owner's drive usage and world store usage
  *   POST /api/admin/owners/enforcement          {ownerId, status, reason, until?} via the gate's setOwnerEnforcement
  *   POST /api/admin/billing/plan                {ownerId, plan?, usageMode? | unlimited?, resetUsage?}
  *   POST /api/admin/delete                      {kind: "feedback", id} | {kind: "media_job", ownerId, id}
@@ -15,7 +16,7 @@ import { OWNER_ENFORCEMENT_STATUSES, type OwnerEnforcementStatus } from "@stella
 import { rpcErrorStatus, type RpcResponse } from "@stella/contracts/backend/protocol";
 import { fixedWorkSha256SecretEqual } from "../service-bearer.js";
 
-type AdminEnv = Pick<Cloudflare.Env, "OWNER_GATES" | "DB">;
+type AdminEnv = Pick<Cloudflare.Env, "OWNER_GATES" | "DB" | "WORLDS">;
 
 const OWNER_ID_MAX = 512;
 const TOP_DEFAULT_LIMIT = 50;
@@ -111,6 +112,22 @@ const lookup = async (url: URL, env: AdminEnv): Promise<Response> => {
     billing,
     risk: risk ?? null,
   });
+};
+
+/**
+ * Where an owner's files are stored and against which quota: the drive (rows
+ * and bytes in R2) and the world store, which never holds the drive and
+ * reports anything it still lists under `drive/` separately.
+ */
+const storage = async (url: URL, env: AdminEnv): Promise<Response> => {
+  const ownerId = ownerIdOf(url.searchParams.get("ownerId"));
+  if (!ownerId) return fail(400, "Missing ownerId.");
+  const drive = await ownerInternal(env, ownerId, "drive.usage", {});
+  if (drive instanceof Response) return drive;
+  if (!drive.ok) return failRpc(drive);
+  const { worldName } = await import("../workspace.js");
+  const world = await env.WORLDS.getByName(await worldName(ownerId)).usage();
+  return json({ ownerId, drive: drive.value, world });
 };
 
 const top = async (url: URL, env: AdminEnv): Promise<Response> => {
@@ -315,6 +332,7 @@ const claudeLoginProbeRoute = async (request: Request, env: AdminEnv): Promise<R
 const ROUTES: Record<string, { method: "GET" | "POST"; run: (request: Request, url: URL, env: AdminEnv) => Promise<Response> }> = {
   "/api/admin/owners/lookup": { method: "GET", run: (_request, url, env) => lookup(url, env) },
   "/api/admin/owners/top": { method: "GET", run: (_request, url, env) => top(url, env) },
+  "/api/admin/owners/storage": { method: "GET", run: (_request, url, env) => storage(url, env) },
   "/api/admin/owners/enforcement": { method: "POST", run: (request, _url, env) => enforcement(request, env) },
   "/api/admin/billing/plan": { method: "POST", run: (request, _url, env) => billingPlan(request, env) },
   "/api/admin/delete": { method: "POST", run: (request, _url, env) => remove(request, env) },

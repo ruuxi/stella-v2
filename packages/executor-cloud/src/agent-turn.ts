@@ -76,12 +76,8 @@ import {
   materializeDriveFiles,
   type DriveSyncResult,
 } from "./drive-sync.js";
-import {
-  collectProducedFiles,
-  reportProducedFiles,
-  toDriveFile,
-  type ProducedFileReport,
-} from "./produced-files.js";
+import { toDriveFile, type ProducedFileReport } from "./produced-files.js";
+import { snapshotDriveTree, writeBackDrive } from "./drive-writeback.js";
 import {
   buildGeneralAgentPrompt,
   type GeneralAgentPromptSkills,
@@ -737,6 +733,12 @@ export const runAgentTurn = (
         };
       }
       const driveSync = hydration.value;
+      // What the drive copy looks like before any agent process exists: the
+      // write-back saves what changes from here. An unreadable tree counts
+      // every file as changed, and the ledger still spares the unchanged.
+      const driveBefore = yield* Effect.promise(() =>
+        snapshotDriveTree(driveWorkspace.root).catch(() => new Map()),
+      );
 
       const officeBinPath = resolveOfficeBinPath();
       const cloudSystemPrompt = CLOUD_GENERAL_PROMPT({
@@ -1222,102 +1224,54 @@ export const runAgentTurn = (
         execution.errorMessage = eventFailure.message;
       }
 
-      // Delivery is best-effort: the bytes are already in the checkpointed
-      // workspace, so a failed registration costs visibility, not work — but
-      // it has to be visible in the report rather than silently dropped.
+      // The drive copy is not part of the world, so this is the only way the
+      // turn's drive work survives the sandbox: everything it created,
+      // changed or deleted under drive/ is written back to the drive now.
+      // Best-effort per file, and every file it could not save is named in
+      // the report rather than silently dropped.
       const outputs = yield* Effect.promise(
         async (): Promise<{
           files: ProducedFileReport[];
           stored: Set<string>;
           notice: string;
         }> => {
-          // The file list is the reply's own: markdown links in the turn's
-          // final assistant text, the same contract the local lane uses. Each
-          // linked path is still an agent-chosen string; `collectProducedFiles`
-          // authorizes every one beneath the workspace boundary.
-          const collected = await collectProducedFiles({
-            workspaceRoot: driveWorkspace.root,
-            linked: extractLocalFileLinkPaths(execution.finalText),
-            gitAware: false,
-            drivePrefix: "",
-            processIdentity: {
-              ...CLOUD_TOOL_PROCESS_IDENTITY,
-              home: workspaceRoot,
-            },
-          }).catch(() => null);
-          const files = collected?.files ?? [];
-          const omitted = collected?.omitted ?? [];
-          // The system prompt promises the user that workspace files are
-          // delivered, so a cap that holds some back has to say so rather than
-          // let the agent report success over a shorter list.
-          const truncated =
-            omitted.length > 0
-              ? `\n\nHeads up: only ${files.length} of the files from this turn were delivered. ${omitted.length} more (${omitted.slice(0, 5).join(", ")}${omitted.length > 5 ? ", …" : ""}) are in the workspace but were not.`
-              : "";
-          if (files.length === 0) {
-            return { files, stored: new Set<string>(), notice: truncated };
-          }
           try {
-            const delivery = await reportProducedFiles({
+            // The card is the reply's own: markdown links in the turn's final
+            // assistant text, the same contract the local lane uses. Each
+            // linked path is still an agent-chosen string; the write-back
+            // reads every one beneath the descriptor boundary.
+            const writeBack = await writeBackDrive({
               turnId: input.turnId,
-              files,
-              known: driveSync.known,
-              uploads: driveSync.uploads,
+              driveRoot: driveWorkspace.root,
+              stateDir: driveWorkspace.stateDir,
+              identity: { ...CLOUD_TOOL_PROCESS_IDENTITY, home: workspaceRoot },
+              sync: driveSync,
+              before: driveBefore,
+              linked: extractLocalFileLinkPaths(execution.finalText),
               post: postJson,
             });
-            // The drive's answer is part of the turn's report: a file saved
-            // under a different name to spare the user's own upload, or one
-            // the quota turned away, is something the agent's summary would
-            // otherwise claim it delivered.
-            const renamedBy = new Map(
-              delivery.renamed.map((entry) => [entry.from, entry.to]),
-            );
-            const refused = new Set(
-              delivery.skipped.map((entry) => entry.path),
-            );
-            const notes = [
-              ...delivery.renamed.map((entry) => entry.reason),
-              ...delivery.skipped.map((entry) => entry.reason),
-              ...delivery.replaced.map((entry) => entry.reason),
-            ];
             return {
-              files: files
-                .filter((file) => !refused.has(file.path))
-                .map((file) => {
-                  const to = renamedBy.get(file.path);
-                  return to
-                    ? {
-                        ...file,
-                        path: to,
-                        name: to.slice(to.lastIndexOf("/") + 1),
-                      }
-                    : file;
-                }),
-              stored: delivery.stored,
-              notice:
-                notes.length > 0
-                  ? `${truncated}\n\n${notes.join(" ")}`
-                  : truncated,
+              files: writeBack.files,
+              stored: new Set(writeBack.files.map((file) => file.path)),
+              notice: writeBack.notice,
             };
           } catch (failure) {
             console.error(
-              `drive file report failed: ${asError(failure).message}`,
+              `drive write-back failed: ${asError(failure).message}`,
             );
             return {
               files: [],
               stored: new Set<string>(),
-              notice: `${truncated}\n\nHeads up: delivering the files from this turn (${files
-                .map((file) => file.path)
-                .join(", ")}) failed. They are still in the workspace.`,
+              notice:
+                "\n\nHeads up: saving this turn's drive changes failed, so they are only in this sandbox.",
             };
           }
         },
       );
       if (outputs.files.length > 0) {
         emitEvent("output_files", {
-          // `stored` is the route's answer, not ours: a file too large to send
-          // inline is registered but its bytes stay in the workspace, so the
-          // chat surface must not offer it as a download.
+          // Every file on the card is in the drive with its bytes, which is
+          // what lets the chat surface offer it as a download.
           files: outputs.files.map((file) => ({
             ...toDriveFile(file),
             stored: outputs.stored.has(file.path),

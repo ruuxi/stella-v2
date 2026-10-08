@@ -117,9 +117,6 @@ export type TurnBrokerHost = Pick<
   | "executeTurnStateCheckpoint"
 >;
 
-/** Local copy of the artifact digest shape; see `app-build-artifacts.ts`. */
-const SHA256_HEX = /^[0-9a-f]{64}$/;
-
 /** @see src/build-session/shared/keys.ts */
 export { turnBrokerCredentialsPath } from "./shared/keys.js";
 

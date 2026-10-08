@@ -145,8 +145,6 @@ const orchestratorImageGenRecord = (event) => {
         return null;
     return candidate;
 };
-const isOrchestratorInlineImageGenResult = (event) => orchestratorImageGenRecord(event) !== null;
-
 export const deriveTurnInlineImagePayloads = (toolEvents) => {
     const payloads = [];
     for (const event of toolEvents) {

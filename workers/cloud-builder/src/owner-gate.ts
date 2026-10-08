@@ -487,9 +487,6 @@ const log = (
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const isCount = (value: unknown): value is number =>
-  typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-
 /** True when the snapshot lets a turn pin this execution's engine. */
 export const snapshotAllowsExecutionEngine = (
   snapshot: Pick<OwnerSnapshot, "connectedEngines">,

@@ -3,7 +3,7 @@ import { DisplayFileSourceContext } from "@/shared/hooks/display-file-source";
  * Per-kind viewer components used by the workspace panel's tab manager.
  *
  * Each component is a thin wrapper that delegates to the existing card UI
- * (MediaPreviewCard sub-renderers, OfficePreviewCard, PdfViewerCard). The
+ * (OfficeArtifactPanel, PdfViewerCard). The
  * wrappers exist so the tab spec's `render()` function can be a single
  * `createElement(Component, props)` call — no per-call branching, no
  * `kind` discriminator inside the render path.
@@ -43,21 +43,11 @@ const PdfViewerCard = lazy(() =>
 const Markdown = lazy(() =>
   import("@/app/chat/Markdown").then((m) => ({ default: m.Markdown })),
 );
-const MediaPreviewCard = lazy(() =>
-  import("@/shell/MediaPreviewCard").then((m) => ({
-    default: m.MediaPreviewCard,
-  })),
-);
 const OfficeArtifactPanel = lazy(() =>
   import("./office-artifact-panel").then((m) => ({
     default: m.OfficeArtifactPanel,
   })),
 );
-
-type WithMediaMeta = {
-  prompt?: string;
-  madeBy?: string;
-};
 
 export { MediaTabContent } from "./media-tab";
 
@@ -681,101 +671,3 @@ export const SourceDiffTabContent = () => {
     </div>
   );
 };
-
-export const ImageTabContent = ({
-  filePaths,
-  prompt,
-  madeBy,
-}: { filePaths: string[] } & WithMediaMeta) => (
-  <div className="right-sidebar__rich right-sidebar__rich--media">
-    <Suspense fallback={null}>
-      <MediaPreviewCard
-        asset={{ kind: "image", filePaths }}
-        {...(prompt ? { prompt } : {})}
-        {...(madeBy ? { madeBy } : {})}
-      />
-    </Suspense>
-  </div>
-);
-
-export const VideoTabContent = ({
-  filePath,
-  prompt,
-  madeBy,
-}: { filePath: string } & WithMediaMeta) => (
-  <div className="right-sidebar__rich right-sidebar__rich--media">
-    <Suspense fallback={null}>
-      <MediaPreviewCard
-        asset={{ kind: "video", filePath }}
-        {...(prompt ? { prompt } : {})}
-        {...(madeBy ? { madeBy } : {})}
-      />
-    </Suspense>
-  </div>
-);
-
-export const AudioTabContent = ({
-  filePath,
-  prompt,
-  madeBy,
-}: { filePath: string } & WithMediaMeta) => (
-  <div className="right-sidebar__rich right-sidebar__rich--media">
-    <Suspense fallback={null}>
-      <MediaPreviewCard
-        asset={{ kind: "audio", filePath }}
-        {...(prompt ? { prompt } : {})}
-        {...(madeBy ? { madeBy } : {})}
-      />
-    </Suspense>
-  </div>
-);
-
-export const Model3dTabContent = ({
-  filePath,
-  label,
-  prompt,
-  madeBy,
-}: { filePath: string; label?: string } & WithMediaMeta) => (
-  <div className="right-sidebar__rich right-sidebar__rich--media">
-    <Suspense fallback={null}>
-      <MediaPreviewCard
-        asset={{ kind: "model3d", filePath, ...(label ? { label } : {}) }}
-        {...(prompt ? { prompt } : {})}
-        {...(madeBy ? { madeBy } : {})}
-      />
-    </Suspense>
-  </div>
-);
-
-export const DownloadTabContent = ({
-  filePath,
-  label,
-  prompt,
-  madeBy,
-}: { filePath: string; label: string } & WithMediaMeta) => (
-  <div className="right-sidebar__rich right-sidebar__rich--media">
-    <Suspense fallback={null}>
-      <MediaPreviewCard
-        asset={{ kind: "download", filePath, label }}
-        {...(prompt ? { prompt } : {})}
-        {...(madeBy ? { madeBy } : {})}
-      />
-    </Suspense>
-  </div>
-);
-
-export const TextTabContent = ({
-  text,
-  prompt,
-  madeBy,
-}: { text: string } & WithMediaMeta) => (
-  <div className="right-sidebar__rich right-sidebar__rich--media">
-    <Suspense fallback={null}>
-      <MediaPreviewCard
-        asset={{ kind: "text", text }}
-        {...(prompt ? { prompt } : {})}
-        {...(madeBy ? { madeBy } : {})}
-      />
-    </Suspense>
-  </div>
-);

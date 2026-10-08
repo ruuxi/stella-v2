@@ -16,7 +16,7 @@ export const VIEWBOX_MIN = -15;
  * Each layer carries its own gradient definition: `Defs` are scoped to their
  * `Svg` root in react-native-svg, so a `url(#…)` reference cannot reach a
  * gradient declared in a sibling `Svg`. Callers pass a per-instance
- * `gradientId` for the same reason (see StellaMark.tsx).
+ * `gradientId` for the same reason.
  */
 export function MarkLayer({
   d,

@@ -53,7 +53,7 @@ export function StellaMarkHero({
   const reduceMotion = useReducedMotion();
   const appVisible = useAppVisible() && !paused;
   // Gradient ids are per-instance: two marks sharing an id make the second
-  // resolve against the first one's gradient (see StellaMark.tsx).
+  // resolve against the first one's gradient.
   const uid = useId().replace(/[^a-zA-Z0-9-]/g, "");
 
   const clock = useSharedValue(0);

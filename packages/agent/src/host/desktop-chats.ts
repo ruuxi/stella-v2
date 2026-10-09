@@ -150,6 +150,30 @@ const LocaleDoc = defineDoc<{ locale?: string }>({
   initial: () => ({}),
 });
 
+/**
+ * A reply written into a transcript without a model call (the onboarding
+ * greeting). It carries an empty usage: pi reads the last reply's usage to
+ * size the context, and the usage dashboard skips a call that cost nothing.
+ */
+const writtenReply = (text: string, timestamp: number, model: string): AssistantMessage =>
+  ({
+    role: "assistant",
+    content: [{ type: "text", text }],
+    api: "stella",
+    provider: "stella",
+    model,
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "stop",
+    timestamp,
+  }) as AssistantMessage;
+
 /** A conversation id as a file name. */
 const fileName = (conversationId: string): string => {
   const safe = conversationId.replace(/[^A-Za-z0-9_.-]/g, "_");
@@ -481,15 +505,7 @@ export function desktopChats(options: DesktopChatsOptions) {
     const text = message.trim();
     if (!text) return;
     const chat = await open(conversationId);
-    const reply = {
-      role: "assistant",
-      content: [{ type: "text", text }],
-      api: "stella",
-      provider: "stella",
-      model: "welcome",
-      stopReason: "stop",
-      timestamp: Date.now(),
-    } as unknown as AssistantMessage;
+    const reply = writtenReply(text, Date.now(), "welcome");
     await chat.root.submit(
       {
         type: "write",

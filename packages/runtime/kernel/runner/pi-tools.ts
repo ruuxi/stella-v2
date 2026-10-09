@@ -10,8 +10,20 @@
  * its `tools.<name>` reach exactly these tools (demoted ones only through it),
  * and its kernel lives as long as the conversation's orchestrator, or the
  * agent, that calls it.
+ *
+ * `runDevice` runs a cloud agent's file or shell call that the owner gate
+ * relayed here (`@stella/contracts/turn-plane/device-tools`): the same
+ * pipeline, on this computer's tool host, for an agent whose conversation
+ * runs in the cloud.
  */
+import os from "node:os";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import {
+  DEVICE_TOOL_NAMES,
+  type DeviceToolCall,
+  type DeviceToolDescription,
+  type DeviceToolResult,
+} from "@stella/contracts/turn-plane/device-tools";
 import {
   collectVisibleDemotedTools,
   executeModelToolCall,
@@ -39,7 +51,7 @@ const HARNESS_TOOL_NAMES = new Set([
   "multi_tool_use_parallel",
   "NoResponse",
   "node_repl",
-  // Moving the chat is the old runtime's; pi places agents per conversation.
+  // The harness has its own, which moves where a conversation's tools run.
   "switch_destination",
 ]);
 
@@ -67,6 +79,8 @@ export type PiToolCall = {
 export type RunnerPiTools = {
   specs: (agentType: PiToolAgentType) => PiToolSpec[];
   run: (call: PiToolCall) => Promise<AgentToolResult<unknown>>;
+  /** A cloud agent's tool call on this computer, or this computer described for it. */
+  runDevice: (call: DeviceToolCall, signal?: AbortSignal) => Promise<DeviceToolResult | DeviceToolDescription>;
 };
 
 const offeredTools = (
@@ -93,6 +107,13 @@ const runIdFor = (owner: string) => `pi-${owner.replace(/[^A-Za-z0-9_-]/g, "_")}
 /** Demoted tools reachable inside code: those without a top-level approval flow. */
 const codeReachableDemoted = (offered: readonly ToolMetadata[]) =>
   offered.filter((tool) => tool.demoted && !toolRequiresExplicitApproval(tool.approval));
+
+/** What a cloud agent is told about this computer when its tools move here. */
+const describeComputer = (): DeviceToolDescription => ({
+  hostname: os.hostname(),
+  platform: `${process.platform} ${os.release()}`,
+  home: os.homedir(),
+});
 
 export const createRunnerPiTools = (context: RunnerContext): RunnerPiTools => ({
   specs: (agentType) => {
@@ -155,5 +176,58 @@ export const createRunnerPiTools = (context: RunnerContext): RunnerPiTools => ({
         ...(call.signal ? { signal: call.signal } : {}),
       },
     );
+  },
+  runDevice: async (call, signal) => {
+    if (call.kind === "describe") return describeComputer();
+    // The container's shell starts in the agent's home; so does this one.
+    const shell = call.toolName === "Bash" || call.toolName === "exec_command";
+    const params =
+      shell && call.params.workdir === undefined && call.params.working_directory === undefined
+        ? { ...call.params, workdir: os.homedir() }
+        : call.params;
+    const result = await executeModelToolCall(
+      {
+        executionHost: "device",
+        // Its shell sessions are the cloud agent's own, kept apart from this computer's agents.
+        runId: runIdFor(`cloud-${call.threadId ?? call.conversationId}`),
+        conversationId: call.conversationId,
+        storageMode: "cloud",
+        agentType: call.threadId ? AGENT_IDS.GENERAL : AGENT_IDS.ORCHESTRATOR,
+        ...(call.threadId ? { agentId: call.threadId } : {}),
+        deviceId: context.deviceId,
+        stellaAppDir: context.stellaAppDir,
+        stellaDataDir: context.stellaDataDir,
+        store: context.runtimeStore,
+        toolExecutor: async (toolName, toolArgs, toolContext, toolSignal, onUpdate) =>
+          await context.toolHost.executeTool(toolName, toolArgs, toolContext, toolSignal, onUpdate),
+        hookEmitter: context.hookEmitter,
+        allowedToolNames: [...DEVICE_TOOL_NAMES],
+      },
+      {
+        toolName: call.toolName === "exec_command" ? "Bash" : call.toolName,
+        toolCallId: call.callId,
+        params,
+        ...(signal ? { signal } : {}),
+      },
+    );
+    const text = result.content
+      .map((part) => (part.type === "text" ? part.text : ""))
+      .filter(Boolean)
+      .join("\n");
+    const images = result.content.flatMap((part) =>
+      part.type === "image" ? [{ data: part.data, mimeType: part.mimeType }] : [],
+    );
+    let details: unknown;
+    try {
+      details = result.details === undefined ? undefined : JSON.parse(JSON.stringify(result.details));
+    } catch {
+      details = undefined;
+    }
+    return {
+      text,
+      ...(result.isError ? { isError: true } : {}),
+      ...(images.length > 0 ? { images } : {}),
+      ...(details === undefined ? {} : { details }),
+    };
   },
 });

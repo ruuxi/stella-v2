@@ -100,6 +100,12 @@ import {
 import { handleMobileRoute, snapshotDevices, type MobileRouteInput } from "./owner-store/domains/devices.js";
 import { handleUserAskRoute, type UserAskRouteInput } from "./owner-store/domains/user-asks.js";
 import { DeviceRequestRelay, deviceRequestErrorResponse } from "./device-request-relay.js";
+import type { DeviceToolRelay } from "./device-tool-relay.js";
+import type {
+  DeviceToolCall,
+  DeviceToolDeviceFrame,
+  DeviceToolOutcome,
+} from "@stella/contracts/turn-plane/device-tools";
 import {
   DEVICE_REQUEST_LIMITS,
   isDeviceRequestMethod,
@@ -815,6 +821,8 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     (outcome: AgentMessageDeviceOutcome) => void
   >();
   private deviceRequestRelayState?: DeviceRequestRelay;
+  /** Loaded with the first device tool call; until then no call is pending. */
+  private deviceToolRelayState?: DeviceToolRelay;
   private ownerStoreState?: OwnerStore;
   private ownerHostState?: OwnerHost;
   /** The domains this object serves. Test fixtures substitute their own. */
@@ -2234,6 +2242,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       for (const other of this.sockets(attachment.deviceId)) {
         if (other === socket) continue;
         this.deviceRequestRelay().onDeviceGone(attachment.deviceId, other);
+        this.deviceToolRelayState?.onDeviceGone(attachment.deviceId, other);
         this.closeSocket(other, DEVICE_PRESENCE_CLOSE.replaced, "replaced");
       }
       attachment.phase = "connected";
@@ -2245,6 +2254,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         presenceSessionId: attachment.presenceSessionId,
         serverTimeMs: now,
       });
+      this.deviceToolRelayState?.onDeviceConnected(attachment.deviceId, socket);
       const flushed = await this.ownerStore().internalCall(
         "agentThreads.flushDeviceMessages",
         { deviceId: attachment.deviceId },
@@ -2326,6 +2336,17 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       );
       return;
     }
+    if (
+      frame.type === "tool.accepted" ||
+      frame.type === "tool.result" ||
+      frame.type === "tool.error"
+    ) {
+      this.deviceToolRelayState?.onFrame(
+        attachment.deviceId,
+        frame as DeviceToolDeviceFrame,
+      );
+      return;
+    }
     if (frame.type === "agent-message.ack") {
       const messageId =
         typeof frame.messageId === "string" ? frame.messageId : "";
@@ -2400,7 +2421,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     if (attachment?.phase === "connected") {
       this.markDisconnected(attachment, now);
     }
-    if (attachment) this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
+    if (attachment) {
+      this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
+      this.deviceToolRelayState?.onDeviceGone(attachment.deviceId, socket);
+    }
     this.closeSocket(socket, code >= 3000 && code <= 4999 ? code : 1000, "");
     await this.scheduleAlarm(now);
   }
@@ -2415,7 +2439,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     if (attachment?.phase === "connected") {
       this.markDisconnected(attachment, now);
     }
-    if (attachment) this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
+    if (attachment) {
+      this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
+      this.deviceToolRelayState?.onDeviceGone(attachment.deviceId, socket);
+    }
     this.closeSocket(socket, 1011, "socket_error");
   }
 
@@ -2430,6 +2457,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       this.markDisconnected(attachment, now);
     }
     this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
+    this.deviceToolRelayState?.onDeviceGone(attachment.deviceId, socket);
     this.closeSocket(socket, code, reason);
     await this.scheduleAlarm(now);
   }
@@ -3976,6 +4004,75 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       text: input.text,
     });
     return { outcome: await acknowledged };
+  }
+
+  /**
+   * One tool call of a cloud agent whose tools run on `deviceId`
+   * (`@stella/contracts/turn-plane/device-tools`), relayed over the device's
+   * presence socket. The device must be enabled for remote execution, online
+   * and ready, checked on every call. Resolves when the device answers, or
+   * with why it did not; never rejects.
+   */
+  async deviceTool(input: {
+    deviceId: string;
+    requestId: string;
+    call: DeviceToolCall;
+  }): Promise<DeviceToolOutcome> {
+    this.ensureSchema();
+    const deviceId = input.deviceId?.trim() ?? "";
+    if (!deviceId || deviceId.length > MAX_DEVICE_ID_CHARS) {
+      return { ok: false, code: "bad_request", message: "A device id is required." };
+    }
+    const device = (await this.devices()).devices.find(
+      (candidate) => candidate.deviceId === deviceId,
+    );
+    if (!device) {
+      return {
+        ok: false,
+        code: "bad_request",
+        message: `No connected device has device_id ${deviceId}.`,
+      };
+    }
+    // Consent first, as for dispatched work: it is what the owner can fix.
+    if (device.remoteExecution !== "enabled") {
+      return {
+        ok: false,
+        code: "not_enabled",
+        message:
+          device.remoteExecution === "declined"
+            ? "That computer is set not to accept work from your other devices."
+            : "That computer has not been enabled to accept work from other devices.",
+      };
+    }
+    if (!device.online) {
+      return { ok: false, code: "device_offline", message: "That computer is offline." };
+    }
+    if (device.availability?.ready !== true) {
+      return {
+        ok: false,
+        code: "not_ready",
+        message: "That computer is online but isn't accepting work right now.",
+      };
+    }
+    if (!this.deviceToolRelayState) {
+      const { DeviceToolRelay } = await import("./device-tool-relay.js");
+      this.deviceToolRelayState ??= new DeviceToolRelay({
+        liveSocket: (id) => this.liveSocket(id),
+        send: (socket, frame) => this.send(socket, frame),
+        log: (event, fields) =>
+          log("error", event, { ownerId: this.ownerId(), ...fields }),
+      });
+    }
+    return await this.deviceToolRelayState.call({
+      deviceId,
+      requestId: input.requestId,
+      call: input.call,
+    });
+  }
+
+  /** The caller of a device tool call stopped waiting: the device is told to stop it. */
+  async cancelDeviceTool(input: { requestId: string }): Promise<void> {
+    this.deviceToolRelayState?.cancel(input.requestId);
   }
 
   async cancelDispatch(

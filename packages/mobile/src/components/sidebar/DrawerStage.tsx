@@ -99,12 +99,17 @@ export function DrawerStage({
   const haze = useAnimatedStyle(() => ({
     opacity: reduce
       ? 0
-      : interpolate(drawerBlur(p.value), [0, 0.35], [0, 1], CLAMP),
+      : interpolate(drawerBlur(p.value), [0, 0.3], [0, 1], CLAMP),
+  }));
+  const mist = useAnimatedStyle(() => ({
+    opacity: reduce
+      ? 0
+      : interpolate(drawerBlur(p.value), [0.3, 0.7], [0, 1], CLAMP),
   }));
   const frost = useAnimatedStyle(() => ({
     opacity: reduce
       ? 0
-      : interpolate(drawerBlur(p.value), [0.15, 1], [0, 1], CLAMP),
+      : interpolate(drawerBlur(p.value), [0.6, 1], [0, 1], CLAMP),
   }));
 
   const panelStyle = useAnimatedStyle(() => {
@@ -164,6 +169,7 @@ export function DrawerStage({
             {live ? (
               <>
                 <DrawerMaterial material="ultraThin" style={haze} />
+                <DrawerMaterial material="thin" style={mist} />
                 <DrawerMaterial material="regular" style={frost} />
                 <Animated.View
                   pointerEvents="none"

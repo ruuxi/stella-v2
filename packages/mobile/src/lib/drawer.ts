@@ -117,12 +117,19 @@ export function drawerVeil(progress: number) {
   return t <= 0 ? 0 : t >= 1 ? 1 : veilCurve(t);
 }
 
-export const DRAWER_BLUR = { end: 0.9, power: 0.6 };
+export const DRAWER_BLUR = { knee: 0.15, kneeAmount: 0.38, end: 0.9, tail: 1.5 };
 
 export function drawerBlur(progress: number) {
   "worklet";
-  const t = progress / DRAWER_BLUR.end;
-  return t <= 0 ? 0 : t >= 1 ? 1 : Math.pow(t, DRAWER_BLUR.power);
+  const { knee, kneeAmount, end, tail } = DRAWER_BLUR;
+  if (progress <= 0) return 0;
+  if (progress >= end) return 1;
+  if (progress <= knee) {
+    const t = 1 - progress / knee;
+    return kneeAmount * (1 - t * t * t);
+  }
+  const u = (progress - knee) / (end - knee);
+  return kneeAmount + (1 - kneeAmount) * Math.pow(u, tail);
 }
 
 function rubber(over: number) {

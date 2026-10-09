@@ -136,6 +136,23 @@ class HostEvents extends EventEmitter {
         return super.emit(eventName, ...args);
     }
 }
+/**
+ * Where a send the user pointed at the cloud or another computer runs; null
+ * when it runs on this computer (a conversation kept here always does).
+ */
+const placedChatTarget = (send, ownDeviceId) => {
+    const target = send?.storageMode === "local"
+        ? { mode: "automatic" }
+        : send?.executionTarget && typeof send.executionTarget === "object"
+            ? send.executionTarget
+            : { mode: "automatic" };
+    if (target.mode === "cloud")
+        return { mode: "cloud" };
+    if (target.mode === "device" && typeof target.deviceId === "string" && target.deviceId.trim() && target.deviceId.trim() !== ownDeviceId) {
+        return { mode: "device", deviceId: target.deviceId.trim() };
+    }
+    return null;
+};
 export class StellaRuntimeHost {
     options;
     workerMode = "child";
@@ -1388,24 +1405,8 @@ export class StellaRuntimeHost {
         });
         return { ok: true };
     }
-    /**
-     * Where a send the user pointed at the cloud or another computer runs;
-     * null when it runs here (a conversation kept on this computer always does).
-     */
-    placedChatTarget(send) {
-        const target = send?.storageMode === "local"
-            ? { mode: "automatic" }
-            : send?.executionTarget && typeof send.executionTarget === "object"
-            ? send.executionTarget
-            : { mode: "automatic" };
-        if (target.mode === "cloud") return { mode: "cloud" };
-        if (target.mode === "device" && typeof target.deviceId === "string" && target.deviceId.trim() && target.deviceId.trim() !== this.deviceIdentity?.deviceId) {
-            return { mode: "device", deviceId: target.deviceId.trim() };
-        }
-        return null;
-    }
     async startChat(payload) {
-        const target = this.placedChatTarget(payload);
+        const target = placedChatTarget(payload, this.deviceIdentity?.deviceId);
         if (target) return await this.startPlacedChat(payload, target);
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_START_CHAT, payload, {
             ensureWorker: true,
@@ -1423,7 +1424,7 @@ export class StellaRuntimeHost {
         // A send the user pointed elsewhere runs there as a placed chat. Its
         // turn reaches this computer's transcript through the journal, which
         // the worker reads closely until it shows.
-        const target = request?.op === "submit" ? this.placedChatTarget(request.send) : null;
+        const target = request?.op === "submit" ? placedChatTarget(request.send, this.deviceIdentity?.deviceId) : null;
         if (target) {
             const send = request.send ?? {};
             const placed = await this.startPlacedChat({

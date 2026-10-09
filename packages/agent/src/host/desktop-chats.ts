@@ -5,6 +5,7 @@
  * `PiChatRequest`s with it and forwards a watched conversation's events to
  * the app (`@stella/contracts/pi-chat`).
  */
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -22,6 +23,7 @@ import {
   type UserInput,
 } from "@earendil-works/pi-durable";
 import type { ExecutionDestination } from "@stella/contracts/execution-context";
+import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import { splitReplyRefs } from "@stella/contracts/reply-refs";
 import {
   mergePiEntries,
@@ -68,11 +70,13 @@ const HISTORY_PAGE = 200;
 const CLIENT_PAGE_BYTES = 2 * 1024 * 1024;
 /** How far back a voice call's history reaches, in entries. */
 const VOICE_HISTORY_ENTRIES = 200;
+/** How far back the files a conversation linked are looked for, in entries. */
+const LINKED_FILE_ENTRIES = 500;
 /** How long a turn waits for other devices' turns to be imported before it starts. */
 const JOURNAL_CATCH_UP_MS = 3_000;
 /** How often an open conversation is checked for being idle again. */
 const IDLE_CHECK_MS = 30_000;
-/** How often a watched conversation reads the journal while a turn runs elsewhere. */
+/** How often the journal is read while a turn runs elsewhere, or while one here can be stopped from elsewhere. */
 const FOLLOW_MS = 2_000;
 /** How long after a turn is placed elsewhere the journal is read that often, until the turn shows. */
 const FOLLOW_WINDOW_MS = 60_000;
@@ -384,8 +388,11 @@ export function desktopChats(options: DesktopChatsOptions) {
         idleCheck.unref?.();
         let following = false;
         const followCheck = setInterval(() => {
-          if (!mirror || following || !opened?.watchers) return;
-          if (mirror.remoteTurns().length === 0 && Date.now() >= opened.followUntil) return;
+          if (!mirror || following || !opened) return;
+          const watched =
+            opened.watchers > 0 && (mirror.remoteTurns().length > 0 || Date.now() < opened.followUntil);
+          // While a turn of this computer's is open, a Stop from another device ends it here.
+          if (!watched && !mirror.turnOpen()) return;
           following = true;
           void mirror
             .importNow()
@@ -463,6 +470,51 @@ export function desktopChats(options: DesktopChatsOptions) {
       hasOlder,
       remote: chat.mirror?.remoteTurns() ?? [],
     };
+  };
+
+  /**
+   * Stella's greeting after onboarding, as a reply in the conversation: the
+   * model reads it like its own words, and it stays on this computer, as the
+   * agent loops kept it (`localOnly`: the journal mirror skips it).
+   */
+  const welcome = async (conversationId: string, message: string): Promise<void> => {
+    const text = message.trim();
+    if (!text) return;
+    const chat = await open(conversationId);
+    const reply = {
+      role: "assistant",
+      content: [{ type: "text", text }],
+      api: "stella",
+      provider: "stella",
+      model: "welcome",
+      stopReason: "stop",
+      timestamp: Date.now(),
+    } as unknown as AssistantMessage;
+    await chat.root.submit(
+      {
+        type: "write",
+        requestId: `welcome:${randomUUID()}`,
+        entry: { kind: "pi.assistant", model: [reply], data: { localOnly: true } },
+      },
+      context,
+    );
+  };
+
+  /**
+   * The local files Stella linked in a conversation: in its replies and in
+   * its agents' words. Only what Stella wrote grants a paired phone a file,
+   * never what a user or a tool said.
+   */
+  const linkedFiles = async (conversationId: string): Promise<{ paths: string[] }> => {
+    const chat = await open(conversationId);
+    const page = await chat.root.entries({}, LINKED_FILE_ENTRIES, undefined, context);
+    const texts: string[] = [];
+    for (const entry of page.items as unknown as PiEntry[]) {
+      const message = entry.model?.[0];
+      if (entry.kind === "pi.assistant" && message?.role === "assistant") texts.push(piMessageText(message));
+    }
+    for (const agent of await chat.agentRecords(context)) texts.push(...agent.assistantMessages);
+    return { paths: [...new Set(texts.flatMap((text) => extractLocalFileLinkPaths(text)))] };
   };
 
   /** A turn of this conversation was placed elsewhere: read the journal closely until it shows. */
@@ -855,6 +907,11 @@ export function desktopChats(options: DesktopChatsOptions) {
         case "follow":
           await follow(request.conversationId);
           return { ok: true };
+        case "welcome":
+          await welcome(request.conversationId, request.message);
+          return { ok: true };
+        case "files":
+          return linkedFiles(request.conversationId);
       }
     },
     async close(): Promise<void> {

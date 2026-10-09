@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { METHOD_NAMES } from "@stella/contracts/protocol";
-import type { PiChatRequest } from "@stella/contracts/pi-chat";
+import type { PiChatRequest, PiChatUsageRequest } from "@stella/contracts/pi-chat";
 import { RunnerUnavailableError } from "../errors.js";
 import * as HostBus from "../host-bus.js";
 import { piChatRequest } from "../pi-chats.js";
@@ -15,7 +15,7 @@ export const piChatHandlers: WorkerRpcHandlers = {
       // Who is signed in lives on the runner.
       yield* session.runner.initialized;
       return yield* fromPromise(async () =>
-        piChatRequest(session, hostBus, params as PiChatRequest),
+        piChatRequest(session, hostBus, params as PiChatRequest | PiChatUsageRequest),
       );
     }),
 };

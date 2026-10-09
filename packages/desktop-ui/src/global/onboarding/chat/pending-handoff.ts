@@ -12,6 +12,7 @@
  */
 import { useEffect } from "react";
 import { uiState } from "@/platform/ui-state";
+import { piChatEnabled, submitPiWelcome } from "@/features/chat/pi/pi-chat-store";
 
 const PENDING_WELCOME_KEY = "stella-onboarding-pending-welcome";
 const PENDING_COMPOSER_KEY = "stella-onboarding-pending-composer";
@@ -83,7 +84,11 @@ export const clearPendingHandoff = () => {
 export function usePendingDiscoveryWelcome(conversationId: string | null) {
   useEffect(() => {
     if (!conversationId) return;
-    const persist = window.electronAPI?.localChat?.persistDiscoveryWelcome;
+    // On pi-durable the greeting goes into the conversation's transcript.
+    const persist = piChatEnabled()
+      ? (payload: { conversationId: string; message: string }) =>
+          submitPiWelcome(payload.conversationId, payload.message)
+      : window.electronAPI?.localChat?.persistDiscoveryWelcome;
     if (!persist) return;
     const deliver = () => {
       const message = takePendingDiscoveryWelcome();

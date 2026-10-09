@@ -12,20 +12,25 @@ import { X } from "@/ui/icons";
 import { Popover } from "@/ui/popover";
 import { useT } from "@/shared/i18n";
 import { useCloudAgentReport } from "@/features/cloud/use-cloud-agent-report";
+import { piAgentReport, piChatEnabled } from "@/features/chat/pi/pi-chat-store";
 import "./reply-preview.css";
 
 const reportCache = new Map<string, Promise<LocalChatAgentReport | null>>();
 
 const fetchAgentReport = (
   threadId: string,
+  conversationId: string,
 ): Promise<LocalChatAgentReport | null> => {
   const cached = reportCache.get(threadId);
   if (cached) return cached;
   const api =
     typeof window === "undefined" ? undefined : window.electronAPI?.localChat;
-  const request = api?.getAgentReport
-    ? api.getAgentReport({ threadId }).catch(() => null)
-    : Promise.resolve(null);
+  // On pi-durable the conversation's agents hold their reports.
+  const request = piChatEnabled()
+    ? piAgentReport(conversationId, threadId).catch(() => null)
+    : api?.getAgentReport
+      ? api.getAgentReport({ threadId }).catch(() => null)
+      : Promise.resolve(null);
   reportCache.set(threadId, request);
   // A running task's report changes; only a settled one is worth keeping.
   void request.then((report) => {
@@ -76,10 +81,10 @@ export function TaskReportButton({
     if (requestedRef.current) return;
     requestedRef.current = true;
     setReportRequested(true);
-    void fetchAgentReport(reference.threadId).then((next) => {
+    void fetchAgentReport(reference.threadId, conversationId).then((next) => {
       setReport(next);
     });
-  }, [reference.threadId]);
+  }, [conversationId, reference.threadId]);
 
   // A running task finishing while the preview is open swaps in the report.
   useEffect(() => {

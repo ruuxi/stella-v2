@@ -64,10 +64,17 @@ import {
   type AgentOrigin,
   type AgentReport,
   type AgentRun,
+  type AgentDirectoryHost,
   type AgentRunEnd,
   type RemoteAgentHost,
   type StellaAgentsHost,
 } from "@stella/agent/stella/agents";
+import type {
+  AgentDirectoryAgentRow,
+  AgentDirectorySessionRow,
+  AgentMessageSender,
+} from "@stella/contracts/agent-directory";
+import type { AgentMessageDelivery } from "@stella/contracts/backend/agent-threads";
 import {
   STELLA_HARNESS_TOOL_NAMES,
   type StellaToolHost,
@@ -309,6 +316,18 @@ export type PiRuntimeOptions = {
    * agent threads as the loop's are; their reports come back as wake turns.
    */
   deviceAgents?: PiDeviceAgents;
+  /**
+   * The owner's agent threads, for the agents' directory (`agent-messaging`):
+   * this conversation's agents elsewhere and the owner's other sessions, and
+   * a note for one of them.
+   */
+  agentDirectory?: {
+    list(authority: PiAuthority): Promise<{ agents: AgentDirectoryAgentRow[]; sessions: AgentDirectorySessionRow[] }>;
+    message(
+      authority: PiAuthority,
+      args: { messageId: string; to: string; text: string; from: AgentMessageSender },
+    ): Promise<AgentMessageDelivery>;
+  };
   /** Keep this object waking while agents run. */
   heartbeat(): void;
   /**
@@ -974,6 +993,28 @@ export class PiConversationRuntime {
       deliverNote: async (note) => {
         const { authority } = await this.#agentState();
         await this.#options.deliverNote(note, authority);
+      },
+      ...(this.#options.agentDirectory ? { directory: this.#directory(this.#options.agentDirectory) } : {}),
+    };
+  }
+
+  /**
+   * Who the agents reach beyond this harness, through the owner's agent
+   * threads. A note for this conversation's Stella (from an agent another
+   * host started here) queues a wake turn here, as any other session's does.
+   */
+  #directory(threads: NonNullable<PiRuntimeOptions["agentDirectory"]>): AgentDirectoryHost {
+    return {
+      conversationId: async () => (await this.#agentState()).authority.conversationId,
+      list: async () => await threads.list((await this.#agentState()).authority),
+      message: async ({ key, to, text, from }) => {
+        const { authority } = await this.#agentState();
+        return await threads.message(authority, {
+          messageId: `pi-msg:${authority.conversationId}:${key}`.replace(/[^A-Za-z0-9._:-]/g, "_").slice(0, 128),
+          to,
+          text,
+          from,
+        });
       },
     };
   }

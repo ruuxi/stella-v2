@@ -622,6 +622,15 @@ export const createStellaHostRunner = (
         });
       },
     },
+    agentThreads: {
+      directory: async (conversationId) =>
+        await context.backend.require().call("agentThreads.directory", { conversationId }),
+      message: async (args) =>
+        await context.backend.require().call("agentThreads.message", {
+          ...args,
+          ownerGeneration: await context.cloudOwnerGeneration(),
+        }),
+    },
     beginVoiceToolCallReceipt: (request) =>
       context.runtimeStore.beginVoiceToolCallReceipt(request),
     completeVoiceToolCallReceipt: (request) =>

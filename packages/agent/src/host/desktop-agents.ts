@@ -18,12 +18,14 @@ export function desktopAgentsHost(
     agentReported?: StellaAgentsHost["agentReported"];
     agentPaused?: StellaAgentsHost["agentPaused"];
     beginAgentRun?: StellaAgentsHost["beginAgentRun"];
+    directory?: StellaAgentsHost["directory"];
   } = {},
 ): StellaAgentsHost {
   return {
     ...(options.agentReported ? { agentReported: options.agentReported } : {}),
     ...(options.agentPaused ? { agentPaused: options.agentPaused } : {}),
     ...(options.beginAgentRun ? { beginAgentRun: options.beginAgentRun } : {}),
+    ...(options.directory ? { directory: options.directory } : {}),
     rootPlacement: { kind: "local" },
     place: (destination, caller) => {
       if (destination.kind === "here") return caller;

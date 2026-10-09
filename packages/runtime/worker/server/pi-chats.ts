@@ -56,6 +56,8 @@ export const piChatRouted = (session: OpenSession): boolean =>
 
 /** What pi wrote into a conversation's chat log, by its row ids. */
 const PI_LOG_ROW = "pi:";
+/** The chats on this computer the pi agents' directory lists. */
+const AGENT_DIRECTORY_SESSIONS = 12;
 
 /**
  * A conversation's chat log as pi mirrors it: the rows the agent loops wrote
@@ -185,6 +187,22 @@ export const piChatsFor = (
           };
         },
       }),
+      localSessions: () =>
+        session.storage.runtimeStore
+          .listConversationSummaries({ limit: AGENT_DIRECTORY_SESSIONS })
+          .conversations.map(({ conversationId, title, updatedAt }) => ({ conversationId, title, updatedAt })),
+      agentThreads: {
+        directory: async (conversationId) => {
+          const runner = session.runnerCell.get();
+          if (!runner?.getStellaSiteAuth()) throw new Error("Not signed in to Stella.");
+          return await runner.agentThreads.directory(conversationId);
+        },
+        message: async (args) => {
+          const runner = session.runnerCell.get();
+          if (!runner?.getStellaSiteAuth()) throw new Error("Sign in to Stella to message agents and sessions in the cloud.");
+          return await runner.agentThreads.message(args);
+        },
+      },
       journal: (conversationId) => cloudJournalFor(session, conversationId),
       cloudAgents: (conversationId) => cloudAgentsFor(session, conversationId),
       // A conversation stored in the cloud lists this computer's agents in

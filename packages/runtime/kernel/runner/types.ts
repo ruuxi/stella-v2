@@ -19,6 +19,7 @@ import type {
   RuntimeUserMessageEvent,
 } from "../agent-runtime.js";
 import type { RuntimeAgentEventPayload } from "@stella/contracts/protocol";
+import type { AgentThreadCalls } from "@stella/contracts/backend/agent-threads";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
 import type { LocalContextEvent } from "../storage/shared.js";
 import type { LocalChatEventWindow } from "../storage/event-window.js";
@@ -598,6 +599,19 @@ export type RunnerPublicApi = {
         threadId: string,
       ) => Promise<import("./computer-agent-reconcile.js").ComputerAgentStanding | undefined>,
     ) => Promise<{ settled: string[] }>;
+  };
+  /**
+   * The owner's agent threads, for the pi agents' directory: a cloud
+   * conversation's agents elsewhere and the user's cloud sessions, and a
+   * note for one of them. Throws when not signed in.
+   */
+  agentThreads: {
+    directory: (
+      conversationId: string,
+    ) => Promise<AgentThreadCalls["agentThreads.directory"]["result"]>;
+    message: (
+      args: Omit<AgentThreadCalls["agentThreads.message"]["args"], "ownerGeneration">,
+    ) => Promise<AgentThreadCalls["agentThreads.message"]["result"]>;
   };
   beginVoiceToolCallReceipt: RuntimeStore["beginVoiceToolCallReceipt"];
   completeVoiceToolCallReceipt: RuntimeStore["completeVoiceToolCallReceipt"];

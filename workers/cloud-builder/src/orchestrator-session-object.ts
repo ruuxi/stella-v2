@@ -187,6 +187,7 @@ import {
   readAgentDirectory,
   sendAgentMessage,
   sessionStatus,
+  type AgentMessagingCaller,
 } from "./agent-messaging.js";
 import {
   renderAgentRoster,
@@ -5586,6 +5587,14 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           agentGuard: (authority, turnId) =>
             this.piAgentGuard(authority, turnId),
           deviceAgents: this.piDeviceAgents(),
+          // What the agents reach beyond this conversation's harness: the
+          // owner's agent threads and other sessions, as the loop's do.
+          agentDirectory: {
+            list: async (authority) =>
+              await readAgentDirectory(this.piOwnerCaller(authority), authority.conversationId),
+            message: async (authority, args) =>
+              await sendAgentMessage(this.piOwnerCaller(authority), args),
+          },
           heartbeat: () => {
             void (async () => {
               await this.ctx.storage.put(PI_LIVE_KEY, true);
@@ -5629,6 +5638,21 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    * the same admission as any turn. Its request id is the turn's
    * `clientMsgId`, so a report sent again after an eviction is a replay.
    */
+  /** The owner's object, as the pi agents' directory reads and messages it. */
+  private piOwnerCaller(authority: import("./pi-runtime.js").PiAuthority): AgentMessagingCaller {
+    return {
+      ownerGeneration: authority.ownerGeneration,
+      ownerInternal: async (name, args) =>
+        unwrapRpc(
+          await this.ownerGate(authority.ownerId).ownerInternal({
+            name,
+            args,
+            ownerGeneration: authority.ownerGeneration,
+          }),
+        ),
+    };
+  }
+
   /**
    * Agents a cloud pi conversation places on the owner's devices: started,
    * messaged and paused through the owner's agent threads, the loop's device

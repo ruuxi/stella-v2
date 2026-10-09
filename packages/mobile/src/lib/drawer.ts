@@ -104,7 +104,7 @@ export function useDrawerMetrics() {
 
 export const DRAWER_VEIL = {
   start: 0.05,
-  end: 0.96,
+  end: 0.75,
   curve: [0.25, 0, 0.6, 0.7] as const,
 };
 
@@ -115,6 +115,14 @@ export function drawerVeil(progress: number) {
   const t =
     (progress - DRAWER_VEIL.start) / (DRAWER_VEIL.end - DRAWER_VEIL.start);
   return t <= 0 ? 0 : t >= 1 ? 1 : veilCurve(t);
+}
+
+export const DRAWER_BLUR = { end: 0.75, power: 2.2 };
+
+export function drawerBlur(progress: number) {
+  "worklet";
+  const t = progress / DRAWER_BLUR.end;
+  return t <= 0 ? 0 : t >= 1 ? 1 : Math.pow(t, DRAWER_BLUR.power);
 }
 
 function rubber(over: number) {

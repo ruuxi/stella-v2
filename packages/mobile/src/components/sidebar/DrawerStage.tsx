@@ -17,6 +17,7 @@ import Animated, {
 } from "react-native-reanimated";
 import {
   closeDrawer,
+  drawerBlur,
   drawerProgress,
   drawerVeil,
   openDrawer,
@@ -96,10 +97,14 @@ export function DrawerStage({
     opacity: drawerVeil(p.value),
   }));
   const haze = useAnimatedStyle(() => ({
-    opacity: reduce ? 0 : interpolate(p.value, [0, 0.16], [0, 1], CLAMP),
+    opacity: reduce
+      ? 0
+      : interpolate(drawerBlur(p.value), [0, 0.35], [0, 1], CLAMP),
   }));
   const frost = useAnimatedStyle(() => ({
-    opacity: reduce ? 0 : interpolate(p.value, [0.08, 0.42], [0, 1], CLAMP),
+    opacity: reduce
+      ? 0
+      : interpolate(drawerBlur(p.value), [0.15, 1], [0, 1], CLAMP),
   }));
 
   const panelStyle = useAnimatedStyle(() => {

@@ -827,7 +827,7 @@ describe("the cloud branch", () => {
     );
   });
 
-  test("an agent dispatch starts a fresh build session with the gate marker", async () => {
+  test("an agent dispatch on Stella's models starts a fresh thread's pi agent in its conversation", async () => {
     const harness = open(OwnerGate, { snapshot: snapshotWith([]) });
     const submitted = await withNow(NOW, () =>
       harness.instance.submit({
@@ -849,40 +849,40 @@ describe("the cloud branch", () => {
       }),
     );
     const dispatchId = submitted.response.dispatch.dispatchId;
+    expect(harness.forwarded).toHaveLength(1);
     const call = harness.forwarded[0]!;
-    expect(call.namespace).toBe("build");
-    expect(call.url).toBe("https://build-session/turn");
-    expect(call.headers["x-stella-gate-admitted"]).toBe("1");
-    expect(call.name).toMatch(/^thr-/);
+    expect(call.namespace).toBe("orchestrator");
+    expect(call.name).toBe("conversation-1");
+    expect(call.url).toBe("rpc:startPiThread");
+    const { attempt } = call.body as { attempt: { threadId: string } };
+    expect(attempt.threadId).toMatch(/^thr-/);
     expect(call.body).toEqual({
-      protocol: 1,
-      kind: "agent",
       ownerId: "owner-1",
       ownerGeneration: "generation-1",
       conversationId: "conversation-1",
-      threadId: call.name,
-      agentDepth: 1,
-      attemptGeneration: 1,
-      turnId: dispatchId,
-      prompt: "Rename the screenshots",
-      description: "Rename screenshots",
+      // No billing secrets here: billing is off, so the owner is Pro and
+      // unlimited (-1).
+      audience: "pro",
+      budgetMicroCents: -1,
       execution: {
         engine: "stella",
         provider: "stella",
         model: "stella/default",
         reasoningEffort: "default",
       },
-      // No billing secrets here: billing is off, so the owner is Pro and
-      // unlimited (-1).
-      audience: "pro",
-      budgetMicroCents: -1,
-      source: "placement",
-      clientMsgId: dispatchId,
-      parentTurnId: "parent-turn-1",
+      prompt: "Rename the screenshots",
+      // The dispatch id is the attempt's turn id, so its report settles it.
+      attempt: {
+        threadId: attempt.threadId,
+        description: "Rename screenshots",
+        turnId: dispatchId,
+        attemptGeneration: 1,
+      },
     });
     expect(submitted.response.dispatch).toMatchObject({
       state: "cloud_running",
-      cloudThreadId: call.name,
+      cloudThreadId: attempt.threadId,
+      cloudTurnId: dispatchId,
     });
   });
 
@@ -1212,7 +1212,7 @@ describe("cancellation", () => {
     });
   });
 
-  test("a cloud-placed agent run is stopped on its build session with an attempt", async () => {
+  test("a cloud-placed agent run is paused in its conversation by its exact attempt", async () => {
     const harness = open(OwnerGate, { snapshot: snapshotWith([]) });
     const submitted = await withNow(NOW, () =>
       harness.instance.submit({
@@ -1232,17 +1232,30 @@ describe("cancellation", () => {
         now: NOW,
       }),
     );
-    const threadId = harness.forwarded[0]!.name;
+    const dispatchId = submitted.response.dispatch.dispatchId;
+    const { threadId } = (harness.forwarded[0]!.body as {
+      attempt: { threadId: string };
+    }).attempt;
     await harness.instance.cancelDispatch({
-      dispatchId: submitted.response.dispatch.dispatchId,
+      dispatchId,
       cancelRequestId: "cancel-1",
       now: NOW + 100,
     });
+    // Its pi agent took the pause, so no build session is asked.
     const call = harness.forwarded.at(-1)!;
-    expect(call.namespace).toBe("build");
-    expect(call.name).toBe(threadId);
-    expect(call.url).toBe("https://build-session/cancel");
-    expect(call.body).toMatchObject({ attemptGeneration: 1 });
+    expect(call.namespace).toBe("orchestrator");
+    expect(call.name).toBe("conversation-1");
+    expect(call.url).toBe("rpc:pausePiThread");
+    expect(call.body).toEqual({
+      ownerId: "owner-1",
+      ownerGeneration: "generation-1",
+      threadId,
+      turnId: dispatchId,
+      attemptGeneration: 1,
+    });
+    expect(
+      harness.forwarded.some((forwarded) => forwarded.namespace === "build"),
+    ).toBe(false);
   });
 
   test("a second cancellation request cannot take over the dispatch", async () => {

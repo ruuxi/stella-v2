@@ -354,6 +354,8 @@ const waitFor = async (ms: number, signal?: AbortSignal): Promise<void> => {
 /** One message an agent is working on: admitted, with its own capability. */
 type ActiveRun = {
   run: AgentRun;
+  /** Whose run it is: the agents', or an agent thread's own (`threadAttempt`). */
+  authority: PiAuthority;
   /** Owner gate and capability turn id; unique across the owner's conversations. */
   turnId: string;
   sessionId: string;
@@ -379,6 +381,15 @@ const LEASE_STOP_WAIT_MS = 30_000;
 const deliveredFilesKey = (threadId: string) => `piAgentFiles:${threadId}`;
 /** The key an agent thread's attempt is given to its agent under. */
 const threadCallKey = (threadId: string, attemptGeneration: number) => `thread:${threadId}:${attemptGeneration}`;
+/** Storage key prefix: an agent thread's own authority and model, by thread id. */
+const THREAD_AGENT_PREFIX = "piThreadAgent:";
+
+/**
+ * An agent thread's agent runs on the authority and model its dispatcher
+ * admitted, not the latest turn's: a turn on another model would otherwise
+ * pin its capability to a model the agent does not run on.
+ */
+type ThreadAgent = { authority: PiAuthority; model: StellaModelSpec };
 
 const brokerFailure = (status: number): Response =>
   Response.json({ error: "Turn broker request failed." }, { status, headers: { "cache-control": "no-store" } });
@@ -420,6 +431,8 @@ export class PiConversationRuntime {
   /** The bound turn's tools, built once per turn. */
   #turnTools: { binding: PiTurnBinding; tools: Promise<readonly CloudCodeSourceAgentTool[]> } | undefined;
   #state: PiAgentState | undefined;
+  /** Agent threads' own authority and model, by thread id (loaded on open). */
+  readonly #threadAgents = new Map<string, ThreadAgent>();
   #modelKey: string | undefined;
   /** Agent runs by their conversation's provider session id. */
   readonly #runs = new Map<string, ActiveRun[]>();
@@ -492,8 +505,7 @@ export class PiConversationRuntime {
 
   async #runCapability(active: ActiveRun): Promise<string> {
     if (active.capability.expiresAt - Date.now() > CAPABILITY_RENEW_MS) return active.capability.token;
-    const state = await this.#agentState();
-    active.capability = await this.#mint(state.authority, active.turnId);
+    active.capability = await this.#mint(active.authority, active.turnId);
     return active.capability.token;
   }
 
@@ -520,7 +532,7 @@ export class PiConversationRuntime {
     const capability = await this.#runCapability(active);
     const send = (value: Request) => (active.guard ? active.guard.fetch(value) : gateway.fetch(value));
     // The native lane serves a plan's request as one stream; the managed lane's cancellation is Stella's own.
-    if ((await this.#agentState()).authority.execution.engine === "chatgpt") return await send(withBearer(request, capability));
+    if (active.authority.execution.engine === "chatgpt") return await send(withBearer(request, capability));
     return await fetchWithManagedCancellation({
       request: withBearer(request, capability),
       capability,
@@ -555,13 +567,19 @@ export class PiConversationRuntime {
     return this.#state;
   }
 
-  #setModels(state: Pick<PiAgentState, "models" | "authority">): void {
-    const { execution } = state.authority;
-    const plan = execution.engine === "chatgpt" ? chatGptModel(execution.model) : undefined;
-    const key = JSON.stringify([state.models, plan?.id]);
+  #setModels(state: Pick<PiAgentState, "models" | "authority"> | undefined): void {
+    if (!state && this.#threadAgents.size === 0) return;
+    const execution = state?.authority.execution;
+    const plan = execution?.engine === "chatgpt" ? chatGptModel(execution.model) : undefined;
+    // Agent threads' models stay known whatever model the latest turn runs on.
+    const models = [...(state?.models ?? [])];
+    for (const { model } of this.#threadAgents.values()) {
+      if (!models.some((known) => known.agentType === model.agentType && known.alias === model.alias)) models.push(model);
+    }
+    const key = JSON.stringify([models, plan?.id]);
     if (key === this.#modelKey) return;
     const access = this.#access();
-    this.#models.setProvider(stellaProvider({ access, models: state.models }));
+    this.#models.setProvider(stellaProvider({ access, models }));
     if (plan) {
       this.#models.setProvider(
         chatGptProvider({
@@ -679,7 +697,7 @@ export class PiConversationRuntime {
       },
       remote: (placement) => (placement.kind === "device" ? this.#deviceAgentHost(placement.deviceId) : undefined),
       beginAgentRun: async (run, context) => {
-        const { authority } = await this.#agentState();
+        const authority = await this.#runAuthority(run, context);
         const turnId = `pi:${authority.conversationId}:${run.runId}`;
         const admission = await this.#gate(authority).admit({
           lane: "agent",
@@ -695,6 +713,7 @@ export class PiConversationRuntime {
         });
         const active: ActiveRun = {
           run,
+          authority,
           turnId,
           sessionId: await this.#providerSession(harness, run.agentConversationId, context),
           capability: await this.#mint(authority, turnId),
@@ -735,7 +754,7 @@ export class PiConversationRuntime {
           await this.#endLease(run.agentConversationId, end ?? {}).catch((error: unknown) => this.#options.report(error));
         }
         await ended?.guard?.release().catch((error: unknown) => this.#options.report(error));
-        const authority = this.#state?.authority;
+        const authority = ended?.authority ?? this.#state?.authority;
         if (!authority) return;
         await this.#gate(authority)
           .release({ turnId: ended?.turnId ?? `pi:${authority.conversationId}:${run.runId}` })
@@ -901,7 +920,7 @@ export class PiConversationRuntime {
       return await this.#lease(agentConversationId, active, context);
     }
     const opening = (async (): Promise<AgentLease> => {
-      const { authority } = await this.#agentState();
+      const { authority } = active;
       const { harness } = await this.open();
       const role = await harness.snapshot(StellaAgentDoc, agentConversationId, context);
       const threadId = role?.threadId ?? active.run.threadId;
@@ -1104,10 +1123,11 @@ export class PiConversationRuntime {
   open(): Promise<Opened> {
     this.#opening ??= (async () => {
       const kept = await this.#options.storage.get<PiAgentState>(PI_AGENT_STATE_KEY);
-      if (kept) {
-        this.#state = kept;
-        this.#setModels(kept);
+      for (const [key, agent] of await this.#options.storage.list<ThreadAgent>({ prefix: THREAD_AGENT_PREFIX })) {
+        this.#threadAgents.set(key.slice(THREAD_AGENT_PREFIX.length), agent);
       }
+      if (kept) this.#state = kept;
+      this.#setModels(kept);
       const storage = await openDurableObjectSqliteStorage(this.#options.storage);
       const { harness, refreshTools, startAgent, messageAgent, pauseAgent } = await openStellaHarness(
         {
@@ -1235,33 +1255,51 @@ export class PiConversationRuntime {
   }
 
   /**
-   * An attempt of one of the owner's agent threads (a `piThread` turn), run
-   * here as an agent whose reports go to the agent threads: the first
-   * attempt starts it under the thread's id, a later one messages it. Once
-   * per attempt. The call key names the attempt, so each report is matched
-   * to the attempt whose message it answers (`#threadAttemptOf`). The turn
-   * is marked this conversation's own, as a computer's agent turn is.
+   * An attempt of one of the owner's agent threads, run here as an agent
+   * whose reports go to the agent threads, right away and without a turn:
+   * the first attempt starts it under the thread's id on the model its
+   * dispatcher admitted, a later one messages it. Once per attempt. The call
+   * key names the attempt, so each report is matched to the attempt whose
+   * message it answers (`#threadAttemptOf`). In a conversation no turn has
+   * bound yet, the thread's authority is the agents' until one does.
    */
   async threadAttempt(
-    attempt: { threadId: string; description: string; attemptGeneration: number },
+    attempt: {
+      threadId: string;
+      description: string;
+      attemptGeneration: number;
+      authority: PiAuthority;
+      model: StellaModelSpec;
+      executionContext: ExecutionContextSnapshot;
+    },
     prompt: string,
-    turnId: string,
     context: Context,
   ): Promise<void> {
-    const { harness, root, agents } = await this.open();
+    const { harness, root, agents, refreshTools } = await this.open();
+    if (!this.#threadAgents.has(attempt.threadId)) {
+      const agent: ThreadAgent = { authority: attempt.authority, model: attempt.model };
+      await this.#options.storage.put(`${THREAD_AGENT_PREFIX}${attempt.threadId}`, agent);
+      this.#threadAgents.set(attempt.threadId, agent);
+    }
+    this.#state ??= await this.#options.storage.get<PiAgentState>(PI_AGENT_STATE_KEY);
+    if (!this.#state) {
+      const offered = await this.#options.agentTools(attempt.authority);
+      const state: PiAgentState = {
+        version: 1,
+        authority: attempt.authority,
+        models: [],
+        executionContext: attempt.executionContext,
+        agentTools: offered.filter((tool) => !STELLA_HARNESS_TOOL_NAMES.has(tool.name)).map(toolSpec),
+      };
+      await this.#options.storage.put(PI_AGENT_STATE_KEY, state);
+      this.#state = state;
+      refreshTools();
+    }
+    this.#setModels(this.#state);
     const key = threadCallKey(attempt.threadId, attempt.attemptGeneration);
     const state = await harness.snapshot(StellaAgentsDoc, root.id, context);
-    const known = state?.agents[attempt.threadId];
-    await root.submit(
-      {
-        type: "write",
-        requestId: `turn:${turnId}`,
-        entry: { kind: "stella.agent-op", data: { op: known ? "message" : "start", threadId: attempt.threadId } },
-      },
-      context,
-    );
     if (state?.calls[`host:${key}`] || state?.calls[`user:${key}`]) return;
-    if (known) {
+    if (state?.agents[attempt.threadId]) {
       await agents.messageAgent(
         { key, threadId: attempt.threadId, message: prompt, fromOrchestrator: true },
         context,
@@ -1275,9 +1313,31 @@ export class PiConversationRuntime {
         prompt,
         threadId: attempt.threadId,
         origin: { agentThread: true },
+        model: stellaModelRef("general", attempt.model.alias),
       },
       context,
     );
+  }
+
+  /**
+   * Whose run an agent's is: its agent thread's, for that thread's agent and
+   * the agents it starts; otherwise the agents' (the latest turn's).
+   */
+  async #runAuthority(run: AgentRun, context: Context): Promise<PiAuthority> {
+    const { harness, root } = await this.open();
+    let threadId: string | undefined = run.threadId;
+    let conversationId: ConversationId | undefined = run.agentConversationId;
+    while (threadId !== undefined) {
+      const owned = this.#threadAgents.get(threadId);
+      if (owned) return owned.authority;
+      const parent = conversationId
+        ? (await harness.snapshot(StellaAgentDoc, conversationId, context))?.parentConversationId
+        : undefined;
+      if (!parent || parent === root.id) break;
+      conversationId = parent as ConversationId;
+      threadId = (await harness.snapshot(StellaAgentDoc, conversationId, context))?.threadId;
+    }
+    return (await this.#agentState()).authority;
   }
 
   /** New input for an agent thread's running attempt, read before its next step. Once per `messageId`. */

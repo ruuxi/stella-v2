@@ -88,25 +88,6 @@ export type CloudPiAgentRequest = {
 
 export const PI_AGENT_THREAD_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
 
-/**
- * One attempt of an agent thread the owner's agent threads track (a Claude
- * Code orchestrator's spawn, a computer's cloud dispatch, a placed agent)
- * that runs on Stella's models. It runs as a pi agent in the thread's
- * conversation: the turn starts the agent under the thread's id, or
- * messages it for a later attempt, instead of answering. Its report settles
- * the attempt in the agent threads, which hand it on as they do any cloud
- * agent's report. Service-only.
- */
-export type CloudPiThreadAttempt = {
-  threadId: string;
-  description: string;
-  /** The attempt's turn id in the agent threads (a placed agent's dispatch id). */
-  turnId: string;
-  attemptGeneration: number;
-  /** A computer's dispatch: its report reaches that computer through the agent threads, not a wake turn here. */
-  originDeviceId?: string;
-};
-
 export type CloudTurnStartRequest = {
   protocol: typeof TURN_PLANE_PROTOCOL;
   clientMsgId: string;
@@ -130,8 +111,6 @@ export type CloudTurnStartRequest = {
   agentRuntime?: CloudAgentRuntime;
   /** The turn controls a computer's cloud agent instead of asking Stella (prompt: its brief or message). */
   piAgent?: CloudPiAgentRequest;
-  /** Service-only: the turn runs an agent thread's attempt instead of asking Stella (prompt: its brief or message). */
-  piThread?: CloudPiThreadAttempt;
 };
 
 export type CloudTurnStartResponse = {
@@ -175,7 +154,7 @@ export type CloudTurnStartError = {
 // An agent attempt in a container: the owner's own engines (Claude, Codex)
 // and Claude Code's orchestrator turns. Dispatched object to object by the
 // conversation and the owner's agent threads; an agent on Stella's models
-// runs in its conversation instead (`CloudPiThreadAttempt`).
+// runs in its conversation instead, as a pi agent.
 // ---------------------------------------------------------------------------
 
 export type CloudAgentTurnSource =

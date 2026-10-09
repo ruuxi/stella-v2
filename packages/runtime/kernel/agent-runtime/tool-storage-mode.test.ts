@@ -1,0 +1,50 @@
+import { describe, expect, test } from "bun:test";
+import type { ToolContext } from "../tools/types.js";
+import type { RuntimeStore } from "../storage/runtime-store.js";
+import {
+  buildRuntimeToolContext,
+  executeRuntimeToolCall,
+} from "./tool-adapters.js";
+
+const baseContextArgs = {
+  executionHost: "device" as const,
+  toolCallId: "tool-1",
+  runId: "run-1",
+  conversationId: "conversation-1",
+  agentType: "orchestrator",
+  deviceId: "device-1",
+};
+
+describe("runtime tool execution context", () => {
+  test("keeps execution host independent from conversation storage mode", () => {
+    expect(
+      buildRuntimeToolContext({
+        ...baseContextArgs,
+        storageMode: "cloud",
+      }),
+    ).toMatchObject({ executionHost: "device", storageMode: "cloud" });
+    expect(buildRuntimeToolContext(baseContextArgs)).toMatchObject({
+      executionHost: "device",
+      storageMode: "local",
+    });
+  });
+
+  test("threads cloud ownership through the external-engine adapter", async () => {
+    const receivedContexts: ToolContext[] = [];
+    await executeRuntimeToolCall({
+      ...baseContextArgs,
+      storageMode: "cloud",
+      toolName: "capture",
+      args: {},
+      store: {} as RuntimeStore,
+      toolExecutor: async (_name, _args, context) => {
+        receivedContexts.push(context);
+        return { result: "ok" };
+      },
+    });
+    expect(receivedContexts.at(-1)).toMatchObject({
+      executionHost: "device",
+      storageMode: "cloud",
+    });
+  });
+});

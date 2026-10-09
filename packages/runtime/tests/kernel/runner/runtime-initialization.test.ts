@@ -65,7 +65,7 @@ const makeLifecycleHarness = (
       liveFiberCount: () => 0,
     },
     runCoordinator: null,
-    orchestratorSessions: new Map(),
+    cloudThreads: new Map(),
     queuedOrchestratorTurns: [],
     conversationCallbacks: new Map(),
     runCallbacksByRunId: new Map(),

@@ -98,13 +98,8 @@ const beginAck = (contextEndSeq = CACHED_HISTORY.contextEndSeq) => ({
 
 type RunOptions = Parameters<typeof agentRuntime.runOrchestratorTurn>[0];
 
-const sessions: Array<RunnerContext["state"]["orchestratorSessions"]> = [];
-
 afterEach(() => {
   mock.restore();
-  for (const sessionMap of sessions.splice(0)) {
-    for (const session of sessionMap.values()) session.dispose();
-  }
 });
 
 const launchHarness = (options: {
@@ -118,9 +113,6 @@ const launchHarness = (options: {
   let refreshes = 0;
   let settled: Promise<unknown> | null = null;
   let captureActive = false;
-  const orchestratorSessions: RunnerContext["state"]["orchestratorSessions"] =
-    new Map();
-  sessions.push(orchestratorSessions);
 
   const cloudTranscript: CloudTranscriptWriter = {
     history: async () => options.cachedHistory ?? CACHED_HISTORY,
@@ -159,7 +151,7 @@ const launchHarness = (options: {
       setThreadExternalDeliveredEntryId: () => undefined,
     },
     state: {
-      orchestratorSessions,
+      cloudThreads: new Map(),
       backendUrl: null,
       authToken: null,
       hasConnectedAccount: false,

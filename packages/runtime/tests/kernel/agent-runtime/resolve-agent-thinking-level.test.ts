@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Model } from "@stella/runtime/ai/types";
 import type { ResolvedLlmRoute } from "@stella/runtime/kernel/model-routing";
-import { resolveAgentThinkingLevel } from "@stella/runtime/kernel/agent-runtime/shared";
+import { resolveAgentThinkingLevel } from "@stella/runtime/kernel/agent-runtime/run-shared";
 
 const fakeModel = {
   id: "test-model",

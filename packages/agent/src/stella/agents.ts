@@ -90,6 +90,8 @@ export type StellaAgentRecord = {
   /** Its latest prose, oldest first. */
   assistantMessages: string[];
   error?: string;
+  /** Its latest run was paused (or stopped) before it answered. */
+  paused?: true;
 };
 
 /** The agents a conversation started, by thread id. */
@@ -232,6 +234,13 @@ export type StellaAgentsHost = {
   deliverNote?(note: AgentNote, context: Context): Promise<void>;
   /** An agent's report reached the orchestrator: the desktop tells the user. */
   agentReported?(agent: { threadId: string; description: string; failed: boolean; report: string }): void;
+  /**
+   * One of the orchestrator's agents was paused (or stopped) before it
+   * answered and is not running again, so no report goes up and the
+   * orchestrator is not woken: the host records that it stopped, where the
+   * conversation's other devices read what is running.
+   */
+  agentPaused?(agent: { threadId: string; description: string }, context: Context): Promise<void>;
 };
 
 const slug = (text: string): string =>
@@ -243,6 +252,19 @@ const slug = (text: string): string =>
 
 const textOf = (message: AssistantMessage | undefined): string =>
   (message?.content ?? []).map((part) => (part.type === "text" ? part.text : "")).join("").trim();
+
+/**
+ * Whether an agent's newest work stopped before an answer: a run paused or
+ * stopped mid-request or mid-tool ends on an aborted request, a tool call or
+ * its result, where a finished run ends on its answer. Entries newest first.
+ */
+const stoppedShort = (entries: readonly { kind: string; model?: readonly unknown[] }[]): boolean => {
+  const newest = entries.find((entry) => entry.kind === "pi.assistant" || entry.kind === "pi.tool-result");
+  if (!newest) return false;
+  if (newest.kind !== "pi.assistant") return true;
+  const stop = (newest.model?.[0] as AssistantMessage | undefined)?.stopReason;
+  return stop === "aborted" || stop === "toolUse";
+};
 
 /** Any message's text: a user message's content may be a plain string. */
 const messageText = (message: { content?: unknown } | undefined): string =>
@@ -307,7 +329,7 @@ type ReporterInput = {
   /** The user wrote the message in the agent's thread, not the parent. */
   fromUser?: true;
 };
-type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string };
+type ReporterState = { phase: "deliver" } | { phase: "report"; report?: string; paused?: true };
 
 export function stellaAgents(host: StellaAgentsHost) {
   const Reporter = defineTask<ReporterInput, ReporterState, null>({
@@ -358,8 +380,8 @@ export function stellaAgents(host: StellaAgentsHost) {
               return next(failedReport({ threadId, description, error: refused ?? "The agent did not run." }));
             }
             if (settled.status === "unanswered") {
-              // Paused: nothing to report.
-              if (settled.reason === "aborted") return next();
+              // Paused: nothing to report, but it is no longer running.
+              if (settled.reason === "aborted") return { status: "running", checkpoint: { phase: "report", paused: true } };
               return next(failedReport({ threadId, description, error: settled.reason }));
             }
             if (settled.type !== "input" || !agent) return next();
@@ -382,8 +404,20 @@ export function stellaAgents(host: StellaAgentsHost) {
         }
       },
       report: async (reporter, runtime, context) => {
-        const report = reporter.state.checkpoint.report;
+        const { report, paused } = reporter.state.checkpoint;
         const self = await roleOf(runtime, runtime.conversationId, context);
+        // A pause the orchestrator's own agent took, unless a message since
+        // has it running again.
+        if (paused && host.agentPaused && (self.agentType === "orchestrator" || self.parentConversationId === undefined)) {
+          const live = await runtime.snapshot(LiveDoc, reporter.input.conversationId as ConversationId, context);
+          if (live?.run === undefined) {
+            const agent = (await runtime.snapshot(StellaAgentsDoc, runtime.conversationId, context))?.agents[reporter.input.threadId];
+            await host.agentPaused(
+              { threadId: reporter.input.threadId, description: agent?.description ?? reporter.input.threadId },
+              context,
+            );
+          }
+        }
         const origin =
           self.agentType === "orchestrator" || self.parentConversationId === undefined
             ? (await runtime.snapshot(StellaAgentsDoc, runtime.conversationId, context))?.agents[reporter.input.threadId]?.origin
@@ -941,6 +975,7 @@ export function stellaAgents(host: StellaAgentsHost) {
         updatedAt: latest?.timestamp ?? oldest?.timestamp ?? Date.now(),
         assistantMessages: prose,
         ...(latest?.stopReason === "error" && latest.errorMessage ? { error: latest.errorMessage } : {}),
+        ...(!running && stoppedShort(recent) ? { paused: true as const } : {}),
       });
     }
     return records;

@@ -16,11 +16,13 @@ export function desktopAgentsHost(
     deviceId?: string;
     cloud?: RemoteAgentHost;
     agentReported?: StellaAgentsHost["agentReported"];
+    agentPaused?: StellaAgentsHost["agentPaused"];
     beginAgentRun?: StellaAgentsHost["beginAgentRun"];
   } = {},
 ): StellaAgentsHost {
   return {
     ...(options.agentReported ? { agentReported: options.agentReported } : {}),
+    ...(options.agentPaused ? { agentPaused: options.agentPaused } : {}),
     ...(options.beginAgentRun ? { beginAgentRun: options.beginAgentRun } : {}),
     rootPlacement: { kind: "local" },
     place: (destination, caller) => {

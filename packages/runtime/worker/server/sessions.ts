@@ -24,7 +24,12 @@ import { ProtocolMismatchError } from "./errors.js";
 import * as HostBus from "./host-bus.js";
 import * as ModelCatalog from "./model-catalog.js";
 import * as RunnerModule from "./runner-module.js";
-import { closePiChats, piChatsBusy, resumePiChats } from "./pi-chats.js";
+import {
+  closePiChats,
+  piChatsBusy,
+  reconcileComputerAgents,
+  resumePiChats,
+} from "./pi-chats.js";
 import * as SessionConfig from "./session/config.js";
 import * as SessionStorage from "./session/storage.js";
 import * as RunEventBus from "./session/run-events.js";
@@ -322,6 +327,15 @@ export const layer = Layer.effect(
       if (patch.authToken !== undefined) {
         runner?.setAuthToken(patch.authToken);
         updateRuntimeTelemetryAuth(patch.authToken);
+        // Back in touch with the cloud: settle what it thinks runs here and does not.
+        if (patch.authToken && runner) {
+          void reconcileComputerAgents(session, hostBus).catch((error) => {
+            console.warn(
+              "[runtime-worker] computer agent reconcile failed:",
+              (error as Error).message,
+            );
+          });
+        }
       }
       if (patch.hasConnectedAccount !== undefined) {
         runner?.setHasConnectedAccount(patch.hasConnectedAccount);
@@ -548,14 +562,24 @@ export const layer = Layer.effect(
                         (error as Error).message,
                       );
                     });
-                    // Conversations on pi-durable resume their own work.
+                    // Conversations on pi-durable resume their own work;
+                    // then whatever the cloud still thinks runs here and
+                    // does not is settled.
                     if (builtRunner && currentSession === session) {
-                      void resumePiChats(session, hostBus).catch((error) => {
-                        console.warn(
-                          "[runtime-worker] pi chat resume failed:",
-                          (error as Error).message,
-                        );
-                      });
+                      void resumePiChats(session, hostBus)
+                        .catch((error) => {
+                          console.warn(
+                            "[runtime-worker] pi chat resume failed:",
+                            (error as Error).message,
+                          );
+                        })
+                        .then(() => reconcileComputerAgents(session, hostBus))
+                        .catch((error) => {
+                          console.warn(
+                            "[runtime-worker] computer agent reconcile failed:",
+                            (error as Error).message,
+                          );
+                        });
                     }
                   })(),
                 ]);

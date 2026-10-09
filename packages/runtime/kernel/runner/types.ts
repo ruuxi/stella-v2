@@ -588,6 +588,16 @@ export type RunnerPublicApi = {
   computerAgents: {
     start: import("./computer-agent-cloud-records.js").ComputerAgentCloudRecords["create"];
     complete: import("./computer-agent-cloud-records.js").ComputerAgentCloudRecords["complete"];
+    /**
+     * Settle every agent the owner's records say runs on this computer and
+     * does not (`computer-agent-reconcile`). `elsewhere` stands for agents
+     * the agent loops do not run (pi-durable's).
+     */
+    reconcile: (
+      elsewhere: (
+        threadId: string,
+      ) => Promise<import("./computer-agent-reconcile.js").ComputerAgentStanding | undefined>,
+    ) => Promise<{ settled: string[] }>;
   };
   beginVoiceToolCallReceipt: RuntimeStore["beginVoiceToolCallReceipt"];
   completeVoiceToolCallReceipt: RuntimeStore["completeVoiceToolCallReceipt"];

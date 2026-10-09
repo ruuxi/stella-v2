@@ -32,6 +32,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import {
   AssistantEntry,
   type EntryId,
+  LiveDoc,
   ProviderDoc,
   watchEvents,
   type AgentEventStream,
@@ -200,6 +201,8 @@ export type PiAgentInfo = {
   origin?: AgentOrigin;
   /** What its latest run saved to the owner's drive and linked in its answer. */
   files?: PiDeliveredFile[];
+  /** A message since has it working again: a report or pause of an earlier run does not end it. */
+  running?: boolean;
 };
 
 /** A file an agent delivered: in the owner's drive, for the conversation's files card. */
@@ -288,7 +291,7 @@ export type PiRuntimeOptions = {
    * back to that computer (an `agent-report` card in the journal), not to
    * this conversation's orchestrator. `turnId` is the latest turn.
    */
-  deliverOriginReport?(report: AgentReport & { origin: { deviceId: string } }, turnId: string): Promise<void>;
+  deliverOriginReport?(report: AgentReport & { origin: { deviceId: string } }, turnId: string, agent: PiAgentInfo): Promise<void>;
   /**
    * A report of an agent thread's agent: it settles the thread's attempt in
    * the owner's agent threads, which hand it to whoever started the thread.
@@ -296,6 +299,11 @@ export type PiRuntimeOptions = {
   deliverThreadReport?(report: PiThreadReport): Promise<void>;
   /** An agent started work (a spawn or a follow-up), during or just after `turnId`. */
   agentStarted?(event: PiAgentInfo & { threadId: string; turnId: string }): void;
+  /**
+   * An agent was paused before it answered and is not running again: no
+   * report wakes the orchestrator, but its lifecycle cards still end.
+   */
+  agentPaused?(event: PiAgentInfo & { threadId: string; turnId: string }): void;
   /**
    * Agents on the owner's devices, run there as a whole through the owner's
    * agent threads as the loop's are; their reports come back as wake turns.
@@ -451,7 +459,7 @@ type Opened = {
   root: Conversation;
   rootSession: string;
   refreshTools(): void;
-  agents: Pick<OpenStellaHarness, "startAgent" | "messageAgent" | "pauseAgent">;
+  agents: Pick<OpenStellaHarness, "startAgent" | "messageAgent" | "pauseAgent" | "agentRecords">;
 };
 
 /** A cloud tool as the harness offers it. */
@@ -888,12 +896,14 @@ export class PiConversationRuntime {
         void this.#lease(run.agentConversationId as ConversationId, active, context).catch((error: unknown) =>
           this.#options.report(error),
         );
-        const spawnedIn = this.#binding?.turnId ?? this.#state?.lastTurnId;
         const info = await this.#agentInfo(run.threadId, context);
-        // A computer's agent shows in that computer's own turns.
-        if (spawnedIn && !info.origin) {
-          this.#options.agentStarted?.({ threadId: run.threadId, turnId: spawnedIn, ...info });
-        }
+        const cardTurnId = this.#cardTurnId(run.threadId, info);
+        if (cardTurnId) this.#options.agentStarted?.({ threadId: run.threadId, turnId: cardTurnId, ...info });
+      },
+      agentPaused: async ({ threadId }, context) => {
+        const info = await this.#agentInfo(threadId, context);
+        const turnId = this.#cardTurnId(threadId, info);
+        if (turnId) this.#options.agentPaused?.({ threadId, turnId, ...info });
       },
       endAgentRun: async (run, _context, end) => {
         let ended: ActiveRun | undefined;
@@ -948,6 +958,7 @@ export class PiConversationRuntime {
           await this.#options.deliverOriginReport(
             { ...report, origin: report.origin },
             this.#binding?.turnId ?? this.#state?.lastTurnId ?? `pi:${authority.conversationId}`,
+            await this.#agentInfo(report.threadId, context),
           );
           return;
         }
@@ -1001,11 +1012,26 @@ export class PiConversationRuntime {
     const state = await harness.snapshot(StellaAgentsDoc, root.id, context);
     const calls = Object.values(state?.calls ?? {}).filter((call) => call.threadId === threadId).length;
     const agent = state?.agents[threadId];
+    const live =
+      agent && !agent.remote ? await harness.snapshot(LiveDoc, agent.conversationId as ConversationId, context) : undefined;
     return {
       description: agent?.description ?? threadId,
       attempt: Math.max(1, calls),
       ...(agent?.origin ? { origin: agent.origin } : {}),
+      running: live?.run !== undefined,
     };
+  }
+
+  /**
+   * The turn an agent's lifecycle cards go under: the orchestrator turn that
+   * started it, or, for a computer's agent (whose own turns show it), one of
+   * its own that no client draws. An agent thread's agent has none: it is
+   * listed in the owner's agent threads, not in this conversation.
+   */
+  #cardTurnId(threadId: string, info: PiAgentInfo): string | undefined {
+    if (info.origin && "agentThread" in info.origin) return undefined;
+    if (info.origin) return `pi-agent:${threadId}`;
+    return this.#binding?.turnId ?? this.#state?.lastTurnId;
   }
 
   // ---- agent containers -----------------------------------------------------
@@ -1298,7 +1324,7 @@ export class PiConversationRuntime {
       if (kept) this.#state = kept;
       this.#setModels(kept);
       const storage = await openDurableObjectSqliteStorage(this.#options.storage);
-      const { harness, refreshTools, startAgent, messageAgent, pauseAgent } = await openStellaHarness(
+      const { harness, refreshTools, startAgent, messageAgent, pauseAgent, agentRecords } = await openStellaHarness(
         {
           storage,
           models: this.#models,
@@ -1316,7 +1342,7 @@ export class PiConversationRuntime {
       // Work an eviction cut off held containers this isolate never leased.
       await this.#sweepLeases().catch((error: unknown) => this.#options.report(error));
       harness.resume();
-      return { harness, root, rootSession, refreshTools, agents: { startAgent, messageAgent, pauseAgent } };
+      return { harness, root, rootSession, refreshTools, agents: { startAgent, messageAgent, pauseAgent, agentRecords } };
     })().catch((error: unknown) => {
       this.#opening = undefined;
       throw error;
@@ -1539,6 +1565,28 @@ export class PiConversationRuntime {
       },
       context,
     );
+  }
+
+  /**
+   * Where the agents this object runs stand, by thread id, for settling the
+   * ones the journal still shows as running. An agent on one of the owner's
+   * devices runs there: its record is the owner's agent threads.
+   */
+  async agentStandings(
+    context: Context,
+  ): Promise<Map<string, { running: boolean; status: "completed" | "error" | "canceled"; attempt: number }>> {
+    const { harness, root, agents } = await this.open();
+    const calls = Object.values((await harness.snapshot(StellaAgentsDoc, root.id, context))?.calls ?? {});
+    const standings = new Map<string, { running: boolean; status: "completed" | "error" | "canceled"; attempt: number }>();
+    for (const record of await agents.agentRecords(context)) {
+      if (record.placement.kind === "device") continue;
+      standings.set(record.threadId, {
+        running: record.status === "running",
+        status: record.paused ? "canceled" : record.status === "error" ? "error" : "completed",
+        attempt: Math.max(1, calls.filter((call) => call.threadId === record.threadId).length),
+      });
+    }
+    return standings;
   }
 
   /** Pause an agent thread's agent: its run is marked at once, then winds down on its own. */

@@ -33,6 +33,30 @@ const plainSchema = (schema: Record<string, unknown>): Record<string, unknown> =
   return plain;
 };
 
+/**
+ * A `null` the model wrote for an optional boolean reads as false, as it
+ * always has here. pi-ai's validator drops an optional `null` instead, which
+ * would turn it into the tool's default: `exec_command`'s `login: null` would
+ * start a login shell rather than the plain one Stella has always run.
+ */
+const nullBooleansAsFalse = (
+  args: Record<string, unknown>,
+  schema: Record<string, unknown>,
+): Record<string, unknown> => {
+  const properties = schema.properties as
+    | Record<string, { type?: unknown }>
+    | undefined;
+  if (!properties) return args;
+  let coerced: Record<string, unknown> | undefined;
+  for (const [key, value] of Object.entries(args)) {
+    if (value === null && properties[key]?.type === "boolean") {
+      coerced ??= { ...args };
+      coerced[key] = false;
+    }
+  }
+  return coerced ?? args;
+};
+
 export type ToolCallPipelineArgs = {
   toolName: string;
   args: Record<string, unknown>;
@@ -74,7 +98,10 @@ export const runToolCallPipeline = async (
           type: "toolCall",
           id: call.context.requestId ?? "",
           name: call.toolName,
-          arguments: effectiveArgs as JsonObject,
+          arguments: nullBooleansAsFalse(
+            effectiveArgs,
+            call.parameters,
+          ) as JsonObject,
         },
       ) as Record<string, unknown>;
     } catch (error) {

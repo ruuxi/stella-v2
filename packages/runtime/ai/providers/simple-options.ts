@@ -28,7 +28,6 @@ export function buildBaseOptions(
     headers: options?.headers,
     onPayload: options?.onPayload,
     onResponse: options?.onResponse,
-    onProviderRequestLifecycle: options?.onProviderRequestLifecycle,
     onProviderRetry: options?.onProviderRetry,
     timeoutMs: options?.timeoutMs,
     maxRetries: options?.maxRetries,

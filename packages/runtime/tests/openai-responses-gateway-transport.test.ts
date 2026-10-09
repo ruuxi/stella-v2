@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ProviderRequestLifecycleProof } from "../ai/types.js";
 import { testModel } from "./fixtures/model.js";
 
 const openAiImport = vi.fn();
@@ -114,7 +113,6 @@ describe("OpenAI Responses gateway transport", () => {
     let request: Request | undefined;
     const onPayload = vi.fn((payload: unknown) => payload);
     const onResponse = vi.fn();
-    const lifecycle: ProviderRequestLifecycleProof[] = [];
     const transport = vi.fn(
       async (
         input: Parameters<typeof fetch>[0],
@@ -137,9 +135,6 @@ describe("OpenAI Responses gateway transport", () => {
         promptCacheKey: "prompt-cache-1",
         onPayload,
         onResponse,
-        onProviderRequestLifecycle: async (proof) => {
-          lifecycle.push(proof);
-        },
       },
     ).result();
 
@@ -198,22 +193,11 @@ describe("OpenAI Responses gateway transport", () => {
       cacheRead: 2,
       totalTokens: 19,
     });
-    expect(lifecycle.map((proof) => proof.phase)).toEqual([
-      "request-admitted",
-      "request-dispatched",
-      "stream-open",
-      "transport-closed",
-    ]);
-    expect(new Set(lifecycle.map((proof) => proof.requestIdSha256)).size).toBe(
-      1,
-    );
-    expect(lifecycle.at(-1)?.outcome).toBe("completed");
   });
 
   it("refreshes authorization once with the same logical identity", async () => {
     const authorizations: Array<string | null> = [];
     const idempotencyKeys: Array<string | null> = [];
-    const lifecycle: ProviderRequestLifecycleProof[] = [];
     const transport = vi.fn(
       async (
         input: Parameters<typeof fetch>[0],
@@ -243,9 +227,6 @@ describe("OpenAI Responses gateway transport", () => {
       {
         apiKey: "stale-token",
         refreshApiKey: async () => "fresh-token",
-        onProviderRequestLifecycle: (proof) => {
-          lifecycle.push(proof);
-        },
       },
     ).result();
 
@@ -256,12 +237,6 @@ describe("OpenAI Responses gateway transport", () => {
     ]);
     expect(idempotencyKeys).toHaveLength(2);
     expect(idempotencyKeys[0]).toBe(idempotencyKeys[1]);
-    expect(
-      lifecycle.filter((proof) => proof.phase === "request-dispatched"),
-    ).toHaveLength(2);
-    expect(new Set(lifecycle.map((proof) => proof.requestIdSha256)).size).toBe(
-      1,
-    );
   });
 
   it("cancels while gateway JSON is still draining", async () => {

@@ -129,12 +129,10 @@ describe("OpenAI Responses gateway transport", () => {
       sendJson(response, 200, completeResponse("resp_gateway"));
     });
     const port = await listen(server);
-    const lifecycle: Array<Record<string, unknown>> = [];
     const events: string[] = [];
 
     const stream = streamOpenAIResponses(modelFor(port), context, {
       apiKey: "session-capability",
-      onProviderRequestLifecycle: (proof) => lifecycle.push(proof),
     });
     for await (const event of stream) events.push(event.type);
     const result = await stream.result();
@@ -191,17 +189,6 @@ describe("OpenAI Responses gateway transport", () => {
       "toolcall_end",
       "done",
     ]);
-    expect(lifecycle.map((event) => event.phase)).toEqual([
-      "request-admitted",
-      "request-dispatched",
-      "stream-open",
-      "transport-closed",
-    ]);
-    expect(lifecycle.map((event) => event.physicalAttempt)).toEqual([1, 1, 1, 1]);
-    expect(lifecycle.at(-1)).toMatchObject({ outcome: "completed" });
-    expect(JSON.stringify(lifecycle)).not.toContain(
-      requests[0]!.headers["idempotency-key"],
-    );
   });
 
   it("aborts the in-flight gateway request and reports stopReason aborted", async () => {
@@ -222,12 +209,10 @@ describe("OpenAI Responses gateway transport", () => {
     });
     const port = await listen(server);
     const controller = new AbortController();
-    const lifecycle: Array<Record<string, unknown>> = [];
 
     const stream = streamOpenAIResponses(modelFor(port), context, {
       apiKey: "session-capability",
       signal: controller.signal,
-      onProviderRequestLifecycle: (proof) => lifecycle.push(proof),
     });
     await requestObserved;
     controller.abort("user canceled");
@@ -236,10 +221,6 @@ describe("OpenAI Responses gateway transport", () => {
 
     expect(result.stopReason).toBe("aborted");
     expect(result.content).toEqual([]);
-    expect(lifecycle.at(-1)).toMatchObject({
-      phase: "transport-closed",
-      outcome: "canceled",
-    });
   });
 
   it("surfaces gateway HTTP errors with the provider's retry-after", async () => {

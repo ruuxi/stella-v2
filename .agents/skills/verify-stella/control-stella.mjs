@@ -81,8 +81,6 @@ const ELECTRON_SYSTEM_ENV_KEYS = [
   // development mode. Pass this through to verify the production build the
   // installed product serves (see resolveRendererBuildMode).
   "STELLA_RENDERER_MODE",
-  // `loop` runs the desktop chat on the agent loop instead of pi-durable.
-  "STELLA_AGENT_RUNTIME",
 ];
 
 const usage = helpText();

@@ -61,9 +61,9 @@ import {
 } from "./cloud-code-worker-executor.js";
 import { sha256Hex } from "./hash.js";
 import type {
-  ResidentBrowserClient,
-  ResidentBrowserScreenshot,
-} from "./resident-browser.js";
+  CloudBrowserClient,
+  CloudBrowserScreenshot,
+} from "./cloud-browser.js";
 import type { ToolReplayPolicy } from "./tool-replay.js";
 import type { WorldEntry, WorldListingEntry } from "./world/types.js";
 import {
@@ -81,7 +81,7 @@ const MAX_LIFTED_MAPS = 3;
 /** Screenshots one code call may hand the model. */
 const MAX_LIFTED_SCREENSHOTS = 3;
 
-type LiftedScreenshot = ResidentBrowserScreenshot["image"];
+type LiftedScreenshot = CloudBrowserScreenshot["image"];
 
 /**
  * Tools that never appear inside code. Same set the device kernel excludes:
@@ -99,9 +99,9 @@ const CODE_EXCLUDED_TOOL_NAMES: ReadonlySet<string> = new Set([
  * `connect` client, the same demoted-tool catalog suffix. Only the runtime
  * differs, and the differences are stated rather than hidden: a fresh
  * sandbox per call (no persistent bindings, no cell_id), and no
- * computer-use globals because the cloud has no device. A turn that holds a
- * cloud browser (a resident background agent) also gets the `browser` global
- * over Stella's private Browser Run profile; the orchestrator never does.
+ * computer-use globals because the cloud has no device. An agent's code also
+ * gets the `browser` global over Stella's private Browser Run profile; the
+ * orchestrator's never does.
  * Neither does it get what a General agent's code reaches (`reach`): `fetch`
  * to the public network and the `fs` global over the owner world.
  */
@@ -278,7 +278,7 @@ export type CreateCloudCodeAgentToolOptions = Readonly<{
    * a login handoff ends the call as `AgentToolSuspendedError`; absent, there
    * is no `browser` at all, as in the cloud orchestrator.
    */
-  browser?: ResidentBrowserClient;
+  browser?: CloudBrowserClient;
   /**
    * A General agent's network and world. Absent, as for the cloud
    * orchestrator, the sandbox has no network and no `fs`.
@@ -775,7 +775,7 @@ const memoryIntrinsic =
 
 const isScreenshotResult = (
   value: unknown,
-): value is ResidentBrowserScreenshot =>
+): value is CloudBrowserScreenshot =>
   Boolean(value) &&
   typeof value === "object" &&
   typeof (value as { image?: { data?: unknown } }).image?.data === "string";
@@ -788,7 +788,7 @@ const isScreenshotResult = (
  */
 const browserIntrinsic =
   (
-    client: ResidentBrowserClient,
+    client: CloudBrowserClient,
     screenshots: Map<string, LiftedScreenshot[]>,
   ): CloudCodeIntrinsic =>
   async (input, context) => {

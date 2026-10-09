@@ -5,8 +5,10 @@ import type {
 } from "@stella/contracts/cloud-browser";
 import { isAgentToolSuspendedError } from "@stella/runtime/kernel/agent-core/suspension.js";
 import type { CloudCodeExecutorFactory } from "../src/cloud-code-executor.js";
-import type { ForwardedBrowserGatewayCommand } from "../src/build-session/turn-broker.js";
-import type { ResidentBrowserTransport } from "../src/resident-browser.js";
+import type {
+  CloudBrowserTransport,
+  ForwardedBrowserGatewayCommand,
+} from "../src/cloud-browser.js";
 
 mock.module("cloudflare:workers", () => ({
   DurableObject: class {},
@@ -18,8 +20,8 @@ const { executeCloudCodeWithExecutorFactory } = await import(
   "../src/cloud-code-executor.js"
 );
 const { createCloudCodeAgentTool } = await import("../src/cloud-code-tool.js");
-const { createResidentBrowserClient, ResidentBrowserSuspendedError } =
-  await import("../src/resident-browser.js");
+const { createCloudBrowserClient, CloudBrowserSuspendedError } =
+  await import("../src/cloud-browser.js");
 mock.restore();
 
 const loader = {} as WorkerLoader;
@@ -28,8 +30,6 @@ const signal = new AbortController().signal;
 const forwarded = (body: unknown, status = 200): ForwardedBrowserGatewayCommand => ({
   kind: "forwarded",
   status,
-  statusText: "",
-  headers: new Headers(),
   body: new TextEncoder().encode(JSON.stringify(body)),
 });
 
@@ -82,7 +82,7 @@ const gateway = (
             }
           : { ok: true },
     }),
-): ResidentBrowserTransport =>
+): CloudBrowserTransport =>
   async (command) => {
     sent.push(command);
     if (command.action === "browser.login_takeover") {
@@ -106,10 +106,10 @@ const TAKEOVER = {
   },
 };
 
-describe("resident cloud browser client", () => {
+describe("cloud browser client", () => {
   test("opens a page limited to its own origin and returns the observation", async () => {
     const sent: CloudBrowserCommandRequest[] = [];
-    const client = createResidentBrowserClient(gateway(sent));
+    const client = createCloudBrowserClient(gateway(sent));
 
     const page = await client.call("open", ["https://example.com/inbox"], signal);
 
@@ -132,7 +132,7 @@ describe("resident cloud browser client", () => {
 
   test("refuses a non-https start URL before reaching the gateway", async () => {
     const sent: CloudBrowserCommandRequest[] = [];
-    const client = createResidentBrowserClient(gateway(sent));
+    const client = createCloudBrowserClient(gateway(sent));
 
     await expect(
       client.call("open", ["http://example.com"], signal),
@@ -142,18 +142,18 @@ describe("resident cloud browser client", () => {
 
   test("records a login handoff and fences every later command", async () => {
     const sent: CloudBrowserCommandRequest[] = [];
-    const client = createResidentBrowserClient(gateway(sent));
+    const client = createCloudBrowserClient(gateway(sent));
 
     await expect(
       client.call("requestLoginTakeover", [TAKEOVER], signal),
-    ).rejects.toBeInstanceOf(ResidentBrowserSuspendedError);
+    ).rejects.toBeInstanceOf(CloudBrowserSuspendedError);
     expect(client.suspension()).toMatchObject({
       interactionKind: "login_takeover",
       toolCallId: sent[0]?.requestId,
     });
 
     await expect(client.call("observe", [], signal)).rejects.toBeInstanceOf(
-      ResidentBrowserSuspendedError,
+      CloudBrowserSuspendedError,
     );
     // A profile under human control gets no checkpoint either.
     await client.checkpoint(signal);
@@ -161,7 +161,7 @@ describe("resident cloud browser client", () => {
   });
 
   test("surfaces the gateway's failure code, not its message", async () => {
-    const client = createResidentBrowserClient(
+    const client = createCloudBrowserClient(
       gateway([], (command) =>
         forwarded(
           {
@@ -182,7 +182,7 @@ describe("resident cloud browser client", () => {
   });
 
   test("returns cookies and page data but never a Live View capability", async () => {
-    const client = createResidentBrowserClient(
+    const client = createCloudBrowserClient(
       gateway([], (command) =>
         forwarded({
           schemaVersion: 1,
@@ -205,7 +205,7 @@ describe("resident cloud browser client", () => {
   });
 
   test("surfaces the gateway's error envelope with the page's own detail", async () => {
-    const client = createResidentBrowserClient(
+    const client = createCloudBrowserClient(
       gateway([], () =>
         forwarded(
           {
@@ -228,7 +228,7 @@ describe("resident cloud browser client", () => {
 
   test("maps the desktop-parity methods onto gateway actions", async () => {
     const sent: CloudBrowserCommandRequest[] = [];
-    const client = createResidentBrowserClient(gateway(sent));
+    const client = createCloudBrowserClient(gateway(sent));
 
     await client.call("fill", ["input[type=password]", "hunter2"], signal);
     await client.call("evaluate", ["(n) => n + 1", 1], signal);
@@ -262,7 +262,7 @@ describe("resident cloud browser client", () => {
 
   test("checkpoints the profile only after it was used", async () => {
     const sent: CloudBrowserCommandRequest[] = [];
-    const client = createResidentBrowserClient(gateway(sent));
+    const client = createCloudBrowserClient(gateway(sent));
 
     await client.checkpoint(signal);
     expect(sent).toHaveLength(0);
@@ -295,7 +295,7 @@ const providerFactory = (
   },
 });
 
-describe("cloud code with a resident browser", () => {
+describe("cloud code with the cloud browser", () => {
   test("exposes the browser only when the turn holds one", async () => {
     let keys: string[] = [];
     const factory = providerFactory(async (fns) => {
@@ -317,7 +317,7 @@ describe("cloud code with a resident browser", () => {
       loader,
       tools: [],
       executionScope: "g:c:t",
-      browser: createResidentBrowserClient(gateway([])),
+      browser: createCloudBrowserClient(gateway([])),
       executeCode: (request) =>
         executeCloudCodeWithExecutorFactory(request, factory),
     });
@@ -336,7 +336,7 @@ describe("cloud code with a resident browser", () => {
       loader,
       tools: [],
       executionScope: "g:c:t",
-      browser: createResidentBrowserClient(gateway([])),
+      browser: createCloudBrowserClient(gateway([])),
       executeCode: (request) =>
         executeCloudCodeWithExecutorFactory(request, factory),
     });
@@ -370,7 +370,7 @@ describe("cloud code with a resident browser", () => {
       loader,
       tools: [],
       executionScope: "g:c:t",
-      browser: createResidentBrowserClient(gateway([])),
+      browser: createCloudBrowserClient(gateway([])),
       executeCode: (request) =>
         executeCloudCodeWithExecutorFactory(request, factory),
     });

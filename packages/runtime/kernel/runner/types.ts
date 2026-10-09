@@ -626,6 +626,15 @@ export type RunnerPublicApi = {
     history: import("./cloud-transcript-write.js").CloudTranscriptWriter["history"];
     ownerGeneration: () => Promise<string>;
   };
+  /**
+   * This computer's agents in a conversation stored in the cloud, as the
+   * owner's agent threads list them (a paired phone shows and messages
+   * them): each attempt's start and its end, through a durable outbox.
+   */
+  computerAgents: {
+    start: import("./computer-agent-cloud-records.js").ComputerAgentCloudRecords["create"];
+    complete: import("./computer-agent-cloud-records.js").ComputerAgentCloudRecords["complete"];
+  };
   beginVoiceToolCallReceipt: RuntimeStore["beginVoiceToolCallReceipt"];
   completeVoiceToolCallReceipt: RuntimeStore["completeVoiceToolCallReceipt"];
   notifyOrchestratorHistoryChanged: (conversationId: string) => void;

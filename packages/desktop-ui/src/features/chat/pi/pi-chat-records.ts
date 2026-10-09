@@ -49,8 +49,10 @@ export const projectPiChat = (state: Pick<PiChatState, "entries" | "requestIds">
     const base = { seq: entry.id, turnId, createdAtMs: message.timestamp, kind: "message" as const };
     if (entry.kind === "pi.user" && message.role === "user") {
       turnId = `pi:${entry.id}`;
-      const clientMsgId = state.requestIds[entry.id];
-      const { message: payload, hidden } = piJournalUserMessage(message);
+      const journaled = piJournalUserMessage(message);
+      // A message sent here binds by its request; one placed or imported, by the id its row carries.
+      const clientMsgId = state.requestIds[entry.id] ?? journaled.clientMsgId;
+      const { message: payload, hidden } = journaled;
       // A report's reply shows; a turn the app started stays out whole.
       const automation = hidden && !REPORT.test(piMessageText(message).trimStart());
       turn = {

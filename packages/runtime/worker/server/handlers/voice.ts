@@ -66,26 +66,36 @@ export const voiceHandlers: WorkerRpcHandlers = {
     Effect.gen(function* () {
       const session = yield* voiceSession;
       const request = params as { conversationId: string };
-      const config = yield* fromPromise(() =>
+      // A call's voice model has no tools and writes its own brief; what it
+      // reads from here is the conversation so far, from the transcript.
+      if (piRuntimeEnabled()) {
+        const hostBus = yield* HostBus.Service;
+        const history = yield* fromPromise(async () =>
+          (await piChatsFor(session, hostBus)).voiceHistory(request.conversationId),
+        );
+        return {
+          instructions: "",
+          tools: [],
+          ...(history.length > 0 ? { history } : {}),
+        } satisfies RuntimeVoiceOrchestratorConfig;
+      }
+      return yield* fromPromise(() =>
         session.voice.getOrchestratorConfig(request),
       );
-      if (!piRuntimeEnabled()) return config;
-      const hostBus = yield* HostBus.Service;
-      const history = yield* fromPromise(async () =>
-        (await piChatsFor(session, hostBus)).voiceHistory(request.conversationId),
-      );
-      const { history: _loopHistory, ...rest } = config;
-      return {
-        ...rest,
-        ...(history.length > 0 ? { history } : {}),
-      } satisfies RuntimeVoiceOrchestratorConfig;
     }),
 
   [METHOD_NAMES.INTERNAL_WORKER_VOICE_EXECUTE_TOOL]: (params) =>
     Effect.flatMap(voiceSession, (session) =>
-      fromPromise(() =>
-        session.voice.executeTool(params as RuntimeVoiceToolCallPayload),
-      ),
+      // On pi-durable a call hands its work to Stella (`voiceOrchestratorChat`),
+      // whose tools run in the conversation; the voice model runs none.
+      piRuntimeEnabled()
+        ? Effect.succeed({
+            output: "Voice calls run no tools here; ask Stella to do it.",
+            error: "Voice tools are not available; the call delegates to Stella.",
+          })
+        : fromPromise(() =>
+            session.voice.executeTool(params as RuntimeVoiceToolCallPayload),
+          ),
     ),
 
   [METHOD_NAMES.INTERNAL_WORKER_VOICE_WEB_SEARCH]: (params) =>

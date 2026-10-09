@@ -15,7 +15,15 @@ import {
   WorkerNotInitializedError,
 } from "../errors.js";
 import * as HostBus from "../host-bus.js";
-import { piChatsFor, piRuntimeEnabled } from "../pi-chats.js";
+import {
+  cancelPiPlacedAgent,
+  cancelPiPlacement,
+  piChatsFor,
+  piDeliverAgentMessage,
+  piPlacementCanceled,
+  piPlacedChat,
+  piRuntimeEnabled,
+} from "../pi-chats.js";
 import * as WorkerSessions from "../sessions.js";
 import { fromPromise, type WorkerRpcHandlers } from "../rpc.js";
 import type { AgentEventPayload } from "../types.js";
@@ -150,12 +158,25 @@ export const runsHandlers: WorkerRpcHandlers = {
         executionPlacementRunId?: string;
         userMessageEventId?: string;
         userAuthoredPrompt?: boolean;
+        attachments?: RuntimeAttachmentRef[];
       };
       // On pi-durable the host's own turns (schedule fires, watch
-      // escalations, heartbeats) run in the conversation's harness. A chat
-      // placed here from another device keeps the loop until placement runs
-      // on pi too.
-      if (piRuntimeEnabled() && !automation.executionPlacementRunId) {
+      // escalations, heartbeats) and the chats other devices place here run
+      // in the conversation's harness.
+      if (piRuntimeEnabled() && automation.executionPlacementRunId) {
+        const hostBus = yield* HostBus.Service;
+        const placementRunId = automation.executionPlacementRunId;
+        return yield* fromPromise(() =>
+          piPlacedChat(session, hostBus, {
+            conversationId: automation.conversationId,
+            userPrompt: automation.userPrompt,
+            placementRunId,
+            ...(automation.userMessageEventId ? { userMessageEventId: automation.userMessageEventId } : {}),
+            ...(automation.attachments?.length ? { attachments: automation.attachments } : {}),
+          }),
+        );
+      }
+      if (piRuntimeEnabled()) {
         const hostBus = yield* HostBus.Service;
         return yield* fromPromise(async () =>
           (await piChatsFor(session, hostBus)).automation(automation.conversationId, {
@@ -203,14 +224,15 @@ export const runsHandlers: WorkerRpcHandlers = {
           "An execution-placement automation cancellation requires runId.",
         );
       }
+      const reason = typeof payload.reason === "string" ? payload.reason : undefined;
+      if (piRuntimeEnabled() && (yield* fromPromise(() => cancelPiPlacement(session, runId, reason)))) {
+        return { canceled: true };
+      }
       const runner = yield* fromPromise(() =>
         session.runner.ensureInitialized(),
       );
       return yield* fromPromise(() =>
-        runner.cancelPlacementAutomation(
-          runId,
-          typeof payload.reason === "string" ? payload.reason : undefined,
-        ),
+        runner.cancelPlacementAutomation(runId, reason),
       );
     }),
 
@@ -234,10 +256,14 @@ export const runsHandlers: WorkerRpcHandlers = {
       if (piRuntimeEnabled()) {
         const hostBus = yield* HostBus.Service;
         const agentKey = payload.threadId || payload.executionId || crypto.randomUUID();
+        const runKey = payload.executionId || agentKey;
         return yield* fromPromise(async () => {
-          const result = await (await piChatsFor(session, hostBus)).runPlacedAgent(payload.conversationId, {
+          const chats = await piChatsFor(session, hostBus);
+          const canceled = payload.threadId || payload.executionId ? piPlacementCanceled(session, "agent", runKey) : null;
+          if (canceled) return { status: "error" as const, finalText: "" as const, error: canceled, threadId: agentKey };
+          const result = await chats.runPlacedAgent(payload.conversationId, {
             agentKey,
-            runKey: payload.executionId || agentKey,
+            runKey,
             description: payload.description,
             prompt: withAttachedFiles(payload.prompt, attachments),
           });
@@ -292,6 +318,18 @@ export const runsHandlers: WorkerRpcHandlers = {
         () => new RunnerUnavailableError(),
       );
       const payload = params as RuntimeLocalAgentMessageRequest;
+      // One of pi's agents, when pi has one by that thread id.
+      if (piRuntimeEnabled()) {
+        const hostBus = yield* HostBus.Service;
+        const outcome = yield* fromPromise(() =>
+          piDeliverAgentMessage(session, hostBus, {
+            threadId: String(payload.threadId ?? ""),
+            text: String(payload.text ?? ""),
+            messageId: String(payload.messageId ?? ""),
+          }),
+        );
+        if (outcome !== "not_found") return { outcome };
+      }
       const runner = yield* fromPromise(() =>
         session.runner.ensureInitialized(),
       );
@@ -319,17 +357,19 @@ export const runsHandlers: WorkerRpcHandlers = {
           "A blocking local-agent cancellation requires agentId.",
         );
       }
+      const reason = typeof payload.reason === "string" ? payload.reason : undefined;
+      const executionId = typeof payload.executionId === "string" ? payload.executionId.trim() : "";
+      if (piRuntimeEnabled()) {
+        const runKey = executionId || agentId;
+        if (yield* fromPromise(() => cancelPiPlacedAgent(session, { agentKey: agentId, runKey, ...(reason ? { reason } : {}) }))) {
+          return { canceled: true };
+        }
+      }
       const runner = yield* fromPromise(() =>
         session.runner.ensureInitialized(),
       );
       return yield* fromPromise(() =>
-        runner.cancelBlockingLocalAgent(
-          agentId,
-          typeof payload.reason === "string" ? payload.reason : undefined,
-          typeof payload.executionId === "string"
-            ? payload.executionId
-            : undefined,
-        ),
+        runner.cancelBlockingLocalAgent(agentId, reason, executionId || undefined),
       );
     }),
 

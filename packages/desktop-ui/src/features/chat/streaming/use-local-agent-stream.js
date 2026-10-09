@@ -249,7 +249,7 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
             // by this request id. The runtime prepares the rest of the send
             // (attachments, chat context) as it does for the agent loops.
             if (piChatEnabled()) {
-                await submitPiChat(activeConversationId, args.userMessageEventId || crypto.randomUUID(), args.userPrompt ?? "", {
+                const placed = await submitPiChat(activeConversationId, args.userMessageEventId || crypto.randomUUID(), args.userPrompt ?? "", {
                     ...(typeof args.selectedText !== "undefined"
                         ? { selectedText: args.selectedText }
                         : {}),
@@ -265,7 +265,17 @@ export function useLocalAgentStream({ activeConversationId, storageMode, onRunSt
                     ...(args.messageMetadata
                         ? { messageMetadata: args.messageMetadata }
                         : {}),
+                    // The composer's destination: the cloud or another
+                    // computer runs it, and its turn comes back through the
+                    // conversation's journal.
+                    ...(storageMode ? { storageMode } : {}),
+                    executionTarget: getExecutionTargetSnapshot(),
                 });
+                // The cloud journals a placed message under its dispatch id.
+                if (placed && args.userMessageEventId && placed.userMessageId !== args.userMessageEventId) {
+                    args.onUserMessageAccepted?.(placed.userMessageId);
+                    setPendingUserMessageId((current) => current === args.userMessageEventId ? placed.userMessageId : current);
+                }
                 return true;
             }
             const { requestId, userMessageId } = await window.electronAPI.agent.startChat({

@@ -89,7 +89,8 @@ export const usePiChat = (conversationId: string | null) => {
     enabled,
     messages: projection.messages,
     streamingAssistants,
-    isStreaming: state.running || state.queued.length > 0,
+    // A turn running elsewhere (placed in the cloud or on another computer) is running here too.
+    isStreaming: state.running || state.queued.length > 0 || state.remote.length > 0,
     runtimeStatusText: state.retry
       ? `Retrying: ${state.retry.error}`
       : state.compacting

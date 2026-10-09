@@ -12,10 +12,16 @@ import type { RemoteAgentHost, StellaAgentsHost } from "../stella/agents.ts";
 import { describePlacement, placementOf, StellaPlacementDoc } from "../stella/placement.ts";
 
 export function desktopAgentsHost(
-  options: { deviceId?: string; cloud?: RemoteAgentHost; agentReported?: StellaAgentsHost["agentReported"] } = {},
+  options: {
+    deviceId?: string;
+    cloud?: RemoteAgentHost;
+    agentReported?: StellaAgentsHost["agentReported"];
+    beginAgentRun?: StellaAgentsHost["beginAgentRun"];
+  } = {},
 ): StellaAgentsHost {
   return {
     ...(options.agentReported ? { agentReported: options.agentReported } : {}),
+    ...(options.beginAgentRun ? { beginAgentRun: options.beginAgentRun } : {}),
     rootPlacement: { kind: "local" },
     place: (destination, caller) => {
       if (destination.kind === "here") return caller;

@@ -155,6 +155,8 @@ export type PlacedAgentRun = {
   runKey: string;
   description: string;
   prompt: string;
+  /** The host that placed it canceled it: it stops, or never starts. */
+  signal?: AbortSignal;
 };
 
 export type PlacedAgentResult = { threadId: string } & ({ status: "ok"; finalText: string } | { status: "error"; error: string });
@@ -194,7 +196,7 @@ export type StellaAgentsHost = {
    */
   deliverReport?(report: AgentReport, context: Context): Promise<void>;
   /** An agent's report reached the orchestrator: the desktop tells the user. */
-  agentReported?(agent: { threadId: string; description: string; failed: boolean }): void;
+  agentReported?(agent: { threadId: string; description: string; failed: boolean; report: string }): void;
 };
 
 const slug = (text: string): string =>
@@ -378,6 +380,7 @@ export function stellaAgents(host: StellaAgentsHost) {
               threadId: reporter.input.threadId,
               description: agent?.description ?? reporter.input.threadId,
               failed: report.trimStart().startsWith("[Task failed]"),
+              report,
             });
           }
         }
@@ -896,11 +899,19 @@ export function stellaAgents(host: StellaAgentsHost) {
     const record = (await harness.snapshot(StellaAgentsDoc, root.id, context))?.agents[threadId];
     const agent = record ? await harness.conversation(record.conversationId as ConversationId, context) : undefined;
     if (!agent) return { threadId, status: "error", error: "The agent could not start here." };
+    if (args.signal?.aborted) return { threadId, status: "error", error: "Canceled." };
     const submission = await agent.submit(
       { type: "input", content: args.prompt, whenBusy: "steer", requestId: `placed:${args.runKey}` },
       context,
     );
+    const stop = async () => {
+      const withdrawn = await harness.abortSubmission(submission.id, context, agent.id);
+      if (withdrawn === "already_placed") await agent.abort(context);
+    };
+    args.signal?.addEventListener("abort", () => void stop().catch(() => undefined), { once: true });
+    if (args.signal?.aborted) await stop();
     const settled = await submission.wait(context);
+    if (args.signal?.aborted) return { threadId, status: "error", error: "Canceled." };
     if (settled.status !== "done" || settled.type !== "input") {
       return { threadId, status: "error", error: settled.status === "unanswered" ? settled.reason : "The agent did not answer." };
     }
@@ -931,7 +942,15 @@ export function stellaAgents(host: StellaAgentsHost) {
     tasks: [Anchor, Reporter],
     tools: [spawnAgent, sendMessage, agentStatus, pauseAgent],
   });
-  return { extension, startAgent, agentRecords, messageAgent, pauseAgentByThread, runPlacedAgent, steerPlacedAgent };
+  return {
+    extension,
+    startAgent,
+    agentRecords,
+    messageAgent,
+    pauseAgentByThread,
+    runPlacedAgent,
+    steerPlacedAgent,
+  };
 }
 
 export const stellaAgentsExtension = (host: StellaAgentsHost) => stellaAgents(host).extension;

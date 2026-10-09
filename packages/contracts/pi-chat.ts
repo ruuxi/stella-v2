@@ -20,6 +20,12 @@ export type PiPartMarks = {
   hidden?: true;
   /** How the user's message shows besides its text; one part carries it. */
   display?: PiUserDisplay;
+  /**
+   * The id the sending client gave the message (a phone's, for a chat it
+   * placed on a computer). Its journal row keeps it, so that client's
+   * pending message binds to the row instead of showing twice.
+   */
+  clientMsgId?: string;
 };
 
 export type PiUserDisplay = {
@@ -137,7 +143,16 @@ export type PiChatEvent =
   | { type: "auto_retry_end"; attempt: number }
   | { type: "task_failed"; taskId: number; kind: string; message: string }
   | { type: "compaction_start"; reason: string; blocking: boolean }
-  | { type: "compaction_end"; reason: string };
+  | { type: "compaction_end"; reason: string }
+  /** Stella's turns another writer is running (the cloud, another computer), from the journal. */
+  | { type: "remote_turns"; turns: PiRemoteTurn[] };
+
+/** A turn of the conversation running elsewhere, which the journal shows as started. */
+export type PiRemoteTurn = {
+  turnId: string;
+  /** Its prompt row's client id: a placement's dispatch id when one placed it. */
+  clientMsgId?: string;
+};
 
 // ---- host ↔ client requests --------------------------------------------------
 
@@ -153,20 +168,38 @@ export type PiChatSend = {
   mode?: string;
   messageMetadata?: Record<string, unknown>;
   agentType?: string;
+  /** Where the conversation is stored; a conversation kept here only runs here. */
+  storageMode?: "cloud" | "local";
+  /** Where the user asked this message to run (the composer's destination). */
+  executionTarget?: { mode: "automatic" } | { mode: "cloud" } | { mode: "device"; deviceId: string };
+};
+
+/** A send that went to run elsewhere: its turn comes back through the journal. */
+export type PiChatPlacedResult = {
+  placed: {
+    /** The host's run for the placement, which stops it (`agent.cancelChat`). */
+    runId: string;
+    /** The id its journal row carries, which the pending message binds to. */
+    userMessageId: string;
+  };
 };
 
 export type PiChatRequest =
   | { op: "submit"; conversationId: string; requestId: string; text: string; send?: PiChatSend }
-  | { op: "abort"; conversationId: string }
+  /** Stop the conversation's run here, and the placed turns it runs elsewhere (their dispatch ids). */
+  | { op: "abort"; conversationId: string; dispatchIds?: string[] }
   | { op: "watch"; conversationId: string }
   | { op: "unwatch"; conversationId: string }
   | { op: "older"; conversationId: string; beforeEntryId: number }
-  | { op: "agents"; conversationId: string };
+  | { op: "agents"; conversationId: string }
+  /** A turn was placed elsewhere: follow the journal closely until it shows. */
+  | { op: "follow"; conversationId: string };
 
 export type PiChatWatchResult = {
   /** The snapshot, its entries widened to the latest page of the whole history. */
   snapshot: Extract<PiChatEvent, { type: "snapshot" }>;
   hasOlder: boolean;
+  remote?: PiRemoteTurn[];
 };
 
 export type PiChatOlderResult = { entries: PiEntry[]; hasOlder: boolean };
@@ -206,6 +239,8 @@ export type PiChatState = {
   /** The last task failure of the current run. */
   failure?: string;
   compacting: boolean;
+  /** Turns running elsewhere (`remote_turns`). */
+  remote: PiRemoteTurn[];
 };
 
 export const emptyPiChat = (): PiChatState => ({
@@ -216,6 +251,7 @@ export const emptyPiChat = (): PiChatState => ({
   requestIds: {},
   queued: [],
   compacting: false,
+  remote: [],
 });
 
 /** Entries merged by id, ascending. */
@@ -338,6 +374,8 @@ const reduceOne = (state: PiChatState, event: PiChatEvent): PiChatState => {
         : state.requestIds;
       return { ...state, queued, requestIds };
     }
+    case "remote_turns":
+      return { ...state, remote: event.turns };
     case "auto_retry_start":
       return { ...state, retry: { at: event.at, error: event.errorMessage } };
     case "auto_retry_end":
@@ -378,8 +416,16 @@ export const PI_REPORT_RE = /^\[(Agent completed|Task failed|Task canceled|Subag
  * never wrote (an agent's report, a prompt the app sent) is hidden and keeps
  * its whole text, so a reader can still tell what it answered.
  */
-export const piJournalUserMessage = (message: PiUserMessage): { message: Record<string, unknown>; hidden: boolean } => {
+export const piJournalUserMessage = (
+  message: PiUserMessage,
+): { message: Record<string, unknown>; hidden: boolean; clientMsgId?: string } => {
   const { text, display } = piUserView(message);
+  const clientMsgId =
+    typeof message.content === "string"
+      ? undefined
+      : message.content.flatMap((part) =>
+          (part.type === "text" || part.type === "image") && part.stella?.clientMsgId ? [part.stella.clientMsgId] : [],
+        )[0];
   const hidden = PI_REPORT_RE.test(piMessageText(message).trimStart()) || (!text.trim() && !display);
   const images: PiContentBlock[] = [];
   const files: Array<Record<string, unknown>> = [];
@@ -390,6 +436,7 @@ export const piJournalUserMessage = (message: PiUserMessage): { message: Record<
   }
   return {
     hidden,
+    ...(clientMsgId ? { clientMsgId } : {}),
     message: {
       role: "user",
       content: [{ type: "text", text: hidden ? piMessageText(message) : text }, ...images],

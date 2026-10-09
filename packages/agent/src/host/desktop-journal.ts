@@ -16,7 +16,8 @@ import { randomUUID } from "node:crypto";
 import type { Context } from "@earendil-works/chord";
 import type { Message } from "@earendil-works/pi-ai";
 import { LiveDoc, watchEvents, type AgentEventStream, type Conversation, type EntryId, type EntryRecord, type Harness } from "@earendil-works/pi-durable";
-import { piJournalUserMessage, type PiUserMessage } from "@stella/contracts/pi-chat";
+import { piJournalUserMessage, type PiRemoteTurn, type PiUserMessage } from "@stella/contracts/pi-chat";
+import { CLIENT_MSG_ID_PATTERN } from "@stella/contracts/turn-plane/turn-start";
 import {
   importJournal,
   journalSeqOf,
@@ -32,6 +33,9 @@ export type JournalReadRecord = {
   seq: number;
   kind: string;
   turnId: string;
+  createdAtMs?: number;
+  /** A turn record's phase: `started`, then how it ended. */
+  phase?: string;
   role?: "user" | "assistant" | "toolResult";
   hidden?: boolean;
   payload?: unknown;
@@ -78,12 +82,16 @@ export type DesktopJournal = {
 export type JournalMirror = {
   /** Import what other writers journaled since the last import. */
   importNow(): Promise<void>;
+  /** Stella's turns another writer is running now, as the imports found them. */
+  remoteTurns(): PiRemoteTurn[];
   /** Mirror what the transcript has added since the last sync. */
   sync(): void;
   stop(): Promise<void>;
 };
 
 const PAGE = 100;
+/** A turn journaled as started this long ago and never ended is taken as abandoned. */
+const REMOTE_TURN_STALE_MS = 30 * 60_000;
 /** Events after which the transcript may have something to mirror. */
 const MIRRORED_EVENTS = new Set(["entry_appended", "message_end", "tool_execution_end", "run_end"]);
 
@@ -108,7 +116,16 @@ const asJournalMessage = (record: JournalReadRecord): JournalMessage | undefined
   if (!message || typeof message !== "object" || !("role" in message) || message.role !== record.role) {
     return undefined;
   }
-  return { seq: record.seq, turnId: record.turnId, role: record.role, hidden: record.hidden === true, message };
+  const clientMsgId =
+    record.role === "user" && record.clientMsgId && CLIENT_MSG_ID_PATTERN.test(record.clientMsgId) ? record.clientMsgId : undefined;
+  return {
+    seq: record.seq,
+    turnId: record.turnId,
+    role: record.role,
+    hidden: record.hidden === true,
+    message,
+    ...(clientMsgId ? { clientMsgId } : {}),
+  };
 };
 
 export async function journalMirror(args: {
@@ -116,9 +133,23 @@ export async function journalMirror(args: {
   root: Conversation;
   journal: DesktopJournal;
   report: (error: unknown) => void;
+  /** The turns running elsewhere changed (`remoteTurns`). */
+  onRemoteTurns?: (turns: PiRemoteTurn[]) => void;
   context: Context;
 }): Promise<JournalMirror> {
   const { harness, root, journal, report, context } = args;
+  /** Other writers' turns journaled as started and not yet ended, by when they started. */
+  const remote = new Map<string, number>();
+  /** Recent turns' prompt client ids (a prompt is journaled before its turn starts). */
+  const prompts = new Map<string, string>();
+  const remoteTurns = (): PiRemoteTurn[] =>
+    [...remote].flatMap(([turnId, at]) => {
+      const clientMsgId = prompts.get(turnId);
+      // A cloud agent's operation is the agent's work, not a turn of the conversation.
+      if (Date.now() - at >= REMOTE_TURN_STALE_MS || AGENT_OPERATION.test(clientMsgId ?? "")) return [];
+      return [{ turnId, ...(clientMsgId ? { clientMsgId } : {}) }];
+    });
+  let remoteSeen = "[]";
   /** Turns whose lease this process holds (or re-adopted after a restart). */
   const held = new Set<string>();
   let running = false;
@@ -148,7 +179,17 @@ export async function journalMirror(args: {
           messages.push(report);
           continue;
         }
-        if (journal.ownTurn(record.turnId) || AGENT_OPERATION.test(record.clientMsgId ?? "")) continue;
+        if (journal.ownTurn(record.turnId)) continue;
+        if (record.kind === "turn") {
+          if (record.phase === "started") remote.set(record.turnId, record.createdAtMs ?? Date.now());
+          else remote.delete(record.turnId);
+          continue;
+        }
+        if (record.role === "user" && record.clientMsgId) {
+          prompts.set(record.turnId, record.clientMsgId);
+          if (prompts.size > PAGE) prompts.delete(prompts.keys().next().value!);
+        }
+        if (AGENT_OPERATION.test(record.clientMsgId ?? "")) continue;
         const message = asJournalMessage(record);
         if (!message) continue;
         if (!atPrompt && message.role !== "user") continue;
@@ -157,8 +198,14 @@ export async function journalMirror(args: {
       }
       const through: number = page.records.at(-1)?.seq ?? after;
       await importJournal(harness, root, messages, through, context);
-      if (page.complete || through <= after) return;
+      if (page.complete || through <= after) break;
       after = through;
+    }
+    const turns = remoteTurns();
+    const seen = JSON.stringify(turns);
+    if (seen !== remoteSeen) {
+      remoteSeen = seen;
+      args.onRemoteTurns?.(turns);
     }
   };
 
@@ -256,7 +303,11 @@ export async function journalMirror(args: {
             const ack = await journal
               .begin({
                 localTurnId,
-                clientMsgId: localTurnId,
+                // The sender's own id when it gave one (a phone's placed chat).
+                clientMsgId:
+                  journaled.clientMsgId && CLIENT_MSG_ID_PATTERN.test(journaled.clientMsgId)
+                    ? journaled.clientMsgId
+                    : localTurnId,
                 userMessageJson: JSON.stringify(journaled.message),
                 hidden: journaled.hidden,
               })
@@ -316,6 +367,7 @@ export async function journalMirror(args: {
 
   return {
     importNow,
+    remoteTurns,
     sync,
     async stop() {
       stopped = true;

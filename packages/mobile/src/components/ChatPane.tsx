@@ -69,6 +69,7 @@ import Reanimated, {
   useAnimatedKeyboard,
   useAnimatedReaction,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -355,12 +356,14 @@ const MESSAGE_LONG_PRESS_MS = 420;
 // ---------------------------------------------------------------------------
 // Keyboard inset — keeps the composer and message list above the OS keyboard.
 //
-// The composer's *motion* is driven separately, on the UI thread, by
-// reanimated's `useAnimatedKeyboard` (see `composerKeyboardStyle`), so it stays
-// glued to the keyboard frame-for-frame in both directions. This hook only
-// tracks the settled height as JS state, used to reserve the message list's
-// bottom inset — that reserve doesn't need frame-perfect smoothness (content
-// just scrolls under the composer), so no `LayoutAnimation` is needed here.
+// The *motion* of the composer and the message list is driven on the UI thread
+// from one value, reanimated's `useAnimatedKeyboard` (see `keyboardLift`), so
+// both move with the keyboard frame for frame and together. Nothing here may
+// re-render or re-lay-out the chat while the keyboard animates: the keyboard
+// moves in the render server regardless, and any main-thread layout work left
+// the composer frozen behind it while the list jumped ahead. So this hook
+// records the height the keyboard is heading to as a shared value at once,
+// and only publishes the settled height as JS state after the animation ends.
 // ---------------------------------------------------------------------------
 
 function useKeyboardInset() {
@@ -370,23 +373,25 @@ function useKeyboardInset() {
   const targetHeight = useSharedValue(0);
 
   useEffect(() => {
-    const showEvent =
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent =
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-
-    const onShow = (e: { endCoordinates: { height: number } }) => {
+    const onWillShow = (e: { endCoordinates: { height: number } }) => {
+      targetHeight.value = e.endCoordinates.height;
+    };
+    const onDidShow = (e: { endCoordinates: { height: number } }) => {
       targetHeight.value = e.endCoordinates.height;
       setHeight(e.endCoordinates.height);
     };
-    const onHide = () => setHeight(0);
+    const onDidHide = () => setHeight(0);
 
-    const showSub = Keyboard.addListener(showEvent, onShow);
-    const hideSub = Keyboard.addListener(hideEvent, onHide);
+    const subs = [
+      Keyboard.addListener("keyboardDidShow", onDidShow),
+      Keyboard.addListener("keyboardDidHide", onDidHide),
+    ];
+    if (Platform.OS === "ios") {
+      subs.push(Keyboard.addListener("keyboardWillShow", onWillShow));
+    }
 
     return () => {
-      showSub.remove();
-      hideSub.remove();
+      for (const sub of subs) sub.remove();
     };
   }, [targetHeight]);
 
@@ -3175,15 +3180,23 @@ export function ChatPane({
   // the keyboard's whole motion rather than waiting for the keyboard to climb
   // past the band: the composer starts moving on the keyboard's first frame
   // and the two land together, in both directions.
-  const composerKeyboardStyle = useAnimatedStyle(() => {
+  const keyboardTravelEstimate = Math.round(screenHeight * 0.38);
+  const keyboardLift = useDerivedValue(() => {
     const height = keyboard.height.value;
-    const travel = Math.max(keyboardTargetHeight.value, height);
-    const lift =
-      travel > 0 ? (height / travel) * Math.max(0, travel - bottomInset) : 0;
-    return { transform: [{ translateY: -lift }] };
+    const travel = Math.max(
+      keyboardTargetHeight.value || keyboardTravelEstimate,
+      height,
+    );
+    return travel > 0
+      ? (height / travel) * Math.max(0, travel - bottomInset)
+      : 0;
   });
-  // Extra reading area the message list must reserve below its content while the
-  // keyboard is up, mirroring the composer's lift (JS side, for the list inset).
+  const composerKeyboardStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -keyboardLift.value }],
+  }));
+  const listKeyboardStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -keyboardLift.value }],
+  }));
   const keyboardExtra = Math.max(0, keyboardHeight - bottomInset);
 
   // The composer + working indicator overlay the bottom of the chat. We
@@ -3195,7 +3208,7 @@ export function ChatPane({
   const [footerHeight, setFooterHeight] = useState(0);
   // The list runs under the composer, so its reserved inset is exactly the
   // overlay; the chat tail supplies the gap between the last row and it.
-  const listBottomInsetPx = footerHeight + keyboardExtra;
+  const listBottomInsetPx = footerHeight;
   const listTrailingSlackPx = listBottomInsetPx + CHAT_TAIL_GAP;
 
   // The footer (working indicator + composer) re-measures on every frame of any
@@ -3312,47 +3325,9 @@ export function ChatPane({
   // Assistant identity changes reset its measurements above. A busy-state
   // transition alone must not cancel the in-flight post-send placement.
 
-  // When the keyboard rises while the user is at/near the bottom, pull the
-  // chat up so the keyboard doesn't cover the latest messages. If the user
-  // is reading further up, leave their scroll position alone.
-  //
-  // The list's reserved bottom inset grows with `keyboardExtra` in the same
-  // render as `keyboardHeight` changes, but the layout pass that applies the
-  // larger inset only commits the following frame. Scrolling immediately here
-  // would race that pass and land short — the keyboard ends up covering the
-  // tail. So we record the intent and do the authoritative scroll once the
-  // inset has actually grown (the effect keyed on `keyboardExtra` below).
-  const prevKeyboardHeightRef = useRef(0);
-  const pinTailForKeyboardRef = useRef(false);
-  useEffect(() => {
-    const prev = prevKeyboardHeightRef.current;
-    prevKeyboardHeightRef.current = keyboardHeight;
-    if (keyboardHeight > prev && !scroll.awayFromBottom) {
-      pinTailForKeyboardRef.current = true;
-      requestAnimationFrame(() =>
-        scroll.listRef.current?.scrollToEnd({ animated: true }),
-      );
-    } else if (keyboardHeight === 0) {
-      pinTailForKeyboardRef.current = false;
-    }
-  }, [keyboardHeight, scroll.awayFromBottom, scroll.listRef]);
-
-  // The list's bottom inset just grew to include the keyboard — this is the
-  // layout pass the keyboard effect above was racing, so finish pinning to the
-  // tail now that there's actually room to scroll into.
-  useEffect(() => {
-    if (!pinTailForKeyboardRef.current) return;
-    pinTailForKeyboardRef.current = false;
-    scroll.listRef.current?.scrollToEnd({ animated: true });
-  }, [keyboardExtra, scroll.listRef]);
-
-  // A send anchors its scroll target against the keyboard-DOWN inset (submit
-  // dismisses the keyboard), but the list's padding only sheds `keyboardExtra`
-  // once the dismissal commits. Nudging immediately would measure content that
-  // still carries the keyboard-inflated padding and land ~keyboard-height past
-  // the tail — the same race `pinTailForKeyboardRef` above solves for the
-  // keyboard rising. Record the intent here and fire the nudge on the render
-  // where the inset has actually collapsed.
+  // A send records its intent here and fires the nudge on the render where
+  // the submitted row has reached the list. The keyboard no longer changes
+  // the list's insets, so the dismissal that follows a send cannot skew it.
   const pendingSendNudgeRef = useRef<{
     userMessageId: string;
   } | null>(null);
@@ -3361,10 +3336,10 @@ export function ChatPane({
     if (!pending) return;
     // onSubmit can return before its optimistic row reaches this list. Starting
     // placement against the previous tail discards the anchor before onLayout.
-    if (!canStartPostSendPlacement(pending.userMessageId, visibleMessages.map((message) => message.id), keyboardExtra)) return;
+    if (!canStartPostSendPlacement(pending.userMessageId, visibleMessages.map((message) => message.id), 0)) return;
     pendingSendNudgeRef.current = null;
     scroll.nudgeAfterSend(pending.userMessageId);
-  }, [keyboardExtra, visibleMessages, scroll.nudgeAfterSend]);
+  }, [visibleMessages, scroll.nudgeAfterSend]);
 
   // LegendList's `dataChange` auto-pin fires on the optimistic send append —
   // `streaming` is often still false at that render (always for a placed
@@ -3528,9 +3503,6 @@ export function ChatPane({
     if (submitted && shouldPlaceLatestTurn) {
       setSendPinSuppressForId(submitted.userMessageId);
       // Always start from the committed message list, even with no keyboard.
-      // The effect waits for the keyboard-down inset: `Keyboard.dismiss()`
-      // below collapses `keyboardExtra` a few frames from now, and a target
-      // derived from the inflated inset would land past the content end.
       pendingSendNudgeRef.current = {
         userMessageId: submitted.userMessageId,
       };
@@ -4515,6 +4487,7 @@ export function ChatPane({
           </Pressable>
         ) : (
           <>
+            <Reanimated.View style={[styles.messageList, listKeyboardStyle]}>
             <LegendList<ChatMessage>
               ref={scroll.listRef}
               pointerEvents={replyFocus ? "none" : "auto"}
@@ -4572,6 +4545,7 @@ export function ChatPane({
                   : false
               }
             />
+            </Reanimated.View>
             {/* Top taper — fades the list into the surface at the top edge so
                 messages scrolling under the top bar dissolve instead of
                 hard-cutting. Cross-platform (RN `fadingEdgeLength` is
@@ -4638,14 +4612,19 @@ export function ChatPane({
             />
           ) : null}
           {!historyLoading && !empty ? (
-            <ScrollToBottomFab
-              visible={scroll.awayFromBottom}
-              hasUnread={unread}
-              onPress={scroll.scrollToBottom}
-              styles={styles}
-              colors={colors}
-              bottomOffset={footerHeight + FLOATING_CONTROL_LIFT - 24}
-            />
+            <Reanimated.View
+              pointerEvents="box-none"
+              style={[StyleSheet.absoluteFill, listKeyboardStyle]}
+            >
+              <ScrollToBottomFab
+                visible={scroll.awayFromBottom}
+                hasUnread={unread}
+                onPress={scroll.scrollToBottom}
+                styles={styles}
+                colors={colors}
+                bottomOffset={footerHeight + FLOATING_CONTROL_LIFT - 24}
+              />
+            </Reanimated.View>
           ) : null}
         </View>
         {searchOpen && searchActive ? (

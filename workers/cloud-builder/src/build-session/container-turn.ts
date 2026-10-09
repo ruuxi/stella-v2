@@ -86,7 +86,6 @@ import {
   exactTurnIdentityMatches,
   json,
   log,
-  mintAgentTurnModelGateway,
   nativeStateIntegrityKeyFor,
   nativeStateThreadHash,
   normalizeToolWorkspaceRoot,
@@ -1387,24 +1386,13 @@ export const runAgentAttempt = async (
     }
     turnExecution.assertActive();
 
-    // A Stella or ChatGPT turn reaches the model gateway directly with a
-    // turn capability minted here, after the broker handoff is protected and
-    // right before the executor is admitted, so the capability's lifetime
-    // tracks the attempt as closely as possible. A Claude turn gets no
-    // capability: its Claude Code CLI runs on the login the owner's
+    // Only Claude turns run here (agents on Stella's models or a ChatGPT
+    // plan run on pi in their conversation), and a Claude turn holds no
+    // model capability: its Claude Code CLI runs on the login the owner's
     // container holds for the active account, and talks to Anthropic itself.
     if (!turn.execution) throw new AgentTurnAuthorityLostError();
     const orchestrator = turn.agentRole === "orchestrator";
     const admitted = turn.execution;
-    const modelGateway =
-      admitted.engine === "anthropic"
-        ? null
-        : await mintAgentTurnModelGateway(
-            host.env,
-            turn,
-            admitted,
-            orchestrator ? ["orchestrator"] : ["general"],
-          );
     const claudeAccount =
       admitted.engine === "anthropic"
         ? await claudeCloudAccountFor(host.env, turn)
@@ -1477,14 +1465,6 @@ export const runAgentAttempt = async (
             ttlMs: Math.max(1, Math.min(30 * 60_000, args.commandTimeoutMs)),
           }),
         },
-        ...(modelGateway
-          ? {
-              modelGateway: {
-                origin: modelGateway.origin,
-                capability: modelGateway.capability,
-              },
-            }
-          : {}),
         ...(claudeAccount ? { claudeAccount } : {}),
         history: args.history,
         ...(cloudSkills ? { skills: cloudSkills } : {}),

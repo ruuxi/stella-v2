@@ -1,119 +1,14 @@
 /**
- * Loop-adjacent helpers shared by every host of the agent-core loop: the
- * desktop runtime, the cloud orchestrator DO (workerd), and the sandbox
- * executor. This module must stay importable from workerd — no node
- * builtins, no filesystem, no desktop stores — so that cloud hosts reuse
- * these behaviors instead of forking them. `shared.ts` and
+ * Transcript helpers shared by the desktop runtime and the cloud
+ * orchestrator DO (workerd). This module must stay importable from workerd —
+ * no node builtins, no filesystem, no desktop stores — so that cloud hosts
+ * reuse these behaviors instead of forking them. `shared.ts` and
  * `thread-memory.ts` re-export everything here for their existing callers.
  */
 
-import type { Agent } from "../agent-core/agent.js";
-import type { AgentMessage, ThinkingLevel } from "../agent-core/types.js";
-import { selectRecentByTokenBudget } from "../storage/history-selection.js";
-import { estimateRuntimeTokens } from "../runtime-threads.js";
-import { normalizeLegacyCodeHistory } from "../tools/code-tool.js";
-
-const DEFAULT_CONTEXT_WINDOW_TOKENS = 128_000;
-const CONTEXT_PRUNE_RESERVE_TOKENS = 16_384;
-const MIN_CONTEXT_PRUNE_TOKENS = 8_000;
-const ESTIMATED_IMAGE_TOKENS = 2_000;
+import type { AgentMessage } from "../agent-core/types.js";
 
 export const BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE = "bootstrap.startup_doc";
-
-/**
- * The minimal slice of a model route the context budget and thinking
- * resolution read. `ResolvedLlmRoute` satisfies it structurally, and cloud
- * hosts satisfy it with their pinned relay `Model`.
- */
-export type ModelRouteLike = {
-  model: {
-    contextWindow?: number;
-    reasoning?: boolean;
-    id?: string;
-  };
-};
-
-const estimateUnknownTokens = (value: unknown): number => {
-  if (typeof value === "string") {
-    return estimateRuntimeTokens(value);
-  }
-  if (value == null) {
-    return 0;
-  }
-  try {
-    return estimateRuntimeTokens(JSON.stringify(value));
-  } catch {
-    return estimateRuntimeTokens(String(value));
-  }
-};
-
-const estimateContentTokens = (content: unknown): number => {
-  if (typeof content === "string") {
-    return estimateRuntimeTokens(content);
-  }
-  if (!Array.isArray(content)) {
-    return estimateUnknownTokens(content);
-  }
-  return content.reduce((sum, block) => {
-    if (!block || typeof block !== "object") {
-      return sum + estimateUnknownTokens(block);
-    }
-    const candidate = block as Record<string, unknown>;
-    switch (candidate.type) {
-      case "text":
-        return (
-          sum +
-          estimateRuntimeTokens(
-            typeof candidate.text === "string" ? candidate.text : "",
-          )
-        );
-      case "thinking":
-        return (
-          sum +
-          estimateRuntimeTokens(
-            typeof candidate.thinking === "string" ? candidate.thinking : "",
-          )
-        );
-      case "image":
-        return sum + ESTIMATED_IMAGE_TOKENS;
-      case "toolCall":
-        return (
-          sum +
-          estimateUnknownTokens({
-            name: candidate.name,
-            arguments: candidate.arguments,
-          })
-        );
-      default:
-        return sum + estimateUnknownTokens(candidate);
-    }
-  }, 0);
-};
-
-export const estimateAgentMessageTokens = (message: AgentMessage): number => {
-  const baseTokens = 8;
-  if (message.role === "toolResult") {
-    return Math.max(
-      1,
-      baseTokens +
-        estimateRuntimeTokens(message.toolName) +
-        estimateContentTokens(message.content),
-    );
-  }
-  return Math.max(1, baseTokens + estimateContentTokens(message.content));
-};
-
-export const getContextPruneBudget = (resolvedLlm: ModelRouteLike): number => {
-  const contextWindow = Number(resolvedLlm.model.contextWindow);
-  const safeContextWindow =
-    Number.isFinite(contextWindow) && contextWindow > 0
-      ? Math.floor(contextWindow)
-      : DEFAULT_CONTEXT_WINDOW_TOKENS;
-  return Math.max(
-    MIN_CONTEXT_PRUNE_TOKENS,
-    safeContextWindow - CONTEXT_PRUNE_RESERVE_TOKENS,
-  );
-};
 
 // Retention budget for tool-result images in model history, newest first.
 // The old policy kept exactly ONE image-bearing message, which made
@@ -187,92 +82,6 @@ export const stripStaleImageBlocks = <T extends { role: string }>(
   return rewroteAny ? out.reverse() : messages;
 };
 
-export const isBootstrapStartupDocMessage = (
-  message: Pick<AgentMessage, "role"> & { customType?: string },
-): boolean =>
-  message.role === "runtimeInternal" &&
-  message.customType === BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE;
-
-export const buildDefaultTransformContext = (
-  resolvedLlm: ModelRouteLike,
-): ((
-  messages: AgentMessage[],
-  signal?: AbortSignal,
-) => Promise<AgentMessage[]>) => {
-  const maxTokens = getContextPruneBudget(resolvedLlm);
-  return async (messages, signal) => {
-    if (signal?.aborted) {
-      throw new Error("Aborted");
-    }
-    // Strip on every per-turn call. `buildHistorySource` already runs this
-    // once at run start, but the agent loop appends fresh tool results
-    // (each carrying a base64 PNG) into the live messages array between
-    // LLM calls. Without re-stripping, all those screenshots stack up in
-    // the prompt every subsequent turn, and a 4-step stella-computer task
-    // overflows the managed runtime's payload budget.
-    const stripped = stripStaleImageBlocks(
-      normalizeLegacyCodeHistory(messages),
-    );
-    const totalTokens = stripped.reduce(
-      (sum, message) => sum + estimateAgentMessageTokens(message),
-      0,
-    );
-    if (totalTokens <= maxTokens) {
-      return stripped;
-    }
-    const pinnedStartupDocs = stripped.filter(isBootstrapStartupDocMessage);
-    if (pinnedStartupDocs.length > 0) {
-      const pinnedDocSet = new Set<AgentMessage>(pinnedStartupDocs);
-      const pinnedTokens = pinnedStartupDocs.reduce(
-        (sum, message) => sum + estimateAgentMessageTokens(message),
-        0,
-      );
-      const remainingBudget = maxTokens - pinnedTokens;
-      if (remainingBudget > 0) {
-        const recentUnpinned = selectRecentByTokenBudget({
-          itemsNewestFirst: stripped
-            .filter((message) => !pinnedDocSet.has(message))
-            .reverse(),
-          maxTokens: remainingBudget,
-          estimateTokens: estimateAgentMessageTokens,
-        });
-        const recentSet = new Set<AgentMessage>(recentUnpinned);
-        return stripped.filter(
-          (message) => pinnedDocSet.has(message) || recentSet.has(message),
-        );
-      }
-    }
-    const selected = selectRecentByTokenBudget({
-      itemsNewestFirst: [...stripped].reverse(),
-      maxTokens,
-      estimateTokens: estimateAgentMessageTokens,
-    });
-    return [...selected].reverse();
-  };
-};
-
-/**
- * Resolve the `thinkingLevel` an Agent should run with for a given turn.
- *
- * Long-lived sessions refresh this between turns when the user changes
- * reasoning-effort preferences or model routes.
- */
-export const resolveAgentThinkingLevel = (args: {
-  resolvedLlm: ModelRouteLike;
-  agentContextReasoningEffort?: Exclude<ThinkingLevel, "off"> | "default";
-}): ThinkingLevel => {
-  if (args.resolvedLlm.model.id?.startsWith("stella/")) {
-    return "off";
-  }
-  if (
-    args.agentContextReasoningEffort &&
-    args.agentContextReasoningEffort !== "default"
-  ) {
-    return args.agentContextReasoningEffort;
-  }
-  return args.resolvedLlm.model.reasoning ? "medium" : "off";
-};
-
 export const extractAssistantText = (
   message: AgentMessage | undefined,
 ): string => {
@@ -307,12 +116,9 @@ export const assistantMessageHasToolCall = (
  * is not an answer — it is a burnt provider call (an empty completion, or a
  * thinking-only reply that hit the output cap while reasoning).
  *
- * This is the single definition of "poppable tail". The retry ladder removes
- * such a message from the live context before resuming, so any host that
- * persists messages as the loop produces them MUST apply the same predicate
- * before writing — otherwise the durable transcript keeps a message the model
- * no longer has, and the next turn rebuilds a history with two consecutive
- * assistant messages, one of them empty.
+ * A host that persists messages as a run produces them applies this before
+ * writing, so the durable transcript never rebuilds a history with two
+ * consecutive assistant messages, one of them empty.
  */
 export const assistantMessageHasUsableOutput = (
   message: AgentMessage,
@@ -324,108 +130,4 @@ export const assistantMessageHasUsableOutput = (
       block.type === "toolCall" ||
       (block.type === "text" && block.text.trim().length > 0),
   );
-};
-
-const getLatestAssistantMessage = (
-  messages: AgentMessage[],
-): AgentMessage | undefined =>
-  [...messages].reverse().find((message) => message.role === "assistant");
-
-type AgentCompletionSource = {
-  state: Pick<Agent["state"], "messages" | "error">;
-};
-
-/**
- * True when the run's final assistant message is a truncated reasoning
- * trace: `stopReason: "length"` with neither visible text nor a tool call
- * (typically thinking-only). The provider hit its output-token cap while
- * the model was still reasoning, so no reply was ever produced. This is a
- * failure, not a success — without this check the run would finalize as
- * "success" with an empty result and surface only the generic
- * empty-result sentinel to the caller.
- */
-const isTruncatedReasoningCompletion = (
-  message: AgentMessage | undefined,
-): message is Extract<AgentMessage, { role: "assistant" }> => {
-  if (!message || message.role !== "assistant") return false;
-  if (message.stopReason !== "length") return false;
-  const blocks = Array.isArray(message.content) ? message.content : [];
-  return !blocks.some(
-    (block) =>
-      block.type === "toolCall" ||
-      (block.type === "text" && block.text.trim().length > 0),
-  );
-};
-
-export const getAgentCompletion = (
-  agent: AgentCompletionSource,
-): { finalText: string; errorMessage?: string; retryAfterMs?: number } => {
-  const latestAssistant = getLatestAssistantMessage(agent.state.messages);
-  const finalText = extractAssistantText(latestAssistant);
-
-  if (latestAssistant?.role === "assistant") {
-    const assistantError = latestAssistant.errorMessage?.trim();
-    // The provider adapter parked the failing response's Retry-After here
-    // before flattening the error to a string. Carry it into the turn
-    // result so the run-level retry can back off for as long as the
-    // provider actually asked for.
-    const retryAfter =
-      typeof latestAssistant.retryAfterMs === "number" &&
-      Number.isFinite(latestAssistant.retryAfterMs)
-        ? { retryAfterMs: latestAssistant.retryAfterMs }
-        : {};
-    if (
-      latestAssistant.stopReason === "error" ||
-      latestAssistant.stopReason === "aborted"
-    ) {
-      return {
-        finalText,
-        ...retryAfter,
-        errorMessage:
-          assistantError ||
-          agent.state.error ||
-          (latestAssistant.stopReason === "aborted"
-            ? "Request was aborted"
-            : "Agent failed"),
-      };
-    }
-
-    if (assistantError) {
-      return {
-        finalText,
-        ...retryAfter,
-        errorMessage: assistantError,
-      };
-    }
-
-    const cutAtOutputLimit = latestAssistant.stopReason === "length";
-    const cutOutputTokens = latestAssistant.usage?.output;
-    if (isTruncatedReasoningCompletion(latestAssistant)) {
-      const outputTokens = latestAssistant.usage?.output;
-      return {
-        finalText,
-        errorMessage: `Run truncated: model hit the output-token cap${
-          outputTokens ? ` (${outputTokens} tokens)` : ""
-        } while reasoning; no visible reply was produced.`,
-      };
-    }
-
-    if (cutAtOutputLimit && finalText.trim()) {
-      const outputTokens = cutOutputTokens;
-      return {
-        finalText: `${finalText}\n\n[This reply is incomplete: the model hit its output-token limit${
-          outputTokens ? ` (${outputTokens} tokens)` : ""
-        } and stopped mid-reply. Everything above is what it produced before the cut.]`,
-      };
-    }
-  }
-
-  if (agent.state.error && !finalText.trim()) {
-    return {
-      finalText,
-      errorMessage: agent.state.error,
-    };
-  }
-
-  return { finalText };
 };

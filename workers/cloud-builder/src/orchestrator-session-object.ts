@@ -5730,7 +5730,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   // ---------------------------------------------------------------------------
-  // Agent threads on Stella's models
+  // Agent threads on pi (Stella's models or the owner's ChatGPT plan)
   // ---------------------------------------------------------------------------
 
   /**
@@ -5804,7 +5804,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           budgetMicroCents: input.budgetMicroCents,
           execution: input.execution,
         },
-        model: piModelSpec("general", input.execution, input.audience),
+        // A ChatGPT plan agent runs on the plan's model, which the gateway does not resolve.
+        ...(input.execution.engine === "stella"
+          ? { model: piModelSpec("general", input.execution, input.audience) }
+          : {}),
         executionContext: cloudExecutionContext(input, destinations),
       },
       input.prompt,

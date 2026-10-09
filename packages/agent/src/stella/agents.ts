@@ -760,11 +760,15 @@ export function stellaAgents(host: StellaAgentsHost) {
       origin?: AgentOrigin;
       /** The model it runs on, when that host chose it rather than this orchestrator's own. */
       model?: ModelRef;
+      /** The thinking level that host admitted it for, with `model`. */
+      thinkingLevel?: ModelThinkingLevel;
     },
     context: Context,
   ): Promise<{ threadId: string; existing: boolean }> => {
     const root = await harness.root(context);
-    const runsOn = args.model ? { model: args.model } : childRun(await root.agent(context));
+    const runsOn: RunsOn = args.model
+      ? { model: args.model, ...(args.thinkingLevel ? { thinkingLevel: args.thinkingLevel } : {}) }
+      : childRun(await root.agent(context));
     return await harness.commit(
       (tx) =>
         createAgent(tx, {

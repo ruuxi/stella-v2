@@ -4,7 +4,7 @@
  * orchestrator Durable Object's SQLite.
  */
 import type { Context } from "@earendil-works/chord";
-import type { Models } from "@earendil-works/pi-ai";
+import type { ModelThinkingLevel, Models } from "@earendil-works/pi-ai";
 import {
   createRegistry,
   Harness,
@@ -93,6 +93,7 @@ export type OpenStellaHarness = {
       threadId?: string;
       origin?: AgentOrigin;
       model?: ModelRef;
+      thinkingLevel?: ModelThinkingLevel;
     },
     context: Context,
   ): Promise<{ threadId: string; existing: boolean }>;

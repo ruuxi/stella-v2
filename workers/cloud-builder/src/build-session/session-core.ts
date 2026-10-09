@@ -102,9 +102,6 @@ export type SessionCoreHost = Pick<
   | "unregisterTurnLease"
 >;
 
-/** @see src/build-session/shared/keys.ts */
-export { mintAgentTurnModelGateway } from "./shared/keys.js";
-
 /**
  * Normal turn cleanup must retain exact cancellation receipts. The key list
  * is captured while input is gated and the deletion is one transaction, so

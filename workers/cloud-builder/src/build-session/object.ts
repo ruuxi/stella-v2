@@ -862,14 +862,11 @@ export class BuildSessionObject extends DurableObject<Env> {
     ) {
       const parsed = parseCloudAgentTurnStartRequest(raw);
       if (!parsed.ok) return json({ error: parsed.message }, 400);
-      // An agent on Stella's models runs in its conversation as a pi agent
-      // (`dispatchCloudAgentTurn`); a container here runs the owner's own
-      // engines and Claude Code's orchestrator turns.
-      if (parsed.request.execution.engine === "stella") {
-        return json(
-          { error: "An agent on Stella's models runs in its conversation." },
-          400,
-        );
+      // An agent on Stella's models or the owner's ChatGPT plan runs in its
+      // conversation as a pi agent (`dispatchCloudAgentTurn`); a container
+      // here runs Claude agents and Claude Code's orchestrator turns.
+      if (parsed.request.execution.engine !== "anthropic") {
+        return json({ error: "This agent runs in its conversation." }, 400);
       }
       turn = turnRequestFromAgentStart(parsed.request);
     } else {

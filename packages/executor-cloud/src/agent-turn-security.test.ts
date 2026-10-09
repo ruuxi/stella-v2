@@ -16,7 +16,6 @@ import {
   cloudGeneralToolNames,
   commitTurnStateBeforeTranscript,
   createBuilderFallbackAgentTurnResult,
-  usesNativeCloudRuntime,
 } from "./agent-turn.js";
 import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
 
@@ -34,25 +33,6 @@ const checkpoint = {
 };
 
 describe("cloud native-state containment", () => {
-  test("keeps Codex Responses in Stella's in-process agent loop", () => {
-    expect(
-      usesNativeCloudRuntime({
-        engine: "chatgpt",
-        provider: "chatgpt",
-        model: "gpt-5.6-sol",
-        reasoningEffort: "high",
-      }),
-    ).toBe(false);
-    expect(
-      usesNativeCloudRuntime({
-        engine: "anthropic",
-        provider: "anthropic",
-        model: "claude-sonnet-4-6",
-        reasoningEffort: "high",
-      }),
-    ).toBe(true);
-  });
-
   test("commits the native checkpoint before making transcript state canonical", async () => {
     const calls: string[] = [];
     await commitTurnStateBeforeTranscript({

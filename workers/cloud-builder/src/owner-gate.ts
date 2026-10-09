@@ -6,6 +6,7 @@ import { turnStartErrorResponse } from "./turn-start-request.js";
 import {
   cancelCloudAgentAttempt,
   runsAsPiAgent,
+  type PiAgentExecution,
 } from "./cloud-agent-dispatch.js";
 import type { ModelGatewayControl } from "./managed-request-cancellation.js";
 import { verifyUserToken } from "./auth-jwt.js";
@@ -3363,16 +3364,15 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   /**
-   * A placed agent on Stella's models runs in its conversation as a pi
-   * agent, started at once; pi admits each of its runs itself, so this
-   * dispatch's own hold goes back once the conversation has it. Its report
-   * settles the dispatch by its id, as a BuildSession agent's terminal does.
+   * A placed agent on pi (Stella's models or the owner's ChatGPT plan) runs
+   * in its conversation as a pi agent, started at once; pi admits each of
+   * its runs itself, so this dispatch's own hold goes back once the
+   * conversation has it. Its report settles the dispatch by its id, as a
+   * BuildSession agent's terminal does.
    */
   private async startPiPlacedAgent(
     row: DispatchRow,
-    request: CloudAgentTurnStartRequest & {
-      execution: Extract<CloudAgentTurnStartRequest["execution"], { engine: "stella" }>;
-    },
+    request: CloudAgentTurnStartRequest & { execution: PiAgentExecution },
     now: number,
   ): Promise<DispatchRow> {
     const sessions = this.env.ORCHESTRATOR_SESSIONS;

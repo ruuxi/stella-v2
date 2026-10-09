@@ -11,7 +11,7 @@ import {
 import {
   installTestSafeStorage,
   resetTestSafeStorage,
-} from "../helpers/protected-storage.js";
+} from "../../helpers/protected-storage.js";
 
 const tempDirs: string[] = [];
 const originalFetch = globalThis.fetch;

@@ -8,10 +8,10 @@
 import fs from "fs";
 import path from "path";
 import {
-  getOAuthApiKey,
-  getOAuthProvider,
-} from "../../ai/utils/oauth/index.js";
-import type { OAuthCredentials } from "../../ai/utils/oauth/types.js";
+  getLlmOAuthApiKey,
+  getLlmOAuthProvider,
+  type OAuthCredentials,
+} from "./llm-oauth-providers.js";
 import {
   deleteProtectedValue,
   protectValue,
@@ -208,7 +208,7 @@ export const saveLocalLlmOAuthCredential = (
   },
 ): LocalLlmOAuthCredentialSummary => {
   const provider = normalizeProvider(payload.provider);
-  const oauthProvider = getOAuthProvider(provider);
+  const oauthProvider = getLlmOAuthProvider(provider);
   if (!provider || !oauthProvider) {
     throw new Error("Unsupported OAuth provider.");
   }
@@ -287,13 +287,15 @@ export const getLocalLlmOAuthApiKey = async (
   );
   if (!credentials) return null;
 
-  let result: Awaited<ReturnType<typeof getOAuthApiKey>>;
+  const oauthProvider = getLlmOAuthProvider(normalizedProvider);
+  if (!oauthProvider) {
+    throw new Error(`Unknown OAuth provider: ${normalizedProvider}`);
+  }
+  let result: Awaited<ReturnType<typeof getLlmOAuthApiKey>>;
   try {
-    result = await getOAuthApiKey(
-      normalizedProvider,
-      { [normalizedProvider]: credentials },
-      { forceRefresh: options.forceRefresh === true },
-    );
+    result = await getLlmOAuthApiKey(oauthProvider, credentials, {
+      forceRefresh: options.forceRefresh === true,
+    });
   } catch (error) {
     if (options.forceRefresh && credentials.expires > 0) {
       saveLocalLlmOAuthCredential(stellaAppDir, {
@@ -304,13 +306,11 @@ export const getLocalLlmOAuthApiKey = async (
     }
     throw error;
   }
-  if (!result) return null;
-
-  if (result.newCredentials !== credentials) {
+  if (result.credentials !== credentials) {
     saveLocalLlmOAuthCredential(stellaAppDir, {
       provider: normalizedProvider,
       label: record.label,
-      credentials: result.newCredentials,
+      credentials: result.credentials,
     });
   }
   return result.apiKey;

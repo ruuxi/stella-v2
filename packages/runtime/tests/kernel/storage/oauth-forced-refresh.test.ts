@@ -9,12 +9,13 @@ import {
 } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import {
   OAUTH_REFRESH_SKEW_MS,
-  getOAuthApiKey,
-} from "@stella/runtime/ai/utils/oauth/index";
+  getLlmOAuthApiKey,
+  getLlmOAuthProvider,
+} from "@stella/runtime/kernel/storage/llm-oauth-providers";
 import {
   installTestSafeStorage,
   resetTestSafeStorage,
-} from "../helpers/protected-storage.js";
+} from "../../helpers/protected-storage.js";
 
 const tempDirs: string[] = [];
 const originalFetch = globalThis.fetch;
@@ -100,7 +101,7 @@ describe("OAuth forced refresh", () => {
     const fetchSpy = vi.fn(async () => tokenResponse("account-rotated"));
     globalThis.fetch = fetchSpy as typeof fetch;
 
-    const result = await getOAuthApiKey("xai", { xai: creds });
+    const result = await getLlmOAuthApiKey(getLlmOAuthProvider("xai")!, creds);
 
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(result?.apiKey).toBe(accessTokenFor("account-rotated"));

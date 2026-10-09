@@ -16,7 +16,7 @@ import {
 } from "@stella/contracts/gateway/dpop";
 
 import { createStellaRoute } from "@stella/runtime/kernel/model-routing-stella";
-import { resolveAgentThinkingLevel } from "@stella/runtime/kernel/agent-runtime/shared";
+import { resolveAgentThinkingLevel } from "@stella/runtime/kernel/agent-runtime/run-shared";
 import {
   rememberStellaGatewayOrigin,
   resetGatewaySessionState,

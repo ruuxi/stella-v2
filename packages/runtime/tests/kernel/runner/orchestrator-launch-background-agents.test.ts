@@ -4,9 +4,6 @@ import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { startPreparedOrchestratorRun } from "@stella/runtime/kernel/runner/orchestrator-launch";
 
 vi.mock("@stella/runtime/kernel/runner/model-selection", () => ({
-  createRunnerImageDescriptionService: vi.fn(() =>
-    vi.fn(async () => "described image"),
-  ),
   resolveRunnerLlmRouteWithMetadata: vi.fn(async () => ({
     model: { id: "test-model", provider: "test-provider" },
     route: "direct-provider",
@@ -19,7 +16,6 @@ vi.mock("@stella/runtime/kernel/agent-runtime", () => ({
     async (opts: {
       runId: string;
       agentType: string;
-      describeImages?: unknown;
       beforeRunEnd?: (args: {
         runId: string;
         threadKey: string;
@@ -36,7 +32,6 @@ vi.mock("@stella/runtime/kernel/agent-runtime", () => ({
         }) => void;
       };
     }) => {
-      expect(opts.describeImages).toEqual(expect.any(Function));
       await opts.beforeRunEnd?.({
         runId: opts.runId,
         threadKey: "conversation-1",
@@ -61,7 +56,7 @@ const createContext = () =>
       activeOrchestratorConversationId: null,
       activeOrchestratorUiVisibility: "visible",
       activeOrchestratorSession: null,
-      orchestratorSessions: new Map(),
+      cloudThreads: new Map(),
       activeRunAbortControllers: new Map(),
       loadedAgents: [],
       localAgentManager: {

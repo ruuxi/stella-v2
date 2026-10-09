@@ -3,6 +3,7 @@ import type {
   ConversationSummaryCursor,
   LocalModelUsagePage,
 } from "@stella/contracts/local-chat";
+import { desktopPiRuntime } from "@stella/contracts/pi-chat";
 import type { ConversationFocusRoot } from "@stella/contracts/reply-refs";
 import {
   IPC_CLOUD_CONVERSATION_CACHE_ACTIVATE_AUTHORITY,
@@ -482,10 +483,9 @@ export const registerLocalChatHandlers = (
           const local = client.listModelUsage(args);
           // On pi-durable the conversations keep their own calls; the
           // agent loops' history stays listed beside them.
-          const runner =
-            process.env.STELLA_AGENT_RUNTIME?.trim() === "pi"
-              ? options.getStellaHostRunner?.()
-              : null;
+          const runner = desktopPiRuntime(process.env.STELLA_AGENT_RUNTIME)
+            ? options.getStellaHostRunner?.()
+            : null;
           if (!runner) return local;
           const pi = (await runner.piChat({ op: "usage", ...args })) as LocalModelUsagePage;
           const limit = args.limit ?? 10_000;

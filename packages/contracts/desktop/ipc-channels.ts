@@ -179,8 +179,13 @@ export const IPC_AGENT_EVENT = "agent:event" as const;
 /** The pi-durable chat: requests (`PiChatRequest`), and a watched conversation's events. */
 export const IPC_PI_CHAT_REQUEST = "piChat:request" as const;
 export const IPC_PI_CHAT_EVENTS = "piChat:events" as const;
-/** Whether this launch runs the desktop chat on pi-durable (`STELLA_AGENT_RUNTIME=pi`). */
+/**
+ * Whether the desktop chat runs on pi-durable: by default, but not under the
+ * Claude Code engine or a launch with `STELLA_AGENT_RUNTIME=loop`.
+ */
 export const IPC_PI_CHAT_ENABLED = "piChat:enabled" as const;
+/** Sent to every window when the user's engine moves the chat onto or off pi-durable. */
+export const IPC_PI_CHAT_ENABLED_CHANGED = "piChat:enabledChanged" as const;
 /**
  * Fired by the main process whenever the runtime client transitions
  * between connected and disconnected — most importantly after the

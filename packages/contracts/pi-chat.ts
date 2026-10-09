@@ -12,6 +12,19 @@
  */
 
 /**
+ * Whether this desktop runs pi-durable at all: by default, unless the launch
+ * asks for the loop (`STELLA_AGENT_RUNTIME=loop`).
+ */
+export const desktopPiRuntime = (runtime: string | undefined): boolean => runtime?.trim() !== "loop";
+
+/**
+ * Whether the desktop's chat runs on pi-durable: when the runtime does and
+ * the user's engine is not Claude Code, whose turns keep their own path.
+ */
+export const desktopPiChatEnabled = (runtime: string | undefined, engine: string | undefined): boolean =>
+  desktopPiRuntime(runtime) && engine !== "claude_code_local";
+
+/**
  * Stella's marks on a part of a user message. Providers read only a part's
  * `type`, `text` and `data`, so the model never sees them.
  */

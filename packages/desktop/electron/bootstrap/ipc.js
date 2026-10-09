@@ -18,6 +18,7 @@ import { toggleRealtimeVoice, } from "../services/realtime-voice-control.js";
 import { WakewordService } from "../services/wakeword-service.js";
 import { loadLocalPreferences, saveLocalPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
 import { IPC_APP_SOURCE_STATE, IPC_PREFERENCES_GET_WAKE_WORD, IPC_PREFERENCES_SET_WAKE_WORD, } from "@stella/contracts/desktop/ipc-channels";
+import { desktopPiRuntime } from "@stella/contracts/pi-chat";
 import { registerOfficePreviewHandlers } from "../ipc/office-preview-handlers.js";
 import { registerChatEvidenceHandlers } from "../ipc/chat-evidence-handlers.js";
 import { createCloudConversationFileGrants } from "../services/cloud-conversation-file-grants.js";
@@ -333,7 +334,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         getAuthToken: () => services.authService.getAuthToken(),
     });
     // On pi-durable a conversation's transcript names the files Stella linked there.
-    const piLinkedFiles = process.env.STELLA_AGENT_RUNTIME?.trim() === "pi"
+    const piLinkedFiles = desktopPiRuntime(process.env.STELLA_AGENT_RUNTIME)
         ? async (conversationId) => (await lifecycle.getRunner()?.piChat({ op: "files", conversationId }))?.paths ?? []
         : undefined;
     const officePreview = registerOfficePreviewHandlers({
@@ -370,6 +371,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         getActiveCloudConversationCacheAuthority: () => services.localChatHistoryService.getActiveCloudConversationCacheAuthority(),
         uiState: services.uiStateService.state,
         stellaAppDir: config.stellaAppDir,
+        getStellaDataDir: lifecycle.getStellaDataDir,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     registerRuntimeAvailabilityBridge({

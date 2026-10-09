@@ -1338,6 +1338,75 @@ export class ChatLog {
     return messages.reverse();
   }
 
+  /**
+   * Visible user and assistant messages after `afterSeq`, ascending, from at
+   * most `limit` rows: each with its text, and the last row's seq.
+   */
+  listMessagesAfterSeq(
+    conversationId: string,
+    afterSeq: number,
+    limit: number,
+  ): {
+    messages: Array<{
+      id: string;
+      seq: number;
+      role: "user" | "assistant";
+      text: string;
+      timestamp: number;
+    }>;
+    throughSeq: number;
+    complete: boolean;
+  } {
+    const normalizedLimit = Math.max(1, Math.floor(limit));
+    const rows = this.cached
+      .prepare(
+        `SELECT entry.id AS id, entry.seq AS seq, entry.created_at AS timestamp,
+                entry.type AS type, entry.payload AS payloadJson
+         FROM entry
+         WHERE entry.conversation_id = ?
+           AND entry.seq > ?
+           AND entry.type IN (${placeholders(CHAT_MESSAGE_TYPES)})
+           AND entry.visible = 1
+         ORDER BY entry.seq ASC
+         LIMIT ?`,
+      )
+      .all(
+        conversationId,
+        afterSeq,
+        ...CHAT_MESSAGE_TYPES,
+        normalizedLimit,
+      ) as Array<{
+      id: string;
+      seq: number;
+      timestamp: number;
+      type: string;
+      payloadJson: string | null;
+    }>;
+    const messages: Array<{
+      id: string;
+      seq: number;
+      role: "user" | "assistant";
+      text: string;
+      timestamp: number;
+    }> = [];
+    for (const row of rows) {
+      const text = eventTextFromPayload(parseJsonRecord(row.payloadJson));
+      if (!text) continue;
+      messages.push({
+        id: row.id,
+        seq: row.seq,
+        role: row.type === "user_message" ? "user" : "assistant",
+        text,
+        timestamp: row.timestamp,
+      });
+    }
+    return {
+      messages,
+      throughSeq: rows.at(-1)?.seq ?? afterSeq,
+      complete: rows.length < normalizedLimit,
+    };
+  }
+
   /* ------------------------------------------------------------------ */
   /* Message windows                                                     */
   /* ------------------------------------------------------------------ */

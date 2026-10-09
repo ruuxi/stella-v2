@@ -24,6 +24,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { loadModelRegistry } from "@stella/contracts/model-registry";
+import { desktopPiRuntime } from "@stella/contracts/pi-chat";
 import "../ai/utils/http-proxy.js";
 import { registerBuiltInApiProviders } from "../ai/providers/register-builtins.js";
 
@@ -362,7 +363,7 @@ const main = async (): Promise<void> => {
 
   // On pi-durable every headless turn is an automation turn: pi answers it
   // and hands back the final text.
-  if (options.model || process.env.STELLA_AGENT_RUNTIME === "pi") {
+  if (options.model || desktopPiRuntime(process.env.STELLA_AGENT_RUNTIME)) {
     const resultPromise = host.runAutomationTurn({
       conversationId,
       userPrompt: options.prompt,

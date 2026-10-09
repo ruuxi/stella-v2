@@ -11,7 +11,7 @@ import {
 } from "../errors.js";
 import { asTrimmedString } from "../attachments.js";
 import * as HostBus from "../host-bus.js";
-import { piChatsFor, piRuntimeEnabled } from "../pi-chats.js";
+import { piChatRouted, piChatsFor } from "../pi-chats.js";
 import * as WorkerSessions from "../sessions.js";
 import { fromPromise, type WorkerRpcHandlers } from "../rpc.js";
 
@@ -56,7 +56,7 @@ export const chatHandlers: WorkerRpcHandlers = {
         () => new RunnerUnavailableError(),
       );
       // On pi-durable the agent is one of the conversation's pi agents.
-      if (piRuntimeEnabled()) {
+      if (piChatRouted(session)) {
         const hostBus = yield* HostBus.Service;
         return yield* fromPromise(async () => {
           await (await piChatsFor(session, hostBus)).messageAgent(conversationId, {

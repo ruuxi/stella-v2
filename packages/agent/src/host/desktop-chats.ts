@@ -399,10 +399,9 @@ export function desktopChats(options: DesktopChatsOptions) {
         // A conversation from an older build keeps up with what the orchestrator is offered.
         if (offersAgentTools(await root.agent(context))) await root.configure(orchestrator, context);
         // A conversation kept on this computer starts with what the agent
-        // loops' chat log holds, and keeps up with it.
+        // loops' chat log holds (imported as the mirror starts), and keeps up with it.
         const log = options.localLog?.(conversationId);
         const localLog = log ? await localLogMirror({ harness, root, log, report: options.report, context }) : undefined;
-        await localLog?.importNow().catch((error: unknown) => options.report(error));
         // Recovered work needs its models: a Stella alias waits for sign-in; a
         // model on the user's own key is ready at once.
         const rootModel = (await root.agent(context)).model;
@@ -505,6 +504,18 @@ export function desktopChats(options: DesktopChatsOptions) {
   };
 
   /**
+   * Events as clients receive them, a snapshot's entries cut to its newest
+   * page: older context (all of a long conversation's imported history,
+   * until pi first compacts it) is paged in like the rest of the history.
+   */
+  const eventsForClients = (events: readonly PiChatEvent[]): PiChatEvent[] =>
+    piEventsForClients(
+      events.map((event) =>
+        event.type === "snapshot" ? { ...event, entries: piEntriesForClients(event.entries, CLIENT_PAGE_BYTES).entries } : event,
+      ),
+    );
+
+  /**
    * (Re)attach the conversation's event stream. Every attached client gets
    * the new snapshot as an event, so none misses what happened between the
    * old stream and the new one.
@@ -515,10 +526,10 @@ export function desktopChats(options: DesktopChatsOptions) {
     chat.stream = stream;
     stream.start(async (events) => {
       if (chat.stream !== stream) return;
-      options.emit({ conversationId, events: piEventsForClients(events as unknown as PiChatEvent[]) });
+      options.emit({ conversationId, events: eventsForClients(events as unknown as PiChatEvent[]) });
     });
     if (previous) {
-      options.emit({ conversationId, events: piEventsForClients([stream.snapshot as unknown as PiChatEvent]) });
+      options.emit({ conversationId, events: eventsForClients([stream.snapshot as unknown as PiChatEvent]) });
       await previous.stop().catch(() => undefined);
     }
     return stream;
@@ -531,7 +542,7 @@ export function desktopChats(options: DesktopChatsOptions) {
     chat.watchers += 1;
     const stream = await attach(conversationId, chat);
     const { entries, hasOlder } = await history(chat);
-    const [snapshot] = piEventsForClients([stream.snapshot as unknown as PiChatEvent]) as [PiChatWatchResult["snapshot"]];
+    const [snapshot] = eventsForClients([stream.snapshot as unknown as PiChatEvent]) as [PiChatWatchResult["snapshot"]];
     return {
       snapshot: { ...snapshot, entries: mergePiEntries(entries, snapshot.entries) },
       hasOlder,

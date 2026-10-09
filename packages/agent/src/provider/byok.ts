@@ -12,10 +12,10 @@
  */
 import type { Api, AuthContext, Credential, CredentialStore, Model } from "@earendil-works/pi-ai";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
-import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import { createProvider, type MutableModels } from "@earendil-works/pi-ai/models";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ModelRef } from "@earendil-works/pi-durable";
+import { CHATGPT_PROVIDER_ID, chatGptModel, chatGptProvider } from "./chatgpt.ts";
 import { STELLA_PROVIDER_ID } from "./stella.ts";
 
 /** What the user picked, by where it runs. */
@@ -25,9 +25,7 @@ export type ModelPick =
   | { kind: "local"; raw: string; modelId: string; baseUrl: string };
 
 export const LOCAL_PROVIDER_ID = "local";
-export const CHATGPT_PROVIDER_ID = "chatgpt";
 const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:11434/v1";
-const OPENAI_BASE_URL = "https://api.openai.com/v1";
 const NO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 /** A local server often takes no key, but the OpenAI client always sends one. */
 const LOCAL_PLACEHOLDER_KEY = "stella-local";
@@ -125,56 +123,14 @@ export function byokModels(models: MutableModels) {
     }
   };
 
-  /**
-   * ChatGPT plan models: OpenAI's Responses API with the signed-in account's
-   * access token, which pi-ai's `openai` API keeps to the plan's request
-   * limits. They run under their own provider, so the plan's token and an
-   * OpenAI API key never stand in for each other, and the plan costs nothing
-   * per call.
-   */
+  /** ChatGPT plan models, by slug, as they are picked. */
   const chatgpt = new Map<string, Model<"openai-responses">>();
-  const responses = openAIResponsesApi();
-  const asOpenAI = <M extends Model<Api>>(model: M): M => ({ ...model, provider: "openai", baseUrl: OPENAI_BASE_URL });
-  const registerChatGpt = () =>
-    models.setProvider(
-      createProvider({
-        id: CHATGPT_PROVIDER_ID,
-        name: "ChatGPT",
-        baseUrl: OPENAI_BASE_URL,
-        auth: {
-          apiKey: {
-            name: "ChatGPT plan",
-            resolve: async ({ credential }) =>
-              credential?.key ? { auth: { apiKey: credential.key }, source: "Stella" } : undefined,
-          },
-        },
-        models: [...chatgpt.values()],
-        api: {
-          "openai-responses": {
-            stream: (model, context, options) => responses.stream(asOpenAI(model), context, options),
-            streamSimple: (model, context, options) => responses.streamSimple(asOpenAI(model), context, options),
-          },
-        },
-      }),
-    );
   const ensureChatGpt = (modelId: string): ModelRef | { error: string } => {
     if (!chatgpt.has(modelId)) {
-      const openai = (upstreamProviders().find((provider) => provider.id === "openai")?.getModels() ?? []).filter(
-        (model): model is Model<"openai-responses"> => model.api === "openai-responses",
-      );
-      // A model the plan lists that pi-ai doesn't know yet runs like OpenAI's newest reasoning model.
-      const known = openai.find((model) => model.id === modelId || model.id === modelId.replace(/\./g, "-"));
-      const template = known ?? openai.filter((model) => model.reasoning).at(-1);
-      if (!template) return { error: `chatgpt/${modelId} isn't a model Stella can run on your ChatGPT plan.` };
-      chatgpt.set(modelId, {
-        ...template,
-        id: modelId,
-        name: known?.name ?? modelId,
-        provider: CHATGPT_PROVIDER_ID,
-        baseUrl: OPENAI_BASE_URL,
-        cost: NO_COST,
-      });
-      registerChatGpt();
+      const model = chatGptModel(modelId);
+      if (!model) return { error: `chatgpt/${modelId} isn't a model Stella can run on your ChatGPT plan.` };
+      chatgpt.set(modelId, model);
+      models.setProvider(chatGptProvider({ models: [...chatgpt.values()] }));
     }
     return { provider: CHATGPT_PROVIDER_ID, modelId };
   };

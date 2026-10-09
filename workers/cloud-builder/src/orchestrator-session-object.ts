@@ -4722,15 +4722,20 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // The durable turn is claimed before the heavy loop implementation is
       // evaluated. Load it alongside read-only preparation on actual turns;
       // object wake, admission, status, and cancellation stay on the lean path.
-      // Stella-model turns of a conversation created on pi-durable run there
-      // (`runPiTurn`); other engines keep their own paths.
+      // Stella-model and ChatGPT-plan turns of a conversation created on
+      // pi-durable run there (`runPiTurn`); other engines keep their own paths.
       // A computer's cloud agent runs on pi-durable in any conversation.
       const piExecution =
-        harnessExecution?.engine === "stella" &&
-        (turn.piAgent ||
-          (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi")
-          ? harnessExecution
-          : undefined;
+        harnessExecution?.engine === "stella"
+          ? turn.piAgent ||
+            (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi"
+            ? harnessExecution
+            : undefined
+          : harnessExecution?.engine === "chatgpt" &&
+              !turn.piAgent &&
+              (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi"
+            ? harnessExecution
+            : undefined;
       if (turn.piAgent && !piExecution) {
         throw new Error(
           "A computer's cloud agents run on Stella's models; this conversation's cloud turns use another engine.",
@@ -5953,7 +5958,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     executionSignal: AbortSignal;
     resumeTurn: boolean;
     started: number;
-    execution: Extract<CloudExecutionSelection, { engine: "stella" }>;
+    execution: import("./pi-runtime.js").PiExecution;
     capability: string;
     relayFetch: typeof fetch;
     gatewayOrigin: string;
@@ -5974,15 +5979,18 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     ]);
     await assertExactTurnActive();
     const executionContext = cloudExecutionContext(turn, destinations);
-    const modelSpec = (agentType: "orchestrator" | "general") => {
+    const modelSpec = (
+      agentType: "orchestrator" | "general",
+      execution: Extract<CloudExecutionSelection, { engine: "stella" }>,
+    ) => {
       const descriptor = resolveManagedModelDescriptor({
         agentType,
-        requestedModel: args.execution.model,
+        requestedModel: execution.model,
         audience: turn.audience,
       });
       return {
         agentType,
-        alias: args.execution.model,
+        alias: execution.model,
         protocol: descriptor.protocol,
         reasoning: descriptor.reasoning,
         supportsImages: descriptor.supportsImages,
@@ -6007,9 +6015,19 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         budgetMicroCents: turn.budgetMicroCents,
         execution: args.execution,
       },
-      model: modelSpec("orchestrator"),
-      agentModel: modelSpec("general"),
-      thinkingLevel: pi.thinkingLevelFor(args.execution.reasoningEffort),
+      // A ChatGPT plan turn runs on the plan's model, which the gateway does not resolve.
+      ...(args.execution.engine === "stella"
+        ? {
+            stellaModels: {
+              model: modelSpec("orchestrator", args.execution),
+              agentModel: modelSpec("general", args.execution),
+            },
+          }
+        : {}),
+      thinkingLevel: pi.thinkingLevelFor(
+        args.execution.reasoningEffort,
+        args.execution.engine,
+      ),
       tools: async () =>
         (
           await this.createTools(

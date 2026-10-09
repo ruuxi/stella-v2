@@ -31,7 +31,7 @@ import {
   turnBrokerStorageKey,
   type TurnBrokerRecord,
 } from "./turn-credential-broker.js";
-import { assertTurnExecutionActive, createTurnRetryCancellation } from "./turn-cancellation.js";
+import { startTurnExecution } from "./turn-cancellation.js";
 import { issueWorldCapability } from "./world-capability.js";
 import { worldMaterializationCommand } from "./world-materialization.js";
 import { agentSandboxId, WORLD_ROOT, worldName } from "./workspace.js";
@@ -142,7 +142,7 @@ export const releasePiCompute = async (host: PiComputeHost, record: PiComputeRec
       .catch(() => undefined);
     if (pid !== undefined) {
       await sandbox.exec(`kill -TERM -- -${pid}`, { origin: "internal" }).catch(() => undefined);
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await scheduler.wait(500);
       await sandbox.exec(`kill -KILL -- -${pid}`, { origin: "internal" }).catch(() => undefined);
     }
     await sandbox.killProcess(`attached-daemon-${record.sessionId}`.slice(0, 64), "SIGKILL").catch(() => undefined);
@@ -180,12 +180,20 @@ export const openPiComputeLease = async (
   };
   await host.storage.put(piComputeKey(agentConversationId), record);
   const world = await worldName(owner.ownerId);
-  const controller = new AbortController();
-  const cancellation = createTurnRetryCancellation();
+  // The lease runs as a supervised execution until it is released: its
+  // signal is what a stop aborts, and what a slot wait and the attach watch.
+  let released!: () => void;
+  const held = new Promise<void>((resolve) => {
+    released = resolve;
+  });
+  const execution = startTurnExecution({ work: async () => await held });
   const context = {
-    cancellation,
-    signal: controller.signal,
-    assertActive: () => assertTurnExecutionActive(cancellation, controller.signal),
+    cancellation: execution.cancellation,
+    signal: execution.signal,
+    assertActive: () => {
+      execution.signal.throwIfAborted();
+      if (execution.cancellation.aborted) throw new Error("This agent's workspace was released.");
+    },
   };
   const expiresAt = Date.now() + CREDENTIAL_TTL_MS;
   let sandbox: SandboxHandle | undefined;
@@ -193,7 +201,7 @@ export const openPiComputeLease = async (
 
   const attachWorld = async (target: { sandboxId: string; instanceSize: "small" | "large"; sessionId: string }) => {
     const started = Date.now();
-    await host.takeSlot(owner, target.sandboxId, controller.signal);
+    await host.takeSlot(owner, target.sandboxId, execution.signal);
     size = target.instanceSize;
     sandbox = sandboxFor(host, target.sandboxId, size, world);
     const options = {
@@ -340,8 +348,8 @@ export const openPiComputeLease = async (
     ladder,
     expiresAt,
     abort: (reason) => {
-      cancellation.abort(reason);
-      controller.abort(reason);
+      void execution.interrupt(reason).catch(() => undefined);
+      released();
     },
   };
 };

@@ -16,6 +16,7 @@ import { displayTabs } from "@/features/workspace-display/tab-store";
 import { AudioPlayer } from "@/shell/AudioPlayer";
 import { localMediaUrl } from "@/shared/hooks/local-media-url";
 import { useT } from "@/shared/i18n";
+import { ZoomableImage, type SwipeDirection } from "@/shell/ZoomableImage";
 
 type MediaPreviewCardProps = {
   asset: MediaAsset;
@@ -23,6 +24,8 @@ type MediaPreviewCardProps = {
   madeBy?: string;
   inDialog?: boolean;
   initialIndex?: number;
+  /** In the sidebar viewer: a drag across the image steps to another file. */
+  onSwipe?: (direction: SwipeDirection) => void;
 };
 
 const filenameOf = (filePath: string): string =>
@@ -129,12 +132,14 @@ const ImageGallery = ({
   madeBy,
   inDialog,
   initialIndex,
+  onSwipe,
 }: {
   filePaths: string[];
   prompt?: string;
   madeBy?: string;
   inDialog?: boolean;
   initialIndex?: number;
+  onSwipe?: (direction: SwipeDirection) => void;
 }) => {
   const t = useT();
   const { files, error, missing } = useDisplayFileBlobs(
@@ -169,11 +174,18 @@ const ImageGallery = ({
           ) : undefined
         }
       />
-      {active ? (
+      {active && inDialog ? (
+        <ZoomableImage
+          src={active.url}
+          alt={prompt ?? filenameOf(filePaths[safeIndex])}
+          ariaLabel={t("shell.display.media.zoom")}
+          {...(onSwipe ? { onSwipe } : {})}
+        />
+      ) : active ? (
         <button
           type="button"
           className="display-media__primary-btn"
-          onClick={inDialog ? undefined : expandDisplayPanel}
+          onClick={expandDisplayPanel}
           aria-label={t("shell.display.media.expandPanel")}
         >
           <img
@@ -406,6 +418,7 @@ export const MediaPreviewCard = ({
   madeBy,
   inDialog,
   initialIndex,
+  onSwipe,
 }: MediaPreviewCardProps) => {
   switch (asset.kind) {
     case "image":
@@ -416,6 +429,7 @@ export const MediaPreviewCard = ({
           {...(madeBy ? { madeBy } : {})}
           {...(inDialog ? { inDialog } : {})}
           {...(initialIndex !== undefined ? { initialIndex } : {})}
+          {...(onSwipe ? { onSwipe } : {})}
         />
       );
     case "video":

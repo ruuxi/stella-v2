@@ -2600,7 +2600,8 @@
         "revealInFinder": "แสดงใน Finder",
         "save": "บันทึก",
         "saveFailed": "บันทึกไม่สำเร็จ",
-        "saved": "บันทึกแล้ว"
+        "saved": "บันทึกแล้ว",
+        "zoom": "ซูมรูปภาพ"
       },
       "office": {
         "frameTitle": "ตัวอย่าง {kind}: {title}",

@@ -667,6 +667,8 @@ function ChatSurface(props: {
         artifact={selectedArtifact}
         access={access}
         onClose={() => setSelectedArtifact(null)}
+        siblings={conversationArtifacts}
+        onNavigate={setSelectedArtifact}
       />
     </View>
   );

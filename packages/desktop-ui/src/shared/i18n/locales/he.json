@@ -2630,7 +2630,8 @@
         "revealInFinder": "הצג ב-Finder",
         "save": "שמור",
         "saveFailed": "לא ניתן היה לשמור",
-        "saved": "נשמר"
+        "saved": "נשמר",
+        "zoom": "הגדלת התמונה"
       },
       "office": {
         "frameTitle": "תצוגה מקדימה של {kind}: {title}",

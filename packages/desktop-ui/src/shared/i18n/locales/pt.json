@@ -2630,7 +2630,8 @@
         "revealInFinder": "Mostrar no Finder",
         "save": "Salvar",
         "saveFailed": "Não foi possível salvar",
-        "saved": "Salvo"
+        "saved": "Salvo",
+        "zoom": "Ampliar imagem"
       },
       "office": {
         "frameTitle": "Prévia de {kind}: {title}",

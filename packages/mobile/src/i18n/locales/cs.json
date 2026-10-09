@@ -2644,7 +2644,8 @@
         "revealInFinder": "Zobrazit ve Finderu",
         "save": "Uložit",
         "saveFailed": "Nepodařilo se uložit",
-        "saved": "Uloženo"
+        "saved": "Uloženo",
+        "zoom": "Přiblížit obrázek"
       },
       "office": {
         "frameTitle": "Náhled — {kind}: {title}",

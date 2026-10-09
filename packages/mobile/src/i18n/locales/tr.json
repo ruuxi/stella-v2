@@ -2616,7 +2616,8 @@
         "revealInFinder": "Finder'da göster",
         "save": "Kaydet",
         "saveFailed": "Kaydedilemedi",
-        "saved": "Kaydedildi"
+        "saved": "Kaydedildi",
+        "zoom": "Resmi yakınlaştır"
       },
       "office": {
         "frameTitle": "{kind} önizlemesi: {title}",

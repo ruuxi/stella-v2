@@ -2644,7 +2644,8 @@
         "revealInFinder": "Показать в Finder",
         "save": "Сохранить",
         "saveFailed": "Не удалось сохранить",
-        "saved": "Сохранено"
+        "saved": "Сохранено",
+        "zoom": "Увеличить изображение"
       },
       "office": {
         "frameTitle": "Предпросмотр — {kind}: {title}",

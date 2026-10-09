@@ -2600,7 +2600,8 @@
         "revealInFinder": "Hiện trong Finder",
         "save": "Lưu",
         "saveFailed": "Không thể lưu",
-        "saved": "Đã lưu"
+        "saved": "Đã lưu",
+        "zoom": "Phóng to hình ảnh"
       },
       "office": {
         "frameTitle": "Xem trước {kind}: {title}",

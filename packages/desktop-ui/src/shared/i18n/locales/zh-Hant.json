@@ -2600,7 +2600,8 @@
         "revealInFinder": "在 Finder 中顯示",
         "save": "儲存",
         "saveFailed": "無法儲存",
-        "saved": "已儲存"
+        "saved": "已儲存",
+        "zoom": "縮放圖片"
       },
       "office": {
         "frameTitle": "{kind} 預覽：{title}",

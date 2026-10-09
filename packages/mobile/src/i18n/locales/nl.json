@@ -2616,7 +2616,8 @@
         "revealInFinder": "Tonen in Finder",
         "save": "Opslaan",
         "saveFailed": "Kon niet opslaan",
-        "saved": "Opgeslagen"
+        "saved": "Opgeslagen",
+        "zoom": "Afbeelding inzoomen"
       },
       "office": {
         "frameTitle": "{kind}-voorbeeld: {title}",

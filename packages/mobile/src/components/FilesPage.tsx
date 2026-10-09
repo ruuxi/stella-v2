@@ -140,6 +140,8 @@ export function FilesPage() {
         artifact={viewerArtifact}
         access={hub?.access ?? null}
         onClose={() => setViewerArtifact(null)}
+        siblings={shown}
+        onNavigate={setViewerArtifact}
       />
     </View>
   );

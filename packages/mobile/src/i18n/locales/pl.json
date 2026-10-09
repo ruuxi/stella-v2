@@ -2644,7 +2644,8 @@
         "revealInFinder": "Pokaż w Finderze",
         "save": "Zapisz",
         "saveFailed": "Nie udało się zapisać",
-        "saved": "Zapisano"
+        "saved": "Zapisano",
+        "zoom": "Powiększ obraz"
       },
       "office": {
         "frameTitle": "Podgląd — {kind}: {title}",

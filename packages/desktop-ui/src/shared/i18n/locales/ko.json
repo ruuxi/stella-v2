@@ -2600,7 +2600,8 @@
         "revealInFinder": "Finder에서 보기",
         "save": "저장",
         "saveFailed": "저장할 수 없습니다",
-        "saved": "저장됨"
+        "saved": "저장됨",
+        "zoom": "이미지 확대"
       },
       "office": {
         "frameTitle": "{kind} 미리보기: {title}",

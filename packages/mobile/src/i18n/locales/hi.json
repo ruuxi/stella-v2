@@ -2616,7 +2616,8 @@
         "revealInFinder": "Finder में दिखाएँ",
         "save": "सहेजें",
         "saveFailed": "सहेजा नहीं जा सका",
-        "saved": "सहेजा गया"
+        "saved": "सहेजा गया",
+        "zoom": "छवि ज़ूम करें"
       },
       "office": {
         "frameTitle": "{kind} पूर्वावलोकन: {title}",

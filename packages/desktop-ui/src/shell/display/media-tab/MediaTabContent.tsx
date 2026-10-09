@@ -2,12 +2,22 @@
  * Media viewer for one generated asset: the model chip, prompt and
  * action bar over a full-bleed preview. Which asset is showing is the Files
  * section's business, so this takes the item it should render.
+ *
+ * Swiping (a horizontal trackpad swipe, a drag across an image at fit size,
+ * or the arrow keys) steps through the other media files in the Files list,
+ * in the list's order, within this same sidebar tab.
  */
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { MediaPreviewCard } from "@/shell/MediaPreviewCard";
+import type { SwipeDirection } from "@/shell/ZoomableImage";
 import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
 import { displayTabs } from "@/features/workspace-display/tab-store";
+import {
+  useFileEntries,
+  type FileEntry,
+} from "@/features/workspace-display/files-index";
+import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
 import { removeGeneratedMediaItem } from "../payload-to-tab-spec";
 import type { MediaTabItem } from "./media-item";
 import { MediaActionBar } from "./MediaActionBar";
@@ -15,8 +25,101 @@ import { HeroPrompt } from "./HeroPrompt";
 import { useT } from "@/shared/i18n";
 import "../media-tab.css";
 
+/** Accumulated horizontal wheel travel that counts as one swipe. */
+const WHEEL_SWIPE_PX = 80;
+/** Quiet time that ends one trackpad gesture (and its inertia). */
+const WHEEL_GESTURE_IDLE_MS = 220;
+
+const isSwipeableMedia = (entry: FileEntry): boolean =>
+  entry.source === "media" &&
+  entry.payload.kind === "media" &&
+  (entry.payload.asset.kind === "image" ||
+    entry.payload.asset.kind === "video" ||
+    entry.payload.asset.kind === "audio");
+
+/** The neighbouring media entries of `itemId` in the Files list. */
+const useMediaNeighbours = (itemId: string) => {
+  const entries = useFileEntries();
+  return useMemo(() => {
+    const media = entries.filter(isSwipeableMedia);
+    const index = media.findIndex((entry) => entry.id === itemId);
+    if (index === -1) return { previous: null, next: null };
+    return {
+      previous: media[index - 1] ?? null,
+      next: media[index + 1] ?? null,
+    };
+  }, [entries, itemId]);
+};
+
+/**
+ * Show `entry` in place of the current file: registers its viewer without
+ * activating anything, then repoints the active Files tab at it, so stepping
+ * through files never stacks a new sidebar tab per file.
+ */
+const showInPlace = (entry: FileEntry) => {
+  openDisplayPayloadTab(entry.payload, { activate: false });
+  sidebarSections.setLocation("files", entry.id);
+};
+
 export const MediaTabContent = ({ item }: { item: MediaTabItem }) => {
   const t = useT();
+  const neighbours = useMediaNeighbours(item.id);
+  const neighboursRef = useRef(neighbours);
+  neighboursRef.current = neighbours;
+  const previewRef = useRef<HTMLDivElement | null>(null);
+
+  const step = useCallback((direction: SwipeDirection) => {
+    const target =
+      direction === "next"
+        ? neighboursRef.current.next
+        : neighboursRef.current.previous;
+    if (target) showInPlace(target);
+  }, []);
+
+  // Two-finger horizontal trackpad swipes arrive as wheel events. A zoomed
+  // image claims the wheel for panning before it reaches this listener.
+  useEffect(() => {
+    const preview = previewRef.current;
+    if (!preview) return;
+    let travel = 0;
+    let fired = false;
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    const onWheel = (event: WheelEvent) => {
+      if (event.ctrlKey) return;
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        travel = 0;
+        fired = false;
+      }, WHEEL_GESTURE_IDLE_MS);
+      if (fired || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+      travel += event.deltaX;
+      if (Math.abs(travel) < WHEEL_SWIPE_PX) return;
+      fired = true;
+      step(travel > 0 ? "next" : "previous");
+    };
+    preview.addEventListener("wheel", onWheel, { passive: true });
+    return () => {
+      preview.removeEventListener("wheel", onWheel);
+      if (idleTimer) clearTimeout(idleTimer);
+    };
+  }, [step]);
+
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
+        return;
+      }
+      // Media controls (a video's scrubber) keep their own arrow keys.
+      const target = event.target as HTMLElement;
+      if (target.closest("video, audio, input, [role='slider']")) return;
+      if (event.key === "ArrowRight") step("next");
+      else if (event.key === "ArrowLeft") step("previous");
+      else return;
+      event.preventDefault();
+    },
+    [step],
+  );
+
   const handleDelete = useCallback(() => {
     removeGeneratedMediaItem(item.id);
     // Deleting the asset leaves the viewer with nothing to show, so retire
@@ -49,10 +152,15 @@ export const MediaTabContent = ({ item }: { item: MediaTabItem }) => {
             </div>
             {item.prompt ? <HeroPrompt text={item.prompt} /> : null}
           </div>
-          <div className="media-tab__hero-preview">
+          <div
+            ref={previewRef}
+            className="media-tab__hero-preview"
+            onKeyDown={handleKeyDown}
+          >
             <MediaPreviewCard
               asset={item.asset}
               inDialog
+              onSwipe={step}
               {...(item.prompt ? { prompt: item.prompt } : {})}
               {...(item.madeBy ? { madeBy: item.madeBy } : {})}
             />

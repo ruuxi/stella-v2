@@ -2600,7 +2600,8 @@
         "revealInFinder": "Tampilkan di Finder",
         "save": "Simpan",
         "saveFailed": "Tidak dapat menyimpan",
-        "saved": "Tersimpan"
+        "saved": "Tersimpan",
+        "zoom": "Perbesar gambar"
       },
       "office": {
         "frameTitle": "Pratinjau {kind}: {title}",

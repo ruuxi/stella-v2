@@ -2672,7 +2672,8 @@
         "revealInFinder": "أظهِر في Finder",
         "save": "حفظ",
         "saveFailed": "تعذّر الحفظ",
-        "saved": "تم الحفظ"
+        "saved": "تم الحفظ",
+        "zoom": "تكبير الصورة"
       },
       "office": {
         "frameTitle": "معاينة {kind}: {title}",

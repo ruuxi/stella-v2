@@ -2616,7 +2616,8 @@
         "revealInFinder": "Reveal in Finder",
         "save": "Save",
         "saveFailed": "Could not save",
-        "saved": "Saved"
+        "saved": "Saved",
+        "zoom": "Zoom image"
       },
       "office": {
         "frameTitle": "{kind} preview: {title}",

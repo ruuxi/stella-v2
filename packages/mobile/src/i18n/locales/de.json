@@ -2616,7 +2616,8 @@
         "revealInFinder": "Im Finder zeigen",
         "save": "Speichern",
         "saveFailed": "Speichern nicht möglich",
-        "saved": "Gespeichert"
+        "saved": "Gespeichert",
+        "zoom": "Bild zoomen"
       },
       "office": {
         "frameTitle": "{kind}-Vorschau: {title}",

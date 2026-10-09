@@ -2616,7 +2616,8 @@
         "revealInFinder": "Megjelenítés a Finderben",
         "save": "Mentés",
         "saveFailed": "Nem sikerült menteni",
-        "saved": "Mentve"
+        "saved": "Mentve",
+        "zoom": "Kép nagyítása"
       },
       "office": {
         "frameTitle": "{kind} előnézet: {title}",

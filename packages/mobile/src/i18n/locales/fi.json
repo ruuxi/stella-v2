@@ -2616,7 +2616,8 @@
         "revealInFinder": "Näytä Finderissa",
         "save": "Tallenna",
         "saveFailed": "Ei voitu tallentaa",
-        "saved": "Tallennettu"
+        "saved": "Tallennettu",
+        "zoom": "Lähennä kuvaa"
       },
       "office": {
         "frameTitle": "{kind}-esikatselu: {title}",

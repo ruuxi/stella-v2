@@ -11,7 +11,6 @@ import {
 } from "react-native";
 import { Icon } from "./Icon";
 import { AudioPlayerView } from "./AudioPlayerView";
-import { Image } from "expo-image";
 import * as Sharing from "expo-sharing";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -48,12 +47,28 @@ import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
 import { classifyCanvasNavigation } from "../lib/canvas-navigation";
 import { resolveCloudDriveFileUri } from "../lib/use-cloud-drive-file-uri";
+import { tapLight } from "../lib/haptics";
+import {
+  SwipeArea,
+  ZoomableImageView,
+  type SwipeDirection,
+} from "./ZoomableImageView";
 
 type ArtifactViewerProps = {
   artifact: ChatArtifact | null;
   access: StoredPhoneAccess | null;
   visible: boolean;
   onClose: () => void;
+} & ArtifactSwipeProps;
+
+type ArtifactSwipeProps = {
+  /**
+   * The list the artifact was opened from, in display order. An image can be
+   * swiped to the images before and after it in this list.
+   */
+  siblings?: readonly ChatArtifact[];
+  /** Show another artifact in place of the current one. */
+  onNavigate?: (artifact: ChatArtifact) => void;
 };
 
 type ArtifactViewerContentProps = {
@@ -65,6 +80,26 @@ type ArtifactViewerContentProps = {
    * dismissing the whole sheet.
    */
   onBack?: () => void;
+} & ArtifactSwipeProps;
+
+const isImageArtifact = (artifact: ChatArtifact): boolean =>
+  artifact.payload.kind === "media" && artifact.payload.asset.kind === "image";
+
+/** The images on either side of `artifact` in `siblings`. */
+const imageNeighbours = (
+  artifact: ChatArtifact | null,
+  siblings: readonly ChatArtifact[] | undefined,
+): { previous: ChatArtifact | null; next: ChatArtifact | null } => {
+  if (!artifact || !siblings || !isImageArtifact(artifact)) {
+    return { previous: null, next: null };
+  }
+  const images = siblings.filter(isImageArtifact);
+  const index = images.findIndex((entry) => entry.id === artifact.id);
+  if (index === -1) return { previous: null, next: null };
+  return {
+    previous: images[index - 1] ?? null,
+    next: images[index + 1] ?? null,
+  };
 };
 
 type LoadedArtifact =
@@ -260,6 +295,8 @@ export function ArtifactViewerContent({
   artifact,
   access,
   onBack,
+  siblings,
+  onNavigate,
 }: ArtifactViewerContentProps) {
   const colors = useColors();
   const insets = useSafeAreaInsets();
@@ -273,6 +310,23 @@ export function ArtifactViewerContent({
 
   const title = artifact ? artifactTitle(artifact.payload) : "Artifact";
   const subtitle = artifact ? artifactSubtitle(artifact.payload) : "";
+
+  const neighbours = useMemo(
+    () => imageNeighbours(artifact, siblings),
+    [artifact, siblings],
+  );
+  const onSwipe = useCallback(
+    (direction: SwipeDirection) => {
+      const target =
+        direction === "next" ? neighbours.next : neighbours.previous;
+      if (!target || !onNavigate) return;
+      tapLight();
+      onNavigate(target);
+    },
+    [neighbours, onNavigate],
+  );
+  const swipeable =
+    Boolean(onNavigate) && Boolean(neighbours.previous || neighbours.next);
 
   // On-device PDFs carry a local file URI we can hand straight to the OS share
   // sheet (save to Files / open in another app), without asking the computer.
@@ -603,7 +657,17 @@ export function ArtifactViewerContent({
         ) : null}
       </View>
         <View style={styles.body}>
-          {loading ? (
+          {(loading || error) && swipeable ? (
+            <SwipeArea onSwipe={onSwipe}>
+              <View style={styles.center}>
+                {loading ? (
+                  <ActivityIndicator color={colors.textMuted} />
+                ) : (
+                  <Text style={styles.error}>{error}</Text>
+                )}
+              </View>
+            </SwipeArea>
+          ) : loading ? (
             <View style={styles.center}>
               <ActivityIndicator color={colors.textMuted} />
             </View>
@@ -661,11 +725,13 @@ export function ArtifactViewerContent({
               style={styles.webview}
             />
           ) : loaded?.kind === "image" ? (
-            <Image
-              source={{ uri: loaded.uri }}
-              style={styles.image}
-              contentFit="contain"
+            <ZoomableImageView
+              key={loaded.uri}
+              uri={loaded.uri}
               accessibilityLabel={title}
+              hasPrevious={Boolean(neighbours.previous)}
+              hasNext={Boolean(neighbours.next)}
+              {...(swipeable ? { onSwipe } : {})}
             />
           ) : loaded?.kind === "markdown" ? (
             <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -687,10 +753,17 @@ export function ArtifactViewer({
   access,
   visible,
   onClose,
+  siblings,
+  onNavigate,
 }: ArtifactViewerProps) {
   return (
     <TopSheet visible={visible} onClose={onClose}>
-      <ArtifactViewerContent artifact={artifact} access={access} />
+      <ArtifactViewerContent
+        artifact={artifact}
+        access={access}
+        {...(siblings ? { siblings } : {})}
+        {...(onNavigate ? { onNavigate } : {})}
+      />
     </TopSheet>
   );
 }
@@ -754,10 +827,6 @@ const makeStyles = (colors: ReturnType<typeof useColors>, topInset: number) =>
     documentWebview: {
       backgroundColor: DOCUMENT_PAGE_BACKGROUND,
       flex: 1,
-    },
-    image: {
-      flex: 1,
-      width: "100%",
     },
     center: {
       alignItems: "center",

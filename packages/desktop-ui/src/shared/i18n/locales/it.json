@@ -2630,7 +2630,8 @@
         "revealInFinder": "Mostra nel Finder",
         "save": "Salva",
         "saveFailed": "Impossibile salvare",
-        "saved": "Salvato"
+        "saved": "Salvato",
+        "zoom": "Ingrandisci immagine"
       },
       "office": {
         "frameTitle": "Anteprima {kind}: {title}",

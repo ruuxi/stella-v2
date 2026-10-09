@@ -2616,7 +2616,8 @@
         "revealInFinder": "Vis i Finder",
         "save": "Lagre",
         "saveFailed": "Kunne ikke lagre",
-        "saved": "Lagret"
+        "saved": "Lagret",
+        "zoom": "Zoom inn på bildet"
       },
       "office": {
         "frameTitle": "{kind}-forhåndsvisning: {title}",

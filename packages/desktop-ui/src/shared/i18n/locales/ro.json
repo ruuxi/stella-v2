@@ -2630,7 +2630,8 @@
         "revealInFinder": "Afișează în Finder",
         "save": "Salvează",
         "saveFailed": "Nu s-a putut salva",
-        "saved": "Salvat"
+        "saved": "Salvat",
+        "zoom": "Mărește imaginea"
       },
       "office": {
         "frameTitle": "Previzualizare {kind}: {title}",

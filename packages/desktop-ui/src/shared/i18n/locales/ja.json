@@ -2600,7 +2600,8 @@
         "revealInFinder": "Finder に表示",
         "save": "保存",
         "saveFailed": "保存できませんでした",
-        "saved": "保存しました"
+        "saved": "保存しました",
+        "zoom": "画像を拡大"
       },
       "office": {
         "frameTitle": "{kind} のプレビュー: {title}",

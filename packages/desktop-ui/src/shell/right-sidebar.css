@@ -919,6 +919,38 @@
   background: transparent;
 }
 
+/* Sidebar viewer: click to zoom, drag to pan (see ZoomableImage). */
+
+.display-media__zoom-frame {
+  position: relative;
+  touch-action: none;
+  user-select: none;
+}
+
+.display-media__zoom-frame[data-zoomed="true"] {
+  cursor: grab;
+}
+
+.display-media__zoom-frame[data-zoomed="true"][data-dragging="true"] {
+  cursor: grabbing;
+}
+
+.display-media__zoom-img {
+  transform-origin: center center;
+  will-change: transform;
+  pointer-events: none;
+}
+
+.display-media__zoom-img--animate {
+  transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .display-media__zoom-img--animate {
+    transition: none;
+  }
+}
+
 .display-media__strip {
   flex-shrink: 0;
   display: flex;

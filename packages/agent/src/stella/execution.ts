@@ -89,7 +89,11 @@ export const renderDeviceDestination = (
     orchestrator
       ? "Your Read reads that computer's files, and agents you start without a destination run their tools there."
       : `Your ${ENVIRONMENT_TOOL_NAMES} run on that computer, not in a cloud container; your conversation, \`code\`, web and the rest stay where they are. What is said above about your cloud workspace (\`/workspace/world\`, the drive, delivering linked files) does not apply there: files you make on that computer stay on it.`,
-    placement.home ? `Its home is ${placement.home}: \`~\` there, and a shell command's working directory unless you pass one.` : "",
+    placement.home
+      ? orchestrator
+        ? `Its home is ${placement.home} (\`~\` there).`
+        : `Its home is ${placement.home}: \`~\` there, and a shell command's working directory unless you pass one.`
+      : "",
     'switch_destination with "cloud" moves them back.',
   ]
     .filter(Boolean)
@@ -103,8 +107,14 @@ const switchedText = (from: StellaPlacement, to: StellaPlacement, orchestrator: 
       : `From your next call, your ${ENVIRONMENT_TOOL_NAMES} run there`;
     return [
       `Your tools now run on ${computerLine(to)}. ${what}.`,
-      to.home ? `Its home is ${to.home}: \`~\` there, and your shell's working directory unless you pass one.` : "",
-      `This is a fresh environment: nothing from ${left} comes along. Its files and any shell you started there are not on this computer, and what you make here stays here unless you move it yourself.`,
+      to.home
+        ? orchestrator
+          ? `Its home is ${to.home} (\`~\` there).`
+          : `Its home is ${to.home}: \`~\` there, and your shell's working directory unless you pass one.`
+        : "",
+      orchestrator
+        ? `This is a fresh environment: nothing from ${left} comes along, and its files are not on this computer.`
+        : `This is a fresh environment: nothing from ${left} comes along. Its files and any shell you started there are not on this computer, and what you make here stays here unless you move it yourself.`,
       'Your conversation and everything else stay with you, so carry on in this turn. switch_destination with "cloud" moves your tools back.',
     ]
       .filter(Boolean)
@@ -114,7 +124,9 @@ const switchedText = (from: StellaPlacement, to: StellaPlacement, orchestrator: 
     orchestrator
       ? "Your Read reads the cloud again, and agents you start without a destination run there."
       : `From your next call, your ${ENVIRONMENT_TOOL_NAMES} run in a fresh cloud container again, with the user's world at /workspace/world as \`~\`.`,
-    `Nothing from ${left} comes along: its files stay on it, and any shell you started there is not here.`,
+    orchestrator
+      ? `Nothing from ${left} comes along: its files stay on it.`
+      : `Nothing from ${left} comes along: its files stay on it, and any shell you started there is not here.`,
     "Your conversation and everything else stay with you, so carry on in this turn.",
   ].join("\n");
 };

@@ -4059,8 +4059,8 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       this.deviceToolRelayState ??= new DeviceToolRelay({
         liveSocket: (id) => this.liveSocket(id),
         send: (socket, frame) => this.send(socket, frame),
-        log: (event, fields) =>
-          log("error", event, { ownerId: this.ownerId(), ...fields }),
+        log: (level, event, fields) =>
+          log(level, event, { ownerId: this.ownerId(), ...fields }),
       });
     }
     return await this.deviceToolRelayState.call({

@@ -9,8 +9,10 @@
  *
  * A computer whose socket drops is given a short grace to come back (it
  * reconnects to present a fresh token, or after a blip). Its new socket is
- * sent each pending call again; the computer answers a call it already ran
- * from that run, so nothing runs twice and nothing finished is lost.
+ * sent each pending call again, to resume only: the computer answers from
+ * the run it has, and fails a call it no longer knows (its Stella restarted)
+ * rather than starting it, so nothing runs twice and nothing finished is
+ * lost.
  */
 
 import {
@@ -47,7 +49,7 @@ export type DeviceToolRelayHost = {
   /** The device's one proven presence socket, when it is online. */
   liveSocket: (deviceId: string) => WebSocket | null;
   send: (socket: WebSocket, frame: DeviceToolServerFrame) => void;
-  log: (event: string, fields: Record<string, unknown>) => void;
+  log: (level: "info" | "error", event: string, fields: Record<string, unknown>) => void;
 };
 
 const OFFLINE_MESSAGE = "That computer went offline before the call finished.";
@@ -214,23 +216,29 @@ export class DeviceToolRelay {
 
   /** The device's socket closed: its calls wait a short while for it to come back. */
   onDeviceGone(deviceId: string, socket?: WebSocket): void {
+    let waiting = 0;
     for (const entry of this.pending.values()) {
       if (entry.deviceId !== deviceId || !entry.socket) continue;
       if (socket && entry.socket !== socket) continue;
       entry.socket = null;
       this.arm(entry, DEVICE_TOOL_RECONNECT_GRACE_MS, "device_offline", OFFLINE_MESSAGE);
+      waiting += 1;
     }
+    if (waiting > 0) this.host.log("info", "device_tool_awaiting_reconnect", { deviceId, calls: waiting });
   }
 
   /** The device proved a new socket: its waiting calls are sent again there. */
   onDeviceConnected(deviceId: string, socket: WebSocket): void {
+    let resent = 0;
     for (const entry of this.pending.values()) {
       if (entry.deviceId !== deviceId || entry.socket === socket) continue;
+      resent += 1;
       entry.socket = socket;
       if (entry.accepted) this.armRun(entry);
       else this.arm(entry, DEVICE_TOOL_ACCEPT_TIMEOUT_MS, "device_offline", OFFLINE_MESSAGE);
-      this.host.send(socket, { type: "tool.call", requestId: entry.requestId, callJson: entry.callJson });
+      this.host.send(socket, { type: "tool.call", requestId: entry.requestId, callJson: entry.callJson, resume: true });
     }
+    if (resent > 0) this.host.log("info", "device_tool_resumed", { deviceId, calls: resent });
   }
 
   private armRun(entry: Pending): void {
@@ -253,7 +261,7 @@ export class DeviceToolRelay {
     entry.cancelTimer = null;
     this.pending.delete(entry.requestId);
     if (!outcome.ok) {
-      this.host.log("device_tool_failed", {
+      this.host.log("error", "device_tool_failed", {
         deviceId: entry.deviceId,
         code: outcome.code,
         accepted: entry.accepted,

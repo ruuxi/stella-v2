@@ -19,7 +19,9 @@
  * and the model's tool call id, so it is the same on every attempt of one
  * call. The gate joins a call already pending under that id, and the
  * computer answers a call it already ran (or is running) from that run
- * instead of running it again.
+ * instead of running it again. What the gate sends again after the computer
+ * reconnected is marked `resume`, which the computer never starts: one whose
+ * Stella restarted mid-call fails the call rather than run it twice.
  *
  * Authority: the gate relays only to a device that is online, ready, and
  * whose owner enabled remote execution on it (`remoteExecution: enabled`),
@@ -122,7 +124,18 @@ export type DeviceToolOutcome =
 
 /** Server -> computer, on the presence socket. */
 export type DeviceToolServerFrame =
-  | { type: "tool.call"; requestId: string; callJson: string }
+  | {
+      type: "tool.call";
+      requestId: string;
+      callJson: string;
+      /**
+       * Sent again after the computer reconnected: answer only from a run it
+       * already has, finished or running, and never start the call. A
+       * computer whose Stella restarted has none, so a call it may have
+       * partly run fails instead of running twice.
+       */
+      resume?: true;
+    }
   /** The caller stopped waiting (a pause or stop); stop the call. */
   | { type: "tool.cancel"; requestId: string };
 

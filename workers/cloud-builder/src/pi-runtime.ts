@@ -91,6 +91,7 @@ import { isAgentToolSuspendedError } from "@stella/runtime/kernel/agent-core/sus
 import type { CloudBrowserResumeReceipt, CloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import { mintTurnCapability } from "./capability-signer.js";
 import {
+  cancelGatewayHandoff,
   createCloudBrowserClient,
   gatewayBrowserTransport,
   type CloudBrowserAuthority,
@@ -779,9 +780,10 @@ export class PiConversationRuntime {
       kind: suspension.interactionKind,
     };
     this.#options.log("pi_browser_handoff_started", fields);
+    const browser = this.#browserAuthority(active);
     try {
       const end = await this.#options.browserHandoff!(
-        { authority: active.authority, browser: this.#browserAuthority(active), toolCallId, suspension },
+        { authority: active.authority, browser, toolCallId, suspension },
         signal,
       );
       this.#options.log("pi_browser_handoff_ended", { ...fields, result: end.result });
@@ -790,6 +792,16 @@ export class PiConversationRuntime {
         details: { browserHandoff: { interactionId: suspension.interactionId, result: end.result } },
         ...(end.result === "approved" ? {} : { isError: true }),
       };
+    } catch (error) {
+      // A handoff that could not be shown, or was withdrawn, gives the profile
+      // back now rather than at its deadline; one already decided stays so.
+      const gateway = this.#options.env.BROWSER_GATEWAY;
+      if (gateway) await cancelGatewayHandoff(gateway, browser, suspension).catch(() => undefined);
+      this.#options.log("pi_browser_handoff_failed", {
+        ...fields,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
     } finally {
       active.browser?.resumed();
     }

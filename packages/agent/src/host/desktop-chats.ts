@@ -5,7 +5,7 @@
  * `PiChatRequest`s with it and forwards a watched conversation's events to
  * the app (`@stella/contracts/pi-chat`).
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -25,6 +25,13 @@ import {
   type Submission,
   type UserInput,
 } from "@earendil-works/pi-durable";
+import {
+  formatAgentMessage,
+  type AgentDirectoryAgentRow,
+  type AgentDirectorySessionRow,
+  type AgentMessageSender,
+} from "@stella/contracts/agent-directory";
+import type { AgentMessageDelivery } from "@stella/contracts/backend/agent-threads";
 import type { ExecutionDestination } from "@stella/contracts/execution-context";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import { splitReplyRefs } from "@stella/contracts/reply-refs";
@@ -53,7 +60,7 @@ import {
   STELLA_DEFAULT_ALIAS,
   stellaModelRef,
 } from "../harness.ts";
-import { StellaAgentsDoc, type RemoteAgentHost } from "../stella/agents.ts";
+import { StellaAgentsDoc, type AgentDirectoryHost, type RemoteAgentHost } from "../stella/agents.ts";
 import type { StellaToolHost } from "../stella/host-tools.ts";
 import {
   parseStellaModelId,
@@ -94,6 +101,9 @@ const FOLLOW_MS = 2_000;
 const FOLLOW_WINDOW_MS = 60_000;
 /** Until signed in, recovered work retries the provider this often. */
 const PROVIDER_RETRY_MS = 5_000;
+/** How long the agents' directory waits for the cloud; a message waits out the cloud's own device wait. */
+const DIRECTORY_TIMEOUT_MS = 5_000;
+const AGENT_MESSAGE_TIMEOUT_MS = 15_000;
 
 export type DesktopChatsOptions = {
   /** The Stella data directory (`~/.stella`). */
@@ -117,6 +127,17 @@ export type DesktopChatsOptions = {
   journal?(conversationId: string): DesktopJournal | undefined;
   /** For a conversation stored in the cloud: its cloud agents, run in its object. */
   cloudAgents?(conversationId: string): RemoteAgentHost | undefined;
+  /** The chats on this computer, newest first, which agents list and message as sessions. */
+  localSessions?(): Array<{ conversationId: string; title: string; updatedAt: number }>;
+  /**
+   * The owner's agent threads in the cloud, once signed in: a conversation's
+   * agents elsewhere and the user's cloud sessions, and a note for one of
+   * them. A chat kept on this computer never reaches them.
+   */
+  agentThreads?: {
+    directory(conversationId: string): Promise<{ agents: AgentDirectoryAgentRow[]; sessions: AgentDirectorySessionRow[] }>;
+    message(args: { messageId: string; to: string; text: string; from: AgentMessageSender }): Promise<AgentMessageDelivery>;
+  };
   /** One of Stella's agents started work (a spawn or a follow-up: `attempt` counts them). */
   agentStarted?(agent: { conversationId: string; threadId: string; description: string; attempt: number }): void;
   /**
@@ -333,6 +354,95 @@ export function desktopChats(options: DesktopChatsOptions) {
     }
   };
 
+  /** Settles as `work` does, or fails once `ms` pass. */
+  const within = <T,>(work: Promise<T>, ms: number, message: string): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      work,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]).finally(() => clearTimeout(timer));
+  };
+
+  /**
+   * Who a conversation's agents reach beyond its own harness: the other
+   * chats on this computer and their Stellas' agents, and, for a
+   * conversation stored in the cloud, the owner's agent threads (its agents
+   * elsewhere, the user's cloud sessions).
+   */
+  const directoryFor = (conversationId: string): AgentDirectoryHost => {
+    const cloud = conversationId.startsWith("local_") ? undefined : options.agentThreads;
+    const localSessions = (): AgentDirectorySessionRow[] =>
+      (options.localSessions?.() ?? []).map((row) => ({
+        ...row,
+        active: activeNow.has(row.conversationId),
+        where: row.conversationId.startsWith("local_") ? "this computer" : "cloud",
+      }));
+    return {
+      conversationId: async () => conversationId,
+      list: async () => {
+        const local = localSessions();
+        if (!cloud) return { agents: [], sessions: local };
+        try {
+          const remote = await within(cloud.directory(conversationId), DIRECTORY_TIMEOUT_MS, "Stella's cloud did not answer.");
+          // A chat here keeps the title this computer has and the cloud's place.
+          const sessions = new Map(remote.sessions.map((row) => [row.conversationId, row]));
+          for (const row of local) {
+            const there = sessions.get(row.conversationId);
+            sessions.set(
+              row.conversationId,
+              there
+                ? {
+                    ...there,
+                    title: row.title.trim() ? row.title : there.title,
+                    active: row.active || there.active,
+                    updatedAt: Math.max(row.updatedAt, there.updatedAt),
+                  }
+                : row,
+            );
+          }
+          return { agents: remote.agents, sessions: [...sessions.values()] };
+        } catch (error) {
+          return {
+            agents: [],
+            sessions: local,
+            unavailable: `Stella's cloud did not answer (${error instanceof Error ? error.message : String(error)}), so agents running in the cloud or on other devices are not listed right now.`,
+          };
+        }
+      },
+      message: async ({ key, to, text, from, remoteStella }) => {
+        const id = createHash("sha256").update(`${options.deviceId ?? ""}\0${conversationId}\0${key}`).digest("hex").slice(0, 48);
+        const framed = formatAgentMessage(from, text);
+        if (!remoteStella && to !== conversationId) {
+          // Another chat here: its Stella reads the note as its next turn, and the user does not see it.
+          if (chats.has(to) || localSessions().some((row) => row.conversationId === to)) {
+            const chat = await ready(to);
+            const note: TextContent & { stella: { hidden: true } } = { type: "text", text: framed, stella: { hidden: true } };
+            await chat.root.submit({ type: "input", content: [note], whenBusy: "followUp", requestId: `agent-note:${id}` }, context);
+            return { delivered: "queued", threadId: to };
+          }
+          // One of another chat's agents here: it reaches the agent as that chat's Stella's messages do.
+          const home = (await threadIndex())[to];
+          if (home && home !== conversationId) {
+            const chat = await ready(home);
+            const record = (await chat.agentRecords(context)).find((agent) => agent.threadId === to);
+            if (record) {
+              await chat.messageAgent({ key: `note:${id}`, threadId: to, message: framed, fromOrchestrator: true }, context);
+              return { delivered: record.status === "running" ? "steered" : "resumed", threadId: to };
+            }
+          }
+        }
+        if (!cloud) return undefined;
+        return await within(
+          cloud.message({ messageId: `pi-msg:${id}`, to, text, from }),
+          AGENT_MESSAGE_TIMEOUT_MS,
+          "Stella's cloud did not answer, so the message may not have been delivered.",
+        );
+      },
+    };
+  };
+
   const open = (conversationId: string): Promise<Chat> => {
     let chat = chats.get(conversationId);
     if (!chat) {
@@ -372,6 +482,7 @@ export function desktopChats(options: DesktopChatsOptions) {
               return desktopAgentsHost({
                 ...(options.deviceId ? { deviceId: options.deviceId } : {}),
                 ...(cloud ? { cloud } : {}),
+                directory: directoryFor(conversationId),
                 beginAgentRun: async (run) => {
                   // Stella's own agents, not their subagents.
                   if (!opened || run.parentConversationId !== opened.root.id) return;

@@ -9,7 +9,17 @@
  */
 import type { Context } from "@earendil-works/chord";
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
-import { defineDoc, watchEvents, type AgentEventStream, type Conversation, type EntryId, type Harness } from "@earendil-works/pi-durable";
+import {
+  defineDoc,
+  InboxDoc,
+  LiveDoc,
+  watchEvents,
+  type AgentEventStream,
+  type Conversation,
+  type EntryDraft,
+  type EntryId,
+  type Harness,
+} from "@earendil-works/pi-durable";
 import { PI_REPORT_RE, piMessageText, piUserView, type PiUserMessage } from "@stella/contracts/pi-chat";
 import { splitReplyRefs } from "@stella/contracts/reply-refs";
 
@@ -53,6 +63,10 @@ const LocalLogSyncDoc = defineDoc<{ importedSeq?: number; mirrored?: number; rep
 });
 
 const PAGE = 200;
+/** Log rows imported per commit. */
+const IMPORT_PAGE = 1000;
+/** A log message to import, and its text. */
+type Imported = { message: LocalLogMessage; text: string };
 /** Events after which the transcript may have something for the log. */
 const MIRRORED_EVENTS = new Set(["entry_appended", "message_end", "run_end"]);
 
@@ -102,40 +116,83 @@ export async function localLogMirror(args: {
       return undefined;
     }, context);
 
+  /** The entry a log message is written as. */
+  const entryOf = ({ message, text }: Imported): EntryDraft => ({
+    kind: message.role === "user" ? "pi.user" : "pi.assistant",
+    model: [
+      message.role === "user"
+        ? ({ role: "user", content: [{ type: "text", text }], timestamp: message.timestamp } as Message)
+        : writtenReply(text, message.timestamp, "legacy"),
+    ],
+    data: { localLog: message.id },
+  });
+  /** The request a message goes through pi's inbox under, so it is never written twice. */
+  const requestOf = (message: LocalLogMessage) => `legacy:${message.id}`;
+
+  /**
+   * A page of the log written into the transcript in one commit, with how far
+   * the import got: a crash keeps both or neither, so each row is written
+   * once. False, writing nothing, while pi answers or has writes queued: a
+   * run reads the transcript between its steps, so those go through its inbox.
+   */
+  const importPage = (page: Imported[], through: number) =>
+    harness.commit(async (tx) => {
+      // A page that went through the inbox (as every page did in older
+      // builds) and was cut short: each message it wrote has a request, its
+      // first message first.
+      const written = new Set<string>();
+      if (page[0] && (await tx.submissionByRequest(root.id, requestOf(page[0].message)))) {
+        for (const { message } of page) {
+          if (await tx.submissionByRequest(root.id, requestOf(message))) written.add(message.id);
+        }
+      }
+      const last = (await tx.scanEntries({ conversationId: root.id, order: "descending" }, 1)).items[0]?.id ?? 0;
+      if ((await tx.doc(LiveDoc, root.id)).run !== undefined || (await tx.doc(InboxDoc, root.id)).items.length > 0) {
+        return false;
+      }
+      const state = await tx.doc(LocalLogSyncDoc, root.id);
+      const imported = state.importedSeq ?? -1;
+      let newest: number = last;
+      for (const item of page) {
+        if (item.message.seq <= imported || written.has(item.message.id)) continue;
+        newest = (await tx.appendEntry(root.id, entryOf(item))).id;
+      }
+      // Nothing of pi's waits for the log, so what came from it needs no pass.
+      if ((state.mirrored ?? 0) >= last) state.mirrored = newest;
+      state.importedSeq = Math.max(imported, through);
+      return true;
+    }, context);
+
+  /** The log imported through `through`. */
+  const advance = (through: number) =>
+    save((state) => {
+      state.importedSeq = Math.max(state.importedSeq ?? -1, through);
+    });
+
+  /** A page through pi's inbox: placed at its run's next step, one write each. */
+  const submitPage = async (page: Imported[], through: number) => {
+    for (const item of page) {
+      await root.submit({ type: "write", requestId: requestOf(item.message), entry: entryOf(item) }, context);
+    }
+    await advance(through);
+  };
+
   let importing: Promise<void> | undefined;
   const importOnce = async () => {
     let after = (await doc()).importedSeq ?? -1;
     for (;;) {
-      const page = await log.read(after, PAGE);
-      for (const message of page.messages) {
-        const text = message.text.trim();
-        if (!text) continue;
-        const model =
-          message.role === "user"
-            ? ({ role: "user", content: [{ type: "text", text }], timestamp: message.timestamp } as Message)
-            : writtenReply(text, message.timestamp, "legacy");
-        // The id the first import wrote it under, so it is never written twice.
-        await root.submit(
-          {
-            type: "write",
-            requestId: `legacy:${message.id}`,
-            entry: {
-              kind: message.role === "user" ? "pi.user" : "pi.assistant",
-              model: [model],
-              data: { localLog: message.id },
-            },
-          },
-          context,
-        );
-      }
-      if (page.throughSeq > after) {
-        const through = page.throughSeq;
-        await save((state) => {
-          state.importedSeq = Math.max(state.importedSeq ?? -1, through);
+      const read = await log.read(after, IMPORT_PAGE);
+      if (read.throughSeq > after) {
+        const page = read.messages.flatMap((message) => {
+          const text = message.text.trim();
+          return text ? [{ message, text }] : [];
         });
+        // Most often only pi's own messages, written back: nothing to import.
+        if (page.length === 0) await advance(read.throughSeq);
+        else if (!(await importPage(page, read.throughSeq))) await submitPage(page, read.throughSeq);
       }
-      if (page.complete || page.throughSeq <= after) break;
-      after = page.throughSeq;
+      if (read.complete || read.throughSeq <= after) break;
+      after = read.throughSeq;
     }
   };
   /** One import at a time; a caller during one waits for it. */
@@ -199,7 +256,8 @@ export async function localLogMirror(args: {
       const through = mirrored;
       const reply = replyTo;
       await save((current) => {
-        current.mirrored = through;
+        // An import meanwhile may have moved it past what it wrote.
+        current.mirrored = Math.max(current.mirrored ?? 0, through);
         if (reply) current.replyTo = reply;
       });
       if (page.length < PAGE) break;
@@ -220,6 +278,11 @@ export async function localLogMirror(args: {
       running = false;
     })();
   };
+
+  // What the log gained while the conversation was closed, all of a long
+  // one's history on its first open, comes in before anything watches the
+  // transcript: a watched transcript's view is copied per entry appended.
+  await importNow().catch(report);
 
   const stream: AgentEventStream = await watchEvents(harness, root.id, context);
   stream.start(async (events) => {

@@ -1388,21 +1388,25 @@ export class StellaRuntimeHost {
         });
         return { ok: true };
     }
-    async startChat(payload) {
-        const target = payload.storageMode === "local"
+    /**
+     * Where a send the user pointed at the cloud or another computer runs;
+     * null when it runs here (a conversation kept on this computer always does).
+     */
+    placedChatTarget(send) {
+        const target = send?.storageMode === "local"
             ? { mode: "automatic" }
-            : payload.executionTarget && typeof payload.executionTarget === "object"
-            ? payload.executionTarget
+            : send?.executionTarget && typeof send.executionTarget === "object"
+            ? send.executionTarget
             : { mode: "automatic" };
-        if (target.mode === "cloud") {
-            return await this.startPlacedChat(payload, { mode: "cloud" });
-        }
+        if (target.mode === "cloud") return { mode: "cloud" };
         if (target.mode === "device" && typeof target.deviceId === "string" && target.deviceId.trim() && target.deviceId.trim() !== this.deviceIdentity?.deviceId) {
-            return await this.startPlacedChat(payload, {
-                mode: "device",
-                deviceId: target.deviceId.trim(),
-            });
+            return { mode: "device", deviceId: target.deviceId.trim() };
         }
+        return null;
+    }
+    async startChat(payload) {
+        const target = this.placedChatTarget(payload);
+        if (target) return await this.startPlacedChat(payload, target);
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_START_CHAT, payload, {
             ensureWorker: true,
             recordActivity: true,
@@ -1416,10 +1420,52 @@ export class StellaRuntimeHost {
     }
     /** The pi-durable chat (`@stella/contracts/pi-chat`). */
     async piChat(request) {
+        // A send the user pointed elsewhere runs there as a placed chat. Its
+        // turn reaches this computer's transcript through the journal, which
+        // the worker reads closely until it shows.
+        const target = request?.op === "submit" ? this.placedChatTarget(request.send) : null;
+        if (target) {
+            const send = request.send ?? {};
+            const placed = await this.startPlacedChat({
+                conversationId: request.conversationId,
+                userPrompt: request.text,
+                requestId: request.requestId,
+                userMessageEventId: request.requestId,
+                ...(typeof send.selectedText === "string" ? { selectedText: send.selectedText } : {}),
+                ...(Array.isArray(send.attachments) && send.attachments.length ? { attachments: send.attachments } : {}),
+                ...(send.locale ? { locale: send.locale } : {}),
+            }, target);
+            void this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_PI_CHAT, { op: "follow", conversationId: request.conversationId }, {
+                ensureWorker: true,
+                recordActivity: false,
+            }).catch(() => undefined);
+            return { placed: { runId: placed.runId, userMessageId: placed.userMessageId } };
+        }
+        if (request?.op === "abort") await this.cancelPiPlacements(request.conversationId, request.dispatchIds);
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_PI_CHAT, request, {
             ensureWorker: true,
             recordActivity: request?.op === "submit",
         });
+    }
+    /**
+     * Stop what a conversation runs elsewhere: the chats this computer placed,
+     * and the placed turns the app saw running there (`dispatchIds`), which
+     * the cloud may have taken over from their placement.
+     */
+    async cancelPiPlacements(conversationId, dispatchIds) {
+        const bridge = this.hostExecutionPlacementBridge;
+        if (!bridge) return;
+        const ids = new Set(Array.isArray(dispatchIds)
+            ? dispatchIds.filter((id) => typeof id === "string" && /^(dsp|exec):/.test(id))
+            : []);
+        for (const placed of this.placedDispatchByRunId.values()) {
+            if (placed.conversationId === conversationId) ids.add(placed.dispatchId);
+        }
+        await Promise.all([...ids].map((dispatchId) => bridge.cancelDispatch({
+            dispatchId,
+            cancelRequestId: `cancel:${dispatchId}`,
+            reason: "Canceled by the user.",
+        }).catch((error) => console.warn(`[pi-chat] Could not stop ${dispatchId}.`, error))));
     }
     async cancelChat(runId) {
         const placed = this.placedDispatchByRunId.get(runId);

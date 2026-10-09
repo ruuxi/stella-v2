@@ -12,6 +12,11 @@ import {
   getReasoningEffort,
   loadLocalPreferences,
 } from "../../kernel/preferences/local-preferences.js";
+import {
+  getPlacementCancellation,
+  persistPlacementCancellation,
+  type PlacementLocalExecutionKind,
+} from "../../kernel/runner/execution-placement-local-ownership.js";
 import { prepareChatInput } from "./chat-input.js";
 import { piUserContent } from "./pi-chat-input.js";
 import { cloudAgentsFor } from "./pi-cloud-agents.js";
@@ -112,8 +117,25 @@ export const piChatsFor = (
       }),
       journal: (conversationId) => cloudJournalFor(session, conversationId),
       cloudAgents: (conversationId) => cloudAgentsFor(session, conversationId),
-      // The loop's notice for a finished task, from pi's agents.
+      // A conversation stored in the cloud lists this computer's agents in
+      // the owner's agent threads, where a paired phone shows and messages them.
+      agentStarted: (agent) => {
+        if (agent.conversationId.startsWith("local_")) return;
+        void (async () => {
+          const runner = session.runnerCell.get();
+          if (!runner) return;
+          await runner.computerAgents.start({
+            agentId: agent.threadId,
+            conversationId: agent.conversationId,
+            description: agent.description,
+            agentType: "general",
+            attemptGeneration: agent.attempt,
+            ownerGeneration: await runner.cloudJournal.ownerGeneration(),
+          });
+        })().catch((error) => console.warn("[pi-chat] computer thread start failed", error));
+      },
       agentReported: (agent) => {
+        // The loop's notice for a finished task.
         void hostBus
           .request(METHOD_NAMES.HOST_NOTIFICATION_SHOW, {
             title: agent.description.trim() || "Task complete",
@@ -121,6 +143,19 @@ export const piChatsFor = (
             sound: "Glass",
           })
           .catch((error) => console.debug("[pi-chat] agent notification failed", error));
+        if (agent.conversationId.startsWith("local_")) return;
+        const body = /\n(?:result|error): ([\s\S]*?)(?=\n(?:agent_state|routing|presentation): |$)/.exec(agent.report)?.[1]?.trim();
+        void (async () => {
+          const runner = session.runnerCell.get();
+          if (!runner) return;
+          await runner.computerAgents.complete({
+            agentId: agent.threadId,
+            attemptGeneration: agent.attempt,
+            status: agent.failed ? "error" : "completed",
+            ownerGeneration: await runner.cloudJournal.ownerGeneration(),
+            ...(body ? (agent.failed ? { error: body } : { result: body }) : {}),
+          });
+        })().catch((error) => console.warn("[pi-chat] computer thread completion failed", error));
       },
       emit: (payload) => hostBus.notify(NOTIFICATION_NAMES.PI_CHAT_EVENTS, payload),
       report: (error) => console.error("[pi-chat]", error),
@@ -154,6 +189,98 @@ export const resumePiChats = async (
     return;
   }
   await (await piChatsFor(session, hostBus)).resumeActive();
+};
+
+/**
+ * A message the user sent on another device that the cloud placed on this
+ * computer: prepared as a composer send is (attachments included) and
+ * answered as a visible turn of the conversation, cancellable by its
+ * placement run id (`cancelPiPlacement`).
+ */
+export const piPlacedChat = async (
+  session: OpenSession,
+  hostBus: HostBus.Interface,
+  run: {
+    conversationId: string;
+    userPrompt: string;
+    placementRunId: string;
+    userMessageEventId?: string;
+    attachments?: RuntimeChatPayload["attachments"];
+  },
+) => {
+  const chats = await piChatsFor(session, hostBus);
+  const requestId = run.userMessageEventId || `placement:${run.placementRunId}`;
+  const payload: RuntimeChatPayload = {
+    conversationId: run.conversationId,
+    userPrompt: run.userPrompt,
+    userMessageEventId: requestId,
+    platform: process.platform,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    ...(run.attachments?.length ? { attachments: run.attachments } : {}),
+  };
+  const prepared = await prepareChatInput(payload, {
+    stellaDataDirPath: session.config.get().stellaDataDirPath,
+    resolveImageTarget: async () => (await session.runnerCell.get()?.resolveImageTarget(undefined)) ?? undefined,
+  });
+  const content = piUserContent(payload, prepared);
+  // The sender binds its pending message to this id: the journal row keeps it.
+  content[0] = { ...content[0]!, stella: { ...content[0]!.stella, clientMsgId: requestId } } as typeof content[number];
+  const canceled = piPlacementCanceled(session, "chat", run.placementRunId);
+  if (canceled) return { status: "error" as const, finalText: "" as const, error: canceled };
+  return await chats.automation(run.conversationId, {
+    requestId,
+    prompt: run.userPrompt,
+    content,
+    visible: true,
+    placementRunId: run.placementRunId,
+  });
+};
+
+/**
+ * A message from another device for one of this computer's pi agents;
+ * `not_found` when no pi conversation here has that agent.
+ */
+export const piDeliverAgentMessage = async (
+  session: OpenSession,
+  hostBus: HostBus.Interface,
+  message: { threadId: string; text: string; messageId: string },
+) => (await piChatsFor(session, hostBus)).deliverAgentMessage(message.threadId, message.text, message.messageId);
+
+/**
+ * Why a placement was canceled before it ran here, if it was: the cancel is
+ * kept on disk, so a run delivered after it (even after a restart) never
+ * starts. Read in the same step that registers the run, so a later cancel
+ * finds the run instead.
+ */
+export const piPlacementCanceled = (
+  session: OpenSession,
+  kind: PlacementLocalExecutionKind,
+  executionId: string,
+): string | null => getPlacementCancellation({ store: session.storage.runtimeStore, kind, executionId });
+
+/** Keep a placement's cancel, before anything awaits (`piPlacementCanceled`). */
+const persistPiCancel = (
+  session: OpenSession,
+  kind: PlacementLocalExecutionKind,
+  executionId: string,
+  reason?: string,
+) => persistPlacementCancellation({ store: session.storage.runtimeStore, kind, executionId, ...(reason ? { reason } : {}) });
+
+/** Stop a placed chat pi is answering; false when pi has no such run. */
+export const cancelPiPlacement = async (session: OpenSession, placementRunId: string, reason?: string): Promise<boolean> => {
+  persistPiCancel(session, "chat", placementRunId, reason);
+  const chats = await chatsBySession.get(session)?.catch(() => undefined);
+  return (await chats?.cancelPlacement(placementRunId))?.canceled === true;
+};
+
+/** Stop a run of an agent placed here that pi is running; false when pi has no such run. */
+export const cancelPiPlacedAgent = async (
+  session: OpenSession,
+  cancel: { agentKey: string; runKey: string; reason?: string },
+): Promise<boolean> => {
+  persistPiCancel(session, "agent", cancel.runKey, cancel.reason);
+  const chats = await chatsBySession.get(session)?.catch(() => undefined);
+  return chats?.cancelPlacedAgent(cancel.agentKey, cancel.runKey) === true;
 };
 
 /**

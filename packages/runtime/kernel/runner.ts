@@ -715,6 +715,10 @@ export const createStellaHostRunner = (
       history: (conversationId) => context.cloudTranscript.history(conversationId),
       ownerGeneration: () => context.cloudOwnerGeneration(),
     },
+    computerAgents: {
+      start: (args) => computerAgentCloudRecords.create(args),
+      complete: (args) => computerAgentCloudRecords.complete(args),
+    },
     beginVoiceToolCallReceipt: (request) =>
       context.runtimeStore.beginVoiceToolCallReceipt(request),
     completeVoiceToolCallReceipt: (request) =>

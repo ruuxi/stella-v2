@@ -18,6 +18,7 @@ import {
   type Conversation,
   type EntryId,
   type Harness,
+  type Submission,
   type UserInput,
 } from "@earendil-works/pi-durable";
 import type { ExecutionDestination } from "@stella/contracts/execution-context";
@@ -47,7 +48,7 @@ import {
   STELLA_DEFAULT_ALIAS,
   stellaModelRef,
 } from "../harness.ts";
-import type { RemoteAgentHost } from "../stella/agents.ts";
+import { StellaAgentsDoc, type RemoteAgentHost } from "../stella/agents.ts";
 import type { StellaToolHost } from "../stella/host-tools.ts";
 import {
   parseStellaModelId,
@@ -71,6 +72,10 @@ const VOICE_HISTORY_ENTRIES = 200;
 const JOURNAL_CATCH_UP_MS = 3_000;
 /** How often an open conversation is checked for being idle again. */
 const IDLE_CHECK_MS = 30_000;
+/** How often a watched conversation reads the journal while a turn runs elsewhere. */
+const FOLLOW_MS = 2_000;
+/** How long after a turn is placed elsewhere the journal is read that often, until the turn shows. */
+const FOLLOW_WINDOW_MS = 60_000;
 /** Until signed in, recovered work retries the provider this often. */
 const PROVIDER_RETRY_MS = 5_000;
 
@@ -94,8 +99,17 @@ export type DesktopChatsOptions = {
   journal?(conversationId: string): DesktopJournal | undefined;
   /** For a conversation stored in the cloud: its cloud agents, run in its object. */
   cloudAgents?(conversationId: string): RemoteAgentHost | undefined;
+  /** One of Stella's agents started work (a spawn or a follow-up: `attempt` counts them). */
+  agentStarted?(agent: { conversationId: string; threadId: string; description: string; attempt: number }): void;
   /** An agent finished and reported to Stella (the app shows a notification). */
-  agentReported?(agent: { conversationId: string; threadId: string; description: string; failed: boolean }): void;
+  agentReported?(agent: {
+    conversationId: string;
+    threadId: string;
+    description: string;
+    failed: boolean;
+    report: string;
+    attempt: number;
+  }): void;
   /** A watched conversation's events, for every attached client. */
   emit(payload: PiChatEventsPayload): void;
   report(error: unknown): void;
@@ -115,6 +129,9 @@ type Chat = {
   stream?: AgentEventStream;
   watchers: number;
   idleCheck: ReturnType<typeof setInterval>;
+  /** Reads the journal closely while a turn runs elsewhere (`follow`). */
+  followCheck: ReturnType<typeof setInterval>;
+  followUntil: number;
 };
 
 const context = BACKGROUND_CONTEXT;
@@ -140,6 +157,8 @@ export function desktopChats(options: DesktopChatsOptions) {
   const chats = new Map<string, Promise<Chat>>();
   /** The conversation each agent placed here runs in, by its key at the placing host. */
   const placedIn = new Map<string, string>();
+  /** Runs of agents placed here, until they settle, so the host that placed one can stop it. */
+  const placedRuns = new Map<string, { runKey: string; cancel: AbortController }>();
   const directory = path.join(options.dataDir, "agent");
 
   // Conversations with work in flight, so a new runtime process resumes
@@ -166,6 +185,27 @@ export function desktopChats(options: DesktopChatsOptions) {
       await mkdir(directory, { recursive: true });
       await writeFile(`${activeFile}.tmp`, text);
       await rename(`${activeFile}.tmp`, activeFile);
+    }).catch((error: unknown) => options.report(error));
+    await saving;
+  };
+  // Stella's agents by thread id, to their conversation: a message from
+  // another device (a paired phone) names only the thread.
+  const threadsFile = path.join(directory, "threads.json");
+  let threads: Promise<Record<string, string>> | undefined;
+  const threadIndex = () =>
+    (threads ??= readFile(threadsFile, "utf8").then(
+      (text) => JSON.parse(text) as Record<string, string>,
+      (): Record<string, string> => ({}),
+    ));
+  const noteAgentThread = async (threadId: string, conversationId: string) => {
+    const index = await threadIndex();
+    if (index[threadId] === conversationId) return;
+    index[threadId] = conversationId;
+    const text = JSON.stringify(index);
+    saving = saving.then(async () => {
+      await mkdir(directory, { recursive: true });
+      await writeFile(`${threadsFile}.tmp`, text);
+      await rename(`${threadsFile}.tmp`, threadsFile);
     }).catch((error: unknown) => options.report(error));
     await saving;
   };
@@ -262,11 +302,38 @@ export function desktopChats(options: DesktopChatsOptions) {
             }),
             agents: (() => {
               const cloud = options.cloudAgents?.(conversationId);
-              const reported = options.agentReported;
+              const { agentStarted, agentReported } = options;
+              /** How many runs Stella has given one of its agents: the attempt a run is. */
+              const attempts = async (threadId: string) => {
+                if (!opened) return 1;
+                const state = await opened.harness.snapshot(StellaAgentsDoc, opened.root.id, context);
+                return Math.max(1, Object.values(state?.calls ?? {}).filter((call) => call.threadId === threadId).length);
+              };
               return desktopAgentsHost({
                 ...(options.deviceId ? { deviceId: options.deviceId } : {}),
                 ...(cloud ? { cloud } : {}),
-                ...(reported ? { agentReported: (agent) => reported({ conversationId, ...agent }) } : {}),
+                beginAgentRun: async (run) => {
+                  // Stella's own agents, not their subagents.
+                  if (!opened || run.parentConversationId !== opened.root.id) return;
+                  await noteAgentThread(run.threadId, conversationId);
+                  const agent = (await opened.harness.snapshot(StellaAgentsDoc, opened.root.id, context))?.agents[run.threadId];
+                  agentStarted?.({
+                    conversationId,
+                    threadId: run.threadId,
+                    description: agent?.description ?? run.threadId,
+                    attempt: await attempts(run.threadId),
+                  });
+                },
+                ...(agentReported
+                  ? {
+                      agentReported: (agent) => {
+                        void attempts(agent.threadId).then(
+                          (attempt) => agentReported({ conversationId, ...agent, attempt }),
+                          (error: unknown) => options.report(error),
+                        );
+                      },
+                    }
+                  : {}),
               });
             })(),
             ...(options.tools ? { tools: options.tools(conversationId) } : {}),
@@ -284,7 +351,17 @@ export function desktopChats(options: DesktopChatsOptions) {
         void waitForProvider(alias).then(() => harness.resume());
         const journal = options.journal?.(conversationId);
         const mirror = journal
-          ? await journalMirror({ harness, root, journal, report: options.report, context })
+          ? await journalMirror({
+              harness,
+              root,
+              journal,
+              report: options.report,
+              // A turn running elsewhere shows as running to whoever watches.
+              onRemoteTurns: (turns) => {
+                if (opened?.watchers) options.emit({ conversationId, events: [{ type: "remote_turns", turns }] });
+              },
+              context,
+            })
           : undefined;
         void mirror?.importNow().catch((error: unknown) => options.report(error));
         const idleCheck = setInterval(() => {
@@ -305,6 +382,19 @@ export function desktopChats(options: DesktopChatsOptions) {
           })().catch((error: unknown) => options.report(error));
         }, IDLE_CHECK_MS);
         idleCheck.unref?.();
+        let following = false;
+        const followCheck = setInterval(() => {
+          if (!mirror || following || !opened?.watchers) return;
+          if (mirror.remoteTurns().length === 0 && Date.now() >= opened.followUntil) return;
+          following = true;
+          void mirror
+            .importNow()
+            .catch((error: unknown) => options.report(error))
+            .finally(() => {
+              following = false;
+            });
+        }, FOLLOW_MS);
+        followCheck.unref?.();
         opened = {
           harness,
           root,
@@ -317,6 +407,8 @@ export function desktopChats(options: DesktopChatsOptions) {
           ...(mirror ? { mirror } : {}),
           watchers: 0,
           idleCheck,
+          followCheck,
+          followUntil: 0,
         };
         return opened;
       })().catch((error: unknown) => {
@@ -366,7 +458,17 @@ export function desktopChats(options: DesktopChatsOptions) {
     const stream = await attach(conversationId, chat);
     const { entries, hasOlder } = await history(chat);
     const [snapshot] = piEventsForClients([stream.snapshot as unknown as PiChatEvent]) as [PiChatWatchResult["snapshot"]];
-    return { snapshot: { ...snapshot, entries: mergePiEntries(entries, snapshot.entries) }, hasOlder };
+    return {
+      snapshot: { ...snapshot, entries: mergePiEntries(entries, snapshot.entries) },
+      hasOlder,
+      remote: chat.mirror?.remoteTurns() ?? [],
+    };
+  };
+
+  /** A turn of this conversation was placed elsewhere: read the journal closely until it shows. */
+  const follow = async (conversationId: string): Promise<void> => {
+    const chat = await open(conversationId);
+    chat.followUntil = Date.now() + FOLLOW_WINDOW_MS;
   };
 
   const unwatch = async (conversationId: string): Promise<void> => {
@@ -440,45 +542,80 @@ export function desktopChats(options: DesktopChatsOptions) {
     return chat;
   };
 
+  /** Chats another device placed here, by placement run id, until they settle (`cancelPlacement`). */
+  const placements = new Map<string, Placement>();
+  type Placement = { chat?: Chat; submission?: Submission; canceled?: true };
+
+  /** Withdraw a placed chat's input while it waits, or stop the run answering it. */
+  const stopPlacement = async ({ chat, submission }: Placement) => {
+    if (!chat || !submission) return;
+    const withdrawn = await chat.harness.abortSubmission(submission.id, context, chat.root.id);
+    if (withdrawn === "already_placed") await chat.root.abort(context);
+  };
+
   /**
-   * A turn the host starts (a schedule fire, a watch escalation): its prompt
-   * shown as the user's only when the user wrote it, answered after whatever
-   * the conversation is doing. Settles with the answer's text.
+   * A turn the host starts (a schedule fire, a watch escalation, a chat
+   * another device placed here): its prompt shown as the user's only when
+   * the user wrote it, answered after whatever the conversation is doing.
+   * Settles with the answer's text.
    */
   const automation = async (
     conversationId: string,
     turn: {
       requestId: string;
       prompt: string;
+      /** The input as prepared (attached images and files); else `prompt`. */
+      content?: UserInput;
       visible: boolean;
       rejectIfBusy?: boolean;
+      /** A chat another device placed here, cancellable by this id. */
+      placementRunId?: string;
       /** The conversation's events while the turn is open (a voice call narrates its tools). */
       observe?: (events: PiChatEvent[]) => void;
     },
   ): Promise<{ status: "ok"; finalText: string } | { status: "busy" | "error"; finalText: ""; error: string }> => {
-    const chat = await ready(conversationId);
-    const { observe } = turn;
-    const observer = observe ? await watchEvents(chat.harness, chat.root.id, context) : undefined;
-    observer?.start(async (events) => observe?.(events as unknown as PiChatEvent[]));
+    const { observe, placementRunId } = turn;
+    // Before anything awaits, so a cancel that lands while the conversation opens still holds.
+    const placement: Placement = {};
+    if (placementRunId) placements.set(placementRunId, placement);
     try {
-      return await automationTurn(chat, turn);
+      const chat = await ready(conversationId);
+      placement.chat = chat;
+      const observer = observe ? await watchEvents(chat.harness, chat.root.id, context) : undefined;
+      observer?.start(async (events) => observe?.(events as unknown as PiChatEvent[]));
+      try {
+        return await automationTurn(chat, turn);
+      } finally {
+        await observer?.stop().catch(() => undefined);
+      }
     } finally {
-      await observer?.stop().catch(() => undefined);
+      if (placementRunId && placements.get(placementRunId) === placement) placements.delete(placementRunId);
     }
   };
 
   const automationTurn = async (
     chat: Chat,
-    turn: { requestId: string; prompt: string; visible: boolean; rejectIfBusy?: boolean },
+    turn: {
+      requestId: string;
+      prompt: string;
+      content?: UserInput;
+      visible: boolean;
+      rejectIfBusy?: boolean;
+      placementRunId?: string;
+    },
   ): Promise<{ status: "ok"; finalText: string } | { status: "busy" | "error"; finalText: ""; error: string }> => {
     await caughtUp(chat);
+    const placement = turn.placementRunId ? placements.get(turn.placementRunId) : undefined;
+    if (placement?.canceled) return { status: "error", finalText: "", error: "Canceled." };
     let submission;
     try {
       submission = await chat.root.submit(
         {
           type: "input",
           // A prompt the user did not write is read by the model, not shown.
-          content: turn.visible ? turn.prompt : [{ type: "text", text: turn.prompt, stella: { hidden: true } } as TextContent],
+          content:
+            turn.content ??
+            (turn.visible ? turn.prompt : [{ type: "text", text: turn.prompt, stella: { hidden: true } } as TextContent]),
           requestId: turn.requestId,
           whenBusy: turn.rejectIfBusy ? "reject" : "followUp",
         },
@@ -489,6 +626,10 @@ export function desktopChats(options: DesktopChatsOptions) {
         return { status: "busy", finalText: "", error: "Stella is already handling another turn." };
       }
       throw error;
+    }
+    if (placement) {
+      placement.submission = submission;
+      if (placement.canceled) await stopPlacement(placement);
     }
     const settled = await submission.wait(context);
     if (settled.status === "unanswered") {
@@ -613,8 +754,15 @@ export function desktopChats(options: DesktopChatsOptions) {
     run: Parameters<OpenStellaHarness["runPlacedAgent"]>[0],
   ): ReturnType<OpenStellaHarness["runPlacedAgent"]> => {
     placedIn.set(run.agentKey, conversationId);
-    const chat = await ready(conversationId);
-    return await chat.runPlacedAgent(run, context);
+    // Before anything awaits, so a cancel that lands while the conversation opens still holds.
+    const placed = { runKey: run.runKey, cancel: new AbortController() };
+    placedRuns.set(run.agentKey, placed);
+    try {
+      const chat = await ready(conversationId);
+      return await chat.runPlacedAgent({ ...run, signal: placed.cancel.signal }, context);
+    } finally {
+      if (placedRuns.get(run.agentKey) === placed) placedRuns.delete(run.agentKey);
+    }
   };
 
   /** A message for an agent placed here, from the host that placed it; false when it is not running here. */
@@ -622,6 +770,14 @@ export function desktopChats(options: DesktopChatsOptions) {
     const conversationId = placedIn.get(message.agentKey);
     if (!conversationId) return false;
     return await (await open(conversationId)).steerPlacedAgent(message, context);
+  };
+
+  /** Stop a run of an agent placed here, for the host that placed it; false when that run is not going here. */
+  const cancelPlacedAgent = (agentKey: string, runKey: string): boolean => {
+    const placed = placedRuns.get(agentKey);
+    if (placed?.runKey !== runKey) return false;
+    placed.cancel.abort();
+    return true;
   };
 
   const older = async (conversationId: string, beforeEntryId: number): Promise<PiChatOlderResult> =>
@@ -635,8 +791,41 @@ export function desktopChats(options: DesktopChatsOptions) {
     messageAgent,
     runPlacedAgent,
     steerPlacedAgent,
+    cancelPlacedAgent,
     voiceTranscript,
     voiceHistory,
+    /**
+     * Stop a chat another device placed here: withdraw it while it waits,
+     * or stop the run answering it.
+     */
+    async cancelPlacement(placementRunId: string): Promise<{ canceled: boolean }> {
+      const placement = placements.get(placementRunId);
+      if (!placement) return { canceled: false };
+      placement.canceled = true;
+      await stopPlacement(placement);
+      return { canceled: true };
+    },
+    /**
+     * A message for one of Stella's agents from another device (a paired
+     * phone, the cloud's Stella): it steers the agent while it works or
+     * starts its next run, and the report goes to Stella here.
+     */
+    async deliverAgentMessage(
+      threadId: string,
+      text: string,
+      messageId: string,
+    ): Promise<"steered" | "resumed" | "not_found"> {
+      const conversationId = (await threadIndex())[threadId];
+      if (!conversationId || !text.trim()) return "not_found";
+      const chat = await ready(conversationId);
+      const record = (await chat.agentRecords(context)).find((agent) => agent.threadId === threadId);
+      if (!record) return "not_found";
+      await chat.messageAgent(
+        { key: `device:${messageId.trim() || crypto.randomUUID()}`, threadId, message: text, fromOrchestrator: true },
+        context,
+      );
+      return record.status === "running" ? "steered" : "resumed";
+    },
     /** Whether any conversation has work in flight here, so the process must stay up. */
     busy(): boolean {
       return activeNow.size > 0;
@@ -663,6 +852,9 @@ export function desktopChats(options: DesktopChatsOptions) {
           return older(request.conversationId, request.beforeEntryId);
         case "agents":
           return agents(request.conversationId);
+        case "follow":
+          await follow(request.conversationId);
+          return { ok: true };
       }
     },
     async close(): Promise<void> {
@@ -671,6 +863,7 @@ export function desktopChats(options: DesktopChatsOptions) {
       for (const chat of opened) {
         if (!chat) continue;
         clearInterval(chat.idleCheck);
+        clearInterval(chat.followCheck);
         await chat.mirror?.stop();
         await chat.stream?.stop().catch(() => undefined);
         await chat.harness.close(context).catch(() => undefined);

@@ -15,6 +15,7 @@ import {
   type PiChatEvent,
   type PiChatEventsPayload,
   type PiChatOlderResult,
+  type PiChatPlacedResult,
   type PiChatSend,
   type PiChatState,
   type PiChatWatchResult,
@@ -61,8 +62,8 @@ const attach = (conversationId: string, entry: Watched) => {
   publish(entry);
   void chat.request({ op: "watch", conversationId }).then(
     (result) => {
-      const { snapshot, hasOlder } = result as PiChatWatchResult;
-      let state = reducePiChat({ ...entry.state, hasOlder }, [snapshot]);
+      const { snapshot, hasOlder, remote } = result as PiChatWatchResult;
+      let state = reducePiChat({ ...entry.state, hasOlder, remote: remote ?? [] }, [snapshot]);
       for (const events of entry.held ?? []) state = reducePiChat(state, events);
       entry.held = undefined;
       entry.loading = false;
@@ -160,19 +161,27 @@ export const loadOlderPiChat = async (conversationId: string): Promise<void> => 
   }
 };
 
+/** Send a message; one the user pointed elsewhere comes back placed there. */
 export const submitPiChat = async (
   conversationId: string,
   requestId: string,
   text: string,
   send?: PiChatSend,
-): Promise<void> => {
+): Promise<PiChatPlacedResult["placed"] | undefined> => {
   const chat = api();
   if (!chat) throw new Error("Stella's runtime is not available.");
-  await chat.request({ op: "submit", conversationId, requestId, text, ...(send ? { send } : {}) });
+  const result = await chat.request({ op: "submit", conversationId, requestId, text, ...(send ? { send } : {}) });
+  return (result as Partial<PiChatPlacedResult> | undefined)?.placed;
 };
 
+/** Stop the conversation's run, and the placed turns it is running elsewhere. */
 export const abortPiChat = (conversationId: string): void => {
-  void api()?.request({ op: "abort", conversationId }).catch(() => undefined);
+  const dispatchIds = (watched.get(conversationId)?.state.remote ?? []).flatMap((turn) =>
+    turn.clientMsgId ? [turn.clientMsgId] : [],
+  );
+  void api()
+    ?.request({ op: "abort", conversationId, ...(dispatchIds.length > 0 ? { dispatchIds } : {}) })
+    .catch(() => undefined);
 };
 
 /** A conversation's pi agents as the task rows, cards and focus view read them. */

@@ -21,6 +21,8 @@ export type JournalMessage = {
   /** A prompt no client shows (a wake, a report); still model context. */
   hidden: boolean;
   message: Message;
+  /** A prompt's client id, which the sending client's pending message binds to. */
+  clientMsgId?: string;
 };
 
 /**
@@ -79,13 +81,23 @@ export const journalSeqOf = (entry: Pick<EntryRecord, "data"> | undefined): numb
   return typeof seq === "number" ? seq : undefined;
 };
 
-/** A hidden prompt's text parts are marked, as the host's own hidden prompts are. */
-const asWritten = ({ message, hidden }: JournalMessage): Message => {
-  if (message.role !== "user" || !hidden) return message;
+/**
+ * A hidden prompt's text parts are marked, as the host's own hidden prompts
+ * are; a prompt's client id goes on its first part, as a placed chat's does.
+ */
+const asWritten = ({ message, hidden, clientMsgId }: JournalMessage): Message => {
+  if (message.role !== "user" || (!hidden && !clientMsgId)) return message;
   const parts = typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
   return {
     ...message,
-    content: parts.map((part) => (part.type === "text" ? { ...part, stella: { hidden: true } } : part)),
+    content: parts.map((part, index) => {
+      const marks = {
+        ...(part as { stella?: Record<string, unknown> }).stella,
+        ...(hidden && part.type === "text" ? { hidden: true } : {}),
+        ...(clientMsgId && index === 0 ? { clientMsgId } : {}),
+      };
+      return Object.keys(marks).length > 0 ? { ...part, stella: marks } : part;
+    }),
   } as Message;
 };
 

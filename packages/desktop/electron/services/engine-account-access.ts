@@ -7,7 +7,7 @@ import type {
   EngineConnection,
   EngineSettings,
 } from "@stella/contracts/backend/engines";
-import { listenForChatGptCallback } from "@stella/runtime/ai/utils/oauth/chatgpt";
+import { listenForChatGptCallback } from "@stella/runtime/kernel/integrations/chatgpt-sign-in";
 
 /**
  * The owner's engine accounts as this computer sees them: the list in the

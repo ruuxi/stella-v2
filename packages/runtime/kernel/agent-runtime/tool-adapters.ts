@@ -33,12 +33,12 @@ import {
   detectImageMediaType,
   isCompleteImage,
   MAX_IMAGE_BASE64_BYTES,
-} from "../../ai/utils/image-payload.js";
+} from "../shared/image-payload.js";
 import {
   maxInlineImageBase64Bytes,
   resolveImageCaps,
   type ImageCapTarget,
-} from "../../ai/utils/image-caps.js";
+} from "../shared/image-caps.js";
 import { decodeAndValidateImage } from "../tools/image-decode-validation.js";
 import { buildDemotedCodeSuffix } from "../tools/code-catalog.js";
 import {

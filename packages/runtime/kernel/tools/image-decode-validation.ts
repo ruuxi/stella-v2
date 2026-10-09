@@ -4,7 +4,7 @@ import {
   detectImageMediaType,
   isCompleteImage,
   type SupportedImageMediaType,
-} from "../../ai/utils/image-payload.js";
+} from "../shared/image-payload.js";
 import { loadPhoton } from "../shared/photon.js";
 
 export const MAX_GENERATED_IMAGE_BYTES = 64 * 1024 * 1024;

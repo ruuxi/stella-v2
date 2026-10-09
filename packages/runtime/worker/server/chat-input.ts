@@ -10,7 +10,7 @@ import type {
   RuntimeChatPayload,
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
-import type { ImageCapTarget } from "../../ai/utils/image-caps.js";
+import type { ImageCapTarget } from "../../kernel/shared/image-caps.js";
 import {
   approximateDataUrlBytes,
   attachPersistedImagePaths,

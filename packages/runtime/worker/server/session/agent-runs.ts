@@ -13,7 +13,7 @@ import {
   AGENT_RUN_FINISH_OUTCOMES,
   AGENT_STREAM_EVENT_TYPES,
 } from "@stella/contracts/agent-runtime";
-import type { ImageCapTarget } from "../../../ai/utils/image-caps.js";
+import type { ImageCapTarget } from "../../../kernel/shared/image-caps.js";
 import type { RawReplyRef, ReplyRef } from "@stella/contracts/reply-refs";
 import { prepareStoredLocalChatPayload } from "../../../kernel/storage/local-chat-payload.js";
 import { RunAdmissionStore } from "../../../kernel/storage/run-admission.js";

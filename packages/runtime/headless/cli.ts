@@ -24,7 +24,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { loadModelRegistry } from "@stella/contracts/model-registry";
-import "../ai/utils/http-proxy.js";
+import "../kernel/shared/http-proxy.js";
 import { registerBuiltInApiProviders } from "../ai/providers/register-builtins.js";
 
 type CliMode = "chat" | "completion" | "list-models";

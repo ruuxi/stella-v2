@@ -12,7 +12,7 @@ import {
 	isCompleteImage,
 	MAX_IMAGE_BASE64_BYTES,
 	sanitizeInlineImagePayload,
-} from "@stella/runtime/ai/utils/image-payload";
+} from "@stella/runtime/kernel/shared/image-payload";
 import type { Message, Model } from "@stella/runtime/ai/types";
 
 const model: Model<"anthropic-messages"> = {

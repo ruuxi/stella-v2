@@ -215,6 +215,10 @@ path in the world (for example \
 \`[report.html](${workspaceRoot}/drive/report.html)\`) — those links choose \
 which files appear on the card your report carries.`;
 
+/** The world section alone, for an agent whose workspace attaches on its first tool call. */
+export const generalAgentWorldGuidance = (workspaceRoot: string = WORLD_ROOT): string =>
+  worldSection(workspaceRoot);
+
 /**
  * `body` is `agents/general.md` rendered for the cloud and this turn's tools
  * (`renderStellaPrompt`); everything appended to it is a fact about the turn.

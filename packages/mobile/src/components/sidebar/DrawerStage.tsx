@@ -1,5 +1,10 @@
 import { useEffect, type ReactNode } from "react";
-import { BackHandler, StyleSheet, View, useWindowDimensions } from "react-native";
+import {
+  BackHandler,
+  StyleSheet,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -13,6 +18,7 @@ import Animated, {
 import {
   closeDrawer,
   drawerProgress,
+  drawerVeil,
   openDrawer,
   useDrawerLive,
   useDrawerMetrics,
@@ -90,13 +96,17 @@ export function DrawerStage({
     borderRadius: interpolate(p.value, [0, 0.12], [0, radius], CLAMP),
   }));
   const fade = useAnimatedStyle(() => ({
-    opacity: interpolate(p.value, [0.15, 0.92], [0, 1], CLAMP),
+    opacity: drawerVeil(p.value),
   }));
   const haze = useAnimatedStyle(() => ({
-    opacity: reduce ? 0 : interpolate(p.value, [0, 0.16], [0, 1], CLAMP),
+    opacity: reduce
+      ? 0
+      : interpolate(drawerVeil(p.value), [0, 0.3], [0, 1], CLAMP),
   }));
   const frost = useAnimatedStyle(() => ({
-    opacity: reduce ? 0 : interpolate(p.value, [0.08, 0.42], [0, 1], CLAMP),
+    opacity: reduce
+      ? 0
+      : interpolate(drawerVeil(p.value), [0.1, 1], [0, 1], CLAMP),
   }));
 
   const panelStyle = useAnimatedStyle(() => {
@@ -114,10 +124,7 @@ export function DrawerStage({
     };
   });
   const panelFocus = useAnimatedStyle(() => ({
-    opacity:
-      reduce || p.value > 0.97
-        ? 0
-        : interpolate(p.value, [0, 0.9], [1, 0], CLAMP),
+    opacity: reduce || p.value > 0.97 ? 0 : 1 - drawerVeil(p.value),
   }));
 
   const openPan = useDrawerPan("open", enabled && !open);
@@ -139,7 +146,9 @@ export function DrawerStage({
           onAccessibilityEscape={closeDrawer}
         >
           {panel}
-          {live ? <DrawerMaterial material="regular" style={panelFocus} /> : null}
+          {live ? (
+            <DrawerMaterial material="regular" style={panelFocus} />
+          ) : null}
         </Animated.View>
       </GestureDetector>
 
@@ -157,7 +166,11 @@ export function DrawerStage({
                 <DrawerMaterial material="regular" style={frost} />
                 <Animated.View
                   pointerEvents="none"
-                  style={[StyleSheet.absoluteFill, { backgroundColor: floor }, fade]}
+                  style={[
+                    StyleSheet.absoluteFill,
+                    { backgroundColor: floor },
+                    fade,
+                  ]}
                 />
               </>
             ) : null}

@@ -2,6 +2,7 @@ import { useMemo, useSyncExternalStore } from "react";
 import { Keyboard, useWindowDimensions } from "react-native";
 import { Gesture } from "react-native-gesture-handler";
 import {
+  Easing,
   cancelAnimation,
   makeMutable,
   runOnJS,
@@ -50,8 +51,15 @@ const CLOSE: WithSpringConfig = {
   overshootClamping: true,
 };
 
+let openedAt = 0;
+
 function setOpen(open: boolean) {
+  if (open && !state.open) openedAt = Date.now();
   setState({ open, live: open || state.live });
+}
+
+export function drawerJustOpened(): boolean {
+  return Date.now() - openedAt < 380;
 }
 
 function setLive(live: boolean) {
@@ -92,6 +100,21 @@ export function useDrawerMetrics() {
   const { width } = useWindowDimensions();
   const travel = Math.round(Math.min(width * 0.75, 320));
   return { width, travel, scale: 0.9, radius: 40 };
+}
+
+export const DRAWER_VEIL = {
+  start: 0.18,
+  end: 0.98,
+  curve: [0.4, 0, 0.8, 0.45] as const,
+};
+
+const veilCurve = Easing.bezierFn(...DRAWER_VEIL.curve);
+
+export function drawerVeil(progress: number) {
+  "worklet";
+  const t =
+    (progress - DRAWER_VEIL.start) / (DRAWER_VEIL.end - DRAWER_VEIL.start);
+  return t <= 0 ? 0 : t >= 1 ? 1 : veilCurve(t);
 }
 
 function rubber(over: number) {

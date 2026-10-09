@@ -19,6 +19,12 @@
  *   admitted by the owner gate on the `agent` lane, with a capability of its
  *   own for the `general` agent type, released when the agent answers.
  *
+ * An agent's file and shell tools run in its execution environment, apart
+ * from its conversation: its cloud container, or one of the owner's
+ * computers, where the owner gate relays each call over that computer's
+ * presence socket (`@stella/contracts/turn-plane/device-tools`).
+ * `switch_destination` moves the environment; the conversation stays here.
+ *
  * What an agent needs between turns (the owner's authority, the model specs,
  * its prompt material) is kept in this object's storage, so an agent can
  * finish after the turn that started it, and after an eviction.
@@ -58,6 +64,13 @@ import {
   type StellaRequestRoute,
 } from "@stella/agent/provider/stella";
 import { StellaAgentDoc } from "@stella/agent/stella/agent-doc";
+import { deviceRefusal, type StellaExecutionHost } from "@stella/agent/stella/execution";
+import { placementOf, StellaPlacementDoc, type StellaPlacement } from "@stella/agent/stella/placement";
+import {
+  isDeviceToolName,
+  type DeviceToolCall,
+  type DeviceToolOutcome,
+} from "@stella/contracts/turn-plane/device-tools";
 import {
   StellaAgentsDoc,
   type AgentNote,
@@ -113,7 +126,10 @@ import {
   type ModelGatewayControl,
 } from "./managed-request-cancellation.js";
 import { bundledPrompt } from "./prompts/bundled.js";
-import type { SerializedAgentToolResult } from "@stella/executor-cloud/attached-tool-protocol";
+import type {
+  SerializedAgentToolResult,
+  SerializedAuthorizedImage,
+} from "@stella/executor-cloud/attached-tool-protocol";
 import { generalAgentWorldGuidance } from "@stella/executor-cloud/general-agent-prompt";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import { TURN_BROKER_HEADERS } from "@stella/contracts/turn-credential-broker";
@@ -445,6 +461,20 @@ type AgentLease = {
 /** How long saving a run's browser profile may take when the run ends. */
 const BROWSER_CHECKPOINT_MS = 30_000;
 
+/** The image types a computer's tool result may carry to the model. */
+const DEVICE_IMAGE_TYPES: ReadonlySet<string> = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+const deviceFailure = (message: string): SerializedAgentToolResult => ({
+  outcome: { kind: "error", message },
+  details: null,
+  authorizedImages: [],
+});
+
+const sha256Hex = async (value: string): Promise<string> =>
+  [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)))]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+
 /** A lease is renewed before its credentials run out, when no call is on it. */
 const LEASE_RENEW_MS = 3 * 60_000;
 /** How long a released lease's container is given to stop coming up. */
@@ -727,6 +757,34 @@ export class PiConversationRuntime {
       specs: (role) => (role === "orchestrator" ? this.#state?.tools : this.#state?.agentTools) ?? [],
       run: async (call, context) => {
         const signal = context.abortSignal;
+        // Stella's Read reads where her tools run: on a computer she switched to.
+        if (call.role === "orchestrator" && isDeviceToolName(call.name)) {
+          const { harness, root } = await this.open();
+          const placement = placementOf(await harness.snapshot(StellaPlacementDoc, root.id, context));
+          if (placement?.kind === "device") {
+            const turn = await this.#turn(signal);
+            const result = await this.#deviceTool(
+              turn.authority,
+              placement,
+              `${root.id}:${call.callId}`,
+              {
+                kind: "tool",
+                toolName: call.name,
+                params: call.args,
+                callId: call.callId,
+                conversationId: turn.authority.conversationId,
+              },
+              signal,
+            );
+            return {
+              content: [
+                { type: "text", text: result.outcome.kind === "ok" ? result.outcome.text : result.outcome.message },
+                ...result.authorizedImages.map((image) => ({ type: "image" as const, data: image.data, mimeType: image.mimeType })),
+              ],
+              ...(result.outcome.kind === "error" ? { isError: true } : {}),
+            };
+          }
+        }
         // An agent's code drives its run's cloud browser.
         const active = call.role === "orchestrator" ? undefined : this.#runOf(call.threadId);
         // The orchestrator's tools are its turn's: recovered work waits for the turn to bind again.
@@ -879,14 +937,19 @@ export class PiConversationRuntime {
   #agents(): StellaAgentsHost {
     return {
       rootPlacement: { kind: "cloud" },
+      // An agent stays here, its tools where it was asked to run them (where
+      // its caller's run, by default). Only a whole agent leaves: on a
+      // device's own Stella, through the owner's agent threads.
       place: (destination, caller) => {
-        if (destination.kind === "here" || destination.kind === "cloud") return { kind: "cloud" };
-        if (this.#options.deviceAgents && caller.kind === "cloud") {
-          return { kind: "device", deviceId: destination.deviceId };
-        }
+        if (destination.kind === "here") return caller.kind === "device" ? caller : { kind: "cloud" };
+        if (destination.kind === "cloud") return { kind: "cloud" };
+        if (!destination.whole) return { kind: "device", deviceId: destination.deviceId };
+        if (this.#options.deviceAgents) return { kind: "device", deviceId: destination.deviceId, whole: true };
         return { error: `This conversation cannot start an agent on device ${destination.deviceId}.` };
       },
-      remote: (placement) => (placement.kind === "device" ? this.#deviceAgentHost(placement.deviceId) : undefined),
+      remote: (placement) =>
+        placement.kind === "device" && placement.whole ? this.#deviceAgentHost(placement.deviceId) : undefined,
+      execution: this.#execution(),
       beginAgentRun: async (run, context) => {
         const authority = await this.#runAuthority(run, context);
         const turnId = `pi:${authority.conversationId}:${run.runId}`;
@@ -917,10 +980,14 @@ export class PiConversationRuntime {
         this.#notify(active.sessionId);
         this.#options.heartbeat();
         this.#options.log("pi_agent_run_started", { threadId: run.threadId, turnId });
-        // The agent's container comes up while its first model call runs.
-        void this.#lease(run.agentConversationId as ConversationId, active, context).catch((error: unknown) =>
-          this.#options.report(error),
-        );
+        // The agent's container comes up while its first model call runs,
+        // unless its tools run on one of the owner's computers.
+        const placement = placementOf(await harness.snapshot(StellaPlacementDoc, run.agentConversationId, context));
+        if (placement?.kind !== "device") {
+          void this.#lease(run.agentConversationId as ConversationId, active, context).catch((error: unknown) =>
+            this.#options.report(error),
+          );
+        }
         // Stella's own agents, not their subagents: those report to the agent
         // that started them, so nothing in this conversation would end their cards.
         if (run.parentConversationId !== root.id) return;
@@ -1122,12 +1189,30 @@ export class PiConversationRuntime {
     }
   }
 
-  /** A cloud agent's file or shell tool call, run in its container. */
+  /** A cloud agent's file or shell tool call, run in its execution environment: its container or a computer. */
   async #attachedTool(call: PiAttachedToolCall, context: Context): Promise<SerializedAgentToolResult> {
     const { harness } = await this.open();
     const agentConversationId = call.conversationId as ConversationId;
     const sessionId = await this.#providerSession(harness, agentConversationId, context);
     const active = await this.#agentRun(sessionId, context.abortSignal);
+    const placement = placementOf(await harness.snapshot(StellaPlacementDoc, agentConversationId, context));
+    if (placement?.kind === "device") {
+      if (!isDeviceToolName(call.toolName)) return deviceFailure(`${call.toolName} does not run on a computer.`);
+      return await this.#deviceTool(
+        active.authority,
+        placement,
+        `${agentConversationId}:${call.callId}`,
+        {
+          kind: "tool",
+          toolName: call.toolName,
+          params: call.params,
+          callId: call.callId,
+          conversationId: active.authority.conversationId,
+          threadId: active.run.threadId,
+        },
+        context.abortSignal,
+      );
+    }
     const held = await this.#lease(agentConversationId, active, context);
     held.inFlight += 1;
     // A pause or stop while the command runs takes the container's work down
@@ -1149,6 +1234,119 @@ export class PiConversationRuntime {
       signal?.removeEventListener("abort", stop);
       held.inFlight -= 1;
     }
+  }
+
+  /**
+   * One call on a computer, through the owner gate: the same call id is the
+   * same request there, so a replay joins it rather than running it twice.
+   * A stop of `signal` withdraws it on the computer too.
+   */
+  async #deviceTool(
+    authority: PiAuthority,
+    placement: Extract<StellaPlacement, { kind: "device" }>,
+    callKey: string,
+    call: DeviceToolCall,
+    signal: AbortSignal | undefined,
+  ): Promise<SerializedAgentToolResult> {
+    const gate = this.#gate(authority);
+    const requestId = `pt:${await sha256Hex(`${authority.conversationId}:${callKey}`)}`;
+    const name = placement.label || placement.deviceId;
+    signal?.throwIfAborted();
+    const started = Date.now();
+    // The RPC stub types a result's free-form details as unknown; it is the outcome as sent.
+    const outcome = gate.deviceTool({ deviceId: placement.deviceId, requestId, call }) as Promise<DeviceToolOutcome>;
+    let stop: (() => void) | undefined;
+    const stopped = new Promise<never>((_resolve, reject) => {
+      stop = () => {
+        void gate.cancelDeviceTool({ requestId }).catch(() => undefined);
+        reject(signal?.reason ?? new Error("aborted"));
+      };
+      signal?.addEventListener("abort", stop, { once: true });
+    });
+    stopped.catch(() => undefined);
+    let answered: DeviceToolOutcome;
+    try {
+      answered = await Promise.race([outcome, stopped]);
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      answered = { ok: false, code: "failed", message: error instanceof Error ? error.message : String(error) };
+    } finally {
+      if (stop) signal?.removeEventListener("abort", stop);
+    }
+    this.#options.log("pi_device_tool", {
+      deviceId: placement.deviceId,
+      tool: call.kind === "tool" ? call.toolName : call.kind,
+      ok: answered.ok,
+      ...(answered.ok ? {} : { code: answered.code }),
+      ms: Date.now() - started,
+    });
+    if (!answered.ok) {
+      const unreachable = answered.code === "device_offline" || answered.code === "not_ready" || answered.code === "not_enabled";
+      return deviceFailure(
+        `${answered.message.replace(/^That computer/u, name)}${
+          unreachable
+            ? ` Your tools are set to run on ${name}. Tell the user, wait for it, or switch_destination to "cloud" and carry on there.`
+            : ""
+        }`,
+      );
+    }
+    if (!("result" in answered)) return deviceFailure(`${name} sent no result.`);
+    const { result } = answered;
+    return {
+      outcome: result.isError ? { kind: "error", message: result.text } : { kind: "ok", text: result.text },
+      details: result.details ?? null,
+      authorizedImages: (result.images ?? []).flatMap((image) =>
+        DEVICE_IMAGE_TYPES.has(image.mimeType)
+          ? [{ data: image.data, mimeType: image.mimeType as SerializedAuthorizedImage["mimeType"], sourcePath: "" }]
+          : [],
+      ),
+    };
+  }
+
+  /**
+   * Where conversations' tools can run: the cloud, or one of the owner's
+   * computers that is online, ready and enabled for remote work, asked to
+   * describe itself so the agent knows its home there.
+   */
+  #execution(): StellaExecutionHost {
+    return {
+      prepare: async (target) => {
+        if (target.kind !== "device") return { placement: { kind: "cloud" } };
+        const { authority } = await this.#agentState();
+        const gate = this.#gate(authority);
+        const listed = await gate.devices().catch(() => undefined);
+        if (!listed) return { error: "Couldn't read the connected devices list right now. Try again in a moment." };
+        const device = listed.devices.find((entry) => entry.deviceId === target.deviceId);
+        if (!device) {
+          return {
+            error: `No connected device has device_id ${target.deviceId}. Use a device_id from the connected devices list, or "cloud".`,
+          };
+        }
+        const name = device.label?.trim() || target.deviceId;
+        const refusal = deviceRefusal(device, name);
+        if (refusal) return { error: refusal };
+        const described = await gate
+          .deviceTool({ deviceId: target.deviceId, requestId: `describe:${crypto.randomUUID()}`, call: { kind: "describe" } })
+          .catch((error: unknown) => ({ ok: false as const, code: "failed" as const, message: error instanceof Error ? error.message : String(error) }));
+        if (!described.ok) return { error: `${name} could not take tool calls: ${described.message.replace(/^That computer/u, "it")}` };
+        if (!("description" in described)) return { error: `${name} did not describe itself.` };
+        const { home, hostname, platform } = described.description;
+        return {
+          placement: {
+            kind: "device",
+            deviceId: target.deviceId,
+            label: name,
+            home,
+            ...(hostname ? { hostname } : {}),
+            ...(platform ? { platform } : {}),
+          },
+        };
+      },
+      // Leaving the cloud saves the container's work into the world, then lets it go.
+      moved: async (conversationId, from) => {
+        if (from.kind === "cloud") await this.#endLease(conversationId, {});
+      },
+    };
   }
 
   /**

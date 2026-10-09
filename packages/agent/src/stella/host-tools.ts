@@ -41,7 +41,7 @@ export const STELLA_HARNESS_TOOL_NAMES: ReadonlySet<string> = new Set([
   "multi_tool_use_parallel",
   "NoResponse",
   "node_repl",
-  // Moving the chat belongs to the old runtimes; pi places agents per conversation.
+  // The harness has its own, which moves where a conversation's tools run.
   "switch_destination",
 ]);
 

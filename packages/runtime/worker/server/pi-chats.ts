@@ -28,7 +28,6 @@ import {
   type PlacementLocalExecutionKind,
 } from "../../kernel/runner/execution-placement-local-ownership.js";
 import { prepareStoredLocalChatPayload } from "../../kernel/storage/local-chat-payload.js";
-import { resolveOrchestratorThreadKey } from "../../kernel/thread-runtime.js";
 import { prepareChatInput } from "./chat-input.js";
 import { piUserContent } from "./pi-chat-input.js";
 import { cloudAgentsFor } from "./pi-cloud-agents.js";
@@ -104,6 +103,8 @@ const piLocalLog = (
         timestamp: message.timestamp,
       }),
     });
+    // Off the worker's boot path: the thread runtime brings prompts and compaction with it.
+    const { resolveOrchestratorThreadKey } = await import("../../kernel/thread-runtime.js");
     session.storage.runtimeStore.appendThreadMessage({
       timestamp: message.timestamp,
       threadKey: resolveOrchestratorThreadKey(conversationId),

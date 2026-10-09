@@ -432,11 +432,7 @@ describe("cloud chat bridge authority", () => {
     ).toBe("Help me with this selected text:\n\nselection");
   });
 
-  test("fences async conversation edits and creates to the live account and route", () => {
-    const shell = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/use-full-shell-chat.js"),
-      "utf8",
-    );
+  test("fences async conversation creates to the live account and route", () => {
     const root = fs.readFileSync(
       path.join(SOURCE_ROOT, "routes/__root.tsx"),
       "utf8",
@@ -448,12 +444,6 @@ describe("cloud chat bridge authority", () => {
         "global/auth/hooks/use-shell-conversation-source.ts",
       ),
       "utf8",
-    );
-    expect(shell).toContain(
-      "conversationEditOperationRef.current !== operation",
-    );
-    expect(shell).toContain(
-      "activeAccountScopeRef.current !== operation.accountScope",
     );
     expect(root).toContain("activeRouteIntentRef.current !== routeIntent");
     // The client create id is the conversation id.

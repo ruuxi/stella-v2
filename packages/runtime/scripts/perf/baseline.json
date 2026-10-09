@@ -358,14 +358,14 @@
       "ceiling": 51.73
     },
     "bundle.outputJsBytes": {
-      "value": 43189960,
+      "value": 12886479,
       "kind": "bytes",
-      "ceiling": 45350482
+      "ceiling": 13531826.95
     },
     "bundle.bootReachableBytes": {
-      "value": 2809801,
+      "value": 2316782,
       "kind": "bytes",
-      "ceiling": 2951315.05
+      "ceiling": 2433645.1
     },
     "boot.source.warm.bootRpc.linesOut": {
       "value": 4,
@@ -478,9 +478,9 @@
       "ceiling": 0
     },
     "bundle.bootReachableFiles": {
-      "value": 25,
+      "value": 23,
       "kind": "count",
-      "ceiling": 28.25
+      "ceiling": 26.15
     },
     "history.1000.openMs": {
       "value": 498.98,

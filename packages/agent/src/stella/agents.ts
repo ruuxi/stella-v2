@@ -103,6 +103,16 @@ export type StellaAgentRecord = {
   paused?: true;
 };
 
+/** Where an agent under the orchestrator stands, its agents' agents included. */
+export type StellaAgentStanding = {
+  threadId: string;
+  /** The agent that started it; absent when Stella did. */
+  parentThreadId?: string;
+  status: "running" | "completed" | "error" | "canceled";
+  /** The messages its starter gave it. */
+  attempt: number;
+};
+
 /** The agents a conversation started, by thread id. */
 export const StellaAgentsDoc = defineDoc<{
   agents: Record<string, AgentRecord>;
@@ -1262,6 +1272,38 @@ export function stellaAgents(host: StellaAgentsHost) {
   };
 
   /**
+   * Where every agent under the orchestrator that runs here stands, the ones
+   * its agents started included. One that runs elsewhere is that host's to say.
+   */
+  const agentStandings = async (harness: Harness, context: Context): Promise<StellaAgentStanding[]> => {
+    const root = await harness.root(context);
+    const standings: StellaAgentStanding[] = [];
+    for (const agent of await agentTree(harness, root.id, context)) {
+      if (agent.record.remote) continue;
+      const conversationId = agent.record.conversationId as ConversationId;
+      const [live, recent] = await Promise.all([
+        harness.snapshot(LiveDoc, conversationId, context),
+        harness.commit(async (tx) => (await tx.scanEntries({ conversationId, order: "descending" }, 40)).items, context),
+      ]);
+      const latest = recent.find((entry) => entry.kind === "pi.assistant")?.model?.[0] as AssistantMessage | undefined;
+      standings.push({
+        threadId: agent.threadId,
+        ...(agent.parentThreadId ? { parentThreadId: agent.parentThreadId } : {}),
+        status:
+          live?.run !== undefined
+            ? "running"
+            : stoppedShort(recent)
+              ? "canceled"
+              : latest?.stopReason === "error"
+                ? "error"
+                : "completed",
+        attempt: Math.max(1, agent.given),
+      });
+    }
+    return standings;
+  };
+
+  /**
    * A message from the user to one of the orchestrator's agents, carried
    * like `send_message`: a reporter delivers it and reports the answer up.
    * Once per `key`.
@@ -1380,6 +1422,7 @@ export function stellaAgents(host: StellaAgentsHost) {
     extension,
     startAgent,
     agentRecords,
+    agentStandings,
     messageAgent,
     pauseAgentByThread,
     runPlacedAgent,

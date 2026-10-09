@@ -4,7 +4,7 @@
 // verifier, then polls the conversation's canonical history on the worker
 // until the turn's final assistant message lands.
 //
-//   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--email <owner>] [--wait 180] [--agent-runtime pi] [--watch-pi] [--locale es] [--attach <drive path>] [--engine chatgpt --model <id> [--effort <level>]]
+//   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--email <owner>] [--wait 180] [--agent-runtime pi] [--watch-pi] [--locale es] [--attach <drive path>] [--engine chatgpt --model <id> [--effort <level>]] [--wait-report]
 //   (--prompt-file <path> instead of --prompt for prompts too long for one argument)
 //
 // `--agent-runtime pi` creates the conversation on the pi-durable runtime; it
@@ -21,6 +21,10 @@
 // `--watch-pi` also opens the conversation socket with `pi=1`, prints the pi
 // view's frames as they arrive, and folds them with the clients' reducer
 // (`@stella/contracts/pi-chat`) into the final state it prints.
+//
+// `--wait-report` keeps polling past the turn's answer until an agent's
+// report (`[Agent completed]`, `[Task failed]`, `[Task canceled]`) has arrived
+// and been answered, for a turn that starts an agent.
 //
 // A follow-up into an existing conversation must arrive as the same owner, so
 // pass the `--email` the first run printed together with its `--conversation`.
@@ -55,6 +59,9 @@ const locale = flag("--locale");
 // A file already in the owner's drive, attached to the turn as a client attaches one.
 const attach = flag("--attach");
 const watchPi = args.includes("--watch-pi");
+const waitReport = args.includes("--wait-report");
+const isReport = (message) =>
+  message?.role === "user" && /\[(Agent completed|Task failed|Task canceled)\]/.test(JSON.stringify(message.content ?? ""));
 const engine = flag("--engine");
 const execution = engine
   ? { engine, provider: engine, model: flag("--model", ""), reasoningEffort: flag("--effort", "default") }
@@ -168,7 +175,8 @@ while (Date.now() < deadline) {
     printed = index;
   }
   const last = messages.at(-1);
-  if (promptAt >= 0 && messages.length - 1 > promptAt && last?.role === "assistant" && last.stopReason !== "toolUse") {
+  const reported = !waitReport || messages.slice(promptAt + 1).some(isReport);
+  if (promptAt >= 0 && messages.length - 1 > promptAt && last?.role === "assistant" && last.stopReason !== "toolUse" && reported) {
     break;
   }
   await new Promise((resolve) => setTimeout(resolve, 5000));

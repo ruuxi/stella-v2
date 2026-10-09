@@ -1,4 +1,4 @@
-/* ---- Standalone (route-mounted) shell ---- */
+/* ---- Shell ---- */
 
 .settings-screen {
   display: flex;
@@ -8,167 +8,173 @@
   background: transparent;
 }
 
-/* ---- Layout: sidebar + panel ---- */
-
 .settings-layout {
   display: flex;
   flex: 1;
   min-height: 0;
 }
 
-/* Single-column variant: title + search + horizontal tab strip stacked
-   above the panel. Left-aligned to a fixed left margin so the title,
-   tabs, and cards all line up at the same x-position no matter which
-   tab you're on. `.content-area` already reserves the topbar height —
-   this is just the page's own breathing room. */
-.settings-layout--standalone {
-  padding: 24px 48px 0;
+/* ---- Wide: left rail + panel ---- */
+
+.settings-layout--rail {
+  flex-direction: row;
+}
+
+.settings-layout--rail .settings-nav {
+  flex: 0 0 216px;
+  display: flex;
+  flex-direction: column;
   gap: 18px;
-  flex-direction: column;
-  align-items: center;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 16px 12px;
+  border-right: 1px solid var(--border-weak);
+  background: color-mix(in oklch, var(--foreground) 2.5%, transparent);
 }
 
-.settings-layout--standalone .settings-tab-rail,
-.settings-layout--standalone .settings-panel-wrap {
-  width: 100%;
-  max-width: 760px;
+/* The dialog's close button sits over the panel's top-right corner. */
+.settings-layout--rail .settings-panel {
+  padding: 48px 32px 32px;
 }
 
-.settings-layout--sidebar {
-  width: 100%;
-  padding: 14px 12px 0;
-  gap: 12px;
-  flex-direction: column;
-}
-
-.settings-layout--sidebar .settings-tab-rail-header {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 10px;
-}
-
-.settings-layout--sidebar .settings-tab-rail-title {
-  font-size: 21px;
-}
-
-.settings-layout--sidebar .settings-tab-rail-header .settings-search {
-  min-width: 0;
-  max-width: none;
-  margin-top: 0;
-}
-
-.settings-layout--sidebar .settings-panel {
-  padding: 6px 6px 24px;
-}
-
-/* ---- Settings header (title + search + horizontal tab strip) ---- */
-
-.settings-tab-rail {
-  flex-shrink: 0;
+.settings-rail-nav {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 0;
-}
-
-.settings-tab-rail-header {
-  display: flex;
-  align-items: center;
   gap: 16px;
 }
 
-.settings-tab-rail-title {
+.settings-rail-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-rail-group-label {
+  padding: 0 10px 4px;
+  color: var(--text-weak);
+  font-size: var(--font-size-sm, 12px);
+  font-weight: var(--weight-medium);
+}
+
+.settings-rail-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  color: var(--text-base);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-medium);
+  text-align: left;
+  white-space: nowrap;
+  cursor: default;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.settings-rail-item > .stella-icon {
   flex-shrink: 0;
-  font-family: var(--font-family-display);
-  font-size: 26px;
-  font-weight: var(--weight-regular);
-  letter-spacing: -0.02em;
-  line-height: 1;
+  color: var(--text-weak);
+}
+
+.settings-rail-item:hover {
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
   color: var(--text-strong);
 }
 
-/* Search sits beside the title; let it grow into the remaining header
-   width without stretching past a comfortable reading measure. */
-.settings-tab-rail-header .settings-search {
-  flex: 1 1 auto;
-  min-width: 280px;
-  max-width: 480px;
-  margin-top: 3px;
+.settings-rail-item[data-active="true"] {
+  background: var(--select-fill);
+  color: var(--select-text);
 }
 
-.settings-tab-rail-nav {
+.settings-rail-item[data-active="true"] > .stella-icon {
+  color: currentColor;
+}
+
+/* ---- Narrow: search + tab row above the panel ---- */
+
+.settings-layout--bar {
+  flex-direction: column;
+}
+
+.settings-layout--bar .settings-nav {
+  flex-shrink: 0;
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
+  gap: 10px;
+  /* Right inset clears the dialog's close button beside the search. */
+  padding: 14px 52px 10px 16px;
+  border-bottom: 1px solid var(--border-weak);
+}
+
+.settings-layout--bar .settings-panel {
+  padding: 20px 16px 32px;
+}
+
+.settings-bar-nav-wrap {
+  position: relative;
+  /* Clips the off-screen measuring row without becoming scrollable, so
+     focusing a tab can't shift the row. The More menu is portaled. */
+  overflow: clip;
+  margin-right: -36px;
+}
+
+.settings-bar-nav {
+  display: flex;
   align-items: center;
   gap: 2px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  /* Feather scrollable overflow at the edges; the start/end fade is
-     dropped by the rules below when there's nothing to scroll past. */
-  --tab-rail-fade: 28px;
-  --tab-rail-fade-start: var(--tab-rail-fade);
-  --tab-rail-fade-end: var(--tab-rail-fade);
-  -webkit-mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    #000 var(--tab-rail-fade-start),
-    #000 calc(100% - var(--tab-rail-fade-end)),
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    to right,
-    transparent 0,
-    #000 var(--tab-rail-fade-start),
-    #000 calc(100% - var(--tab-rail-fade-end)),
-    transparent 100%
-  );
+  min-width: 0;
+  overflow: clip;
 }
 
-.settings-tab-rail-nav[data-at-start="true"] {
-  --tab-rail-fade-start: 0px;
+.settings-bar-measure {
+  position: absolute;
+  inset: 0 auto auto 0;
+  display: flex;
+  gap: 2px;
+  visibility: hidden;
+  pointer-events: none;
 }
 
-.settings-tab-rail-nav[data-at-end="true"] {
-  --tab-rail-fade-end: 0px;
-}
-
-/* No scrollable overflow → drop the mask entirely so the strip doesn't
-   carry decorative fade noise on widths where every tab fits. */
-.settings-tab-rail-nav[data-at-start="true"][data-at-end="true"] {
-  -webkit-mask-image: none;
-  mask-image: none;
-}
-
-.settings-tab-rail-nav::-webkit-scrollbar {
-  display: none;
-}
-
-.settings-tab-rail-item {
+.settings-bar-item {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   flex-shrink: 0;
-  padding: 7px 14px;
+  padding: 6px 12px;
   border: none;
   border-radius: 999px;
   background: transparent;
   color: var(--text-base);
   font-family: inherit;
   font-size: var(--font-size-base);
-  font-weight: var(--weight-semibold);
-  letter-spacing: -0.005em;
+  font-weight: var(--weight-medium);
   white-space: nowrap;
   cursor: default;
   transition: background 0.15s ease, color 0.15s ease;
 }
 
-.settings-tab-rail-item:hover {
-  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+.settings-bar-item:hover {
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
   color: var(--text-strong);
 }
 
-.settings-tab-rail-item--active {
+.settings-bar-item[data-active="true"] {
   background: var(--select-fill);
   color: var(--select-text);
+}
+
+.settings-bar-more {
+  padding-right: 9px;
+}
+
+.settings-bar-more-menu [data-active="true"] {
+  color: var(--text-strong);
+  font-weight: var(--weight-semibold);
 }
 
 /* ---- Settings search input ---- */
@@ -256,25 +262,6 @@
   color: var(--text-strong);
 }
 
-/* Narrow viewport: stack the title/search vertically so the search bar
-   doesn't get squeezed to nothing. */
-@media (max-width: 640px) {
-  .settings-layout--standalone {
-    padding: 16px 16px 0;
-  }
-
-  .settings-tab-rail-header {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-  }
-
-  .settings-tab-rail-header .settings-search {
-    margin-left: 0;
-    max-width: 100%;
-  }
-}
-
 /* ---- Panel Content ---- */
 
 .settings-panel-wrap {
@@ -293,6 +280,9 @@
 .settings-panel {
   flex: 1;
   min-height: 0;
+  /* Containing block for absolutely positioned descendants (sr-only
+     labels), so they scroll with the panel instead of overflowing it. */
+  position: relative;
   overflow-y: auto;
   scrollbar-width: none;
   padding: 8px 28px 32px;

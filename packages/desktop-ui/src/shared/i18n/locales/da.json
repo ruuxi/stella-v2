@@ -1873,10 +1873,10 @@
       "microphoneDeviceFallback": "Mikrofon {index}",
       "recovery": {
         "closing": "Lukker…",
-        "manageDescription": "Hvis mikrofontilladelsen sætter sig fast, kan du nulstille den og bede macOS spørge igen.",
+        "manageDescription": "Nulstil mikrofontilladelsen, hvis den sidder fast.",
         "manageLabel": "Administrer mikrofonadgang",
         "openSettings": "Åbn Indstillinger",
-        "recoverDescription": "Når du har sagt nej, spørger macOS ikke igen af sig selv. Nulstil tilladelsen, og afslut og åbn Stella igen.",
+        "recoverDescription": "macOS spørger ikke igen. Nulstil den, og genåbn Stella.",
         "recoverLabel": "Gendan mikrofonadgang",
         "reset": "Nulstil og genstart"
       },
@@ -1889,22 +1889,22 @@
       },
       "speakerDeviceFallback": "Højttaler {index}",
       "superFast": {
-        "description": "Holder mikrofonen klar, så dikteringen starter med mindre forsinkelse.",
+        "description": "Holder mikrofonen klar, så diktering starter hurtigere.",
         "label": "Superhurtig diktering"
       },
       "systemDefault": "Systemstandard",
       "wakeWord": {
-        "description": "Lytter efter “Hey Stella” i baggrunden og starter en stemmesamtale. Når det er fra, forbliver mikrofonen inaktiv, indtil du trykker på diktér.",
+        "description": "Sig “Hey Stella” for at starte en stemmesamtale.",
         "label": "Aktiveringsord “Hey Stella”"
       }
     },
     "browserExtension": {
       "action": "Hent udvidelse",
-      "description": "Lader Stella se den side, du er på, og udføre handlinger i din browser.",
+      "description": "Lad Stella se og handle i din browser.",
       "title": "Stella til Chrome"
     },
     "chatStorage": {
-      "description": "Få adgang til dine chats på alle enheder. Slå fra for at beholde en separat chathistorik kun på denne computer. Når du slår til igen, uploades de chats ikke. AI-udbydere behandler stadig dine beskeder.",
+      "description": "Synkroniser chats på tværs af enheder. Fra holder dem på denne computer.",
       "endVoice": "Afslut stemmesamtalen for at ændre chatlagringen.",
       "error": "Chatlagringen kunne ikke ændres. Prøv igen.",
       "title": "Gem chathistorik i skyen"
@@ -1923,13 +1923,13 @@
       "upgrade": "Opgrader"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "En lille Stella, der svæver over dit skrivebord.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "API-nøgle",
-      "empty": "Ingen udbydere tilsluttet endnu. Vælg en anden mulighed end Stella i modelvælgeren ovenfor for at tilføje en API-nøgle eller logge ind.",
+      "empty": "Ingen udbydere endnu. Tilføj en fra modelvælgeren ovenfor.",
       "removeKey": "Fjern nøgle",
       "removingKey": "Fjerner…",
       "signOut": "Log ud",
@@ -1948,7 +1948,7 @@
       "addClaude": "Tilføj Claude-konto",
       "addInCloud": "I skyen",
       "addOnComputer": "På denne computer",
-      "cardIntro": "Brug det Claude- eller ChatGPT-abonnement, du allerede betaler for. Hvert sted logger ind for sig: hver computer og din cloud.",
+      "cardIntro": "Brug det Claude- eller ChatGPT-abonnement, du allerede betaler for.",
       "cardTitle": "Claude- og ChatGPT-konti",
       "chatgptBrowserWaiting": "Gør login til ChatGPT færdigt i din browser.",
       "chatgptCloudSignedIn": "Din cloud er logget ind på ChatGPT.",
@@ -1969,7 +1969,7 @@
         "whereComputer": "Logger ind på Claude Code på denne computer."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Code er ikke installeret på denne computer. Installer det for at bruge Claude her.",
+      "cliMissing": "Installer Claude Code på denne computer for at bruge Claude her.",
       "connecting": "Forbinder…",
       "defaultSignedOut": "Claude Code på denne computer er ikke logget ind.",
       "enablePlanUsage": "Slå brug af ChatGPT-abonnement til",
@@ -1980,14 +1980,14 @@
       "needsChatgptCloud": "Forbind først ChatGPT til din cloud",
       "needsClaudeCloud": "Log først ind på Claude i skyen",
       "openChatgptAgain": "Åbn ChatGPT igen",
-      "pasteHintChatgpt": "Når du har godkendt, sender ChatGPT dig til en side, der ikke indlæses. Kopiér sidens fulde adresse, og indsæt den her.",
+      "pasteHintChatgpt": "Kopiér adressen på den side, ChatGPT åbner, og indsæt den her.",
       "pastePlaceholderUrl": "Indsæt adressen her",
       "placeCloud": "Sky",
       "placeComputer": "Denne computer",
       "placeOtherComputer": "En anden computer",
       "placeSignedIn": "{place}: logget ind",
       "placeSignedOut": "{place}: ikke logget ind",
-      "planUsageOffBody": "Stella kan ikke bruge dit ChatGPT-abonnement, før du tillader det. Vælg »Slå brug af ChatGPT-abonnement til« på kontoen, eller brug en anden model.",
+      "planUsageOffBody": "Vælg »Slå brug af ChatGPT-abonnement til« på kontoen, eller vælg en anden model.",
       "planUsageOffTitle": "Logget ind, men brug af ChatGPT-abonnement er ikke slået til",
       "remove": "Fjern",
       "removed": "Fjernet.",
@@ -2044,7 +2044,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Hvor ihærdigt Stella prøver at nå dig, når den har brug for et svar.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2088,7 +2088,7 @@
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "note": "Computere, der er logget ind, vises her. Slå en til for at sende den opgaver.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2102,16 +2102,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Vælg det sprog, Stella bruger i appen og i svar.",
+      "description": "Til appen og Stellas svar.",
       "title": "Sprog"
     },
     "lockedComputerUse": {
-      "description": "Lader Stella fortsætte computerbrug-opgaver, efter at denne Mac låses. Kræver en administratoranmodning og dækker skærmen, mens Stella arbejder.",
+      "description": "Hold computerbrugsopgaver kørende, når denne Mac låses.",
       "title": "Brug ved låst computer",
       "unsupported": "Brug ved låst computer er kun tilgængelig på macOS."
     },
     "memory": {
-      "description": "Medtag gemte minder og din profil i Stellas modelkontekst. Dine computere og skyen har den samme hukommelse, krypteret under overførsel og lagring. Hvis du slår dette fra, sættes det på pause, og hukommelsen udelades fra fremtidige samtaler, men den slettes ikke.",
+      "description": "Brug gemte minder i svar. Slås det fra, slettes de ikke.",
       "title": "Hukommelse"
     },
     "modelPicker": {
@@ -2145,7 +2145,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Brug en hvilken som helst lokal OpenAI-kompatibel server. Ollama kører normalt på URL'en nedenfor.",
+        "hint": "Enhver lokal OpenAI-kompatibel server, f.eks. Ollama.",
         "modelNameAriaLabel": "Navn på lokal model",
         "serverUrlAriaLabel": "URL til lokal server"
       },
@@ -2189,7 +2189,7 @@
       "title": "Bevægelse"
     },
     "nativeFontSmoothing": {
-      "description": "Gengiver tekst, som macOS-apps gør, med kantudjævning i gråtoner.",
+      "description": "Kantudglatning i gråtoner som i native macOS-apps.",
       "title": "Indbygget skriftudjævning"
     },
     "notifications": {
@@ -2198,18 +2198,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Kør introduktionen igen. Dine data bevares.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Lader Stella læse markeret tekst og åbnes med genvejen ⌘+højreklik hvor som helst på din computer.",
+        "description": "Læs markeret tekst, og åbn med ⌘+højreklik.",
         "label": "Tilgængelighed"
       },
       "enable": "Aktivér",
       "granted": "Tildelt",
       "microphone": {
-        "description": "Bruges til stemme og diktering. Nulstil, hvis Stella tidligere blev afvist, og macOS ikke spørger igen.",
+        "description": "Til stemme og diktering.",
         "label": "Mikrofon"
       },
       "opening": "Åbner…",
@@ -2218,11 +2218,11 @@
       "restart": {
         "action": "Genstart",
         "closing": "Lukker…",
-        "description": "Skærmoptagelse blev lige slået til. Afslut og åbn Stella igen for at fuldføre opsætningen.",
+        "description": "Genåbn Stella for at gøre skærmoptagelse færdig med at slå til.",
         "label": "Genstart Stella"
       },
       "screen": {
-        "description": "Lader Stella se din skærm, så den kan hjælpe med det, du kigger på. Du skal måske afslutte og åbne Stella igen, efter du har slået dette til.",
+        "description": "Lad Stella se, hvad der er på din skærm.",
         "label": "Skærmoptagelse"
       },
       "title": "Tilladelser"
@@ -2243,7 +2243,7 @@
         "other": "{count} telefoner parret"
       },
       "pairing": {
-        "body": "Åbn Stella-appen på din telefon, og scan QR-koden, eller indtast koden nedenfor. Du skal kun gøre dette én gang.",
+        "body": "Scan QR-koden i Stella-appen på telefonen, eller indtast koden.",
         "headline": "Scan eller indtast denne kode",
         "qrAlt": "Scan for at parre din telefon"
       },
@@ -2279,7 +2279,7 @@
         "description": "Send Stellas chatassistent gennem {provider}.",
         "label": "Assistent"
       },
-      "description": "{provider} kan drive mere end én del af Stella. Vælg, hvor den skal overtage — Stella klarer resten.",
+      "description": "Vælg, hvad {provider} skal drive.",
       "errors": {
         "apply": "Kunne ikke anvende udbyderindstillingerne."
       },
@@ -2308,7 +2308,7 @@
     },
     "resetCustomizations": {
       "action": "Gendan standarder",
-      "description": "Fjerner dine tilpasninger af færdigheder og personlighedsændringer, så Stellas standarder gælder. Det fjernede gemmes i ~/.stella/.trash, hvis du vil have det tilbage.",
+      "description": "Gendan standardfærdigheder og -personlighed. Gamle filer flyttes til ~/.stella/.trash.",
       "done": "Standarder gendannet. Dine tidligere tilpasninger blev flyttet til ~/.stella/.trash.",
       "error": "Kunne ikke gendanne standarderne.",
       "none": "Du bruger allerede Stellas standardindstillinger.",
@@ -2342,7 +2342,7 @@
       "change": "Skift",
       "clear": "Ryd",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Tryk for at diktere, tryk igen for at afslutte."
       },
       "errors": {
         "load": "Kunne ikke indlæse genveje.",
@@ -2380,7 +2380,7 @@
       "defaultOption": "Stellas standard",
       "delete": "Slet",
       "deleted": "Prompten blev slettet.",
-      "description": "Stellas standardprompt opdateres altid med appen. Gem din egen for at bruge den i stedet – den gemmes separat, så opdateringer overskriver den aldrig.",
+      "description": "Brug din egen prompt i stedet for Stellas standard.",
       "duplicate": "Dupliker",
       "edit": "Rediger",
       "error": "Noget gik galt.",
@@ -2397,11 +2397,12 @@
       "account": "Konto og juridisk",
       "audio": "Lyd",
       "general": "Generelt",
-      "shortcuts": "Genveje"
+      "shortcuts": "Genveje",
+      "privacy": "Privatliv"
     },
     "title": "Indstillinger",
     "voiceAgent": {
-      "description": "Vis stemme- og opkaldsknapperne, så du kan tale højt med Stella. Diktering virker under alle omstændigheder.",
+      "description": "Vis stemme- og opkaldsknapper. Diktering virker uanset hvad.",
       "error": "Stemmeindstillingen kunne ikke opdateres.",
       "title": "Stemmesamtaler"
     },
@@ -2423,6 +2424,13 @@
         "openai": "OpenAI-stemmer",
         "xai": "Grok-stemmer"
       }
+    },
+    "groups": {
+      "app": "App",
+      "personal": "Personligt"
+    },
+    "nav": {
+      "more": "Mere"
     }
   },
   "shell": {

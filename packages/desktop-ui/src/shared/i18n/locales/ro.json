@@ -1883,10 +1883,10 @@
       "microphoneDeviceFallback": "Microfon {index}",
       "recovery": {
         "closing": "Se închide…",
-        "manageDescription": "Dacă permisiunea pentru microfon se blochează, o poți reseta și cere macOS să întrebe din nou.",
+        "manageDescription": "Resetează permisiunea microfonului dacă se blochează.",
         "manageLabel": "Gestionează accesul la microfon",
         "openSettings": "Deschide Setări",
-        "recoverDescription": "Odată ce ai spus nu, macOS nu mai întreabă singur. Resetează permisiunea, apoi închide și redeschide Stella.",
+        "recoverDescription": "macOS nu va mai întreba. Reseteaz-o, apoi redeschide Stella.",
         "recoverLabel": "Recuperează accesul la microfon",
         "reset": "Resetează și repornește"
       },
@@ -1899,22 +1899,22 @@
       },
       "speakerDeviceFallback": "Difuzor {index}",
       "superFast": {
-        "description": "Menține microfonul pregătit pentru ca dictarea să pornească cu mai puțină întârziere.",
+        "description": "Ține microfonul pregătit ca dictarea să pornească mai repede.",
         "label": "Dictare super rapidă"
       },
       "systemDefault": "Implicit de sistem",
       "wakeWord": {
-        "description": "Ascultă „Hey Stella” în fundal și pornește o conversație vocală. Când este dezactivat, microfonul rămâne inactiv până apeși pe dictare.",
+        "description": "Spune „Hey Stella” pentru a începe o conversație vocală.",
         "label": "Cuvânt de activare „Hey Stella”"
       }
     },
     "browserExtension": {
       "action": "Obține extensia",
-      "description": "Permite Stellei să vadă pagina pe care te afli și să efectueze acțiuni în browserul tău.",
+      "description": "Permite-i Stellei să vadă și să acționeze în browserul tău.",
       "title": "Stella pentru Chrome"
     },
     "chatStorage": {
-      "description": "Accesează-ți conversațiile pe toate dispozitivele. Dezactivează pentru a păstra un istoric separat doar pe acest computer. La reactivare, acele conversații nu vor fi încărcate. Furnizorii de IA îți procesează în continuare mesajele.",
+      "description": "Sincronizează conversațiile între dispozitive. Dezactivat, rămân pe acest computer.",
       "endVoice": "Încheie conversația vocală pentru a schimba stocarea conversațiilor.",
       "error": "Nu s-a putut schimba stocarea conversațiilor. Încearcă din nou.",
       "title": "Salvează istoricul conversațiilor în cloud"
@@ -1933,13 +1933,13 @@
       "upgrade": "Upgrade"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "O Stella mică, plutind deasupra desktopului tău.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "Cheie API",
-      "empty": "Încă nu sunt furnizori conectați. Alege o opțiune diferită de Stella în selectorul de modele de mai sus pentru a adăuga o cheie API sau a te conecta.",
+      "empty": "Niciun furnizor încă. Adaugă unul din selectorul de modele de mai sus.",
       "removeKey": "Elimină cheia",
       "removingKey": "Se elimină…",
       "signOut": "Deconectează-te",
@@ -1958,7 +1958,7 @@
       "addClaude": "Adaugă cont Claude",
       "addInCloud": "În cloud",
       "addOnComputer": "Pe acest computer",
-      "cardIntro": "Folosește abonamentul Claude sau ChatGPT pe care îl plătești deja. Fiecare loc se conectează separat: fiecare computer și cloudul tău.",
+      "cardIntro": "Folosește abonamentul Claude sau ChatGPT pe care îl plătești deja.",
       "cardTitle": "Conturi Claude și ChatGPT",
       "chatgptBrowserWaiting": "Finalizează conectarea la ChatGPT în browser.",
       "chatgptCloudSignedIn": "Cloudul tău este conectat la ChatGPT.",
@@ -1979,7 +1979,7 @@
         "whereComputer": "Conectare la Claude Code pe acest computer."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Code nu este instalat pe acest computer. Instalează-l pentru a folosi Claude aici.",
+      "cliMissing": "Instalează Claude Code pe acest computer ca să folosești Claude aici.",
       "connecting": "Se conectează…",
       "defaultSignedOut": "Claude Code de pe acest computer nu este conectat.",
       "enablePlanUsage": "Activează utilizarea abonamentului ChatGPT",
@@ -1990,14 +1990,14 @@
       "needsChatgptCloud": "Continuă mai întâi cu ChatGPT pentru cloudul tău",
       "needsClaudeCloud": "Conectează-te mai întâi la Claude în cloud",
       "openChatgptAgain": "Deschide din nou ChatGPT",
-      "pasteHintChatgpt": "După ce aprobi, ChatGPT te trimite la o pagină care nu se încarcă. Copiază adresa completă a paginii și lipește-o aici.",
+      "pasteHintChatgpt": "Copiază adresa paginii deschise de ChatGPT și lipește-o aici.",
       "pastePlaceholderUrl": "Lipește adresa aici",
       "placeCloud": "Cloud",
       "placeComputer": "Acest computer",
       "placeOtherComputer": "Alt computer",
       "placeSignedIn": "{place}: conectat",
       "placeSignedOut": "{place}: neconectat",
-      "planUsageOffBody": "Stella nu poate folosi abonamentul tău ChatGPT până nu îi permiți. Alege „Activează utilizarea abonamentului ChatGPT” la cont sau folosește alt model.",
+      "planUsageOffBody": "Alege „Activează utilizarea abonamentului ChatGPT” la cont sau alt model.",
       "planUsageOffTitle": "Conectat, dar utilizarea abonamentului ChatGPT nu este activată",
       "remove": "Elimină",
       "removed": "Eliminat.",
@@ -2054,7 +2054,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Cât de insistent încearcă Stella să te contacteze când are nevoie de un răspuns.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2098,7 +2098,7 @@
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "note": "Computerele conectate apar aici. Activează unul ca să-i trimiți sarcini.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2112,16 +2112,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Alege limba pe care o folosește Stella în aplicație și în răspunsuri.",
+      "description": "Pentru aplicație și răspunsurile Stellei.",
       "title": "Limbă"
     },
     "lockedComputerUse": {
-      "description": "Permite Stellei să continue sarcinile de utilizare a computerului după ce acest Mac se blochează. Necesită o solicitare de administrator și acoperă ecranul cât timp Stella lucrează.",
+      "description": "Sarcinile de utilizare a computerului continuă când acest Mac se blochează.",
       "title": "Utilizare cu computerul blocat",
       "unsupported": "Utilizarea cu computerul blocat este disponibilă doar pe macOS."
     },
     "memory": {
-      "description": "Include amintirile salvate și profilul tău în contextul modelului Stella. Computerele tale și cloudul păstrează aceeași memorie, criptată atât în tranzit, cât și în repaus. Dezactivarea acestei opțiuni o întrerupe și exclude memoria din conversațiile viitoare, dar nu o șterge.",
+      "description": "Folosește amintirile salvate în răspunsuri. Dezactivarea nu le șterge.",
       "title": "Memorie"
     },
     "modelPicker": {
@@ -2155,7 +2155,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Folosește orice server local compatibil OpenAI. Ollama rulează de obicei la adresa de mai jos.",
+        "hint": "Orice server local compatibil cu OpenAI, precum Ollama.",
         "modelNameAriaLabel": "Nume model local",
         "serverUrlAriaLabel": "URL server local"
       },
@@ -2199,7 +2199,7 @@
       "title": "Mișcare"
     },
     "nativeFontSmoothing": {
-      "description": "Redă textul așa cum o fac aplicațiile macOS, cu anti-aliasing în tonuri de gri.",
+      "description": "Netezire în tonuri de gri, ca în aplicațiile native macOS.",
       "title": "Netezire nativă a fonturilor"
     },
     "notifications": {
@@ -2208,18 +2208,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Reia ghidul de început. Datele tale rămân.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Permite Stellei să citească textul selectat și să se deschidă cu scurtătura ⌘+clic dreapta oriunde pe computer.",
+        "description": "Citește textul selectat și deschide cu ⌘+clic dreapta.",
         "label": "Accesibilitate"
       },
       "enable": "Activează",
       "granted": "Acordată",
       "microphone": {
-        "description": "Folosit pentru voce și dictare. Resetează dacă Stella a fost refuzată anterior, iar macOS nu mai întreabă.",
+        "description": "Pentru voce și dictare.",
         "label": "Microfon"
       },
       "opening": "Se deschide…",
@@ -2228,11 +2228,11 @@
       "restart": {
         "action": "Repornește",
         "closing": "Se închide…",
-        "description": "Captura de ecran tocmai a fost activată. Închide și redeschide Stella pentru a finaliza configurarea.",
+        "description": "Redeschide Stella pentru a termina activarea capturii de ecran.",
         "label": "Repornește Stella"
       },
       "screen": {
-        "description": "Permite Stellei să vadă ecranul tău pentru a te ajuta cu ceea ce privești. Poate fi necesar să închizi și să redeschizi Stella după activare.",
+        "description": "Permite-i Stellei să vadă ce e pe ecran.",
         "label": "Captură de ecran"
       },
       "title": "Permisiuni"
@@ -2254,7 +2254,7 @@
         "other": "{count} de telefoane asociate"
       },
       "pairing": {
-        "body": "Deschide aplicația Stella pe telefon și scanează codul QR sau tastează codul de mai jos. Trebuie să faci asta o singură dată.",
+        "body": "Scanează codul QR din aplicația Stella de pe telefon sau introdu codul.",
         "headline": "Scanează sau introdu acest cod",
         "qrAlt": "Scanează pentru a-ți asocia telefonul"
       },
@@ -2290,7 +2290,7 @@
         "description": "Rutează asistentul de chat al Stellei prin {provider}.",
         "label": "Asistent"
       },
-      "description": "{provider} poate alimenta mai multe părți din Stella. Alege unde vrei să preia controlul — Stella se ocupă de restul.",
+      "description": "Alege ce să alimenteze {provider}.",
       "errors": {
         "apply": "Aplicarea setărilor furnizorului a eșuat."
       },
@@ -2319,7 +2319,7 @@
     },
     "resetCustomizations": {
       "action": "Restaurează implicite",
-      "description": "Elimină personalizările tale de abilități și modificările de personalitate pentru a aplica setările implicite Stella. Ce este eliminat rămâne în ~/.stella/.trash în caz că vrei să îl recuperezi.",
+      "description": "Restabilește abilitățile și personalitatea implicite. Fișierele vechi ajung în ~/.stella/.trash.",
       "done": "Setările implicite au fost restaurate. Personalizările anterioare au fost mutate în ~/.stella/.trash.",
       "error": "Setările implicite nu au putut fi restaurate.",
       "none": "Folosești deja setările implicite Stella.",
@@ -2353,7 +2353,7 @@
       "change": "Modifică",
       "clear": "Șterge",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Apasă pentru a dicta, apasă din nou pentru a termina."
       },
       "errors": {
         "load": "Nu s-au putut încărca scurtăturile.",
@@ -2391,7 +2391,7 @@
       "defaultOption": "Implicit Stella",
       "delete": "Șterge",
       "deleted": "Prompt șters.",
-      "description": "Promptul implicit al Stellei se actualizează mereu odată cu aplicația. Salvează-l pe al tău pentru a fi folosit în loc — este păstrat separat, așa că actualizările nu îl suprascriu niciodată.",
+      "description": "Folosește propriul prompt în locul celui implicit al Stellei.",
       "duplicate": "Duplică",
       "edit": "Editează",
       "error": "Ceva nu a mers bine.",
@@ -2408,11 +2408,12 @@
       "account": "Cont și legal",
       "audio": "Audio",
       "general": "General",
-      "shortcuts": "Comenzi rapide"
+      "shortcuts": "Comenzi rapide",
+      "privacy": "Confidențialitate"
     },
     "title": "Setări",
     "voiceAgent": {
-      "description": "Afișează butoanele de voce și apel ca să poți vorbi cu Stella. Dictarea funcționează în orice caz.",
+      "description": "Afișează comenzile de voce și apel. Dictarea funcționează oricum.",
       "error": "Setarea de voce nu a putut fi actualizată.",
       "title": "Conversații vocale"
     },
@@ -2434,6 +2435,13 @@
         "openai": "Voci OpenAI",
         "xai": "Voci Grok"
       }
+    },
+    "groups": {
+      "app": "Aplicație",
+      "personal": "Personal"
+    },
+    "nav": {
+      "more": "Mai mult"
     }
   },
   "shell": {

@@ -1913,10 +1913,10 @@
       "microphoneDeviceFallback": "ميكروفون {index}",
       "recovery": {
         "closing": "جارٍ الإغلاق…",
-        "manageDescription": "إذا تعطّل إذن الميكروفون، يمكنك إعادة تعيينه وطلب أن يسأل macOS مرة أخرى.",
+        "manageDescription": "أعد تعيين إذن الميكروفون إذا علق.",
         "manageLabel": "إدارة الوصول إلى الميكروفون",
         "openSettings": "فتح الإعدادات",
-        "recoverDescription": "بمجرد أن ترفض، لن يسأل macOS مرة أخرى من تلقاء نفسه. أعد تعيين الإذن، ثم أنهِ Stella وأعد فتحها.",
+        "recoverDescription": "لن يسأل macOS مرة أخرى. أعد تعيينه ثم أعد فتح Stella.",
         "recoverLabel": "استعادة الوصول إلى الميكروفون",
         "reset": "إعادة التعيين وإعادة التشغيل"
       },
@@ -1929,22 +1929,22 @@
       },
       "speakerDeviceFallback": "مكبّر صوت {index}",
       "superFast": {
-        "description": "يبقي الميكروفون جاهزًا ليبدأ الإملاء بتأخير أقل.",
+        "description": "يبقي الميكروفون جاهزًا ليبدأ الإملاء أسرع.",
         "label": "إملاء فائق السرعة"
       },
       "systemDefault": "افتراضي النظام",
       "wakeWord": {
-        "description": "يستمع إلى «Hey Stella» في الخلفية ويبدأ محادثة صوتية. عند الإيقاف، يبقى الميكروفون خاملًا حتى تضغط على الإملاء.",
+        "description": "قل «Hey Stella» لبدء محادثة صوتية.",
         "label": "كلمة التنبيه «Hey Stella»"
       }
     },
     "browserExtension": {
       "action": "الحصول على الإضافة",
-      "description": "يتيح لـ Stella رؤية الصفحة التي تتصفّحها وتنفيذ إجراءات في متصفّحك.",
+      "description": "اسمح لـ Stella برؤية متصفحك والعمل فيه.",
       "title": "Stella لـ Chrome"
     },
     "chatStorage": {
-      "description": "يمكنك الوصول إلى محادثاتك من جميع أجهزتك. أوقف هذا الخيار للاحتفاظ بسجل محادثات منفصل على هذا الكمبيوتر فقط. عند إعادة تشغيله، لن يتم رفع تلك المحادثات. لا تزال مزوّدات الذكاء الاصطناعي تعالج رسائلك.",
+      "description": "زامن المحادثات بين الأجهزة. عند الإيقاف تبقى على هذا الكمبيوتر.",
       "endVoice": "أنهِ المحادثة الصوتية لتغيير طريقة حفظ المحادثات.",
       "error": "تعذّر تغيير طريقة حفظ المحادثات. حاول مرة أخرى.",
       "title": "حفظ سجل المحادثات في السحابة"
@@ -1963,13 +1963,13 @@
       "upgrade": "ترقية"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Stella صغيرة تطفو فوق سطح المكتب.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "مفتاح API",
-      "empty": "لا يوجد مزوّدون متصلون بعد. اختر خيارًا غير Stella في محدّد النماذج أعلاه لإضافة مفتاح API أو تسجيل الدخول.",
+      "empty": "لا يوجد مزوّدون بعد. أضف واحدًا من منتقي النماذج أعلاه.",
       "removeKey": "إزالة المفتاح",
       "removingKey": "جارٍ الإزالة…",
       "signOut": "تسجيل الخروج",
@@ -1988,7 +1988,7 @@
       "addClaude": "إضافة حساب Claude",
       "addInCloud": "في السحابة",
       "addOnComputer": "على هذا الكمبيوتر",
-      "cardIntro": "استخدم خطة Claude أو ChatGPT التي تدفع مقابلها بالفعل. يسجّل كل مكان دخوله بشكل منفصل: كل كمبيوتر والسحابة الخاصة بك.",
+      "cardIntro": "استخدم خطة Claude أو ChatGPT التي تدفع لها بالفعل.",
       "cardTitle": "حسابات Claude وChatGPT",
       "chatgptBrowserWaiting": "أكمل تسجيل الدخول إلى ChatGPT في متصفحك.",
       "chatgptCloudSignedIn": "تم تسجيل دخول سحابتك إلى ChatGPT.",
@@ -2009,7 +2009,7 @@
         "whereComputer": "جارٍ تسجيل الدخول إلى Claude Code على هذا الكمبيوتر."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Code غير مثبّت على هذا الكمبيوتر. ثبّته لاستخدام Claude هنا.",
+      "cliMissing": "ثبّت Claude Code على هذا الكمبيوتر لاستخدام Claude هنا.",
       "connecting": "جارٍ الاتصال…",
       "defaultSignedOut": "لم يتم تسجيل الدخول إلى Claude Code على هذا الكمبيوتر.",
       "enablePlanUsage": "تفعيل استخدام خطة ChatGPT",
@@ -2020,14 +2020,14 @@
       "needsChatgptCloud": "اربط ChatGPT بسحابتك أولاً",
       "needsClaudeCloud": "سجّل الدخول إلى Claude في السحابة أولاً",
       "openChatgptAgain": "فتح ChatGPT مرة أخرى",
-      "pasteHintChatgpt": "بعد الموافقة، ينقلك ChatGPT إلى صفحة لا يتم تحميلها. انسخ العنوان الكامل لتلك الصفحة والصقه هنا.",
+      "pasteHintChatgpt": "انسخ عنوان الصفحة التي يفتحها ChatGPT والصقه هنا.",
       "pastePlaceholderUrl": "الصق العنوان هنا",
       "placeCloud": "السحابة",
       "placeComputer": "هذا الكمبيوتر",
       "placeOtherComputer": "كمبيوتر آخر",
       "placeSignedIn": "{place}: تم تسجيل الدخول",
       "placeSignedOut": "{place}: لم يتم تسجيل الدخول",
-      "planUsageOffBody": "لا يمكن لـ Stella استخدام خطة ChatGPT الخاصة بك حتى تسمح بذلك. اختر «تفعيل استخدام خطة ChatGPT» في الحساب، أو استخدم نموذجًا آخر.",
+      "planUsageOffBody": "اختر «تفعيل استخدام خطة ChatGPT» في الحساب، أو نموذجًا آخر.",
       "planUsageOffTitle": "تم تسجيل الدخول، لكن استخدام خطة ChatGPT غير مفعّل",
       "remove": "إزالة",
       "removed": "تمت الإزالة.",
@@ -2084,7 +2084,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "مدى إصرار Stella على الوصول إليك عندما تحتاج إلى إجابة.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2128,7 +2128,7 @@
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "note": "تظهر هنا أجهزة الكمبيوتر المسجّل دخولها. فعّل أحدها لإرسال العمل إليه.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2142,16 +2142,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "اختر اللغة التي ستستخدمها Stella في التطبيق وعند الرد عليك.",
+      "description": "للتطبيق وردود Stella.",
       "title": "اللغة"
     },
     "lockedComputerUse": {
-      "description": "يتيح لـ Stella متابعة مهام استخدام الكمبيوتر بعد قفل هذا الـ Mac. يتطلب طلب موافقة المسؤول ويغطي الشاشة أثناء عمل Stella.",
+      "description": "تستمر مهام استخدام الكمبيوتر بعد قفل جهاز Mac هذا.",
       "title": "استخدام الكمبيوتر عند القفل",
       "unsupported": "استخدام الكمبيوتر عند القفل متاح فقط على macOS."
     },
     "memory": {
-      "description": "ضمّن الذكريات المحفوظة وملفك الشخصي في سياق نموذج Stella. تحتفظ أجهزة الكمبيوتر لديك والسحابة بالذاكرة نفسها، مشفّرة أثناء النقل وعند التخزين. يؤدي إيقاف هذا الخيار إلى إيقاف ذلك مؤقتًا واستبعاد الذاكرة من المحادثات المستقبلية، لكنه لا يحذفها.",
+      "description": "استخدم الذكريات المحفوظة في الردود. الإيقاف لا يحذفها.",
       "title": "الذاكرة"
     },
     "modelPicker": {
@@ -2185,7 +2185,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "استخدم أي خادم محلي متوافق مع OpenAI. يعمل Ollama عادةً على العنوان أدناه.",
+        "hint": "أي خادم محلي متوافق مع OpenAI، مثل Ollama.",
         "modelNameAriaLabel": "اسم النموذج المحلي",
         "serverUrlAriaLabel": "عنوان الخادم المحلي"
       },
@@ -2229,7 +2229,7 @@
       "title": "الحركة"
     },
     "nativeFontSmoothing": {
-      "description": "عرض النص كما تفعل تطبيقات macOS، مع تنعيم الحواف بتدرّج رمادي.",
+      "description": "تنعيم بتدرج الرمادي، مثل تطبيقات macOS الأصلية.",
       "title": "تنعيم الخطوط الأصلي"
     },
     "notifications": {
@@ -2238,18 +2238,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "أعد تشغيل الإعداد الأولي. تبقى بياناتك كما هي.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "يتيح لـ Stella قراءة النص المحدد والفتح عبر اختصار ⌘+النقر بالزر الأيمن في أي مكان على الكمبيوتر.",
+        "description": "قراءة النص المحدد والفتح بـ ⌘+النقر بزر الماوس الأيمن.",
         "label": "إمكانية الوصول"
       },
       "enable": "تفعيل",
       "granted": "ممنوح",
       "microphone": {
-        "description": "يُستخدم للصوت والإملاء. أعد التعيين إذا رُفضت Stella سابقًا ولم يعد macOS يسأل مرة أخرى.",
+        "description": "للصوت والإملاء.",
         "label": "الميكروفون"
       },
       "opening": "جارٍ الفتح…",
@@ -2258,11 +2258,11 @@
       "restart": {
         "action": "إعادة التشغيل",
         "closing": "جارٍ الإغلاق…",
-        "description": "تم تفعيل تسجيل الشاشة للتو. أنهِ Stella وأعد فتحها لإكمال الإعداد.",
+        "description": "أعد فتح Stella لإكمال تشغيل تسجيل الشاشة.",
         "label": "إعادة تشغيل Stella"
       },
       "screen": {
-        "description": "يتيح لـ Stella رؤية شاشتك لتساعدك فيما تنظر إليه. قد تحتاج إلى إنهاء Stella وإعادة فتحها بعد تفعيل ذلك.",
+        "description": "اسمح لـ Stella برؤية ما على شاشتك.",
         "label": "تسجيل الشاشة"
       },
       "title": "الأذونات"
@@ -2287,7 +2287,7 @@
         "zero": "{count} هاتف مقترن"
       },
       "pairing": {
-        "body": "افتح تطبيق Stella على هاتفك وامسح رمز QR، أو اكتب الرمز أدناه. تحتاج إلى ذلك مرة واحدة فقط.",
+        "body": "امسح رمز QR في تطبيق Stella على الهاتف، أو أدخل الرمز.",
         "headline": "امسح هذا الرمز أو أدخله",
         "qrAlt": "امسح لإقران هاتفك"
       },
@@ -2323,7 +2323,7 @@
         "description": "توجيه مساعد محادثة Stella عبر {provider}.",
         "label": "المساعد"
       },
-      "description": "يمكن لـ {provider} تشغيل أكثر من جزء من Stella. اختر ما تريد أن يتولاه — وتواصل Stella الباقي.",
+      "description": "اختر ما سيشغّله {provider}.",
       "errors": {
         "apply": "تعذّر تطبيق إعدادات المزوّد."
       },
@@ -2352,7 +2352,7 @@
     },
     "resetCustomizations": {
       "action": "استعادة الإعدادات الافتراضية",
-      "description": "يزيل تخصيصاتك للمهارات وتعديلات الشخصية لتُطبَّق إعدادات Stella الافتراضية. يُحتفظ بما يُزال في ~/.stella/.trash في حال أردت استعادته.",
+      "description": "استعادة المهارات والشخصية الافتراضية. تُنقل الملفات القديمة إلى ~/.stella/.trash.",
       "done": "تمت استعادة الإعدادات الافتراضية. نُقلت تخصيصاتك السابقة إلى ~/.stella/.trash.",
       "error": "تعذّرت استعادة الإعدادات الافتراضية.",
       "none": "أنت تستخدم إعدادات Stella الافتراضية بالفعل.",
@@ -2386,7 +2386,7 @@
       "change": "تغيير",
       "clear": "مسح",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "اضغط لبدء الإملاء، واضغط مجددًا للإنهاء."
       },
       "errors": {
         "load": "تعذّر تحميل الاختصارات.",
@@ -2424,7 +2424,7 @@
       "defaultOption": "افتراضي Stella",
       "delete": "حذف",
       "deleted": "تم حذف الموجّه.",
-      "description": "يُحدَّث موجّه Stella الافتراضي دائمًا مع التطبيق. احفظ موجّهك الخاص لاستخدامه بدلًا منه — يُخزَّن بشكل منفصل، لذا لن تستبدله التحديثات أبدًا.",
+      "description": "استخدم موجّهك الخاص بدلًا من الافتراضي في Stella.",
       "duplicate": "تكرار",
       "edit": "تحرير",
       "error": "حدث خطأ ما.",
@@ -2441,11 +2441,12 @@
       "account": "الحساب والشؤون القانونية",
       "audio": "الصوت",
       "general": "عام",
-      "shortcuts": "الاختصارات"
+      "shortcuts": "الاختصارات",
+      "privacy": "الخصوصية"
     },
     "title": "الإعدادات",
     "voiceAgent": {
-      "description": "أظهر عناصر التحكم في الصوت والاتصال لتتحدث إلى ستيلا بصوتك. الإملاء يعمل في الحالتين.",
+      "description": "إظهار عناصر التحكم بالصوت والمكالمات. الإملاء يعمل في الحالتين.",
       "error": "تعذّر تحديث إعداد الصوت.",
       "title": "المحادثات الصوتية"
     },
@@ -2467,6 +2468,13 @@
         "openai": "أصوات OpenAI",
         "xai": "أصوات Grok"
       }
+    },
+    "groups": {
+      "app": "التطبيق",
+      "personal": "شخصي"
+    },
+    "nav": {
+      "more": "المزيد"
     }
   },
   "shell": {

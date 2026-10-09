@@ -1873,10 +1873,10 @@
       "microphoneDeviceFallback": "Mikrofon {index}",
       "recovery": {
         "closing": "Kapatılıyor…",
-        "manageDescription": "Mikrofon izni takılırsa onu sıfırlayıp macOS'ten tekrar sormasını isteyebilirsiniz.",
+        "manageDescription": "Mikrofon izni takılırsa sıfırla.",
         "manageLabel": "Mikrofon erişimini yönet",
         "openSettings": "Ayarları aç",
-        "recoverDescription": "Bir kez hayır dediğinizde macOS kendiliğinden tekrar sormaz. İzni sıfırlayın, ardından Stella'yı kapatıp yeniden açın.",
+        "recoverDescription": "macOS tekrar sormayacak. Sıfırla, sonra Stella'yı yeniden aç.",
         "recoverLabel": "Mikrofon erişimini kurtar",
         "reset": "Sıfırla ve yeniden başlat"
       },
@@ -1889,22 +1889,22 @@
       },
       "speakerDeviceFallback": "Hoparlör {index}",
       "superFast": {
-        "description": "Diktenin daha az gecikmeyle başlaması için mikrofonu hazır tutar.",
+        "description": "Dikte daha hızlı başlasın diye mikrofonu hazır tutar.",
         "label": "Süper hızlı dikte"
       },
       "systemDefault": "Sistem varsayılanı",
       "wakeWord": {
-        "description": "Arka planda “Hey Stella” ifadesini dinler ve sesli bir konuşma başlatır. Kapalıyken, dikteye basana kadar mikrofon boşta kalır.",
+        "description": "Sesli konuşma başlatmak için “Hey Stella” de.",
         "label": "Uyandırma sözcüğü “Hey Stella”"
       }
     },
     "browserExtension": {
       "action": "Uzantıyı al",
-      "description": "Stella'nın bulunduğunuz sayfayı görmesine ve tarayıcınızda işlem yapmasına olanak tanır.",
+      "description": "Stella'nın tarayıcını görmesine ve orada işlem yapmasına izin ver.",
       "title": "Chrome için Stella"
     },
     "chatStorage": {
-      "description": "Sohbetlerinize tüm cihazlarınızdan erişin. Yalnızca bu bilgisayarda ayrı bir sohbet geçmişi tutmak için kapatın. Geri açtığınızda bu sohbetler yüklenmez. Yapay zekâ sağlayıcıları mesajlarınızı yine de işler.",
+      "description": "Sohbetleri cihazlar arasında eşitle. Kapalıyken bu bilgisayarda kalır.",
       "endVoice": "Sohbet depolamasını değiştirmek için sesli görüşmenizi sonlandırın.",
       "error": "Sohbet depolaması değiştirilemedi. Tekrar deneyin.",
       "title": "Sohbet geçmişini bulutta sakla"
@@ -1923,13 +1923,13 @@
       "upgrade": "Yükselt"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Masaüstünün üzerinde süzülen küçük bir Stella.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "API anahtarı",
-      "empty": "Henüz bağlı sağlayıcı yok. Bir API anahtarı eklemek veya giriş yapmak için yukarıdaki model seçicide Stella dışında bir seçenek seçin.",
+      "empty": "Henüz sağlayıcı yok. Yukarıdaki model seçiciden bir tane ekle.",
       "removeKey": "Anahtarı kaldır",
       "removingKey": "Kaldırılıyor…",
       "signOut": "Çıkış yap",
@@ -1948,7 +1948,7 @@
       "addClaude": "Claude hesabı ekle",
       "addInCloud": "Bulutta",
       "addOnComputer": "Bu bilgisayarda",
-      "cardIntro": "Zaten ödediğin Claude veya ChatGPT planını kullan. Her yerde ayrı oturum açılır: her bilgisayarda ve bulutunda.",
+      "cardIntro": "Zaten ödediğin Claude veya ChatGPT planını kullan.",
       "cardTitle": "Claude ve ChatGPT hesapları",
       "chatgptBrowserWaiting": "Tarayıcında ChatGPT oturum açma işlemini tamamla.",
       "chatgptCloudSignedIn": "Bulutunda ChatGPT oturumu açık.",
@@ -1969,7 +1969,7 @@
         "whereComputer": "Bu bilgisayarda Claude Code'da oturum açılıyor."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Code bu bilgisayarda yüklü değil. Claude'u burada kullanmak için yükle.",
+      "cliMissing": "Claude'u burada kullanmak için bu bilgisayara Claude Code yükle.",
       "connecting": "Bağlanıyor…",
       "defaultSignedOut": "Bu bilgisayardaki Claude Code'da oturum açık değil.",
       "enablePlanUsage": "ChatGPT planı kullanımını etkinleştir",
@@ -1980,14 +1980,14 @@
       "needsChatgptCloud": "Önce bulutun için ChatGPT ile devam et",
       "needsClaudeCloud": "Önce bulutta Claude'da oturum aç",
       "openChatgptAgain": "ChatGPT'yi yeniden aç",
-      "pasteHintChatgpt": "Onayladıktan sonra ChatGPT seni yüklenmeyen bir sayfaya yönlendirir. O sayfanın tam adresini kopyalayıp buraya yapıştır.",
+      "pasteHintChatgpt": "ChatGPT'nin açtığı sayfanın adresini kopyalayıp buraya yapıştır.",
       "pastePlaceholderUrl": "Adresi buraya yapıştır",
       "placeCloud": "Bulut",
       "placeComputer": "Bu bilgisayar",
       "placeOtherComputer": "Başka bir bilgisayar",
       "placeSignedIn": "{place}: oturum açık",
       "placeSignedOut": "{place}: oturum açık değil",
-      "planUsageOffBody": "Sen izin verene kadar Stella ChatGPT planını kullanamaz. Hesapta “ChatGPT planı kullanımını etkinleştir” seçeneğini seç veya başka bir model kullan.",
+      "planUsageOffBody": "Hesapta “ChatGPT planı kullanımını etkinleştir” seçeneğini ya da başka bir model seç.",
       "planUsageOffTitle": "Oturum açık, ancak ChatGPT planı kullanımı etkin değil",
       "remove": "Kaldır",
       "removed": "Kaldırıldı.",
@@ -2044,7 +2044,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Stella bir yanıta ihtiyaç duyduğunda sana ulaşmak için ne kadar ısrar etsin.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2088,7 +2088,7 @@
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "note": "Oturum açılmış bilgisayarlar burada görünür. İş göndermek için birini etkinleştir.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2102,16 +2102,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Stella'nın uygulamada ve yanıtlarında kullanacağı dili seçin.",
+      "description": "Uygulama ve Stella'nın yanıtları için.",
       "title": "Dil"
     },
     "lockedComputerUse": {
-      "description": "Bu Mac kilitlendikten sonra Stella'nın bilgisayar kullanım görevlerine devam etmesine izin verir. Yönetici onayı gerektirir ve Stella çalışırken ekranı kaplar.",
+      "description": "Bu Mac kilitlendiğinde bilgisayar kullanımı görevleri çalışmaya devam etsin.",
       "title": "Kilitliyken bilgisayar kullanımı",
       "unsupported": "Kilitliyken bilgisayar kullanımı yalnızca macOS'te kullanılabilir."
     },
     "memory": {
-      "description": "Kaydedilen anıları ve profilinizi Stella'nın model bağlamına dahil edin. Bilgisayarlarınız ve bulut, aktarım sırasında ve depolanırken şifrelenen aynı belleği tutar. Bunu kapatmak senkronizasyonu duraklatır ve belleği gelecekteki konuşmalardan hariç tutar ancak silmez.",
+      "description": "Kayıtlı anıları yanıtlarda kullan. Kapatmak onları silmez.",
       "title": "Bellek"
     },
     "modelPicker": {
@@ -2145,7 +2145,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "OpenAI uyumlu herhangi bir yerel sunucuyu kullanın. Ollama genellikle aşağıdaki adreste çalışır.",
+        "hint": "Ollama gibi, OpenAI uyumlu herhangi bir yerel sunucu.",
         "modelNameAriaLabel": "Yerel model adı",
         "serverUrlAriaLabel": "Yerel sunucu adresi"
       },
@@ -2189,7 +2189,7 @@
       "title": "Hareket"
     },
     "nativeFontSmoothing": {
-      "description": "Metni macOS uygulamaları gibi, gri tonlamalı kenar yumuşatmayla işler.",
+      "description": "Yerel macOS uygulamalarındaki gibi gri tonlamalı kenar yumuşatma.",
       "title": "Yerel yazı tipi yumuşatma"
     },
     "notifications": {
@@ -2198,18 +2198,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Başlangıç turunu yeniden çalıştır. Verilerin korunur.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Stella'nın seçili metni okumasına ve bilgisayarınızın herhangi bir yerinde ⌘+sağ tıklama kısayoluyla açılmasına olanak tanır.",
+        "description": "Seçili metni oku ve ⌘+sağ tıkla aç.",
         "label": "Erişilebilirlik"
       },
       "enable": "Etkinleştir",
       "granted": "Verildi",
       "microphone": {
-        "description": "Ses ve dikte için kullanılır. Stella daha önce reddedildiyse ve macOS tekrar sormuyorsa sıfırlayın.",
+        "description": "Ses ve dikte için.",
         "label": "Mikrofon"
       },
       "opening": "Açılıyor…",
@@ -2218,11 +2218,11 @@
       "restart": {
         "action": "Yeniden başlat",
         "closing": "Kapatılıyor…",
-        "description": "Ekran kaydı az önce açıldı. Kurulumu tamamlamak için Stella'yı kapatıp yeniden açın.",
+        "description": "Ekran kaydını açmayı tamamlamak için Stella'yı yeniden aç.",
         "label": "Stella'yı yeniden başlat"
       },
       "screen": {
-        "description": "Stella'nın baktığınız şeyde yardımcı olabilmesi için ekranınızı görmesine olanak tanır. Bunu açtıktan sonra Stella'yı kapatıp yeniden açmanız gerekebilir.",
+        "description": "Stella'nın ekranında ne olduğunu görmesine izin ver.",
         "label": "Ekran kaydı"
       },
       "title": "İzinler"
@@ -2243,7 +2243,7 @@
         "other": "{count} telefon eşleştirildi"
       },
       "pairing": {
-        "body": "Telefonunuzda Stella uygulamasını açıp QR kodu tarayın veya aşağıdaki kodu yazın. Bunu yalnızca bir kez yapmanız gerekir.",
+        "body": "Telefondaki Stella uygulamasında QR kodunu tara veya kodu gir.",
         "headline": "Bu kodu tarayın veya girin",
         "qrAlt": "Telefonunuzu eşleştirmek için tarayın"
       },
@@ -2279,7 +2279,7 @@
         "description": "Stella'nın sohbet asistanını {provider} üzerinden yönlendirin.",
         "label": "Asistan"
       },
-      "description": "{provider}, Stella'nın birden fazla bölümünü çalıştırabilir. Nerede devralmasını istediğinizi seçin — gerisini Stella yapmaya devam eder.",
+      "description": "{provider} neye güç versin, seç.",
       "errors": {
         "apply": "Sağlayıcı ayarları uygulanamadı."
       },
@@ -2308,7 +2308,7 @@
     },
     "resetCustomizations": {
       "action": "Varsayılanları geri yükle",
-      "description": "Beceri özelleştirmelerinizi ve kişilik düzenlemelerinizi kaldırarak Stella'nın varsayılan ayarlarını uygular. Kaldırılanlar, geri istemeniz ihtimaline karşı ~/.stella/.trash içinde saklanır.",
+      "description": "Varsayılan becerileri ve kişiliği geri yükle. Eski dosyalar ~/.stella/.trash klasörüne gider.",
       "done": "Varsayılanlar geri yüklendi. Önceki özelleştirmeleriniz ~/.stella/.trash klasörüne taşındı.",
       "error": "Varsayılanlar geri yüklenemedi.",
       "none": "Zaten Stella'nın varsayılanlarını kullanıyorsunuz.",
@@ -2342,7 +2342,7 @@
       "change": "Değiştir",
       "clear": "Temizle",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Dikte için bas, bitirmek için tekrar bas."
       },
       "errors": {
         "load": "Kısayollar yüklenemedi.",
@@ -2380,7 +2380,7 @@
       "defaultOption": "Stella'nın varsayılanı",
       "delete": "Sil",
       "deleted": "İstem silindi.",
-      "description": "Stella'nın varsayılan istemi her zaman uygulamayla güncellenir. Kendi isteminizi kaydedip onu kullanabilirsiniz — ayrı tutulur, bu yüzden güncellemeler asla üzerine yazmaz.",
+      "description": "Stella'nın varsayılanı yerine kendi istemini kullan.",
       "duplicate": "Çoğalt",
       "edit": "Düzenle",
       "error": "Bir şeyler ters gitti.",
@@ -2397,11 +2397,12 @@
       "account": "Hesap ve yasal",
       "audio": "Ses",
       "general": "Genel",
-      "shortcuts": "Kısayollar"
+      "shortcuts": "Kısayollar",
+      "privacy": "Gizlilik"
     },
     "title": "Ayarlar",
     "voiceAgent": {
-      "description": "Stella ile sesli konuşabilmen için ses ve arama denetimlerini gösterir. Dikte her durumda çalışmaya devam eder.",
+      "description": "Ses ve arama kontrollerini göster. Dikte her durumda çalışır.",
       "error": "Ses ayarı güncellenemedi.",
       "title": "Sesli görüşmeler"
     },
@@ -2423,6 +2424,13 @@
         "openai": "OpenAI sesleri",
         "xai": "Grok sesleri"
       }
+    },
+    "groups": {
+      "app": "Uygulama",
+      "personal": "Kişisel"
+    },
+    "nav": {
+      "more": "Daha fazla"
     }
   },
   "shell": {

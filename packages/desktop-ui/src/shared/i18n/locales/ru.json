@@ -1893,10 +1893,10 @@
       "microphoneDeviceFallback": "Микрофон {index}",
       "recovery": {
         "closing": "Закрытие…",
-        "manageDescription": "Если разрешение на микрофон зависнет, вы можете сбросить его и попросить macOS запросить снова.",
+        "manageDescription": "Сбросьте разрешение микрофона, если оно зависло.",
         "manageLabel": "Управление доступом к микрофону",
         "openSettings": "Открыть настройки",
-        "recoverDescription": "После отказа macOS больше не спрашивает сам. Сбросьте разрешение, затем закройте и снова откройте Stella.",
+        "recoverDescription": "macOS больше не спросит. Сбросьте его и снова откройте Stella.",
         "recoverLabel": "Восстановить доступ к микрофону",
         "reset": "Сбросить и перезапустить"
       },
@@ -1909,22 +1909,22 @@
       },
       "speakerDeviceFallback": "Динамик {index}",
       "superFast": {
-        "description": "Держит микрофон наготове, чтобы диктовка начиналась с меньшей задержкой.",
+        "description": "Держит микрофон наготове, чтобы диктовка начиналась быстрее.",
         "label": "Сверхбыстрая диктовка"
       },
       "systemDefault": "Системный по умолчанию",
       "wakeWord": {
-        "description": "Слушает «Hey Stella» в фоне и начинает голосовой разговор. Когда выключено, микрофон бездействует, пока вы не нажмёте диктовку.",
+        "description": "Скажите «Hey Stella», чтобы начать голосовой разговор.",
         "label": "Слово активации «Hey Stella»"
       }
     },
     "browserExtension": {
       "action": "Установить расширение",
-      "description": "Позволяет Stella видеть открытую страницу и выполнять действия в браузере.",
+      "description": "Разрешите Stella видеть браузер и действовать в нём.",
       "title": "Stella для Chrome"
     },
     "chatStorage": {
-      "description": "Доступ к чатам на всех устройствах. Отключите, чтобы хранить отдельную историю чатов только на этом компьютере. При повторном включении эти чаты не будут загружены. Поставщики ИИ по-прежнему обрабатывают ваши сообщения.",
+      "description": "Синхронизирует чаты между устройствами. Если выключено, они остаются на этом компьютере.",
       "endVoice": "Завершите голосовой разговор, чтобы изменить хранение чатов.",
       "error": "Не удалось изменить хранение чатов. Попробуйте ещё раз.",
       "title": "Сохранять историю чатов в облаке"
@@ -1943,13 +1943,13 @@
       "upgrade": "Улучшить план"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Маленькая Stella, парящая над рабочим столом.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "Ключ API",
-      "empty": "Пока нет подключённых провайдеров. Выберите выше в списке моделей вариант, отличный от Stella, чтобы добавить ключ API или войти.",
+      "empty": "Провайдеров пока нет. Добавьте их в выборе модели выше.",
       "removeKey": "Удалить ключ",
       "removingKey": "Удаление…",
       "signOut": "Выйти",
@@ -1968,7 +1968,7 @@
       "addClaude": "Добавить аккаунт Claude",
       "addInCloud": "В облаке",
       "addOnComputer": "На этом компьютере",
-      "cardIntro": "Используйте план Claude или ChatGPT, за который вы уже платите. Вход выполняется отдельно в каждом месте: на каждом компьютере и в вашем облаке.",
+      "cardIntro": "Используйте план Claude или ChatGPT, за который уже платите.",
       "cardTitle": "Аккаунты Claude и ChatGPT",
       "chatgptBrowserWaiting": "Завершите вход в ChatGPT в браузере.",
       "chatgptCloudSignedIn": "В вашем облаке выполнен вход в ChatGPT.",
@@ -1989,7 +1989,7 @@
         "whereComputer": "Вход в Claude Code на этом компьютере."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Code не установлен на этом компьютере. Установите его, чтобы использовать Claude здесь.",
+      "cliMissing": "Установите Claude Code на этот компьютер, чтобы пользоваться Claude здесь.",
       "connecting": "Подключение…",
       "defaultSignedOut": "В Claude Code на этом компьютере вход не выполнен.",
       "enablePlanUsage": "Включить использование плана ChatGPT",
@@ -2000,14 +2000,14 @@
       "needsChatgptCloud": "Сначала продолжите с ChatGPT для облака",
       "needsClaudeCloud": "Сначала войдите в Claude в облаке",
       "openChatgptAgain": "Снова открыть ChatGPT",
-      "pasteHintChatgpt": "После подтверждения ChatGPT перенаправит вас на страницу, которая не загрузится. Скопируйте полный адрес этой страницы и вставьте его сюда.",
+      "pasteHintChatgpt": "Скопируйте адрес страницы, которую откроет ChatGPT, и вставьте его сюда.",
       "pastePlaceholderUrl": "Вставьте адрес сюда",
       "placeCloud": "Облако",
       "placeComputer": "Этот компьютер",
       "placeOtherComputer": "Другой компьютер",
       "placeSignedIn": "{place}: вход выполнен",
       "placeSignedOut": "{place}: вход не выполнен",
-      "planUsageOffBody": "Stella не может использовать ваш план ChatGPT, пока вы это не разрешите. Выберите «Включить использование плана ChatGPT» в аккаунте или используйте другую модель.",
+      "planUsageOffBody": "Выберите «Включить использование плана ChatGPT» в аккаунте или другую модель.",
       "planUsageOffTitle": "Вход выполнен, но использование плана ChatGPT не включено",
       "remove": "Удалить",
       "removed": "Удалено.",
@@ -2064,7 +2064,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Насколько настойчиво Stella ищет вас, когда ей нужен ответ.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2108,7 +2108,7 @@
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "note": "Здесь появляются компьютеры, где выполнен вход. Включите один, чтобы отправлять ему задачи.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2122,16 +2122,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Выберите язык, который Stella будет использовать в приложении и в ответах.",
+      "description": "Для приложения и ответов Stella.",
       "title": "Язык"
     },
     "lockedComputerUse": {
-      "description": "Позволяет Stella продолжать задачи управления компьютером после блокировки этого Mac. Требует запроса администратора и закрывает экран, пока Stella работает.",
+      "description": "Задачи управления компьютером продолжаются после блокировки этого Mac.",
       "title": "Использование при заблокированном компьютере",
       "unsupported": "Использование при заблокированном компьютере доступно только в macOS."
     },
     "memory": {
-      "description": "Включать сохранённые воспоминания и ваш профиль в контекст модели Stella. Ваши компьютеры и облако хранят одну и ту же память, зашифрованную при передаче и хранении. Если отключить эту функцию, синхронизация приостановится и память не будет использоваться в будущих диалогах, но не будет удалена.",
+      "description": "Использовать сохранённые воспоминания в ответах. Выключение их не удаляет.",
       "title": "Память"
     },
     "modelPicker": {
@@ -2165,7 +2165,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Используйте любой локальный сервер, совместимый с OpenAI. Ollama обычно работает по адресу ниже.",
+        "hint": "Любой локальный сервер, совместимый с OpenAI, например Ollama.",
         "modelNameAriaLabel": "Название локальной модели",
         "serverUrlAriaLabel": "URL локального сервера"
       },
@@ -2209,7 +2209,7 @@
       "title": "Анимация"
     },
     "nativeFontSmoothing": {
-      "description": "Отображать текст как в приложениях macOS, со сглаживанием в градациях серого.",
+      "description": "Сглаживание в оттенках серого, как в нативных приложениях macOS.",
       "title": "Системное сглаживание шрифтов"
     },
     "notifications": {
@@ -2218,18 +2218,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Пройти знакомство заново. Ваши данные сохранятся.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Позволяет Stella читать выделенный текст и открываться по сочетанию ⌘+правый клик в любом месте компьютера.",
+        "description": "Читать выделенный текст и открывать по ⌘+правому клику.",
         "label": "Универсальный доступ"
       },
       "enable": "Включить",
       "granted": "Предоставлено",
       "microphone": {
-        "description": "Используется для голоса и диктовки. Сбросьте, если ранее Stella была отклонена и macOS больше не запрашивает.",
+        "description": "Для голоса и диктовки.",
         "label": "Микрофон"
       },
       "opening": "Открытие…",
@@ -2238,11 +2238,11 @@
       "restart": {
         "action": "Перезапустить",
         "closing": "Закрытие…",
-        "description": "Запись экрана только что включена. Закройте и снова откройте Stella, чтобы завершить настройку.",
+        "description": "Снова откройте Stella, чтобы завершить включение записи экрана.",
         "label": "Перезапустить Stella"
       },
       "screen": {
-        "description": "Позволяет Stella видеть ваш экран, чтобы помогать с тем, на что вы смотрите. После включения может потребоваться закрыть и снова открыть Stella.",
+        "description": "Разрешите Stella видеть, что на экране.",
         "label": "Запись экрана"
       },
       "title": "Разрешения"
@@ -2265,7 +2265,7 @@
         "other": "Привязано {count} телефона"
       },
       "pairing": {
-        "body": "Откройте приложение Stella на телефоне и отсканируйте QR-код или введите код ниже. Это нужно сделать только один раз.",
+        "body": "Отсканируйте QR-код в приложении Stella на телефоне или введите код.",
         "headline": "Отсканируйте или введите этот код",
         "qrAlt": "Отсканируйте, чтобы связать телефон"
       },
@@ -2301,7 +2301,7 @@
         "description": "Направлять чат-ассистента Stella через {provider}.",
         "label": "Ассистент"
       },
-      "description": "{provider} может обслуживать сразу несколько частей Stella. Выберите, где он возьмёт управление на себя, — остальное Stella оставит за собой.",
+      "description": "Выберите, для чего использовать {provider}.",
       "errors": {
         "apply": "Не удалось применить настройки провайдера."
       },
@@ -2330,7 +2330,7 @@
     },
     "resetCustomizations": {
       "action": "Восстановить настройки по умолчанию",
-      "description": "Удаляет ваши изменения навыков и правки личности, чтобы применялись стандартные настройки Stella. Удалённое сохраняется в ~/.stella/.trash на случай, если захотите вернуть.",
+      "description": "Вернуть стандартные навыки и характер. Старые файлы попадут в ~/.stella/.trash.",
       "done": "Настройки по умолчанию восстановлены. Ваши прежние изменения перемещены в ~/.stella/.trash.",
       "error": "Не удалось восстановить настройки по умолчанию.",
       "none": "Вы уже используете настройки Stella по умолчанию.",
@@ -2364,7 +2364,7 @@
       "change": "Изменить",
       "clear": "Очистить",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Нажмите, чтобы начать диктовку, и ещё раз, чтобы закончить."
       },
       "errors": {
         "load": "Не удалось загрузить сочетания клавиш.",
@@ -2402,7 +2402,7 @@
       "defaultOption": "Стандартный Stella",
       "delete": "Удалить",
       "deleted": "Промпт удалён.",
-      "description": "Стандартный промпт Stella всегда обновляется вместе с приложением. Сохраните свой, чтобы использовать его вместо этого — он хранится отдельно, поэтому обновления его не перезапишут.",
+      "description": "Используйте свой промпт вместо стандартного от Stella.",
       "duplicate": "Дублировать",
       "edit": "Изменить",
       "error": "Что-то пошло не так.",
@@ -2419,11 +2419,12 @@
       "account": "Аккаунт и право",
       "audio": "Звук",
       "general": "Основные",
-      "shortcuts": "Горячие клавиши"
+      "shortcuts": "Горячие клавиши",
+      "privacy": "Конфиденциальность"
     },
     "title": "Настройки",
     "voiceAgent": {
-      "description": "Показывать кнопки голоса и звонка, чтобы говорить со Stella вслух. Диктовка работает в любом случае.",
+      "description": "Показывать кнопки голоса и звонков. Диктовка работает в любом случае.",
       "error": "Не удалось обновить настройку голоса.",
       "title": "Голосовые разговоры"
     },
@@ -2445,6 +2446,13 @@
         "openai": "Голоса OpenAI",
         "xai": "Голоса Grok"
       }
+    },
+    "groups": {
+      "app": "Приложение",
+      "personal": "Личное"
+    },
+    "nav": {
+      "more": "Ещё"
     }
   },
   "shell": {

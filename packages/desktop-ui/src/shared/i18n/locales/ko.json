@@ -1863,10 +1863,10 @@
       "microphoneDeviceFallback": "마이크 {index}",
       "recovery": {
         "closing": "종료 중…",
-        "manageDescription": "마이크 권한이 멈추면 재설정하고 macOS가 다시 묻도록 요청할 수 있습니다.",
+        "manageDescription": "마이크 권한이 멈추면 재설정하세요.",
         "manageLabel": "마이크 접근 관리",
         "openSettings": "설정 열기",
-        "recoverDescription": "한 번 거부하면 macOS가 자동으로 다시 묻지 않습니다. 권한을 재설정한 다음 Stella를 종료했다가 다시 여세요.",
+        "recoverDescription": "macOS는 다시 묻지 않습니다. 재설정한 뒤 Stella를 다시 여세요.",
         "recoverLabel": "마이크 접근 복구",
         "reset": "재설정 후 재시작"
       },
@@ -1879,22 +1879,22 @@
       },
       "speakerDeviceFallback": "스피커 {index}",
       "superFast": {
-        "description": "마이크를 준비 상태로 유지해 받아쓰기가 더 적은 지연으로 시작되도록 합니다.",
+        "description": "받아쓰기가 더 빨리 시작되도록 마이크를 대기 상태로 유지합니다.",
         "label": "초고속 받아쓰기"
       },
       "systemDefault": "시스템 기본값",
       "wakeWord": {
-        "description": "백그라운드에서 “Hey Stella”를 듣고 음성 대화를 시작합니다. 꺼져 있으면 받아쓰기를 누를 때까지 마이크가 대기 상태로 유지됩니다.",
+        "description": "“Hey Stella”라고 말해 음성 대화를 시작하세요.",
         "label": "호출어 “Hey Stella”"
       }
     },
     "browserExtension": {
       "action": "확장 프로그램 받기",
-      "description": "Stella가 현재 보고 있는 페이지를 확인하고 브라우저에서 작업을 수행할 수 있게 합니다.",
+      "description": "Stella가 브라우저를 보고 조작하도록 허용합니다.",
       "title": "Stella for Chrome"
     },
     "chatStorage": {
-      "description": "모든 기기에서 대화를 확인하세요. 끄면 이 컴퓨터에만 별도의 대화 기록이 저장됩니다. 다시 켜도 그 대화는 업로드되지 않습니다. AI 제공업체는 여전히 메시지를 처리합니다.",
+      "description": "기기 간에 채팅을 동기화합니다. 끄면 이 컴퓨터에만 보관됩니다.",
       "endVoice": "대화 저장 방식을 변경하려면 음성 대화를 종료하세요.",
       "error": "대화 저장 방식을 변경하지 못했습니다. 다시 시도하세요.",
       "title": "대화 기록을 클라우드에 저장"
@@ -1913,13 +1913,13 @@
       "upgrade": "업그레이드"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "데스크톱 위에 떠 있는 작은 Stella.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "API 키",
-      "empty": "아직 연결된 제공업체가 없습니다. 위의 모델 선택기에서 Stella 이외의 옵션을 선택해 API 키를 추가하거나 로그인하세요.",
+      "empty": "아직 제공자가 없습니다. 위의 모델 선택기에서 추가하세요.",
       "removeKey": "키 제거",
       "removingKey": "제거 중…",
       "signOut": "로그아웃",
@@ -1938,7 +1938,7 @@
       "addClaude": "Claude 계정 추가",
       "addInCloud": "클라우드에서",
       "addOnComputer": "이 컴퓨터에서",
-      "cardIntro": "이미 결제 중인 Claude 또는 ChatGPT 요금제를 사용하세요. 로그인은 위치마다 따로 해야 합니다. 각 컴퓨터와 클라우드 모두요.",
+      "cardIntro": "이미 결제 중인 Claude 또는 ChatGPT 요금제를 사용하세요.",
       "cardTitle": "Claude 및 ChatGPT 계정",
       "chatgptBrowserWaiting": "브라우저에서 ChatGPT 로그인을 완료하세요.",
       "chatgptCloudSignedIn": "클라우드가 ChatGPT에 로그인되어 있습니다.",
@@ -1959,7 +1959,7 @@
         "whereComputer": "이 컴퓨터의 Claude Code에 로그인하는 중입니다."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "이 컴퓨터에 Claude Code가 설치되어 있지 않습니다. 여기서 Claude를 사용하려면 설치하세요.",
+      "cliMissing": "여기서 Claude를 사용하려면 이 컴퓨터에 Claude Code를 설치하세요.",
       "connecting": "연결 중…",
       "defaultSignedOut": "이 컴퓨터의 Claude Code에 로그인되어 있지 않습니다.",
       "enablePlanUsage": "ChatGPT 요금제 사용 활성화",
@@ -1970,14 +1970,14 @@
       "needsChatgptCloud": "먼저 클라우드용 ChatGPT를 설정하세요",
       "needsClaudeCloud": "먼저 클라우드에서 Claude에 로그인하세요",
       "openChatgptAgain": "ChatGPT 다시 열기",
-      "pasteHintChatgpt": "승인하면 ChatGPT가 로드되지 않는 페이지로 이동합니다. 그 페이지의 전체 주소를 복사해 여기에 붙여넣으세요.",
+      "pasteHintChatgpt": "ChatGPT가 연 페이지의 주소를 복사해 여기에 붙여넣으세요.",
       "pastePlaceholderUrl": "여기에 주소 붙여넣기",
       "placeCloud": "클라우드",
       "placeComputer": "이 컴퓨터",
       "placeOtherComputer": "다른 컴퓨터",
       "placeSignedIn": "{place}: 로그인됨",
       "placeSignedOut": "{place}: 로그인 안 됨",
-      "planUsageOffBody": "허용하기 전까지 Stella는 ChatGPT 요금제를 사용할 수 없습니다. 계정에서 ‘ChatGPT 요금제 사용 켜기’를 선택하거나 다른 모델을 사용하세요.",
+      "planUsageOffBody": "계정에서 ‘ChatGPT 요금제 사용 활성화’을 선택하거나 다른 모델을 고르세요.",
       "planUsageOffTitle": "로그인했지만 ChatGPT 요금제 사용이 켜져 있지 않습니다",
       "remove": "삭제",
       "removed": "삭제했습니다.",
@@ -2034,7 +2034,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "답이 필요할 때 Stella가 얼마나 적극적으로 연락할지 정합니다.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2078,7 +2078,7 @@
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "note": "로그인된 컴퓨터가 여기에 표시됩니다. 활성화하면 작업을 보낼 수 있습니다.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2092,16 +2092,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Stella가 앱 전반과 답변에서 사용할 언어를 선택하세요.",
+      "description": "앱과 Stella의 답변에 사용됩니다.",
       "title": "언어"
     },
     "lockedComputerUse": {
-      "description": "이 Mac이 잠긴 후에도 Stella가 컴퓨터 사용 작업을 계속하도록 허용합니다. 관리자 확인이 필요하며 Stella가 작업하는 동안 화면을 가립니다.",
+      "description": "이 Mac이 잠겨도 컴퓨터 사용 작업을 계속 실행합니다.",
       "title": "잠금 상태에서 컴퓨터 사용",
       "unsupported": "잠금 상태에서 컴퓨터 사용은 macOS에서만 가능합니다."
     },
     "memory": {
-      "description": "저장된 메모리와 프로필을 Stella의 모델 컨텍스트에 포함합니다. 사용자의 컴퓨터와 클라우드는 같은 메모리를 유지하며, 전송 중과 저장 시 모두 암호화됩니다. 이 기능을 끄면 동기화가 일시 중지되고 이후 대화에서 메모리를 제외하지만 삭제하지는 않습니다.",
+      "description": "저장된 기억을 답변에 사용합니다. 꺼도 삭제되지 않습니다.",
       "title": "메모리"
     },
     "modelPicker": {
@@ -2135,7 +2135,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "OpenAI 호환 로컬 서버를 사용할 수 있습니다. Ollama는 보통 아래 URL에서 실행됩니다.",
+        "hint": "Ollama 같은 OpenAI 호환 로컬 서버.",
         "modelNameAriaLabel": "로컬 모델 이름",
         "serverUrlAriaLabel": "로컬 서버 URL"
       },
@@ -2179,7 +2179,7 @@
       "title": "모션"
     },
     "nativeFontSmoothing": {
-      "description": "macOS 앱처럼 회색조 안티앨리어싱으로 텍스트를 렌더링합니다.",
+      "description": "기본 macOS 앱처럼 그레이스케일 안티앨리어싱을 사용합니다.",
       "title": "네이티브 글꼴 매끄럽게 처리"
     },
     "notifications": {
@@ -2188,18 +2188,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "온보딩을 다시 진행합니다. 데이터는 유지됩니다.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Stella가 선택한 텍스트를 읽고 컴퓨터 어디서나 ⌘+오른쪽 클릭 단축키로 열 수 있게 합니다.",
+        "description": "선택한 텍스트를 읽고 ⌘+우클릭으로 엽니다.",
         "label": "손쉬운 사용"
       },
       "enable": "사용",
       "granted": "허용됨",
       "microphone": {
-        "description": "음성 및 받아쓰기에 사용됩니다. 이전에 Stella가 거부되어 macOS가 다시 묻지 않으면 재설정하세요.",
+        "description": "음성과 받아쓰기에 사용됩니다.",
         "label": "마이크"
       },
       "opening": "여는 중…",
@@ -2208,11 +2208,11 @@
       "restart": {
         "action": "재시작",
         "closing": "종료 중…",
-        "description": "화면 기록이 방금 켜졌습니다. 설정을 완료하려면 Stella를 종료했다가 다시 여세요.",
+        "description": "화면 기록 켜기를 마치려면 Stella를 다시 여세요.",
         "label": "Stella 재시작"
       },
       "screen": {
-        "description": "Stella가 화면을 보고 보고 있는 내용을 도울 수 있게 합니다. 켠 후 Stella를 종료했다가 다시 열어야 할 수 있습니다.",
+        "description": "Stella가 화면의 내용을 볼 수 있게 합니다.",
         "label": "화면 기록"
       },
       "title": "권한"
@@ -2232,7 +2232,7 @@
         "other": "휴대폰 {count}대 연결됨"
       },
       "pairing": {
-        "body": "휴대폰에서 Stella 앱을 열고 QR 코드를 스캔하거나 아래 코드를 입력하세요. 이 과정은 한 번만 하면 됩니다.",
+        "body": "휴대폰의 Stella 앱에서 QR 코드를 스캔하거나 코드를 입력하세요.",
         "headline": "이 코드를 스캔하거나 입력하세요",
         "qrAlt": "스캔해 휴대폰 연결"
       },
@@ -2268,7 +2268,7 @@
         "description": "Stella의 채팅 어시스턴트를 {provider}(으)로 연결합니다.",
         "label": "어시스턴트"
       },
-      "description": "{provider}은(는) Stella의 여러 부분을 담당할 수 있습니다. 맡길 영역을 선택하세요 — 나머지는 Stella가 계속 처리합니다.",
+      "description": "{provider}를 어디에 사용할지 선택하세요.",
       "errors": {
         "apply": "제공업체 설정을 적용하지 못했습니다."
       },
@@ -2297,7 +2297,7 @@
     },
     "resetCustomizations": {
       "action": "기본값 복원",
-      "description": "스킬 사용자 지정과 성격 편집을 제거하고 Stella 기본 설정을 적용합니다. 제거된 항목은 ~/.stella/.trash에 보관되어 언제든 되찾을 수 있습니다.",
+      "description": "기본 스킬과 성격을 복원합니다. 이전 파일은 ~/.stella/.trash로 이동합니다.",
       "done": "기본값을 복원했습니다. 이전 사용자 지정은 ~/.stella/.trash로 이동되었습니다.",
       "error": "기본값을 복원하지 못했습니다.",
       "none": "이미 Stella 기본값을 사용하고 있습니다.",
@@ -2331,7 +2331,7 @@
       "change": "변경",
       "clear": "지우기",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "눌러서 받아쓰기를 시작하고, 다시 눌러 끝냅니다."
       },
       "errors": {
         "load": "단축키를 불러오지 못했습니다.",
@@ -2369,7 +2369,7 @@
       "defaultOption": "Stella 기본값",
       "delete": "삭제",
       "deleted": "프롬프트를 삭제했습니다.",
-      "description": "Stella의 기본 프롬프트는 항상 앱과 함께 업데이트됩니다. 직접 만든 프롬프트를 저장하면 그것이 사용됩니다. 별도로 보관되므로 업데이트가 덮어쓰지 않습니다.",
+      "description": "Stella 기본값 대신 직접 만든 프롬프트를 사용합니다.",
       "duplicate": "복제",
       "edit": "편집",
       "error": "문제가 발생했습니다.",
@@ -2386,11 +2386,12 @@
       "account": "계정 및 법적 고지",
       "audio": "오디오",
       "general": "기본",
-      "shortcuts": "단축키"
+      "shortcuts": "단축키",
+      "privacy": "개인정보 보호"
     },
     "title": "설정",
     "voiceAgent": {
-      "description": "음성 및 통화 컨트롤을 표시해 Stella와 소리로 대화할 수 있게 합니다. 음성 입력은 어느 쪽이든 계속 작동합니다.",
+      "description": "음성 및 통화 컨트롤을 표시합니다. 받아쓰기는 어느 쪽이든 작동합니다.",
       "error": "음성 설정을 업데이트할 수 없습니다.",
       "title": "음성 대화"
     },
@@ -2412,6 +2413,13 @@
         "openai": "OpenAI 음성",
         "xai": "Grok 음성"
       }
+    },
+    "groups": {
+      "app": "앱",
+      "personal": "개인"
+    },
+    "nav": {
+      "more": "더 보기"
     }
   },
   "shell": {

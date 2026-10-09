@@ -1893,10 +1893,10 @@
       "microphoneDeviceFallback": "Mikrofon {index}",
       "recovery": {
         "closing": "Zavírání…",
-        "manageDescription": "Pokud se oprávnění mikrofonu zasekne, můžete ho obnovit a požádat macOS, aby se zeptal znovu.",
+        "manageDescription": "Pokud se oprávnění mikrofonu zasekne, resetujte ho.",
         "manageLabel": "Spravovat přístup k mikrofonu",
         "openSettings": "Otevřít Nastavení",
-        "recoverDescription": "Jakmile řeknete ne, macOS se sám znovu nezeptá. Obnovte oprávnění a poté Stellu ukončete a znovu otevřete.",
+        "recoverDescription": "macOS se znovu nezeptá. Resetujte ho a znovu otevřete Stellu.",
         "recoverLabel": "Obnovit přístup k mikrofonu",
         "reset": "Obnovit a restartovat"
       },
@@ -1909,22 +1909,22 @@
       },
       "speakerDeviceFallback": "Reproduktor {index}",
       "superFast": {
-        "description": "Udržuje mikrofon připravený, aby diktování začínalo s menším zpožděním.",
+        "description": "Udržuje mikrofon připravený, aby diktování začalo rychleji.",
         "label": "Superrychlé diktování"
       },
       "systemDefault": "Výchozí systémové",
       "wakeWord": {
-        "description": "Naslouchá „Hey Stella“ na pozadí a zahájí hlasovou konverzaci. Když je vypnuto, mikrofon zůstává nečinný, dokud nestisknete diktování.",
+        "description": "Řekněte „Hey Stella“ a zahajte hlasovou konverzaci.",
         "label": "Aktivační slovo „Hey Stella“"
       }
     },
     "browserExtension": {
       "action": "Získat rozšíření",
-      "description": "Umožní Stelle vidět stránku, na které jste, a provádět akce ve vašem prohlížeči.",
+      "description": "Dovolte Stelle vidět váš prohlížeč a jednat v něm.",
       "title": "Stella pro Chrome"
     },
     "chatStorage": {
-      "description": "Mějte chaty po ruce na všech zařízeních. Vypnutím zachováte samostatnou historii chatů jen na tomto počítači. Po opětovném zapnutí se tyto chaty nenahrají. Poskytovatelé AI vaše zprávy nadále zpracovávají.",
+      "description": "Synchronizuje chaty mezi zařízeními. Vypnuto je ponechá v tomto počítači.",
       "endVoice": "Ukončete hlasový hovor, abyste mohli změnit ukládání chatů.",
       "error": "Ukládání chatů se nepodařilo změnit. Zkuste to znovu.",
       "title": "Ukládat historii chatů do cloudu"
@@ -1943,13 +1943,13 @@
       "upgrade": "Upgradovat"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Malá Stella plovoucí nad vaší plochou.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "Klíč API",
-      "empty": "Zatím nejsou připojeni žádní poskytovatelé. Vyberte výše v přepínači modelů jinou možnost než Stella, abyste přidali klíč API nebo se přihlásili.",
+      "empty": "Zatím žádní poskytovatelé. Přidejte jednoho ve výběru modelu výše.",
       "removeKey": "Odebrat klíč",
       "removingKey": "Odebírání…",
       "signOut": "Odhlásit se",
@@ -1968,7 +1968,7 @@
       "addClaude": "Přidat účet Claude",
       "addInCloud": "V cloudu",
       "addOnComputer": "Na tomto počítači",
-      "cardIntro": "Použijte tarif Claude nebo ChatGPT, který už platíte. Každé místo se přihlašuje samostatně: každý počítač i váš cloud.",
+      "cardIntro": "Využijte tarif Claude nebo ChatGPT, který už platíte.",
       "cardTitle": "Účty Claude a ChatGPT",
       "chatgptBrowserWaiting": "Dokončete přihlášení do ChatGPT v prohlížeči.",
       "chatgptCloudSignedIn": "Váš cloud je přihlášený k ChatGPT.",
@@ -1989,7 +1989,7 @@
         "whereComputer": "Přihlašování ke Claude Code na tomto počítači."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Code není na tomto počítači nainstalovaný. Nainstalujte ho, abyste tu mohli používat Claude.",
+      "cliMissing": "Nainstalujte Claude Code do tohoto počítače, abyste tu mohli používat Claude.",
       "connecting": "Připojování…",
       "defaultSignedOut": "Claude Code na tomto počítači není přihlášený.",
       "enablePlanUsage": "Povolit používání tarifu ChatGPT",
@@ -2000,14 +2000,14 @@
       "needsChatgptCloud": "Nejdřív připojte ChatGPT ke svému cloudu",
       "needsClaudeCloud": "Nejdřív se přihlaste ke Claude v cloudu",
       "openChatgptAgain": "Znovu otevřít ChatGPT",
-      "pasteHintChatgpt": "Po schválení vás ChatGPT přesměruje na stránku, která se nenačte. Zkopírujte celou adresu této stránky a vložte ji sem.",
+      "pasteHintChatgpt": "Zkopírujte adresu stránky, kterou ChatGPT otevře, a vložte ji sem.",
       "pastePlaceholderUrl": "Sem vložte adresu",
       "placeCloud": "Cloud",
       "placeComputer": "Tento počítač",
       "placeOtherComputer": "Jiný počítač",
       "placeSignedIn": "{place}: přihlášeno",
       "placeSignedOut": "{place}: nepřihlášeno",
-      "planUsageOffBody": "Stella nemůže používat váš tarif ChatGPT, dokud to nepovolíte. U účtu zvolte „Povolit používání tarifu ChatGPT“, nebo použijte jiný model.",
+      "planUsageOffBody": "U účtu zvolte „Povolit používání tarifu ChatGPT“, nebo vyberte jiný model.",
       "planUsageOffTitle": "Přihlášeno, ale používání tarifu ChatGPT není povolené",
       "remove": "Odebrat",
       "removed": "Odebráno.",
@@ -2064,7 +2064,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Jak usilovně se vás Stella snaží zastihnout, když potřebuje odpověď.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2108,7 +2108,7 @@
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "note": "Zde se zobrazují přihlášené počítače. Povolte jeden a posílejte mu práci.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2122,16 +2122,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Vyberte jazyk, který Stella používá v aplikaci a ve svých odpovědích.",
+      "description": "Pro aplikaci a odpovědi Stelly.",
       "title": "Jazyk"
     },
     "lockedComputerUse": {
-      "description": "Umožní Stelle pokračovat v úlohách ovládání počítače poté, co se tento Mac zamkne. Vyžaduje výzvu správce a během práce Stelly zakrývá obrazovku.",
+      "description": "Úlohy ovládání počítače poběží i po zamknutí tohoto Macu.",
       "title": "Použití při zamčeném počítači",
       "unsupported": "Použití při zamčeném počítači je dostupné pouze v systému macOS."
     },
     "memory": {
-      "description": "Zahrňte uložené vzpomínky a svůj profil do kontextu modelu Stella. Vaše počítače i cloud mají stejnou paměť, šifrovanou při přenosu i uložení. Vypnutím se to pozastaví a paměť se vyloučí z budoucích konverzací, ale nesmaže se.",
+      "description": "Používat uložené vzpomínky v odpovědích. Vypnutí je nesmaže.",
       "title": "Paměť"
     },
     "modelPicker": {
@@ -2165,7 +2165,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Použijte libovolný místní server kompatibilní s OpenAI. Ollama obvykle běží na adrese níže.",
+        "hint": "Jakýkoli místní server kompatibilní s OpenAI, např. Ollama.",
         "modelNameAriaLabel": "Název místního modelu",
         "serverUrlAriaLabel": "URL místního serveru"
       },
@@ -2209,7 +2209,7 @@
       "title": "Pohyb"
     },
     "nativeFontSmoothing": {
-      "description": "Vykresluje text jako aplikace macOS, s vyhlazováním ve stupních šedi.",
+      "description": "Vyhlazování ve stupních šedi jako v nativních aplikacích macOS.",
       "title": "Nativní vyhlazování písma"
     },
     "notifications": {
@@ -2218,18 +2218,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Projděte úvodní nastavení znovu. Vaše data zůstanou.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Umožní Stelle číst vybraný text a otevírat se zkratkou ⌘+pravé tlačítko kdekoli v počítači.",
+        "description": "Čte vybraný text a otevírá se přes ⌘+pravé kliknutí.",
         "label": "Zpřístupnění"
       },
       "enable": "Povolit",
       "granted": "Uděleno",
       "microphone": {
-        "description": "Používá se pro hlas a diktování. Obnovte, pokud byla Stella dříve zamítnuta a macOS se znovu neptá.",
+        "description": "Pro hlas a diktování.",
         "label": "Mikrofon"
       },
       "opening": "Otevírání…",
@@ -2238,11 +2238,11 @@
       "restart": {
         "action": "Restartovat",
         "closing": "Zavírání…",
-        "description": "Záznam obrazovky byl právě zapnut. Ukončete a znovu otevřete Stellu, abyste dokončili nastavení.",
+        "description": "Znovu otevřete Stellu, aby se dokončilo zapnutí záznamu obrazovky.",
         "label": "Restartovat Stellu"
       },
       "screen": {
-        "description": "Umožní Stelle vidět vaši obrazovku, aby vám pomohla s tím, na co se díváte. Po zapnutí může být nutné Stellu ukončit a znovu otevřít.",
+        "description": "Dovolte Stelle vidět, co je na obrazovce.",
         "label": "Záznam obrazovky"
       },
       "title": "Oprávnění"
@@ -2265,7 +2265,7 @@
         "other": "Spárováno {count} telefonů"
       },
       "pairing": {
-        "body": "Otevřete aplikaci Stella v telefonu a naskenujte QR kód, nebo zadejte kód níže. Stačí to udělat jen jednou.",
+        "body": "Naskenujte QR kód v aplikaci Stella v telefonu, nebo zadejte kód.",
         "headline": "Naskenujte nebo zadejte tento kód",
         "qrAlt": "Naskenujte pro spárování telefonu"
       },
@@ -2301,7 +2301,7 @@
         "description": "Vést chatového asistenta Stelly přes {provider}.",
         "label": "Asistent"
       },
-      "description": "{provider} může pohánět více než jednu část Stelly. Vyberte, kde má převzít práci — o zbytek se dál stará Stella.",
+      "description": "Zvolte, k čemu se má {provider} používat.",
       "errors": {
         "apply": "Nepodařilo se použít nastavení poskytovatele."
       },
@@ -2330,7 +2330,7 @@
     },
     "resetCustomizations": {
       "action": "Obnovit výchozí",
-      "description": "Odstraní vaše úpravy dovedností a změny osobnosti, aby platila výchozí nastavení Stelly. Odstraněné položky zůstávají v ~/.stella/.trash pro případ, že je budete chtít zpět.",
+      "description": "Obnoví výchozí dovednosti a osobnost. Staré soubory se přesunou do ~/.stella/.trash.",
       "done": "Výchozí nastavení obnoveno. Vaše dřívější úpravy byly přesunuty do ~/.stella/.trash.",
       "error": "Výchozí nastavení se nepodařilo obnovit.",
       "none": "Už používáte výchozí nastavení Stelly.",
@@ -2364,7 +2364,7 @@
       "change": "Změnit",
       "clear": "Vymazat",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Stiskněte pro diktování, znovu pro ukončení."
       },
       "errors": {
         "load": "Nepodařilo se načíst zkratky.",
@@ -2402,7 +2402,7 @@
       "defaultOption": "Výchozí Stelly",
       "delete": "Smazat",
       "deleted": "Prompt smazán.",
-      "description": "Výchozí prompt Stelly se vždy aktualizuje s aplikací. Uložte si vlastní a použije se místo něj – ukládá se zvlášť, takže ho aktualizace nikdy nepřepíšou.",
+      "description": "Použijte vlastní prompt místo výchozího od Stelly.",
       "duplicate": "Duplikovat",
       "edit": "Upravit",
       "error": "Něco se pokazilo.",
@@ -2419,11 +2419,12 @@
       "account": "Účet a právní",
       "audio": "Zvuk",
       "general": "Obecné",
-      "shortcuts": "Zkratky"
+      "shortcuts": "Zkratky",
+      "privacy": "Soukromí"
     },
     "title": "Nastavení",
     "voiceAgent": {
-      "description": "Zobrazí hlasové a telefonní ovládání, abyste mohli se Stellou mluvit nahlas. Diktování funguje v obou případech.",
+      "description": "Zobrazí ovládání hlasu a hovorů. Diktování funguje tak jako tak.",
       "error": "Nastavení hlasu se nepodařilo změnit.",
       "title": "Hlasové konverzace"
     },
@@ -2445,6 +2446,13 @@
         "openai": "Hlasy OpenAI",
         "xai": "Hlasy Grok"
       }
+    },
+    "groups": {
+      "app": "Aplikace",
+      "personal": "Osobní"
+    },
+    "nav": {
+      "more": "Více"
     }
   },
   "shell": {

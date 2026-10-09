@@ -12,7 +12,6 @@
  * esbuild would stop erasing it and couple every module back to `index.ts`.
  */
 import type { ExecutionSession } from "../sandbox-client.js";
-import type { CloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import type {
   TurnBrokerTurnStateCheckpointReceipt,
   TurnBrokerTurnStateCheckpointRequest,
@@ -51,7 +50,6 @@ import type {
   BuildOwnerFenceLeaseReceipt,
   BuilderFallbackInput,
   BuilderFallbackTranscript,
-  PendingBrowserSuspension,
   PendingTerminal,
   TurnRequest,
   TurnStateCheckpointOperation,
@@ -158,19 +156,6 @@ export interface BuildSessionInternals {
     operation: TurnStateCheckpointOperation,
     canonicalHistoryCursor: string,
   ): Promise<void>;
-  recoverObservedBrowserSuspension(
-    turn: TurnRequest,
-    checkpoint: TurnBrokerTurnStateCheckpointReceipt,
-    signal?: AbortSignal,
-  ): Promise<CloudBrowserSuspension | null>;
-  retainPendingBrowserSuspension(
-    turn: TurnRequest,
-    pending: PendingBrowserSuspension,
-  ): Promise<boolean>;
-  ensureObservedBrowserSuspensionRecoveryJournal(
-    turn: TurnRequest,
-    operations: TurnStateCheckpointOperation[],
-  ): Promise<BuilderFallbackTranscript | null>;
   recoverAgentTurnAfterExecutorLoss(
     turn: TurnRequest,
     marker: AgentExecutionMarker,
@@ -322,10 +307,6 @@ export interface BuildSessionInternals {
       errorMessage?: string;
     },
   ): Promise<void>;
-  deliverBrowserSuspension(
-    turn: TurnRequest,
-    pending: PendingBrowserSuspension,
-  ): Promise<boolean>;
   alarm(): Promise<void>;
   runScheduledTurnAlarm(): Promise<void>;
   runAlarmWithLease(turn: TurnRequest): Promise<void>;
@@ -351,15 +332,6 @@ export interface BuildSessionInternals {
       payload: TurnBrokerTurnStateCheckpointRequest;
     };
   }): Promise<TurnBrokerTurnStateCheckpointReceipt>;
-  observeBrowserGatewaySuspension(
-    turn: TurnRequest,
-    input: {
-      brokerRequestId: string;
-      requestBodySha256: string;
-      responseBodySha256: string;
-      suspension: CloudBrowserSuspension;
-    },
-  ): Promise<"stored" | "replay" | "conflict" | "inactive">;
   handleBrokerLocalRequest(
     turn: TurnRequest,
     target: TurnBrokerTarget,

@@ -55,7 +55,6 @@ import {
 } from "./registry.js";
 import { buildBuiltinTools } from "./defs/index.js";
 import { AGENT_CONTROL_TOOL_NAMES } from "./defs/task.js";
-import { isAgentToolSuspendedError } from "../agent-core/suspension.js";
 import type { ToolDefinition as BuiltinToolDefinition } from "./types.js";
 import { sanitizeToolError, sanitizeToolResult } from "./safety.js";
 import { describeToolCatalogEntry, searchToolCatalog } from "./code-catalog.js";
@@ -679,7 +678,6 @@ export const createToolHost = ({
       });
       return result;
     } catch (error) {
-      if (isAgentToolSuspendedError(error)) throw error;
       const duration = Date.now() - startedAt;
       logError(`Tool ${toolName} threw after ${duration}ms:`, error);
       return {

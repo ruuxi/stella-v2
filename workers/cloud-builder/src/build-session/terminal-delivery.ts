@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import { isCloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import type { ThreadCompletedEvent } from "@stella/contracts/turn-plane/owner-events";
 import {
   TURN_OWNER_GENERATION_HEADER,
@@ -38,10 +37,8 @@ import type { BuildSessionInternals } from "./host.js";
 import {
   AGENT_WATCHDOG_DEADLINE_KEY,
   HEADER_CONVERSATION_ID,
-  OBSERVED_BROWSER_SUSPENSION_KEY,
   ORCHESTRATOR_INTERNAL_ORIGIN,
   OWNER_PURGE_STALE_LEASE_GRACE_MS,
-  PENDING_BROWSER_SUSPENSION_KEY,
   callOrchestratorCliTurnRoute,
   errorMessage,
   exactTurnIdentityMatches,
@@ -50,7 +47,6 @@ import {
 } from "./shared/keys.js";
 import { OwnerPurgeFenceError } from "./shared/errors.js";
 import type {
-  PendingBrowserSuspension,
   PendingTerminal,
   TurnRequest,
 } from "./shared/types.js";
@@ -118,8 +114,6 @@ export const claimTerminalDecision = async (
       pendingTerminal: pending,
       alarmAttempts: 0,
     });
-    await txn.delete(PENDING_BROWSER_SUSPENSION_KEY);
-    await txn.delete(OBSERVED_BROWSER_SUSPENSION_KEY);
     if (alarmAt !== undefined) {
       await txn.setAlarm(alarmAt);
     }
@@ -570,34 +564,6 @@ export const wakeParentConversation = async (
     throw new Error(`Agent completion wake was refused (${response.status}).`);
   }
   await response.body?.cancel().catch(() => undefined);
-};
-
-/** Project a nonterminal human wait without keeping an executor alive. */
-export const deliverBrowserSuspension = async (
-  host: TerminalDeliveryHost,
-  turn: TurnRequest,
-  pending: PendingBrowserSuspension,
-): Promise<boolean> => {
-  if (
-    pending.turnId !== turn.turnId ||
-    pending.attemptGeneration !== turn.attemptGeneration ||
-    !isCloudBrowserSuspension(pending.suspension)
-  ) {
-    return false;
-  }
-  try {
-    await host.event(turn, "auto", "waiting_for_user", pending.payload, false);
-    return true;
-  } catch (error) {
-    log("error", "browser_suspension_delivery_failed", {
-      turnId: turn.turnId,
-      threadId: turn.threadId,
-      interactionId: pending.suspension.interactionId,
-      message: errorMessage(error),
-    });
-    await host.setExactTurnAlarm(turn, Date.now() + 30_000);
-    return false;
-  }
 };
 
 /**

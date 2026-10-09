@@ -19,7 +19,6 @@ import {
   preflightTurnBrokerRequest,
   readTurnBrokerRequestBody,
   turnBrokerDenialResponse,
-  turnBrokerSandboxResponseHeaders,
   turnBrokerStorageKey,
   turnBrokerTargetMatchesEngine,
 } from "../turn-credential-broker.js";
@@ -41,26 +40,17 @@ import type {
   TurnStateWorkspaceHead,
 } from "../turn-state-registry.js";
 import { worldName } from "../workspace.js";
-import { invokeCloudConnect } from "../cloud-code-tool.js";
-import { redactSensitiveText } from "@stella/contracts/sensitive-data";
-import type { TurnBrokerCodeResponse } from "@stella/contracts/turn-credential-broker";
-import { agentConnectClient } from "./agent-connect.js";
 import type { BuildSessionInternals } from "./host.js";
 import {
   AgentTurnAuthorityLostError,
   AgentTurnError,
-  BrowserGatewayResponseTooLargeError,
   OwnerPurgeFenceError,
   TurnStateOwnerCallError,
   TurnStateRegistryBookkeepingError,
   isTurnStateAuthorityError,
 } from "./shared/errors.js";
 import {
-  OBSERVED_BROWSER_SUSPENSION_KEY,
-  PENDING_BROWSER_SUSPENSION_KEY,
   callOrchestratorCliTurnRoute,
-  canonicalToolCallId,
-  cloudBrowserSuspensionMarker,
   errorMessage,
   exactTurnIdentityMatches,
   log,
@@ -70,20 +60,16 @@ import {
   turnStateCheckpointOperationKey,
 } from "./shared/keys.js";
 import type {
-  ObservedBrowserSuspension,
-  PendingBrowserSuspension,
   PendingTerminal,
   TurnRequest,
   TurnStateCheckpointOperation,
 } from "./shared/types.js";
-import { isCloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import {
   CLOUD_CLI_TURN_DO_PATHS,
   type CloudCliTurnEventsForward,
   type CloudCliTurnIdentity,
   type CloudCliTurnToolForward,
 } from "@stella/contracts/cloud-orchestrator-cli";
-import type { CloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import { TURN_BROKER_RESPONSE_HEADERS } from "@stella/contracts/turn-credential-broker";
 import { rpcErrorStatus, type RpcResponse } from "@stella/contracts/backend/protocol";
 import { TURN_BROKER_DRIVE_PATHS } from "../turn-credential-broker.js";
@@ -112,9 +98,6 @@ export type TurnBrokerHost = Pick<
 /** @see src/build-session/shared/keys.ts */
 export { turnBrokerCredentialsPath } from "./shared/keys.js";
 
-/** Room for a full-page screenshot or a large evaluate/response-body result. */
-const BROWSER_GATEWAY_RESPONSE_MAX_BYTES = 16 * 1024 * 1024;
-
 const registryBookkeepingAfterCheckpoint = async <T>(
   historyCursor: string,
   manifestId: string | undefined,
@@ -136,49 +119,6 @@ const registryBookkeepingAfterCheckpoint = async <T>(
       error,
     );
   }
-};
-
-/** Bound a service-binding response even when Content-Length is absent. */
-const readBrowserGatewayResponseBody = async (
-  response: Response,
-): Promise<Uint8Array> => {
-  const declared = response.headers.get("content-length");
-  if (declared) {
-    const parsed = Number(declared);
-    if (
-      !Number.isSafeInteger(parsed) ||
-      parsed < 0 ||
-      parsed > BROWSER_GATEWAY_RESPONSE_MAX_BYTES
-    ) {
-      void response.body?.cancel().catch(() => undefined);
-      throw new BrowserGatewayResponseTooLargeError();
-    }
-  }
-  if (!response.body) return new Uint8Array();
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      total += next.value.byteLength;
-      if (total > BROWSER_GATEWAY_RESPONSE_MAX_BYTES) {
-        await reader.cancel().catch(() => undefined);
-        throw new BrowserGatewayResponseTooLargeError();
-      }
-      chunks.push(next.value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const body = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return body;
 };
 
 export const resolveAgentTurnState = async (
@@ -670,191 +610,6 @@ export const executeTurnStateCheckpoint = async (
   }
 };
 
-const observeBrowserGatewaySuspension = async (
-  host: Pick<TurnBrokerHost, "ctx">,
-  turn: TurnRequest,
-  input: {
-    brokerRequestId: string;
-    requestBodySha256: string;
-    responseBodySha256: string;
-    suspension: CloudBrowserSuspension;
-  },
-): Promise<"stored" | "replay" | "conflict" | "inactive"> => {
-  const observation: ObservedBrowserSuspension = {
-    schemaVersion: 1,
-    turnId: turn.turnId,
-    attemptGeneration: turn.attemptGeneration!,
-    ...input,
-    observedAt: Date.now(),
-  };
-  return await host.ctx.storage.transaction(async (txn) => {
-    const [current, terminal, pendingTerminal, pendingSuspension, existing] =
-      await Promise.all([
-        txn.get<TurnRequest>("turn"),
-        txn.get<boolean>("terminal"),
-        txn.get<PendingTerminal>("pendingTerminal"),
-        txn.get<PendingBrowserSuspension>(PENDING_BROWSER_SUSPENSION_KEY),
-        txn.get<ObservedBrowserSuspension>(OBSERVED_BROWSER_SUSPENSION_KEY),
-      ]);
-    if (
-      !exactTurnIdentityMatches(current, turn) ||
-      terminal ||
-      pendingTerminal ||
-      pendingSuspension
-    ) {
-      return "inactive" as const;
-    }
-    if (existing) {
-      const identical =
-        existing.schemaVersion === 1 &&
-        existing.turnId === observation.turnId &&
-        existing.attemptGeneration === observation.attemptGeneration &&
-        existing.brokerRequestId === observation.brokerRequestId &&
-        existing.requestBodySha256 === observation.requestBodySha256 &&
-        existing.responseBodySha256 === observation.responseBodySha256 &&
-        isCloudBrowserSuspension(existing.suspension) &&
-        cloudBrowserSuspensionMarker(existing.suspension) ===
-          cloudBrowserSuspensionMarker(observation.suspension);
-      return identical ? ("replay" as const) : ("conflict" as const);
-    }
-    await txn.put(OBSERVED_BROWSER_SUSPENSION_KEY, observation);
-    return "stored" as const;
-  });
-};
-
-export type ForwardedBrowserGatewayCommand =
-  | Readonly<{ kind: "failure"; status: number }>
-  | Readonly<{
-      kind: "forwarded";
-      status: number;
-      statusText: string;
-      headers: Headers;
-      body: Uint8Array;
-    }>;
-
-/**
- * One turn command from the container executor's broker route to the Browser
- * Gateway, under this turn's exact authority. A suspended response is
- * recorded as an observation before anyone sees it, so the takeover it
- * describes can only become user-visible once the canonical transcript binds
- * it to the outer Code call (`bindObservedBrowserSuspensionToCanonicalCodeCall`).
- */
-const forwardBrowserGatewayCommand = async (
-  host: Pick<TurnBrokerHost, "ctx" | "env">,
-  turn: TurnRequest,
-  args: {
-    command: unknown;
-    signal: AbortSignal;
-    /** Idempotency identity of whoever asked: a broker request, or the command itself. */
-    brokerRequestId: string;
-    requestFingerprint: string;
-  },
-): Promise<ForwardedBrowserGatewayCommand> => {
-  const failure = (status: number) => ({ kind: "failure", status }) as const;
-  if (!host.env.BROWSER_GATEWAY) return failure(503);
-  const command = args.command;
-  if (!command || typeof command !== "object" || Array.isArray(command)) {
-    return failure(400);
-  }
-  try {
-    const upstream = await host.env.BROWSER_GATEWAY.fetch(
-      "https://browser-gateway/internal/turn/command",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "cache-control": "no-store",
-        },
-        body: JSON.stringify({
-          schemaVersion: 1,
-          authority: {
-            ownerId: turn.ownerId,
-            ownerGeneration: turn.ownerGeneration,
-            conversationId: turn.conversationId,
-            threadId: turn.threadId,
-            turnId: turn.turnId,
-            attemptGeneration: turn.attemptGeneration,
-          },
-          command,
-        }),
-        signal: args.signal,
-        redirect: "manual",
-      },
-    );
-    if (upstream.status >= 300 && upstream.status < 400) {
-      await upstream.body?.cancel().catch(() => undefined);
-      return failure(502);
-    }
-    const upstreamBody = await readBrowserGatewayResponseBody(upstream);
-    let responsePayload: unknown;
-    try {
-      responsePayload = JSON.parse(
-        new TextDecoder("utf-8", {
-          fatal: true,
-          ignoreBOM: false,
-        }).decode(upstreamBody),
-      ) as unknown;
-    } catch {
-      responsePayload = undefined;
-    }
-    if (
-      responsePayload &&
-      typeof responsePayload === "object" &&
-      !Array.isArray(responsePayload) &&
-      (responsePayload as Record<string, unknown>).outcome === "suspended"
-    ) {
-      const responseRecord = responsePayload as Record<string, unknown>;
-      const commandRecord = command as Record<string, unknown>;
-      const suspension = responseRecord.suspension;
-      const commandRequestId = commandRecord.requestId;
-      if (
-        !upstream.ok ||
-        Object.keys(responseRecord).sort().join(",") !==
-          "outcome,schemaVersion,suspension" ||
-        responseRecord.schemaVersion !== 1 ||
-        Object.keys(commandRecord).sort().join(",") !==
-          "action,params,requestId,schemaVersion" ||
-        commandRecord.schemaVersion !== 1 ||
-        !canonicalToolCallId(commandRequestId) ||
-        !isCloudBrowserSuspension(suspension) ||
-        suspension.toolCallId !== commandRequestId
-      ) {
-        return failure(502);
-      }
-      const disposition = await observeBrowserGatewaySuspension(host, turn, {
-        brokerRequestId: args.brokerRequestId,
-        requestBodySha256: args.requestFingerprint,
-        responseBodySha256: await sha256BytesHex(upstreamBody),
-        suspension,
-      });
-      if (disposition === "conflict") {
-        log("error", "browser_suspension_observation_conflict", {
-          turnId: turn.turnId,
-          threadId: turn.threadId,
-        });
-        return failure(409);
-      }
-      if (disposition === "inactive") {
-        return failure(410);
-      }
-    }
-    return {
-      kind: "forwarded",
-      status: upstream.status,
-      statusText: upstream.statusText,
-      headers: upstream.headers,
-      body: upstreamBody,
-    };
-  } catch {
-    log("error", "turn_broker_browser_gateway_failed", {
-      turnId: turn.turnId,
-      aborted: args.signal.aborted,
-      errorCode: "BROWSER_GATEWAY_UPSTREAM_FAILURE",
-    });
-    return failure(args.signal.aborted ? 410 : 502);
-  }
-};
-
 const driveJson = (body: unknown, status = 200): Response =>
   Response.json(body, { status, headers: { "cache-control": "no-store" } });
 
@@ -1017,57 +772,6 @@ export const serveTurnUserAskRequest = async (
     );
   }
   return driveJson(response.value);
-};
-
-/**
- * The container `code` cell's `connect` and `history`: connectors through
- * the owner object under this turn's owner generation, history through the
- * conversation the agent was spawned from. A refused or failed call is still a 200 carrying
- * the error the cell rejects with; only a malformed frame denies the broker.
- */
-export const serveTurnCodeRequest = async (
-  env: Pick<Cloudflare.Env, "OWNER_GATES" | "DB" | "ORCHESTRATOR_SESSIONS">,
-  turn: Pick<TurnRequest, "ownerId" | "ownerGeneration" | "conversationId">,
-  kind: "code-connect" | "code-history",
-  body: Record<string, unknown>,
-): Promise<Response> => {
-  if (
-    kind === "code-connect"
-      ? typeof body.method !== "string" || !Array.isArray(body.args)
-      : !isRecord(body.request)
-  ) {
-    return brokerFailure(400);
-  }
-  let answer: TurnBrokerCodeResponse;
-  try {
-    if (kind === "code-connect") {
-      answer = {
-        ok: true,
-        value: await invokeCloudConnect(
-          agentConnectClient(env, turn),
-          body.method as string,
-          body.args as unknown[],
-        ),
-      };
-    } else {
-      const conversationId = turn.conversationId;
-      if (!conversationId) {
-        throw new Error("history is unavailable in this session.");
-      }
-      answer = {
-        ok: true,
-        value: await env.ORCHESTRATOR_SESSIONS.getByName(
-          conversationId,
-        ).queryHistory(turn.ownerId, body.request),
-      };
-    }
-  } catch (error) {
-    answer = {
-      ok: false,
-      error: redactSensitiveText(errorMessage(error)).slice(0, 4_000),
-    };
-  }
-  return Response.json(answer, { headers: { "cache-control": "no-store" } });
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -1263,9 +967,6 @@ const handleBrokerLocalRequest = async (
     if (target.kind === "user-ask") {
       return await serveTurnUserAskRequest(host.env, turn, body);
     }
-    if (target.kind === "code-connect" || target.kind === "code-history") {
-      return await serveTurnCodeRequest(host.env, turn, target.kind, body);
-    }
     if (target.kind === "drive") {
       return await serveTurnDriveRequest(host.env, turn, target.path, body);
     }
@@ -1453,13 +1154,6 @@ export const handleTurnBroker = async (
     });
     if (!claimed.ok) return { kind: "denied" as const, claimed };
     if (claimed.disposition === "replay") {
-      if (claimed.target.kind === "browser-gateway") {
-        return {
-          kind: "forward" as const,
-          target: claimed.target,
-          signal: running!.signal,
-        };
-      }
       return {
         kind: "replay" as const,
         operation:
@@ -1475,9 +1169,7 @@ export const handleTurnBroker = async (
       claimed.target.kind === "search" ||
       claimed.target.kind === "user-ask" ||
       claimed.target.kind === "orchestrator-tool" ||
-      claimed.target.kind === "orchestrator-events" ||
-      claimed.target.kind === "code-connect" ||
-      claimed.target.kind === "code-history"
+      claimed.target.kind === "orchestrator-events"
     ) {
       // The turn's events and its thread transcript are this object's own
       // state now, and the drive and web search are the owner object's. The
@@ -1493,11 +1185,7 @@ export const handleTurnBroker = async (
     }
     if (claimed.target.kind !== "builder-callback") {
       await host.ctx.storage.put(recordKey, claimed.record);
-      return {
-        kind: "forward" as const,
-        target: claimed.target,
-        signal: running!.signal,
-      };
+      return { kind: "unsupported" as const };
     }
     const operation: Extract<
       TurnStateCheckpointOperation,
@@ -1531,32 +1219,7 @@ export const handleTurnBroker = async (
       admission.signal,
     );
   }
-  if (admission.kind === "forward") {
-    if (admission.target.kind === "browser-gateway") {
-      const forwarded = await forwardBrowserGatewayCommand(host, turn, {
-        command: decoded,
-        signal: admission.signal,
-        brokerRequestId: preflight.requestId,
-        requestFingerprint,
-      });
-      if (forwarded.kind === "failure") return brokerFailure(forwarded.status);
-      const responseHeaders = turnBrokerSandboxResponseHeaders(
-        forwarded.headers,
-      );
-      // Fetch has decoded the buffered bytes. Do not make the sandbox
-      // decode them a second time or trust an upstream framing length.
-      responseHeaders.delete("content-encoding");
-      responseHeaders.delete("content-length");
-      responseHeaders.delete("transfer-encoding");
-      responseHeaders.set("cache-control", "no-store");
-      return new Response(forwarded.body, {
-        status: forwarded.status,
-        statusText: forwarded.statusText,
-        headers: responseHeaders,
-      });
-    }
-    return brokerFailure(403);
-  }
+  if (admission.kind === "unsupported") return brokerFailure(403);
   let pendingOperation: Extract<
     TurnStateCheckpointOperation,
     { state: "pending" }

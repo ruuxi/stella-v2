@@ -37,10 +37,6 @@ import {
   parseCloudAgentSystemPrompt,
   type CloudCliTurnRoleInput,
 } from "@stella/contracts/cloud-orchestrator-cli";
-import type {
-  CloudBrowserResumeReceipt,
-  CloudBrowserSuspension,
-} from "@stella/contracts/cloud-browser";
 import { createToolHost } from "@stella/runtime/kernel/tools/host.js";
 import type { ToolContext } from "@stella/runtime/kernel/tools/host.js";
 import {
@@ -126,15 +122,6 @@ import {
 } from "./cloud-process-isolation.js";
 import { CLOUD_TOOL_HOME } from "@stella/contracts/cloud-tool-home";
 import { cloudAgentToolContext } from "./cloud-tool-context.js";
-import {
-  isAgentToolSuspendedError,
-  type AgentToolSuspendedError,
-} from "@stella/runtime/kernel/agent-core/suspension.js";
-import { createTurnBrokerBrowserSessionFactory } from "./cloud-browser-session.js";
-import {
-  createBrokerConnectClient,
-  createBrokerHistoryQuery,
-} from "./cloud-code-services.js";
 
 export { CLOUD_TOOL_PROCESS_IDENTITY } from "./cloud-process-isolation.js";
 
@@ -217,8 +204,6 @@ export type AgentTurnInput = CloudCliTurnRoleInput & {
   claudeAccount?: CloudClaudeAccountInput;
   /** Prior thread transcript rows, oldest first (send_message continuations). */
   history?: AgentHistoryRow[];
-  /** Safe approval receipt used to resume a previously suspended code call. */
-  browserResume?: CloudBrowserResumeReceipt;
   /** Canonical model route authorized for this turn at dispatch. */
   execution: CloudExecutionSelection;
   /**
@@ -254,41 +239,9 @@ export type AgentTurnTerminalResult = {
       ReturnType<typeof runNativeAgentTurn>
     >["nativeStateCheckpoint"];
   };
-  suspension?: never;
 };
 
-export type AgentTurnSuspendedResult = {
-  outcome: "suspended";
-  ok: false;
-  finalText: "";
-  suspension: CloudBrowserSuspension;
-  usage: { inputTokens: number; outputTokens: number; llmCalls: number };
-  checkpointMs: number;
-  turnStateCheckpoint: TurnBrokerTurnStateCheckpointReceipt;
-};
-
-export type AgentTurnResult =
-  | AgentTurnTerminalResult
-  | AgentTurnSuspendedResult;
-
-import { createCloudBrowserResumeToolResult } from "./cloud-browser-resume.js";
-
-export { createCloudBrowserResumeToolResult };
-
-export const createSuspendedAgentTurnResult = (args: {
-  error: AgentToolSuspendedError;
-  usage: AgentTurnSuspendedResult["usage"];
-  checkpointMs: number;
-  turnStateCheckpoint: TurnBrokerTurnStateCheckpointReceipt;
-}): AgentTurnSuspendedResult => ({
-  outcome: "suspended",
-  ok: false,
-  finalText: "",
-  suspension: args.error.suspension,
-  usage: args.usage,
-  checkpointMs: args.checkpointMs,
-  turnStateCheckpoint: args.turnStateCheckpoint,
-});
+export type AgentTurnResult = AgentTurnTerminalResult;
 
 export { cloudGeneralToolNames };
 
@@ -297,22 +250,6 @@ export const usesNativeCloudRuntime = (
   execution: CloudExecutionSelection,
 ): execution is Extract<CloudExecutionSelection, { engine: "anthropic" }> =>
   execution.engine === "anthropic";
-
-export const checkpointCloudBrowserTurnBeforeTeardown = async (args: {
-  codeToolCallIds: readonly string[];
-  suspended: boolean;
-  endBrowserTurn: (
-    toolCallId: string,
-    behavior: "retain-tabs",
-  ) => Promise<void>;
-}): Promise<void> => {
-  if (args.suspended) return;
-  // A later Code cell might not touch the browser, so walk every call id
-  // newest-first; only the id held by a live browser session acts.
-  for (const toolCallId of [...args.codeToolCallIds].reverse()) {
-    await args.endBrowserTurn(toolCallId, "retain-tabs");
-  }
-};
 
 export const createBuilderFallbackAgentTurnResult = (args: {
   finalText: string;
@@ -452,7 +389,6 @@ export const commitTurnStateBeforeTranscript = async (args: {
   nativeCheckpoint?: Awaited<
     ReturnType<typeof runNativeAgentTurn>
   >["nativeStateCheckpoint"];
-  suspensionTranscript?: TurnBrokerTurnStateCheckpointRequest["suspensionTranscript"];
   broker: Pick<TurnCredentialBrokerClient, "commitTurnStateCheckpoint">;
   appendTranscript: () => Promise<void>;
 }): Promise<TurnBrokerTurnStateCheckpointReceipt> => {
@@ -460,9 +396,6 @@ export const commitTurnStateBeforeTranscript = async (args: {
     historyCursor: args.historyCursor,
     ...(args.nativeCheckpoint
       ? { nativeCheckpoint: args.nativeCheckpoint }
-      : {}),
-    ...(args.suspensionTranscript
-      ? { suspensionTranscript: args.suspensionTranscript }
       : {}),
   });
   await args.appendTranscript();
@@ -610,34 +543,6 @@ export const runAgentTurn = (
           checkpointPolicy: "preserve_prior",
         };
       }
-      let browserResumeMessage: AgentMessage | undefined;
-      if (input.browserResume) {
-        if (input.execution.engine !== "stella") {
-          return {
-            ok: false,
-            finalText: "",
-            error: "Cloud browser resume requires the Stella engine.",
-            usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0 },
-            checkpointPolicy: "preserve_prior",
-          };
-        }
-        try {
-          browserResumeMessage = createCloudBrowserResumeToolResult(
-            history,
-            input.browserResume,
-          );
-          history = [...history, browserResumeMessage];
-        } catch {
-          return {
-            ok: false,
-            finalText: "",
-            error:
-              "Stella couldn't validate this browser continuation. Try again.",
-            usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0 },
-            checkpointPolicy: "preserve_prior",
-          };
-        }
-      }
       if (!/^[0-9a-f]{64}$/.test(input.nativeStateIntegrityKey)) {
         return {
           ok: false,
@@ -761,23 +666,6 @@ export const runAgentTurn = (
             stellaDataDir: CLOUD_HOST_STATE,
             recoverStaleSecrets: false,
             enableShellShims: false,
-            ...(input.execution.engine === "stella"
-              ? {
-                  allowCloudCode: true,
-                  browserSessionFactory:
-                    createTurnBrokerBrowserSessionFactory(broker),
-                  // `code` has no CLI bridge or backend auth here; its
-                  // connectors and history come through the broker.
-                  codeConnectClient: createBrokerConnectClient({
-                    post: postJson,
-                    turnId: input.turnId,
-                  }),
-                  codeHistoryQuery: createBrokerHistoryQuery({
-                    post: postJson,
-                    turnId: input.turnId,
-                  }),
-                }
-              : {}),
             ...(officeBinPath ? { stellaOfficeBinPath: officeBinPath } : {}),
             askUser: userAsks.handlers.askUser,
             requestSecureInput: userAsks.handlers.requestSecureInput,
@@ -815,10 +703,8 @@ export const runAgentTurn = (
         toolHome,
         // `code` reaches the turn's other tools as `tools.<name>`, as on the
         // desktop.
-        allowedToolNames: cloudGeneralToolNames(input.execution.engine),
+        allowedToolNames: cloudGeneralToolNames(),
       });
-
-      const cloudCodeToolCallIds: string[] = [];
 
       const catalog = [
         ...toolHost.getToolCatalog("general", {}),
@@ -828,7 +714,7 @@ export const runAgentTurn = (
       ];
       const byName = new Map(catalog.map((tool) => [tool.name, tool]));
       const cloudToolMetadata = [
-        ...cloudGeneralToolNames(input.execution.engine)
+        ...cloudGeneralToolNames()
           .map((name) => byName.get(name))
           .filter((tool): tool is ToolMetadata => Boolean(tool)),
       ];
@@ -839,9 +725,6 @@ export const runAgentTurn = (
         signal?: AbortSignal,
         onUpdate?: ToolUpdateCallback,
       ): Promise<ToolResult> => {
-        if (name === "code" && !cloudCodeToolCallIds.includes(toolCallId)) {
-          cloudCodeToolCallIds.push(toolCallId);
-        }
         const result = await toolHost.executeTool(
           name,
           params,
@@ -954,7 +837,6 @@ export const runAgentTurn = (
       let turnStateCheckpoint: TurnBrokerTurnStateCheckpointReceipt | undefined;
       let execution: { finalText: string; errorMessage?: string };
       let produced: AgentMessage[];
-      let suspendedError: AgentToolSuspendedError | undefined;
       let forceBuilderFallback = false;
       let nativeStateCheckpoint:
         | Awaited<
@@ -1095,11 +977,7 @@ export const runAgentTurn = (
           }
         });
 
-        // A resume tool result belongs to this new physical turn even though
-        // it must already be present when Agent.continue() makes its provider
-        // request.
-        const before =
-          agent.state.messages.length - (browserResumeMessage ? 1 : 0);
+        const before = agent.state.messages.length;
         // The desktop runtime's transient ladder: a retryable provider or
         // transport failure resumes the same in-memory context instead of
         // failing the whole turn. The DO's watchdog still bounds the turn; a
@@ -1110,7 +988,6 @@ export const runAgentTurn = (
               ok: true as const,
               value: await executeAgentRunWithRetry({
                 state: { attemptsUsed: 0, retriesUsed: 0 },
-                initialResume: Boolean(browserResumeMessage),
                 execute: async (resume) => {
                   if (resume) {
                     await agent.continue();
@@ -1147,22 +1024,14 @@ export const runAgentTurn = (
               }),
             };
           } catch (error) {
-            return {
-              ok: false as const,
-              error: isAgentToolSuspendedError(error) ? error : asError(error),
-            };
+            return { ok: false as const, error: asError(error) };
           } finally {
             unsubscribe();
           }
         });
-        if (!runOutcome.ok && isAgentToolSuspendedError(runOutcome.error)) {
-          suspendedError = runOutcome.error;
-          execution = { finalText: "" };
-        } else {
-          execution = runOutcome.ok
-            ? runOutcome.value
-            : { finalText: "", errorMessage: runOutcome.error.message };
-        }
+        execution = runOutcome.ok
+          ? runOutcome.value
+          : { finalText: "", errorMessage: runOutcome.error.message };
         // Errored assistant messages have empty content; one empty assistant
         // row poisons every future Anthropic request for this thread.
         produced = agent.state.messages.slice(before).filter((message) => {
@@ -1192,11 +1061,6 @@ export const runAgentTurn = (
         execution.errorMessage = executorBoundaryPushFailure.message;
       }
       if (produced.length === 0) {
-        if (suspendedError) {
-          throw new Error(
-            "Suspended cloud browser turn did not retain its assistant tool call.",
-          );
-        }
         // A tool-only/error path can still mutate the workspace before an
         // engine emits a transcript row. Give that physical turn an explicit
         // canonical row instead of silently dropping its durable state or
@@ -1333,25 +1197,6 @@ export const runAgentTurn = (
       }));
 
       // Freeze every model-controlled writer before the archive is built.
-      // A normal cloud Code turn checkpoints its Browser Run profile before
-      // the sandbox and its turn authority disappear. A suspended login/device
-      // handoff is still under human control and must receive no automation
-      // command here; the next physical turn resumes it from the backend instead.
-      const browserTurnFailure = yield* Effect.promise(async () => {
-        try {
-          await checkpointCloudBrowserTurnBeforeTeardown({
-            codeToolCallIds: cloudCodeToolCallIds,
-            suspended: Boolean(suspendedError),
-            endBrowserTurn: (toolCallId, behavior) =>
-              toolHost.endBrowserTurn(toolCallId, behavior),
-          });
-          return undefined;
-        } catch (error) {
-          return asError(error);
-        }
-      });
-
-      // Freeze every remaining model-controlled writer before the archive is built.
       // ToolHost shutdown is joined and idempotent; closing the Claude MCP
       // listener also prevents a surviving descendant from starting another
       // tool call after the workspace snapshot begins.
@@ -1361,12 +1206,9 @@ export const runAgentTurn = (
           claudeToolMcpHost?.close() ?? Promise.resolve(),
           pushWorldProjection({ root: workspaceRoot, access: input.world }),
         ]);
-        return [
-          ...(browserTurnFailure ? [browserTurnFailure] : []),
-          ...results.flatMap((result) =>
-            result.status === "rejected" ? [asError(result.reason)] : [],
-          ),
-        ];
+        return results.flatMap((result) =>
+          result.status === "rejected" ? [asError(result.reason)] : [],
+        );
       });
 
       if (forceBuilderFallback || shutdownFailures.length > 0) {
@@ -1401,9 +1243,6 @@ export const runAgentTurn = (
                 historyCursor,
                 ...(nativeStateCheckpoint
                   ? { nativeCheckpoint: nativeStateCheckpoint }
-                  : {}),
-                ...(suspendedError
-                  ? { suspensionTranscript: transcriptRows }
                   : {}),
                 broker,
                 appendTranscript: async () => {
@@ -1458,14 +1297,6 @@ export const runAgentTurn = (
 
       const finalText = execution.finalText;
       const error = execution.errorMessage;
-      if (suspendedError) {
-        return createSuspendedAgentTurnResult({
-          error: suspendedError,
-          usage: { inputTokens, outputTokens, llmCalls },
-          checkpointMs,
-          turnStateCheckpoint,
-        });
-      }
       return {
         ok: !error,
         finalText:

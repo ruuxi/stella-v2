@@ -67,10 +67,3 @@ export class TurnStateRegistryBookkeepingError extends Error {
     this.name = "TurnStateRegistryBookkeepingError";
   }
 }
-
-export class BrowserGatewayResponseTooLargeError extends Error {
-  constructor() {
-    super("Browser Gateway response exceeded its bound.");
-    this.name = "BrowserGatewayResponseTooLargeError";
-  }
-}

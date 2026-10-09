@@ -160,7 +160,6 @@ export type CloudTurnStartError = {
 export type CloudAgentTurnSource =
   | "desktop"
   | "placement"
-  | "browser-resume"
   | "agent-thread"
   /** The OrchestratorSession's own chat turn on the Claude Code CLI. */
   | "orchestrator";
@@ -199,8 +198,6 @@ export type CloudAgentTurnStartRequest = {
   parentTurnId?: string;
   originDeviceId?: string;
   originConversationId?: string;
-  /** Hosted-browser resume receipt carried into the resumed attempt. */
-  browserResume?: unknown;
   /**
    * Present only on the OrchestratorSession's own chat turn for an
    * `anthropic` execution (see cloud-orchestrator-cli.ts). That dispatch has

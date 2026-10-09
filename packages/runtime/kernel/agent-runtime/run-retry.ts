@@ -308,7 +308,6 @@ export const executeAgentRunWithRetry = async <
 >(args: {
   state: AgentRunRetryState;
   execute: (resume: boolean) => Promise<T>;
-  initialResume?: boolean;
   prepareResume: (
     reason: string,
     classification: AgentRunFailureClassification,
@@ -323,7 +322,7 @@ export const executeAgentRunWithRetry = async <
   random?: () => number;
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
 }): Promise<T> => {
-  let resume = args.initialResume === true;
+  let resume = false;
   const random = args.random ?? Math.random;
   const sleep = args.sleep ?? sleepWithAbort;
   const classifyFailure = (error: unknown): AgentRunFailureClassification =>

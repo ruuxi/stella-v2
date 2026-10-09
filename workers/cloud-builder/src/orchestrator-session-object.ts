@@ -466,6 +466,7 @@ type Env = Pick<
       | "MODEL_GATEWAY_CONTROL"
       | "MODEL_GATEWAY_OWNERS"
       | "MODEL_GATEWAY_URL"
+      | "AGENT_RUNTIME_DEFAULT"
       | "Sandbox"
       | "SANDBOX_IDLE_TIMEOUT_MS"
       | "CLOUD_BUILDER_PUBLIC_URL"
@@ -3864,10 +3865,19 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         // has none yet, and an explicit hint never overwrites a chosen one.
         this.journal.setTitle(conversationTitleFor(start));
       }
-      // The agent runtime is chosen by the turn that creates the conversation
-      // and kept for its life: one transcript, one engine.
-      if (createdConversation && start.agentRuntime === "pi") {
+      // A conversation runs on pi-durable when the turn that creates it asks
+      // for it, or once this deployment makes pi the default: then one the
+      // loop started moves to pi at its next turn, whose first pi turn
+      // imports its journal whole. Nothing moves a conversation back.
+      if (
+        (createdConversation && start.agentRuntime === "pi") ||
+        (this.env.AGENT_RUNTIME_DEFAULT === "pi" &&
+          (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) !== "pi")
+      ) {
         await this.ctx.storage.put(AGENT_RUNTIME_KEY, "pi");
+        if (!createdConversation) {
+          log("info", "pi_conversation_migrated", { conversationId });
+        }
       }
       if (this.ownerGeneration !== snapshot.ownerGeneration) {
         this.ownerGeneration = snapshot.ownerGeneration;

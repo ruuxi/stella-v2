@@ -93,6 +93,10 @@
     // spawned agent's sandbox the turn-broker endpoint; a DO has no request
     // origin to derive it from.
     "CLOUD_BUILDER_PUBLIC_URL": "https://stella-v2-cloud-builder-dev.fromyou.workers.dev",
+    // Conversations run on pi-durable by default: new ones start there and
+    // one the loop started moves there at its next turn. Dev only until a
+    // release turns it on elsewhere; omitted means the loop.
+    "AGENT_RUNTIME_DEFAULT": "pi",
     // S3 API origin of the account that owns the DRIVE bucket, for presigned
     // drive uploads and downloads.
     "R2_S3_ENDPOINT": "https://f34b91c9c7dc22f0aef0ba855a9f026f.r2.cloudflarestorage.com",

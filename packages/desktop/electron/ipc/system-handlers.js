@@ -1158,7 +1158,7 @@ export const registerSystemHandlers = (options) => {
         const previousRealtimeVoice = payload?.realtimeVoice !== undefined
             ? getLocalModelPreferences(stellaAppDir).realtimeVoice
             : null;
-        const previousPiChat = desktopPiChatEnabled(process.env.STELLA_AGENT_RUNTIME, getLocalModelPreferences(stellaAppDir).agentRuntimeEngine);
+        const previousPiChat = desktopPiChatEnabled(getLocalModelPreferences(stellaAppDir).agentRuntimeEngine);
         const nextDefaultModels = sanitizeStringRecord(payload?.defaultModels);
         const nextOverrides = sanitizeStringRecord(payload?.modelOverrides);
         const nextAssistantPropagatedAgents = sanitizeStringList(payload?.assistantPropagatedAgents);
@@ -1236,7 +1236,7 @@ export const registerSystemHandlers = (options) => {
         }
         const saved = updateLocalModelPreferences(stellaAppDir, patch);
         // Moving onto or off Claude Code moves the chat between its paths.
-        const piChat = desktopPiChatEnabled(process.env.STELLA_AGENT_RUNTIME, saved.agentRuntimeEngine);
+        const piChat = desktopPiChatEnabled(saved.agentRuntimeEngine);
         if (piChat !== previousPiChat) {
             for (const window of BrowserWindow.getAllWindows()) {
                 if (window.isDestroyed() || window.webContents.isDestroyed())

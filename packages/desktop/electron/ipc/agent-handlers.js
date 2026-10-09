@@ -718,7 +718,7 @@ export const registerAgentHandlers = (options) => {
     // Code): the renderer submits to and watches one conversation's harness
     // in the runtime.
     ipcMain.on(IPC_PI_CHAT_ENABLED, (event) => {
-        event.returnValue = desktopPiChatEnabled(process.env.STELLA_AGENT_RUNTIME, getAgentRuntimeEngine(options.getStellaDataDir()));
+        event.returnValue = desktopPiChatEnabled(getAgentRuntimeEngine(options.getStellaDataDir()));
     });
     ipcMain.handle(IPC_PI_CHAT_REQUEST, async (event, request) => {
         if (!options.assertPrivilegedSender(event, IPC_PI_CHAT_REQUEST)) {

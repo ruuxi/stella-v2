@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import {
   desktopPiChatEnabled,
-  desktopPiRuntime,
   type PiChatRequest,
   type PiChatUsageRequest,
 } from "@stella/contracts/pi-chat";
@@ -48,19 +47,12 @@ import type { OpenSession } from "./sessions.js";
  */
 type DesktopChats = import("@stella/agent/host/desktop-chats").DesktopChats;
 
-
-/** Whether this desktop runs pi-durable: by default, unless launched with `STELLA_AGENT_RUNTIME=loop`. */
-export const piRuntimeEnabled = (): boolean => desktopPiRuntime(process.env.STELLA_AGENT_RUNTIME);
-
 /**
- * Whether a conversation's own turns go to pi: the runtime runs pi and the
- * user's engine is not Claude Code, whose turns keep their own path.
+ * Whether a conversation's own turns go to pi: unless the user's engine is
+ * Claude Code, whose turns keep their own path.
  */
 export const piChatRouted = (session: OpenSession): boolean =>
-  desktopPiChatEnabled(
-    process.env.STELLA_AGENT_RUNTIME,
-    getAgentRuntimeEngine(session.config.get().stellaDataDirPath),
-  );
+  desktopPiChatEnabled(getAgentRuntimeEngine(session.config.get().stellaDataDirPath));
 
 /** What pi wrote into a conversation's chat log, by its row ids. */
 const PI_LOG_ROW = "pi:";

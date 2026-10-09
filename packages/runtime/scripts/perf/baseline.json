@@ -113,114 +113,114 @@
       "ceiling": 6984104.65
     },
     "turn.plain.toRunFinishedMs.p50": {
-      "value": 15.37,
+      "value": 20.97,
       "kind": "time",
-      "ceiling": 23.75
+      "ceiling": 31.31
     },
     "turn.plain.toRunFinishedMs.p95": {
-      "value": 20.18,
+      "value": 29.65,
       "kind": "time",
-      "ceiling": 30.24
+      "ceiling": 43.03
     },
     "turn.plain.toRunStartedMs.p50": {
-      "value": 3.67,
+      "value": 5.59,
       "kind": "time",
-      "ceiling": 7.95
+      "ceiling": 10.55
     },
     "turn.plain.nonToolMs.p50": {
-      "value": 15.37,
+      "value": 20.97,
       "kind": "time",
-      "ceiling": 23.75
+      "ceiling": 31.31
     },
     "turn.plain.toIdleMs.p50": {
-      "value": 16.05,
+      "value": 24.54,
       "kind": "time",
-      "ceiling": 24.67
+      "ceiling": 36.13
     },
     "turn.plain.sqlStatements.p50": {
-      "value": 60.75,
+      "value": 158,
       "kind": "count",
-      "ceiling": 65.79
+      "ceiling": 167.9
     },
     "turn.plain.writeStatements.p50": {
-      "value": 28,
+      "value": 46,
       "kind": "count",
-      "ceiling": 31.4
+      "ceiling": 50.3
     },
     "turn.plain.sqlRows.p50": {
-      "value": 56.75,
+      "value": 72,
       "kind": "count",
-      "ceiling": 61.59
+      "ceiling": 77.6
     },
     "turn.plain.rpcLinesOut.p50": {
+      "value": 8,
+      "kind": "count",
+      "ceiling": 10.4
+    },
+    "turn.plain.rpcBytesOut.p50": {
+      "value": 3410.8,
+      "kind": "bytes",
+      "ceiling": 4605.34
+    },
+    "turn.plain.firstTurn.toRunFinishedMs": {
+      "value": 114.9,
+      "kind": "time",
+      "ceiling": 158.12
+    },
+    "turn.tool.toRunFinishedMs.p50": {
+      "value": 34.85,
+      "kind": "time",
+      "ceiling": 50.05
+    },
+    "turn.tool.toRunFinishedMs.p95": {
+      "value": 43.17,
+      "kind": "time",
+      "ceiling": 61.28
+    },
+    "turn.tool.toRunStartedMs.p50": {
+      "value": 4.26,
+      "kind": "time",
+      "ceiling": 8.75
+    },
+    "turn.tool.nonToolMs.p50": {
+      "value": 30.61,
+      "kind": "time",
+      "ceiling": 44.32
+    },
+    "turn.tool.toIdleMs.p50": {
+      "value": 36.98,
+      "kind": "time",
+      "ceiling": 52.92
+    },
+    "turn.tool.sqlStatements.p50": {
+      "value": 318,
+      "kind": "count",
+      "ceiling": 335.9
+    },
+    "turn.tool.writeStatements.p50": {
+      "value": 91,
+      "kind": "count",
+      "ceiling": 97.55
+    },
+    "turn.tool.sqlRows.p50": {
+      "value": 149,
+      "kind": "count",
+      "ceiling": 158.45
+    },
+    "turn.tool.rpcLinesOut.p50": {
       "value": 12,
       "kind": "count",
       "ceiling": 14.6
     },
-    "turn.plain.rpcBytesOut.p50": {
-      "value": 3730.15,
-      "kind": "bytes",
-      "ceiling": 4940.66
-    },
-    "turn.plain.firstTurn.toRunFinishedMs": {
-      "value": 47.7,
-      "kind": "time",
-      "ceiling": 67.4
-    },
-    "turn.tool.toRunFinishedMs.p50": {
-      "value": 21.31,
-      "kind": "time",
-      "ceiling": 31.77
-    },
-    "turn.tool.toRunFinishedMs.p95": {
-      "value": 31.77,
-      "kind": "time",
-      "ceiling": 45.89
-    },
-    "turn.tool.toRunStartedMs.p50": {
-      "value": 4.03,
-      "kind": "time",
-      "ceiling": 8.44
-    },
-    "turn.tool.nonToolMs.p50": {
-      "value": 18.9,
-      "kind": "time",
-      "ceiling": 28.52
-    },
-    "turn.tool.toIdleMs.p50": {
-      "value": 21.77,
-      "kind": "time",
-      "ceiling": 32.39
-    },
-    "turn.tool.sqlStatements.p50": {
-      "value": 100.95,
-      "kind": "count",
-      "ceiling": 108.0
-    },
-    "turn.tool.writeStatements.p50": {
-      "value": 51,
-      "kind": "count",
-      "ceiling": 55.55
-    },
-    "turn.tool.sqlRows.p50": {
-      "value": 92.85,
-      "kind": "count",
-      "ceiling": 99.49
-    },
-    "turn.tool.rpcLinesOut.p50": {
-      "value": 21,
-      "kind": "count",
-      "ceiling": 24.05
-    },
     "turn.tool.rpcBytesOut.p50": {
-      "value": 7416.05,
+      "value": 8008.9,
       "kind": "bytes",
-      "ceiling": 8810.85
+      "ceiling": 9433.34
     },
     "turn.tool.firstTurn.toRunFinishedMs": {
-      "value": 15,
+      "value": 87.32,
       "kind": "time",
-      "ceiling": 23.25
+      "ceiling": 120.88
     },
     "history.1000.listEvents.p50": {
       "value": 0.34,
@@ -481,6 +481,21 @@
       "value": 25,
       "kind": "count",
       "ceiling": 28.25
+    },
+    "history.1000.openMs": {
+      "value": 825.74,
+      "kind": "time",
+      "ceiling": 1117.75
+    },
+    "history.10000.openMs": {
+      "value": 5383.29,
+      "kind": "time",
+      "ceiling": 7270.44
+    },
+    "history.100000.openMs": {
+      "value": 85640.56,
+      "kind": "time",
+      "ceiling": 115617.76
     }
   }
 }

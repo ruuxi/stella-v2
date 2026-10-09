@@ -474,11 +474,7 @@ export const createRuntimeInitialization = (
     if (context.state.activeOrchestratorRunId) {
       return `orchestrator run ${context.state.activeOrchestratorRunId} is active`;
     }
-    // Long-lived `OrchestratorSession`s are intentionally NOT a busy
-    // signal: the underlying Pi Agent is idle between turns, and
-    // hot-reloaded extensions don't need it torn down — the next
-    // `runTurn` picks up the new tool catalog / hooks naturally. The
-    // only orchestrator-side busy condition is an active run, gated
+    // The only orchestrator-side busy condition is an active run, gated
     // above by `activeOrchestratorRunId`.
     const activeAgents =
       context.state.localAgentManager?.getActiveAgentCount() ?? 0;
@@ -793,23 +789,6 @@ export const createRuntimeInitialization = (
       conversationCallbacks: context.state.conversationCallbacks.size,
       runCallbacksByRunId: context.state.runCallbacksByRunId.size,
     });
-    // Suspend every live durable run before anything below aborts it: the
-    // teardown then leaves exactly the state a crash would (running rows,
-    // open intents, the cloud begin), and the next worker resumes the runs
-    // (`kernel/storage/run-task.ts`). Runs that cannot resume are canceled
-    // as before.
-    try {
-      const suspended = context.runtimeStore.runTasks?.suspendLiveRuns() ?? [];
-      if (suspended.length > 0) {
-        logger.warn("runner.stop.durable-runs-suspended", {
-          runIds: suspended,
-        });
-      }
-    } catch (error) {
-      logger.warn("runner.stop.durable-suspend-failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
     stopExtensionWatcher();
     context.state.isRunning = false;
     context.state.isInitialized = false;
@@ -877,20 +856,7 @@ export const createRuntimeInitialization = (
     context.state.activeOrchestratorConversationId = null;
     context.state.activeOrchestratorUiVisibility = "visible";
     context.state.activeOrchestratorSession = null;
-    // Tear down all long-lived per-conversation orchestrator sessions
-    // (E1). Each session disposes its underlying Pi `Agent` so message
-    // arrays + closures get reclaimed; future startups rebuild them lazily
-    // when the next turn lands.
-    for (const session of context.state.orchestratorSessions.values()) {
-      try {
-        session.dispose();
-      } catch (error) {
-        logger.warn("orchestrator-session.dispose-failed", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    context.state.orchestratorSessions.clear();
+    context.state.cloudThreads.clear();
     const shutdownError = new Error("Stella runtime is shutting down");
     for (const turn of context.state.queuedOrchestratorTurns) {
       turn.cancel?.(shutdownError);

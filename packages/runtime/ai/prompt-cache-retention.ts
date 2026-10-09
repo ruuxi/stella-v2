@@ -1,11 +1,10 @@
 /**
- * Dependency-free prompt-cache tier policy for long-lived orchestrators.
+ * Dependency-free prompt-cache tier policy for the long-lived orchestrator.
  *
- * Both orchestrators (desktop `kernel/agent-runtime/orchestrator-cache-
- * retention.ts` and the cloud Durable Object in `workers/cloud-builder`) idle
- * between turns while background agents run, and the wake usually lands past
- * Anthropic's 5-minute TTL. They therefore ask first-party Anthropic for the
- * 1-hour tier on every request:
+ * The cloud orchestrator (the Durable Object in `workers/cloud-builder`)
+ * idles between turns while background agents run, and the wake usually
+ * lands past Anthropic's 5-minute TTL. It therefore asks first-party
+ * Anthropic for the 1-hour tier on every request:
  *
  *   - Anthropic bills a write only for the tokens past the longest cached
  *     prefix, so the 1h tier costs (2x - 1.25x) = 0.75x of each request's NEW
@@ -20,9 +19,6 @@
  */
 import type { Api, CacheRetention, Model } from "./types.js";
 
-/** Lifetime of an Anthropic `ttl: "1h"` cache entry. */
-export const LONG_PROMPT_CACHE_TTL_MS = 60 * 60 * 1000;
-
 /**
  * True when the adapter maps `cacheRetention: "long"` to Anthropic's 1h
  * tier: first-party Anthropic models, direct or through the Stella relay or
@@ -30,7 +26,7 @@ export const LONG_PROMPT_CACHE_TTL_MS = 60 * 60 * 1000;
  * compatible third parties (Copilot, MiniMax, Kimi, OpenRouter) may reject
  * or ignore `ttl`, and providers with implicit caching have no tier at all.
  */
-export const supportsLongPromptCacheRetention = (model: Model<Api>): boolean =>
+const supportsLongPromptCacheRetention = (model: Model<Api>): boolean =>
   model.api === "anthropic-messages" &&
   model.provider === "anthropic" &&
   (model as Model<"anthropic-messages">).compat?.supportsLongCacheRetention !==

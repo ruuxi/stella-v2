@@ -6,11 +6,6 @@ import {
   type ResolvedLlmRoute,
 } from "../model-routing.js";
 import { withStellaModelCatalogMetadata } from "../stella-model-catalog.js";
-import {
-  createImageDescriptionService,
-  IMAGE_DESCRIPTION_AGENT_TYPE,
-  IMAGE_DESCRIPTION_MODEL_ID,
-} from "../agent-runtime/image-description.js";
 import type { RunnerContext } from "./types.js";
 
 export const createRunnerSiteConfig = (context: RunnerContext) => ({
@@ -69,34 +64,6 @@ export const resolveRunnerLlmRouteWithMetadata = async (
     reasoningEffort,
   });
 };
-
-export const imageDescriptionModelReferenceForRoute = (
-  route: ResolvedLlmRoute,
-): string => {
-  if (route.route === "stella") {
-    return `stella/${IMAGE_DESCRIPTION_MODEL_ID}`;
-  }
-  if (route.model.provider === "openrouter") {
-    return `openrouter/${IMAGE_DESCRIPTION_MODEL_ID}`;
-  }
-  if (route.model.provider === "vercel-ai-gateway") {
-    return `vercel-ai-gateway/${IMAGE_DESCRIPTION_MODEL_ID}`;
-  }
-  return IMAGE_DESCRIPTION_MODEL_ID;
-};
-
-export const createRunnerImageDescriptionService = (
-  context: RunnerContext,
-  primaryRoute: ResolvedLlmRoute,
-) =>
-  createImageDescriptionService({
-    resolveRoute: () =>
-      resolveRunnerLlmRouteWithMetadata(
-        context,
-        IMAGE_DESCRIPTION_AGENT_TYPE,
-        imageDescriptionModelReferenceForRoute(primaryRoute),
-      ),
-  });
 
 export const canResolveRunnerLlmRoute = (
   context: RunnerContext,

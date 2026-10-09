@@ -14,15 +14,8 @@ type AgentModelSettings = {
   order: number;
 };
 
-/**
- * Declarative runtime behaviors for each agent. Unset flags default to false,
- * and steering defaults to "one-at-a-time".
- */
+/** Declarative runtime behaviors for each agent. Unset flags default to false. */
 export type AgentCapabilities = {
-  /** Steering queue mode for this agent's runs. Defaults to "one-at-a-time". */
-  steeringMode?: "all" | "one-at-a-time";
-  /** Follow-up queue mode for this agent's runs. Defaults to "one-at-a-time". */
-  followUpMode?: "all" | "one-at-a-time";
   /**
    * Load the personality doc into the agent context so it is injected as a
    * hidden `~/.stella/PERSONALITY.md` startup doc on the first turn (then
@@ -81,8 +74,6 @@ const BUILTIN_AGENT_DEFINITIONS = [
       order: 0,
     },
     capabilities: {
-      steeringMode: "all",
-      followUpMode: "all",
       injectsPersonality: true,
       injectsCoreMemory: true,
       injectsUserProfile: true,
@@ -248,16 +239,6 @@ export const agentHasCapability = (
   const value = getAgentCapabilities(agentType)[capability];
   return value !== undefined && value !== false;
 };
-
-export const getAgentSteeringMode = (
-  agentType: string,
-): "all" | "one-at-a-time" =>
-  getAgentCapabilities(agentType).steeringMode ?? "one-at-a-time";
-
-export const getAgentFollowUpMode = (
-  agentType: string,
-): "all" | "one-at-a-time" =>
-  getAgentCapabilities(agentType).followUpMode ?? "one-at-a-time";
 
 // All IPC stream event types. RUN_FINISHED is the single terminal event for
 // a run; per-agent lifecycle is the AGENT_* family below.

@@ -548,19 +548,8 @@ export const layer = Layer.effect(
                         (error as Error).message,
                       );
                     });
-                    // Durable runs the previous worker process left running
-                    // resume now that the runner can launch them (off the
-                    // boot report: a resumed run lasts as long as it lasts).
+                    // Conversations on pi-durable resume their own work.
                     if (builtRunner && currentSession === session) {
-                      void session.agentRuns
-                        .resumeInterruptedRuns()
-                        .catch((error) => {
-                          console.warn(
-                            "[runtime-worker] Durable run resume pass failed:",
-                            (error as Error).message,
-                          );
-                        });
-                      // Conversations on pi-durable resume their own work.
                       void resumePiChats(session, hostBus).catch((error) => {
                         console.warn(
                           "[runtime-worker] pi chat resume failed:",

@@ -760,10 +760,10 @@ export const createToolHost = ({
       if (isAgentControlToolWithheld(tool.name, options?.parentOwned)) {
         return false;
       }
-      // Demoted tools stay in the catalog: the runtime adapter
-      // (`createPiTools`) decides per turn whether they surface directly or
-      // only through code's catalog. Voice and other realtime surfaces
-      // filter them out explicitly.
+      // Demoted tools stay in the catalog: each engine's tool list
+      // (`getProviderToolMetadata`, pi's `runner/pi-tools.ts`) decides
+      // whether they surface directly or only through code's catalog. Voice
+      // and other realtime surfaces filter them out explicitly.
       // Swap the file-edit tool family to the agent's engine: Claude Code
       // wants Write/Edit, Stella wants apply_patch.
       if (

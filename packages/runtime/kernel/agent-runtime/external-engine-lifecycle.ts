@@ -1,7 +1,7 @@
 /**
  * Run-owned external engine turn lifecycle (M5 surface 3, phase 2 batch 3).
  *
- * Claude Code and Codex turns execute inside session-keyed CLI processes
+ * Claude Code turns execute inside session-keyed CLI processes
  * that deliberately outlive individual runs (resume affinity: the durable
  * `external_session_id` in SQLite plus the 30-minute idle TTL). Ownership
  * therefore migrates at the TURN seam, not the process seam:
@@ -38,7 +38,7 @@ export const ENGINE_ABORT_JOIN_GRACE_MS = 10_000;
 export const superviseExternalEngineTurn = async <T>(args: {
   /** Absent (tests/unwired paths): exact passthrough. */
   supervise: RunResourceRegistrar | undefined;
-  engine: "claude-code" | "codex";
+  engine: "claude-code";
   runId: string;
   /** The run's abort signal. */
   signal: AbortSignal | undefined;

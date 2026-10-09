@@ -576,7 +576,6 @@ export const getSubscriptionHarnessEnabled = (
   stellaDataDir: string,
   engine: AgentEngine,
 ): boolean => {
-  if (engine === "codex_cli") return true;
   const prefs = loadLocalPreferences(stellaDataDir);
   if (engine === "claude_code_local") {
     return !prefs.useNativeClaudeCodeRuntime;

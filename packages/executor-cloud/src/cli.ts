@@ -3,7 +3,6 @@ import {
   parseCloudTurnAttemptDirectory,
 } from "@stella/contracts/cloud-turn-attempt";
 import { loadModelRegistry } from "@stella/contracts/model-registry";
-import { registerBuiltInApiProviders } from "@stella/runtime/ai/providers/register-builtins.js";
 import "@stella/runtime/ai/utils/http-proxy.js";
 import { forkAbortTimer } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import { Effect } from "effect";
@@ -21,7 +20,6 @@ import {
 import { attachedToolPathsForDirectory } from "./attached-tool-protocol.js";
 
 await loadModelRegistry();
-registerBuiltInApiProviders();
 
 // The daemon and the one-call client never produce a turn result, so they exit
 // before the turn-result plumbing below.

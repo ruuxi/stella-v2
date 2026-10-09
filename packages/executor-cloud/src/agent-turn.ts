@@ -1,10 +1,12 @@
 /**
- * The real cloud agent turn: Stella's own runtime (agent-core loop + tool
- * host) running headless in the sandbox as the spawned general agent.
+ * The real cloud agent turn of a Claude agent: Claude Code's CLI running
+ * headless in the sandbox as the spawned general agent, with Stella's tool
+ * host behind it. Agents on Stella's models or the owner's ChatGPT plan run
+ * on pi in their conversation instead.
  *
  * The BuildSession DO restores the workspace before invoking this and
- * checkpoints it after; this module only runs the loop. Model calls, events,
- * and transcript writes go through the short-lived Builder broker capability;
+ * checkpoints it after; this module only runs the turn. Events and
+ * transcript writes go through the short-lived Builder broker capability;
  * no reusable turn token ever enters this process. The final line on
  * stdout is the structured report the DO parses.
  */
@@ -25,12 +27,7 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
-import { Agent } from "@stella/runtime/kernel/agent-core/agent.js";
-import type {
-  AgentMessage,
-  AgentTool,
-} from "@stella/runtime/kernel/agent-core/types.js";
-import type { TSchema } from "@sinclair/typebox";
+import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import {
@@ -45,29 +42,12 @@ import {
 } from "@stella/runtime/kernel/integrations/claude-code-tool-mcp-host.js";
 import { buildClaudeCodeNativeToolRuntimePrompt } from "@stella/runtime/kernel/integrations/claude-code-session-runtime.js";
 import {
-  TOOL_RESULT_AUTHORIZED_IMAGES,
   type ToolMetadata,
   type ToolResult,
   type ToolUpdateCallback,
 } from "@stella/runtime/kernel/tools/types.js";
-import {
-  neutralizeLegacyAttachImageMarkers,
-  prepareAuthorizedToolImageBlocks,
-} from "@stella/runtime/kernel/agent-runtime/tool-adapters.js";
-import {
-  AGENT_RUN_MAX_ATTEMPTS,
-  executeAgentRunWithRetry,
-  prepareTransientResumeTail,
-} from "@stella/runtime/kernel/agent-runtime/run-retry.js";
-import {
-  buildDefaultTransformContext,
-  extractAssistantText,
-  getAgentCompletion,
-} from "@stella/runtime/kernel/agent-runtime/run-shared.js";
-import { createCloudRelayModel } from "./relay-model.js";
 import { openAgentInbox } from "./agent-inbox.js";
 import { createCloudUserAskHost } from "./cloud-user-ask.js";
-import { pruneAgentHistory } from "./prune-history.js";
 import {
   emptyDriveSync,
   materializeDriveFiles,
@@ -125,49 +105,6 @@ import { cloudAgentToolContext } from "./cloud-tool-context.js";
 
 export { CLOUD_TOOL_PROCESS_IDENTITY } from "./cloud-process-isolation.js";
 
-export type CloudModelGatewayInput = {
-  /** Public origin of the model gateway (`MODEL_GATEWAY_URL`). */
-  origin: string;
-  /** Turn capability minted by the admitting Durable Object. */
-  capability: string;
-};
-
-/** Fail closed on anything but an HTTPS origin and a compact JWS capability. */
-export const parseCloudModelGatewayInput = (
-  value: unknown,
-): CloudModelGatewayInput | null => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const row = value as Record<string, unknown>;
-  if (typeof row.origin !== "string" || typeof row.capability !== "string") {
-    return null;
-  }
-  let origin: URL;
-  try {
-    origin = new URL(row.origin);
-  } catch {
-    return null;
-  }
-  const localHttp =
-    origin.protocol === "http:" &&
-    (origin.hostname === "127.0.0.1" || origin.hostname === "localhost");
-  if (
-    (origin.protocol !== "https:" && !localHttp) ||
-    origin.username ||
-    origin.password ||
-    origin.search ||
-    origin.hash ||
-    origin.pathname !== "/"
-  ) {
-    return null;
-  }
-  if (
-    !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(row.capability)
-  ) {
-    return null;
-  }
-  return { origin: origin.origin, capability: row.capability };
-};
-
 /**
  * turn-input.json. `role` (from the shared contract) says which loop runs:
  * an orchestrator turn also carries the DO's system prompt and tool catalog.
@@ -191,15 +128,8 @@ export type AgentTurnInput = CloudCliTurnRoleInput & {
   /** Short-lived capability for exporting and pushing this world's projection. */
   world: WorldSyncAccess;
   /**
-   * Model gateway access for this exact turn (Stella and ChatGPT turns). The
-   * capability is a signed, turn-scoped, budgeted, expiring token that is
-   * only valid at the gateway; the sandbox sends model traffic there
-   * directly. Claude turns have none.
-   */
-  modelGateway?: CloudModelGatewayInput;
-  /**
-   * Claude turns: which of the owner's container Claude Code logins the CLI
-   * runs on (a directory key and the account's email, never a credential).
+   * Which of the owner's container Claude Code logins the CLI runs on (a
+   * directory key and the account's email, never a credential).
    */
   claudeAccount?: CloudClaudeAccountInput;
   /** Prior thread transcript rows, oldest first (send_message continuations). */
@@ -244,12 +174,6 @@ export type AgentTurnTerminalResult = {
 export type AgentTurnResult = AgentTurnTerminalResult;
 
 export { cloudGeneralToolNames };
-
-/** Only Claude Code owns a native CLI loop; Codex uses Stella's Agent loop. */
-export const usesNativeCloudRuntime = (
-  execution: CloudExecutionSelection,
-): execution is Extract<CloudExecutionSelection, { engine: "anthropic" }> =>
-  execution.engine === "anthropic";
 
 export const createBuilderFallbackAgentTurnResult = (args: {
   finalText: string;
@@ -441,12 +365,6 @@ export const CLOUD_GENERAL_PROMPT = (options: {
 const asError = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
 
-const userTextMessage = (text: string): AgentMessage => ({
-  role: "user",
-  content: [{ type: "text", text }],
-  timestamp: Date.now(),
-});
-
 export const hydrateDriveForAgentTurn = async (
   options: Parameters<typeof materializeDriveFiles>[0],
   materialize: typeof materializeDriveFiles = materializeDriveFiles,
@@ -508,14 +426,20 @@ export const runAgentTurn = (
           checkpointPolicy: "preserve_prior",
         };
       }
-      const native = usesNativeCloudRuntime(input.execution);
-      const modelGateway = native
-        ? null
-        : parseCloudModelGatewayInput(input.modelGateway);
-      const claudeAccount = native
-        ? parseCloudClaudeAccountInput(input.claudeAccount)
-        : null;
-      if (native ? !claudeAccount : !modelGateway) {
+      // Only Claude agents run in a container; the rest are pi agents.
+      if (input.execution.engine !== "anthropic") {
+        return {
+          ok: false,
+          finalText: "",
+          error:
+            "This agent runs in its conversation, not in a container. Try again.",
+          usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0 },
+          checkpointPolicy: "preserve_prior",
+        };
+      }
+      const nativeExecution = input.execution;
+      const claudeAccount = parseCloudClaudeAccountInput(input.claudeAccount);
+      if (!claudeAccount) {
         return {
           ok: false,
           finalText: "",
@@ -525,11 +449,8 @@ export const runAgentTurn = (
           checkpointPolicy: "preserve_prior",
         };
       }
-      let history: AgentMessage[];
       try {
-        history = pruneAgentHistory(
-          parseAuthoritativeAgentHistory(input.history ?? []),
-        );
+        parseAuthoritativeAgentHistory(input.history ?? []);
       } catch (error) {
         console.error(
           `authoritative agent history rejected: ${asError(error).message}`,
@@ -734,58 +655,8 @@ export const runAgentTurn = (
         );
         return result;
       };
-      const tools: AgentTool[] = cloudToolMetadata.map((meta) => ({
-        name: meta.name,
-        label: meta.label ?? meta.name,
-        ...(meta.workingText ? { workingText: meta.workingText } : {}),
-        description: meta.description,
-        parameters: meta.parameters as unknown as TSchema,
-        execute: async (toolCallId, params, signal) => {
-          const result = await executeCloudTool(
-            toolCallId,
-            meta.name,
-            (params ?? {}) as Record<string, unknown>,
-            signal,
-          );
-          if (result.error) throw new Error(result.error);
-          const rawText =
-            typeof result.result === "string"
-              ? result.result
-              : result.result === undefined
-                ? ""
-                : JSON.stringify(result.result, null, 2);
-          const text = neutralizeLegacyAttachImageMarkers(rawText);
-          const images = await prepareAuthorizedToolImageBlocks(
-            result[TOOL_RESULT_AUTHORIZED_IMAGES],
-            {
-              provider: input.execution.provider,
-              modelId: input.execution.model,
-            },
-          );
-          const visibleText =
-            text.length > 30_000
-              ? `${text.slice(0, 15_000)}\n…[truncated]…\n${text.slice(-15_000)}`
-              : text;
-          return {
-            content: [
-              ...(visibleText || images.length === 0
-                ? [
-                    {
-                      type: "text" as const,
-                      text: visibleText || "(no output)",
-                    },
-                  ]
-                : []),
-              ...images,
-            ],
-            details: result.details ?? null,
-          };
-        },
-      }));
-
-      let claudeToolMcpHost: ClaudeCodeToolMcpHost | undefined;
-      if (usesNativeCloudRuntime(input.execution)) {
-        claudeToolMcpHost = yield* Effect.acquireRelease(
+      const claudeToolMcpHost: ClaudeCodeToolMcpHost =
+        yield* Effect.acquireRelease(
           Effect.tryPromise({
             try: () =>
               createClaudeCodeToolMcpHost({
@@ -815,7 +686,6 @@ export const runAgentTurn = (
               });
             }),
         );
-      }
 
       // Messages sent to this agent while it works. It stops taking them
       // when it finishes; a message that lands later is refused, never lost.
@@ -826,9 +696,6 @@ export const runAgentTurn = (
         }),
         (opened) => Effect.promise(() => opened.close().catch(() => [])),
       );
-
-      // Long-running threads accumulate transcript across send_message
-      // continuations; keep the newest window that fits the model.
 
       let llmCalls = 0;
       let inputTokens = 0;
@@ -843,205 +710,72 @@ export const runAgentTurn = (
             ReturnType<typeof runNativeAgentTurn>
           >["nativeStateCheckpoint"]
         | undefined;
-      if (usesNativeCloudRuntime(input.execution)) {
-        const nativeExecution = input.execution;
-        const nativeOutcome = yield* Effect.promise(async () => {
-          try {
-            return {
-              ok: true as const,
-              value: await runNativeAgentTurn({
-                profile: cloudClaudeRoleProfile({
-                  role: "agent",
-                  threadId: input.threadId,
-                  conversationId: input.conversationId,
-                }),
-                prompt: input.prompt,
-                // Built-ins are off (`--tools ""`), the same as the cloud
-                // orchestrator's Claude Code turn, so it gets the same note.
-                systemPrompt:
-                  buildClaudeCodeNativeToolRuntimePrompt(cloudSystemPrompt),
-                execution: nativeExecution,
-                claudeAccount: claudeAccount!,
+      const nativeOutcome = yield* Effect.promise(async () => {
+        try {
+          return {
+            ok: true as const,
+            value: await runNativeAgentTurn({
+              profile: cloudClaudeRoleProfile({
+                role: "agent",
                 threadId: input.threadId,
-                turnId: input.turnId,
-                authoritativeHistoryCursor: nativeHistoryCursorFromRows(
-                  input.history ?? [],
-                ),
-                stateIntegrityKey: input.nativeStateIntegrityKey,
-                ...(input.rebuildNativeSession === true
-                  ? { recoveryHistory: input.history ?? [] }
-                  : {}),
-                ...(claudeToolMcpHost
-                  ? {
-                      claudeMcpServerConfig: claudeToolMcpHost.mcpServerConfig,
-                    }
-                  : {}),
-                onStreamEvent: cloudAgentProgressFromStream(emitEvent),
-                inbox,
+                conversationId: input.conversationId,
               }),
-            };
-          } catch (error) {
-            return { ok: false as const, error: asError(error) };
-          }
-        });
-        if (!nativeOutcome.ok) {
-          forceBuilderFallback = true;
-          execution = {
-            finalText: "",
-            errorMessage: nativeOutcome.error.message,
-          };
-          produced = [];
-        } else {
-          const native = nativeOutcome.value;
-          let readinessError: Error | undefined;
-          if (!native.error && claudeToolMcpHost) {
-            readinessError = yield* Effect.promise(async () => {
-              try {
-                await claudeToolMcpHost!.waitForClientReady(undefined, 1_000);
-                return undefined;
-              } catch (error) {
-                return asError(error);
-              }
-            });
-          }
-          llmCalls = native.usage.llmCalls;
-          inputTokens = native.usage.inputTokens;
-          outputTokens = native.usage.outputTokens;
-          execution = {
-            finalText: native.finalText.trim(),
-            ...(native.error || readinessError
-              ? { errorMessage: native.error ?? readinessError!.message }
-              : {}),
-          };
-          produced = native.messages;
-          nativeStateCheckpoint = native.nativeStateCheckpoint;
-        }
-      } else {
-        const model = yield* Effect.tryPromise({
-          try: () =>
-            createCloudRelayModel({
-              gatewayOrigin: modelGateway!.origin,
-              capability: modelGateway!.capability,
-              agentType: "general",
-              execution: input.execution,
+              prompt: input.prompt,
+              // Built-ins are off (`--tools ""`), the same as the cloud
+              // orchestrator's Claude Code turn, so it gets the same note.
+              systemPrompt:
+                buildClaudeCodeNativeToolRuntimePrompt(cloudSystemPrompt),
+              execution: nativeExecution,
+              claudeAccount,
+              threadId: input.threadId,
+              turnId: input.turnId,
+              authoritativeHistoryCursor: nativeHistoryCursorFromRows(
+                input.history ?? [],
+              ),
+              stateIntegrityKey: input.nativeStateIntegrityKey,
+              ...(input.rebuildNativeSession === true
+                ? { recoveryHistory: input.history ?? [] }
+                : {}),
+              claudeMcpServerConfig: claudeToolMcpHost.mcpServerConfig,
+              onStreamEvent: cloudAgentProgressFromStream(emitEvent),
+              inbox,
             }),
-          catch: asError,
-        });
-        const agent = new Agent({
-          initialState: {
-            systemPrompt: cloudSystemPrompt,
-            model,
-            tools,
-            messages: history,
-          },
-          sessionId: input.threadId,
-          getApiKey: () => modelGateway!.capability,
-          getSteeringMessages: async () =>
-            (await inbox.take()).map(userTextMessage),
-          toolExecution: "sequential",
-          toolInactivityTimeoutMs: 5 * 60_000,
-          // Same division of labor as the desktop runtime and the orchestrator
-          // DO: re-prune before every provider call, and let the outer ladder
-          // own empty completions and the physical-request ceiling.
-          transformContext: buildDefaultTransformContext({ model }),
-          degenerateResponseRetries: 0,
-          providerRequestLimit: AGENT_RUN_MAX_ATTEMPTS,
-        });
-        const unsubscribe = agent.subscribe((event) => {
-          if (
-            event.type === "message_end" &&
-            event.message.role === "assistant"
-          ) {
-            llmCalls += 1;
-            const usage = (
-              event.message as {
-                usage?: {
-                  input?: number;
-                  output?: number;
-                  inputTokens?: number;
-                  outputTokens?: number;
-                };
-              }
-            ).usage;
-            inputTokens += usage?.inputTokens ?? usage?.input ?? 0;
-            outputTokens += usage?.outputTokens ?? usage?.output ?? 0;
-            const text = extractAssistantText(event.message).trim();
-            if (text)
-              emitEvent("assistant_message", { text: text.slice(0, 8_000) });
-          }
-          if (event.type === "tool_execution_start") {
-            emitEvent("tool_call", {
-              name: event.toolName,
-              args: JSON.stringify(event.args ?? {}).slice(0, 1_000),
-            });
-          }
-        });
-
-        const before = agent.state.messages.length;
-        // The desktop runtime's transient ladder: a retryable provider or
-        // transport failure resumes the same in-memory context instead of
-        // failing the whole turn. The DO's watchdog still bounds the turn; a
-        // full ladder adds at most ~10s of backoff.
-        const runOutcome = yield* Effect.promise(async () => {
-          try {
-            return {
-              ok: true as const,
-              value: await executeAgentRunWithRetry({
-                state: { attemptsUsed: 0, retriesUsed: 0 },
-                execute: async (resume) => {
-                  if (resume) {
-                    await agent.continue();
-                  } else {
-                    await agent.prompt(input.prompt);
-                  }
-                  // A message that landed as the run ended starts one more.
-                  for (
-                    let late = await inbox.close();
-                    late.length > 0;
-                    late = await inbox.close()
-                  ) {
-                    await inbox.reopen();
-                    await agent.prompt(late.map(userTextMessage));
-                  }
-                  const completion = getAgentCompletion(agent);
-                  return {
-                    ...completion,
-                    finalText: completion.finalText.trim(),
-                  };
-                },
-                prepareResume: (reason, classification) => {
-                  const prepared = prepareTransientResumeTail(
-                    agent.state.messages,
-                    classification,
-                  );
-                  if (prepared) {
-                    console.error(
-                      `transient run retry (${classification.category}): ${reason}`,
-                    );
-                  }
-                  return prepared;
-                },
-              }),
-            };
-          } catch (error) {
-            return { ok: false as const, error: asError(error) };
-          } finally {
-            unsubscribe();
-          }
-        });
-        execution = runOutcome.ok
-          ? runOutcome.value
-          : { finalText: "", errorMessage: runOutcome.error.message };
-        // Errored assistant messages have empty content; one empty assistant
-        // row poisons every future Anthropic request for this thread.
-        produced = agent.state.messages.slice(before).filter((message) => {
-          const record = message as { role?: string; content?: unknown };
-          return !(
-            record.role === "assistant" &&
-            Array.isArray(record.content) &&
-            record.content.length === 0
-          );
-        });
+          };
+        } catch (error) {
+          return { ok: false as const, error: asError(error) };
+        }
+      });
+      if (!nativeOutcome.ok) {
+        forceBuilderFallback = true;
+        execution = {
+          finalText: "",
+          errorMessage: nativeOutcome.error.message,
+        };
+        produced = [];
+      } else {
+        const native = nativeOutcome.value;
+        let readinessError: Error | undefined;
+        if (!native.error) {
+          readinessError = yield* Effect.promise(async () => {
+            try {
+              await claudeToolMcpHost.waitForClientReady(undefined, 1_000);
+              return undefined;
+            } catch (error) {
+              return asError(error);
+            }
+          });
+        }
+        llmCalls = native.usage.llmCalls;
+        inputTokens = native.usage.inputTokens;
+        outputTokens = native.usage.outputTokens;
+        execution = {
+          finalText: native.finalText.trim(),
+          ...(native.error || readinessError
+            ? { errorMessage: native.error ?? readinessError!.message }
+            : {}),
+        };
+        produced = native.messages;
+        nativeStateCheckpoint = native.nativeStateCheckpoint;
       }
       // The agent has stopped; nothing more is accepted for it. (A finished
       // run already closed it; one that failed takes no more messages.)

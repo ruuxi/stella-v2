@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./relay-model": "./src/relay-model.ts",
     "./prune-history": "./src/prune-history.ts",
     "./agent-history": "./src/agent-history.ts",
     "./general-agent-prompt": "./src/general-agent-prompt.ts",

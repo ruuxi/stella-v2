@@ -606,16 +606,25 @@ const projectSpawnedAttempt = async (
   };
 };
 
-/** Whether an attempt on this execution runs as its conversation's pi agent rather than in a container. */
+/** An execution pi runs: Stella's models, or the owner's ChatGPT plan. */
+export type PiAgentExecution = Extract<
+  CloudExecutionSelection,
+  { engine: "stella" | "chatgpt" }
+>;
+
+/**
+ * Whether an attempt on this execution runs as its conversation's pi agent
+ * rather than in a container: all but Claude, which runs on its own CLI.
+ */
 export const runsAsPiAgent = (
   execution: CloudExecutionSelection,
-): execution is Extract<CloudExecutionSelection, { engine: "stella" }> =>
-  execution.engine === "stella";
+): execution is PiAgentExecution =>
+  execution.engine === "stella" || execution.engine === "chatgpt";
 
 /**
  * One attempt of an agent thread the owner's agent threads track (a Claude
  * Code orchestrator's spawn, a computer's cloud dispatch, a placed agent)
- * that runs on Stella's models, as its conversation's pi agent.
+ * that runs on pi, as its conversation's pi agent.
  */
 export type PiThreadAttempt = Readonly<{
   threadId: string;
@@ -630,7 +639,7 @@ export type PiThreadAttempt = Readonly<{
 /**
  * Start one attempt in its conversation (`OrchestratorSession.startPiThread`)
  * on the authority its dispatcher admitted: the owner's plan audience and
- * budget, and the attempt's Stella execution.
+ * budget, and the attempt's execution.
  */
 export type PiThreadStart = Readonly<{
   ownerId: string;
@@ -638,7 +647,7 @@ export type PiThreadStart = Readonly<{
   conversationId: string;
   audience: ManagedModelAudience;
   budgetMicroCents: number;
-  execution: Extract<CloudExecutionSelection, { engine: "stella" }>;
+  execution: PiAgentExecution;
   prompt: string;
   attempt: PiThreadAttempt;
 }>;

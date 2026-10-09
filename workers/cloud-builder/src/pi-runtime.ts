@@ -27,7 +27,7 @@
  */
 import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
 import type { Context } from "@earendil-works/chord";
-import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
+import type { Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import {
   AssistantEntry,
@@ -424,9 +424,21 @@ const THREAD_AGENT_PREFIX = "piThreadAgent:";
 /**
  * An agent thread's agent runs on the authority and model its dispatcher
  * admitted, not the latest turn's: a turn on another model would otherwise
- * pin its capability to a model the agent does not run on.
+ * pin its capability to a model the agent does not run on. One on the
+ * owner's ChatGPT plan runs on its execution's model and has no Stella model.
  */
-type ThreadAgent = { authority: PiAuthority; model: StellaModelSpec };
+type ThreadAgent = { authority: PiAuthority; model?: StellaModelSpec };
+
+/** The ChatGPT plan models an execution runs on (none for Stella's). */
+const planModels = (executions: Iterable<PiExecution | undefined>): Model<"openai-responses">[] => {
+  const plans = new Map<string, Model<"openai-responses">>();
+  for (const execution of executions) {
+    if (execution?.engine !== "chatgpt" || plans.has(execution.model)) continue;
+    const plan = chatGptModel(execution.model);
+    if (plan) plans.set(execution.model, plan);
+  }
+  return [...plans.values()];
+};
 
 const brokerFailure = (status: number): Response =>
   Response.json({ error: "Turn broker request failed." }, { status, headers: { "cache-control": "no-store" } });
@@ -606,21 +618,25 @@ export class PiConversationRuntime {
 
   #setModels(state: Pick<PiAgentState, "models" | "authority"> | undefined): void {
     if (!state && this.#threadAgents.size === 0) return;
-    const execution = state?.authority.execution;
-    const plan = execution?.engine === "chatgpt" ? chatGptModel(execution.model) : undefined;
     // Agent threads' models stay known whatever model the latest turn runs on.
     const models = [...(state?.models ?? [])];
     for (const { model } of this.#threadAgents.values()) {
-      if (!models.some((known) => known.agentType === model.agentType && known.alias === model.alias)) models.push(model);
+      if (model && !models.some((known) => known.agentType === model.agentType && known.alias === model.alias)) {
+        models.push(model);
+      }
     }
-    const key = JSON.stringify([models, plan?.id]);
+    const plans = planModels([
+      state?.authority.execution,
+      ...[...this.#threadAgents.values()].map((agent) => agent.authority.execution),
+    ]);
+    const key = JSON.stringify([models, plans.map((plan) => plan.id)]);
     if (key === this.#modelKey) return;
     const access = this.#access();
     this.#models.setProvider(stellaProvider({ access, models }));
-    if (plan) {
+    if (plans.length > 0) {
       this.#models.setProvider(
         chatGptProvider({
-          models: [plan],
+          models: plans,
           transport: { baseUrl: access.relayBaseUrl, fetch: (request, route) => access.fetch(request, undefined, route) },
         }),
       );
@@ -1415,7 +1431,8 @@ export class PiConversationRuntime {
       description: string;
       attemptGeneration: number;
       authority: PiAuthority;
-      model: StellaModelSpec;
+      /** The Stella model it runs on; none on the owner's ChatGPT plan. */
+      model?: StellaModelSpec;
       executionContext: ExecutionContextSnapshot;
     },
     prompt: string,
@@ -1423,7 +1440,10 @@ export class PiConversationRuntime {
   ): Promise<void> {
     const { harness, root, agents, refreshTools } = await this.open();
     if (!this.#threadAgents.has(attempt.threadId)) {
-      const agent: ThreadAgent = { authority: attempt.authority, model: attempt.model };
+      const agent: ThreadAgent = {
+        authority: attempt.authority,
+        ...(attempt.model ? { model: attempt.model } : {}),
+      };
       await this.#options.storage.put(`${THREAD_AGENT_PREFIX}${attempt.threadId}`, agent);
       this.#threadAgents.set(attempt.threadId, agent);
     }
@@ -1459,10 +1479,21 @@ export class PiConversationRuntime {
         prompt,
         threadId: attempt.threadId,
         origin: { agentThread: true },
-        model: stellaModelRef("general", attempt.model.alias),
+        model: this.#threadModel(attempt.authority.execution, attempt.model),
+        // A ChatGPT plan agent is admitted for its execution's reasoning effort.
+        ...(attempt.authority.execution.engine === "chatgpt"
+          ? { thinkingLevel: thinkingLevelFor(attempt.authority.execution.reasoningEffort, "chatgpt") }
+          : {}),
       },
       context,
     );
+  }
+
+  /** The model an agent thread's agent runs on: its plan's, or the Stella model it was admitted on. */
+  #threadModel(execution: PiExecution, model: StellaModelSpec | undefined) {
+    if (execution.engine === "chatgpt") return { provider: CHATGPT_PROVIDER_ID, modelId: execution.model };
+    if (!model) throw new Error("An agent on Stella's models needs its model.");
+    return stellaModelRef("general", model.alias);
   }
 
   /**

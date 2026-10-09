@@ -1,6 +1,5 @@
 import { Effect } from "effect";
 import { runToolEffect } from "@stella/runtime/kernel/tools/effect-runtime.js";
-import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ExecutionSession } from "../../sandbox-client.js";
 import {
   TURN_OWNER_GENERATION_HEADER,
@@ -9,7 +8,6 @@ import {
 import { HEADER_OWNER } from "../../conversation-types.js";
 import type { TurnEventEvent } from "@stella/contracts/turn-plane/owner-events";
 import { classifyAgentFailureDiagnostic } from "../../agent-failure-diagnostic.js";
-import { mintTurnCapability } from "../../capability-signer.js";
 import { sha256Hex } from "../../hash.js";
 import { inSubshell } from "../../shell-subshell.js";
 import { sandboxLifecycleId } from "../../sandbox-lifecycle.js";
@@ -499,38 +497,3 @@ export const sweepR2Prefix = async (
  */
 export const turnBrokerCredentialsPath = (directory: string): string =>
   `${directory}/.turn-broker-${crypto.randomUUID()}.json`;
-
-/**
- * Mint the model-gateway capability for one admitted agent turn. It is the
- * only credential the sandbox presents for model calls:
- * turn-scoped, pinned to the admitted execution, budgeted, expiring, and
- * meaningless anywhere but the gateway. The old reusable turn token never
- * accompanies model traffic.
- *
- * Never minted for a Claude (`anthropic`) execution: the container's Claude
- * Code CLI talks to Anthropic directly on the login it holds itself.
- */
-export const mintAgentTurnModelGateway = async (
-  env: Pick<
-    Env,
-    "MODEL_GATEWAY_URL" | "CAPABILITY_SIGNING_KEY" | "CAPABILITY_SIGNING_KID"
-  >,
-  turn: TurnRequest,
-  execution: Exclude<CloudExecutionSelection, { engine: "anthropic" }>,
-  agentTypes: readonly string[] = ["general"],
-): Promise<{ origin: string; capability: string; expiresAt: number }> => {
-  const origin = env.MODEL_GATEWAY_URL?.trim() ?? "";
-  if (!origin) throw new Error("Model gateway is not configured.");
-  if (!turn.conversationId) throw new AgentTurnAuthorityLostError();
-  const base = {
-    ownerId: turn.ownerId,
-    ownerGeneration: turn.ownerGeneration,
-    turnId: turn.turnId,
-    conversationId: turn.conversationId,
-    audience: turn.audience,
-    budgetMicroCents: turn.budgetMicroCents,
-    agentTypes,
-  };
-  const minted = await mintTurnCapability(env, { ...base, execution });
-  return { origin, capability: minted.token, expiresAt: minted.expiresAt };
-};

@@ -105,6 +105,7 @@
     "./*": "./*.ts"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "1.1.0",
     "@modelcontextprotocol/sdk": "1.32.0",
     "@stella/agent": "workspace:*",
     "@stella/contracts": "workspace:*",

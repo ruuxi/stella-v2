@@ -94,6 +94,7 @@ import {
 } from "./managed-request-cancellation.js";
 import { bundledPrompt } from "./prompts/bundled.js";
 import type { SerializedAgentToolResult } from "@stella/executor-cloud/attached-tool-protocol";
+import { generalAgentWorldGuidance } from "@stella/executor-cloud/general-agent-prompt";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import { TURN_BROKER_HEADERS } from "@stella/contracts/turn-credential-broker";
 import { serveTurnDriveRequest } from "./build-session/turn-broker.js";
@@ -108,6 +109,7 @@ import {
   type PiComputeRecord,
 } from "./pi-agent-compute.js";
 import { piAttachedCoding, type PiAttachedToolCall } from "./pi-attached-tools.js";
+import { WORLD_ROOT } from "./workspace.js";
 import {
   claimTurnBrokerRequest,
   preflightTurnBrokerRequest,
@@ -558,7 +560,13 @@ export class PiConversationRuntime {
     const turn = async (): Promise<PiTurnSources> => (await this.#turn()).sources;
     return {
       env: "cloud",
-      agentPrompt: async (id) => (id === "agents/orchestrator.md" ? (await turn()).orchestratorPrompt : bundledPrompt(id)),
+      agentPrompt: async (id) =>
+        id === "agents/orchestrator.md"
+          ? (await turn()).orchestratorPrompt
+          : id === "agents/general.md"
+            ? // Where an agent's work lives and how what it makes reaches the user, as the cloud's agents are told.
+              `${bundledPrompt(id).trim()}\n\n${generalAgentWorldGuidance()}`
+            : bundledPrompt(id),
       personality: async () => (await turn()).personality,
       memory: async () => (await turn()).memory,
       skillsCatalog: async () => this.#binding?.sources.skillsCatalog ?? (await this.#agentState()).skillsCatalog,
@@ -810,9 +818,18 @@ export class PiConversationRuntime {
     const sessionId = await this.#providerSession(harness, agentConversationId, context);
     const active = await this.#agentRun(sessionId, context.abortSignal);
     const held = await this.#lease(agentConversationId, active, context);
+    // A pause or stop while the command runs takes the container's work down
+    // with it, unsaved, rather than waiting for the command to finish.
+    const signal = context.abortSignal;
+    const stop = () => {
+      void this.#endLease(agentConversationId, { aborted: true }).catch((error: unknown) => this.#options.report(error));
+    };
+    signal?.addEventListener("abort", stop, { once: true });
     try {
+      signal?.throwIfAborted();
       return await held.lease.ladder.execute({ toolCallId: call.callId, toolName: call.toolName, params: call.params });
     } finally {
+      signal?.removeEventListener("abort", stop);
       held.inFlight -= 1;
     }
   }
@@ -878,7 +895,11 @@ export class PiConversationRuntime {
     const { ladder, record } = held.lease;
     if (!end.aborted && ladder.attached()) {
       try {
-        const { deliveredFiles } = await ladder.quiesce(extractLocalFileLinkPaths(end.answer ?? ""));
+        // The agent's home is the world: a link to `~/drive/...` names the drive copy there.
+        const linked = extractLocalFileLinkPaths(end.answer ?? "").map((linkedPath) =>
+          linkedPath === "~" || linkedPath.startsWith("~/") ? `${WORLD_ROOT}${linkedPath.slice(1)}` : linkedPath,
+        );
+        const { deliveredFiles } = await ladder.quiesce(linked);
         this.#options.log("pi_agent_quiesced", { threadId: held.threadId, delivered: deliveredFiles.length });
       } catch (error) {
         this.#options.report(error);

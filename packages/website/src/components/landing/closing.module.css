@@ -1,0 +1,251 @@
+.source {
+  position: relative;
+  min-height: 120svh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.wall {
+  position: absolute;
+  inset: -20% -10%;
+  display: flex;
+  justify-content: center;
+  gap: 48px;
+  will-change: transform;
+}
+
+.col {
+  margin: 0;
+  font-family: var(--l-mono);
+  font-size: clamp(10px, 0.95vw, 14px);
+  line-height: 1.75;
+  color: rgba(10, 10, 13, 0.13);
+  white-space: pre;
+}
+
+.col:nth-child(1) {
+  margin-top: -180px;
+}
+
+.col:nth-child(3) {
+  margin-top: 220px;
+}
+
+.hot {
+  position: relative;
+  margin-top: clamp(28px, 5svh, 56px);
+  padding: 12px 20px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #00b8ff, #5243ff 50%, #ff4ac0);
+  color: #fff;
+  font-family: var(--l-mono);
+  font-size: clamp(11px, 1.1vw, 16px);
+  white-space: nowrap;
+  box-shadow: 0 24px 50px -16px rgba(82, 67, 255, 0.7);
+}
+
+.sourceTitle {
+  position: relative;
+  margin: 0;
+  font-size: clamp(60px, 15vw, 290px);
+  font-weight: 820;
+  line-height: 0.84;
+  letter-spacing: -0.065em;
+  text-align: center;
+  color: #0a0a0d;
+  will-change: transform, opacity;
+}
+
+.sourceTitle span {
+  font-stretch: 125%;
+}
+
+.license {
+  position: relative;
+  margin-top: 16px;
+  font-family: var(--l-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: rgba(10, 10, 13, 0.5);
+}
+
+.finale {
+  position: relative;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 120px var(--l-margin) 80px;
+  color: #fff;
+}
+
+.finaleAurora {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.finaleCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(60% 55% at 50% 105%, rgba(112, 60, 255, 0.6), transparent 70%),
+    radial-gradient(40% 40% at 30% 100%, rgba(0, 220, 255, 0.45), transparent 70%),
+    radial-gradient(40% 40% at 72% 100%, rgba(255, 74, 192, 0.45), transparent 70%);
+}
+
+.finaleCanvas[data-webgl="on"] {
+  background: none;
+}
+
+.word {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.06em;
+  margin: 0;
+  font-size: clamp(90px, 25vw, 480px);
+  font-weight: 830;
+  line-height: 0.8;
+  letter-spacing: -0.07em;
+  font-stretch: 112%;
+}
+
+.wordMark {
+  flex: none;
+  width: 0.78em;
+  height: 0.78em;
+  color: #fff;
+  margin-right: 0.02em;
+}
+
+.getRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin-top: clamp(40px, 7svh, 80px);
+}
+
+.free {
+  font-family: var(--l-mono);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.stores {
+  position: relative;
+  display: flex;
+  gap: 26px;
+  margin-top: 28px;
+  font-family: var(--l-mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.stores a {
+  color: rgba(255, 255, 255, 0.55);
+  transition: color 150ms ease;
+}
+
+.stores a:hover {
+  color: #fff;
+}
+
+.footer {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 40px;
+  padding: 60px var(--l-margin) 40px;
+  color: rgba(255, 255, 255, 0.6);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 14px;
+}
+
+.footBrand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: -0.04em;
+}
+
+.footCols {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.footCols h3 {
+  margin: 0 0 12px;
+  font-family: var(--l-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.footCols ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.footCols a:hover {
+  color: #fff;
+}
+
+.legal {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+}
+
+.legal :global(.footer-operator) {
+  margin: 0;
+}
+
+.legal :global(.legal-links) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (max-width: 700px) {
+  .footer {
+    grid-template-columns: 1fr;
+  }
+
+  .footCols {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .getRow {
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .stores {
+    gap: 18px;
+    font-size: 11px;
+  }
+}

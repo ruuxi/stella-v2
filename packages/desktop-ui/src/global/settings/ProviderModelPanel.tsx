@@ -235,7 +235,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                 : sorted;
             // OpenRouter's model-id namespace is open-ended: the custom-model
             // input accepts any `vendor/model` slug, including ids the
-            // baked/pi.dev-fed catalog doesn't know (stealth models). Render
+            // built-in catalog doesn't know (stealth models). Render
             // the selected custom id as a real, checked row so the pick
             // visibly sticks instead of the section looking unselected.
             if (tab.key === OPENROUTER_PROVIDER_KEY &&

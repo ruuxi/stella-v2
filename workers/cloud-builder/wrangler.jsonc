@@ -26,7 +26,6 @@
       "../../packages/executor-cloud/package.json",
       "../../packages/model-catalog",
       "../../packages/runtime/package.json",
-      "../../packages/runtime/ai",
       "../../packages/runtime/kernel",
       "../../packages/runtime/extensions",
       "../../packages/runtime/host",

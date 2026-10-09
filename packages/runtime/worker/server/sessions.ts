@@ -257,7 +257,7 @@ const makeRunnerGate = (): RunnerGate => {
  * build (RunnerHandle) must not construct/start the runner until the session
  * is published and the initialize response is on its way. Construction runs
  * boot recovery sweeps synchronously and `start()` begins extension and
- * models.json loading; started mid-build they share the worker thread with
+ * catalog loading; started mid-build they share the worker thread with
  * the rest of the layer build and delay the initialize response (perf lab:
  * ~35 ms of a ~50 ms session build; field: tens of seconds on large agent
  * histories). The import itself is still prefetched at transport attach.

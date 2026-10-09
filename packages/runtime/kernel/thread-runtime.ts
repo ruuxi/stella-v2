@@ -1,7 +1,7 @@
-import { completeSimple, readAssistantText } from "../ai/stream.js";
 import type {
   PersistedRuntimeThreadPayload,
   RuntimeThreadMessage,
+  StoredImageContent,
 } from "./storage/shared.js";
 import { ORCHESTRATOR_ROSTER_CUSTOM_TYPE } from "./storage/shared.js";
 import type { RuntimeStore } from "./storage/runtime-store.js";
@@ -258,14 +258,20 @@ const maskQuarantinedCompactionMessages = (
 const estimateMessageTokens = (message: ThreadMessage): number =>
   Math.max(1, Math.ceil((message.content ?? "").length / 4));
 
-const storedMessageImageBlocks = (message: StoredThreadMessage) => {
+const storedMessageImageBlocks = (
+  message: StoredThreadMessage,
+): StoredImageContent[] => {
   const payload = message.payload;
   if (payload && typeof payload.content !== "string") {
-    return payload.content.filter((block) => block.type === "image");
+    return payload.content.filter(
+      (block): block is StoredImageContent => block.type === "image",
+    );
   }
   const customContent = message.customMessage?.content;
   if (Array.isArray(customContent)) {
-    return customContent.filter((block) => block.type === "image");
+    return customContent.filter(
+      (block): block is StoredImageContent => block.type === "image",
+    );
   }
   return [];
 };
@@ -1271,8 +1277,11 @@ const generateThreadSummary = async (args: {
         });
         continue;
       }
-      const message = await completeSimple(
-        args.resolvedLlm.model,
+      const { completeOnRoute, readAssistantText } = await import(
+        "./llm-completion.js"
+      );
+      const message = await completeOnRoute(
+        args.resolvedLlm,
         {
           systemPrompt,
           messages: [

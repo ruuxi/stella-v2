@@ -2,11 +2,12 @@ import crypto from "crypto";
 import type {
   AssistantMessage,
   ImageContent,
+  JsonObject,
   TextContent,
   ThinkingContent,
   ToolCall,
   Usage,
-} from "../../ai/types.js";
+} from "@earendil-works/pi-ai";
 import type { AgentMessage } from "../agent-core/types.js";
 import type {
   ToolMetadata,
@@ -138,7 +139,7 @@ const buildToolCallPayload = (args: {
       type: "toolCall",
       id: args.toolCallId,
       name: args.toolName,
-      arguments: args.toolArgs,
+      arguments: args.toolArgs as JsonObject,
     },
   ],
   api: "anthropic-messages",
@@ -173,7 +174,7 @@ export const buildPreambleToolBoundaryMessage = (args: {
       type: "toolCall",
       id: args.toolCallId,
       name: args.toolName,
-      arguments: args.toolArgs,
+      arguments: args.toolArgs as JsonObject,
     },
   ],
   api: "anthropic-messages",

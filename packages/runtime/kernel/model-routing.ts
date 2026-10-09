@@ -1,11 +1,8 @@
-import type { Api, Model } from "../ai/types.js";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { getAllModels } from "@stella/contracts/model-catalog";
-import { getModelProviders, getModels } from "../ai/models.js";
-import {
-  mergeModelHeaders,
-  modelRuntime,
-} from "../ai/model-runtime.js";
+import type { StellaGatewayAccess, StellaModelSpec } from "@stella/agent/provider/stella";
+import { getModelProviders, getModels } from "./model-catalog.js";
 import {
   formatLlmRouteFailure,
   type LlmRouteFailure,
@@ -46,6 +43,11 @@ export type ResolvedLlmRoute = {
   credentialless?: boolean;
   getApiKey: () => Promise<string | undefined> | string | undefined;
   refreshApiKey?: () => Promise<string | undefined> | string | undefined;
+  /**
+   * A Stella route's lane to the model gateway and the model it asks for
+   * there: the `stella` provider (`@stella/agent`) runs its requests.
+   */
+  stella?: { access: StellaGatewayAccess; spec: StellaModelSpec };
 };
 
 const LOCAL_PROVIDER = "local";
@@ -124,8 +126,7 @@ const hasLocalProviderAuth = (
   providerId: string,
 ): boolean =>
   hasAccessibleLocalLlmApiKey(stellaAppDir, providerId) ||
-  hasAccessibleLocalLlmOAuthCredential(stellaAppDir, providerId) ||
-  modelRuntime.hasRuntimeManagedAuth(providerId);
+  hasAccessibleLocalLlmOAuthCredential(stellaAppDir, providerId);
 
 const getLocalProviderApiKey = async (
   stellaAppDir: string,
@@ -138,7 +139,7 @@ const getLocalProviderApiKey = async (
   const oauthKey = (
     await getAccessibleLocalLlmOAuthApiKey(stellaAppDir, providerId)
   )?.trim();
-  return oauthKey || modelRuntime.getRuntimeManagedApiKey(providerId);
+  return oauthKey || undefined;
 };
 
 /**
@@ -179,7 +180,6 @@ const getDirectProviderCandidates = (
   credentialProvider: string;
   registryProvider: string;
   candidates: string[];
-  allowBaseUrlWithoutCredential?: boolean;
 } | null => {
   switch (provider) {
     case "anthropic":
@@ -192,18 +192,6 @@ const getDirectProviderCandidates = (
         ]),
       };
     case "moonshotai":
-      if (modelRuntime.hasRuntimeProviderOrigin(provider)) {
-        return {
-          credentialProvider: provider,
-          registryProvider: provider,
-          allowBaseUrlWithoutCredential:
-            modelRuntime.allowsCredentiallessRouting(provider),
-          candidates: uniqueModelCandidates([
-            modelId,
-            modelId.replace(/\./g, "-"),
-          ]),
-        };
-      }
       return {
         credentialProvider: "kimi-coding",
         registryProvider: "kimi-coding",
@@ -232,17 +220,11 @@ const getDirectProviderCandidates = (
         ]),
       };
     default: {
-      // Plugin providers register themselves in the AI registry; if they show
-      // up there, treat them as direct providers without hard-coding here.
-      // (`getModels(provider).length > 0` without deep-cloning every model
-      // of the provider on each route resolution: the registry drops
-      // providers that have no models, so membership is the same answer.)
+      // Any other provider the catalog lists is a direct provider too.
       if (getModelProviders().includes(provider)) {
         return {
           credentialProvider: provider,
           registryProvider: provider,
-          allowBaseUrlWithoutCredential:
-            modelRuntime.allowsCredentiallessRouting(provider),
           candidates: uniqueModelCandidates([
             modelId,
             modelId.replace(/\./g, "-"),
@@ -335,7 +317,7 @@ const synthesizeGatewayModelFromTemplate = (
   if (!isOpenEndedGatewayProvider(registryProvider) && registryProvider !== "chatgpt") {
     return null;
   }
-  const template = (getModels(registryProvider as never) as Model<Api>[])[0];
+  const template = getModels(registryProvider)[0];
   if (!template) return null;
   return {
     ...template,
@@ -413,95 +395,24 @@ const resolveDirectProviderRoute = (args: {
   if (!directModel) {
     return { kind: "unknown-model" };
   }
-  const routedModel = {
-    ...directModel,
-    headers: directModel.headers,
-  };
-  let configuredHeadersState:
-    | { ok: true; applied: boolean; headers?: Record<string, string> }
-    | { ok: false; error: unknown }
-    | undefined;
-  const applyConfiguredHeaders = (): void => {
-    if (!configuredHeadersState) {
-      try {
-        configuredHeadersState = {
-          ok: true,
-          applied: false,
-          headers: modelRuntime.getConfiguredHeaders(
-            directProvider.registryProvider,
-            directModel.id,
-          ),
-        };
-      } catch (error) {
-        configuredHeadersState = { ok: false, error };
-      }
-    }
-    if (!configuredHeadersState.ok) throw configuredHeadersState.error;
-    if (configuredHeadersState.applied) return;
-    routedModel.headers = mergeModelHeaders(
-      routedModel.headers,
-      configuredHeadersState.headers,
-    );
-    configuredHeadersState.applied = true;
-  };
-
   if (
     hasLocalProviderAuth(args.stellaAppDir, directProvider.credentialProvider)
   ) {
-    const getRequestApiKey = async (): Promise<string | undefined> => {
-      applyConfiguredHeaders();
-      const apiKey = await getLocalProviderApiKey(
-        args.stellaAppDir,
-        directProvider.credentialProvider,
-      );
-      if (
-        apiKey &&
-        modelRuntime.usesConfiguredAuthHeader(directProvider.registryProvider)
-      ) {
-        routedModel.headers = mergeModelHeaders(routedModel.headers, {
-          Authorization: `Bearer ${apiKey}`,
-        });
-      }
-      return apiKey;
-    };
     return {
       kind: "route",
       route: {
-        model: routedModel,
+        model: { ...directModel },
         route: "direct-provider",
-        getApiKey: getRequestApiKey,
-        refreshApiKey: async () => {
-          const refreshed = await refreshLocalProviderApiKey(
+        getApiKey: () =>
+          getLocalProviderApiKey(
             args.stellaAppDir,
             directProvider.credentialProvider,
-          );
-          if (
-            refreshed &&
-            modelRuntime.usesConfiguredAuthHeader(directProvider.registryProvider)
-          ) {
-            routedModel.headers = mergeModelHeaders(routedModel.headers, {
-              Authorization: `Bearer ${refreshed}`,
-            });
-          }
-          return refreshed;
-        },
-      },
-    };
-  }
-
-  if (directProvider.allowBaseUrlWithoutCredential && routedModel.baseUrl) {
-    return {
-      kind: "route",
-      route: {
-        model: routedModel,
-        route: "direct-provider",
-        // Origin-verified credentialless proxy (models.json origin, no auth
-        // requirement): authentication travels entirely in configured headers.
-        credentialless: true,
-        getApiKey: () => {
-          applyConfiguredHeaders();
-          return "";
-        },
+          ),
+        refreshApiKey: () =>
+          refreshLocalProviderApiKey(
+            args.stellaAppDir,
+            directProvider.credentialProvider,
+          ),
       },
     };
   }

@@ -17,10 +17,8 @@
 // whether or not it was launched from inside the app (i.e. matches CI).
 import "@stella/runtime/kernel/shared/http-proxy.js";
 import { loadModelRegistry } from "@stella/contracts/model-registry";
-import { registerBuiltInApiProviders } from "@stella/runtime/ai/providers/register-builtins.js";
 
 await loadModelRegistry();
-registerBuiltInApiProviders();
 
 for (const key of Object.keys(process.env)) {
   if (key.startsWith("STELLA_")) {

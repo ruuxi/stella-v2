@@ -1,5 +1,5 @@
-import { getModelProviders, getModels } from "../ai/models.js";
-import type { Api, Model } from "../ai/types.js";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import { getModelProviders, getModels } from "./model-catalog.js";
 import { findModelCandidate } from "./model-registry-view.js";
 
 export type ParsedModelReference = {
@@ -66,10 +66,8 @@ export const isOpenEndedModelReference = (rawModel: string): boolean => {
   return getStellaVerbatimUpstreamModel(rawModel) !== null;
 };
 
-const getRegistryModels = (registryProvider: string): Model<Api>[] => {
-  const models = getModels(registryProvider as never) as Model<Api>[];
-  return Array.isArray(models) ? models : [];
-};
+const getRegistryModels = (registryProvider: string): Model<Api>[] =>
+  getModels(registryProvider);
 
 export type RegistryModelMatch = {
   registryProvider: string;

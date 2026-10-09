@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   resolveLlmRoute,
@@ -8,7 +8,6 @@ import {
   invalidateStellaModelCatalogCache,
   withStellaModelCatalogMetadata,
 } from "@stella/runtime/kernel/stella-model-catalog";
-import { modelRuntime } from "@stella/runtime/ai/model-runtime";
 import { getFileEditToolFamily } from "@stella/runtime/kernel/tools/file-edit-policy";
 import {
   getRememberedStellaGatewayOrigin,
@@ -26,10 +25,6 @@ const site = (token: string) => ({
 });
 
 describe("Stella model catalog metadata", () => {
-  beforeEach(() => {
-    vi.spyOn(modelRuntime, "ensureProviderModel").mockResolvedValue(undefined);
-  });
-
   afterEach(() => {
     globalThis.fetch = originalFetch;
     invalidateStellaModelCatalogCache();
@@ -83,63 +78,6 @@ describe("Stella model catalog metadata", () => {
     ).toBe("apply_patch");
   });
 
-  it("awaits cold Fireworks metadata without changing the managed Responses transport", async () => {
-    globalThis.fetch = vi.fn(async () => {
-      return new Response(
-        JSON.stringify({
-          gateway: { origin: GATEWAY },
-          data: [],
-          defaults: [
-            {
-              agentType: "general",
-              model: "stella/default",
-              resolvedModel: "accounts/fireworks/models/deepseek-v4-flash-0731",
-            },
-          ],
-        }),
-        { status: 200 },
-      );
-    }) as typeof fetch;
-    const ensure = vi
-      .spyOn(modelRuntime, "ensureProviderModel")
-      .mockResolvedValue({
-        id: "accounts/fireworks/models/deepseek-v4-flash-0731",
-        name: "DeepSeek V4 Flash 0731",
-        provider: "fireworks",
-        api: "anthropic-messages",
-        baseUrl: "https://api.fireworks.ai/inference",
-        reasoning: true,
-        input: ["text"],
-        cost: { input: 0.14, output: 0.28, cacheRead: 0.028, cacheWrite: 0 },
-        contextWindow: 1_000_000,
-        maxTokens: 384_000,
-      });
-
-    const route = resolveLlmRoute({
-      stellaAppDir: "/tmp/stella",
-      modelName: undefined,
-      agentType: "general",
-      site: site("token-fireworks-capacity"),
-    });
-    const enriched = await withStellaModelCatalogMetadata({
-      backendUrl: BACKEND,
-      route,
-      agentType: "general",
-      site: site("token-fireworks-capacity"),
-      deviceId: "device-fireworks-capacity",
-    });
-
-    expect(ensure).toHaveBeenCalledWith("fireworks", [
-      "accounts/fireworks/models/deepseek-v4-flash-0731",
-    ]);
-    expect(enriched.model).toMatchObject({
-      api: "openai-responses",
-      provider: "fireworks",
-      contextWindow: 1_000_000,
-      maxTokens: 384_000,
-    });
-  });
-
   it("keeps the safe managed fallback when targeted metadata is unavailable", async () => {
     globalThis.fetch = vi.fn(async () => {
       return new Response(
@@ -157,9 +95,6 @@ describe("Stella model catalog metadata", () => {
         { status: 200 },
       );
     }) as typeof fetch;
-    vi.spyOn(modelRuntime, "ensureProviderModel").mockRejectedValue(
-      new Error("catalog unavailable"),
-    );
 
     const route = resolveLlmRoute({
       stellaAppDir: "/tmp/stella",

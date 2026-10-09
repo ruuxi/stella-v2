@@ -9,8 +9,14 @@ import type {
   ToolResultMessage,
   Usage,
   UserMessage,
-} from "../../ai/types.js";
+} from "@earendil-works/pi-ai";
 import type { MapRouteArtifact } from "@stella/contracts/map-artifact";
+
+/**
+ * An image block as Stella keeps it in a thread: optionally with the durable
+ * local copy a text-only history points `Read` at.
+ */
+export type StoredImageContent = ImageContent & { sourcePath?: string };
 
 export const ORCHESTRATOR_ROSTER_CUSTOM_TYPE = "runtime.orchestrator_reminder";
 /** A `send_message` note another agent left for a conversation's Stella. */
@@ -619,9 +625,13 @@ const KNOWN_TOOL_RESULT_KEYS_LIST = [
   "toolName",
   "isError",
   "content",
+  // Stella's model-facing budget for one tool's output.
   "modelOutputTokens",
   "timestamp",
-] as const satisfies readonly (keyof Omit<ToolResultMessage, "details">)[];
+] as const satisfies readonly (
+  | keyof Omit<ToolResultMessage, "details">
+  | "modelOutputTokens"
+)[];
 const KNOWN_TOOL_RESULT_KEYS: ReadonlySet<string> = new Set(
   KNOWN_TOOL_RESULT_KEYS_LIST,
 );

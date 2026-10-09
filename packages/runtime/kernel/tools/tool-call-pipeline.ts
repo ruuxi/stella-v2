@@ -6,16 +6,32 @@
  * extension hooks that top-level calls get.
  */
 
+import type { JsonObject, Tool } from "@earendil-works/pi-ai";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
-import type { Tool } from "../../ai/types.js";
 import type { ToolContext, ToolResult } from "./types.js";
 
 let toolValidationModule:
-  | Promise<typeof import("../../ai/utils/validation.js")>
+  | Promise<typeof import("@earendil-works/pi-ai/utils/validation")>
   | undefined;
-// Same lazy load as the agent loop: AJV stays off the startup path.
+// Loaded on the first validated call: the validator stays off the startup path.
 const loadToolValidation = () =>
-  (toolValidationModule ??= import("../../ai/utils/validation.js"));
+  (toolValidationModule ??= import("@earendil-works/pi-ai/utils/validation"));
+
+/**
+ * A tool's schema as plain JSON Schema, once per schema. pi-ai's validator
+ * coerces model-written arguments ("5" for a number) only for plain JSON
+ * Schema; the TypeBox schemas Stella's tools declare carry a marker that
+ * makes it skip that step.
+ */
+const plainSchemas = new WeakMap<object, Record<string, unknown>>();
+const plainSchema = (schema: Record<string, unknown>): Record<string, unknown> => {
+  let plain = plainSchemas.get(schema);
+  if (!plain) {
+    plain = JSON.parse(JSON.stringify(schema)) as Record<string, unknown>;
+    plainSchemas.set(schema, plain);
+  }
+  return plain;
+};
 
 export type ToolCallPipelineArgs = {
   toolName: string;
@@ -52,13 +68,13 @@ export const runToolCallPipeline = async (
         {
           name: call.toolName,
           description: "",
-          parameters: call.parameters,
+          parameters: plainSchema(call.parameters),
         } as unknown as Tool,
         {
           type: "toolCall",
           id: call.context.requestId ?? "",
           name: call.toolName,
-          arguments: effectiveArgs,
+          arguments: effectiveArgs as JsonObject,
         },
       ) as Record<string, unknown>;
     } catch (error) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getModelProviders, getModels } from "@stella/runtime/ai/models";
+import { getModelProviders, getModels } from "@stella/runtime/kernel/model-catalog";
 import { STELLA_RELAY_PROVIDERS } from "@stella/contracts/stella-api";
 import { resolveLlmRoute } from "@stella/runtime/kernel/model-routing";
 import { parseSpawnAgentModel } from "@stella/runtime/kernel/tools/state";

@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { AGENT_IDS, getAgentDefinition } from "@stella/contracts/agent-runtime";
 
-import type { Api, Model } from "../../ai/types.js";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   APPLY_PATCH_TOOL_NAME,
   EDIT_TOOL_NAME,

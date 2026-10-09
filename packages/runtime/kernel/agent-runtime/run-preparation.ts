@@ -1,5 +1,5 @@
 import type { AgentMessage } from "../agent-core/types.js";
-import type { ImageContent } from "../../ai/types.js";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,

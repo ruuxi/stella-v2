@@ -71,13 +71,12 @@ import { LIFE_USER_PROFILE_DISPLAY_PATH } from "@stella/runtime/kernel/agent-run
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import { DurableObject } from "cloudflare:workers";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import type {
-  AgentEvent,
   AgentMessage,
   AgentTool,
   AgentToolResult,
 } from "@stella/runtime/kernel/agent-core/types.js";
-import type { ImageContent } from "@stella/runtime/ai/types.js";
 import {
   assertTurnExecutionActive,
   startTurnExecution,

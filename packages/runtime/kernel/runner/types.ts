@@ -1,4 +1,4 @@
-import type { Api, Model } from "../../ai/types.js";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ImageCapTarget } from "../shared/image-caps.js";
 import type { AgentMessage } from "../agent-core/types.js";
 import type { CloudThread } from "./orchestrator-launch.js";

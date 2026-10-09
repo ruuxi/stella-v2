@@ -11,6 +11,9 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
+    // The runtime modules main imports reach `@stella/agent`, which imports
+    // its modules by their .ts paths. Typechecks run with --noEmit.
+    "allowImportingTsExtensions": true,
     "types": ["node", "bun-types"]
   },
   "include": [

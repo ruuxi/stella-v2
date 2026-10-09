@@ -1,7 +1,6 @@
 /**
  * The sandbox-facing turn broker: the route the executor's own HTTP client
- * talks to, the turn-state checkpoint it commits through, and the browser
- * gateway observation that makes a suspension resumable.
+ * talks to, and the turn-state checkpoint it commits through.
  *
  * Extracted verbatim from `BuildSession`; every former `this.` is the `host`
  * argument. See `src/build-session/host.ts` for why the host is structural.

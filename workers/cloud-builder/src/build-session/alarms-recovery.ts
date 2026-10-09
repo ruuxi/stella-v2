@@ -1,13 +1,8 @@
-import {
-  isCloudBrowserSuspension,
-  type CloudBrowserSuspension,
-} from "@stella/contracts/cloud-browser";
 import type {
   TurnBrokerTurnStateCheckpointReceipt,
   TurnBrokerTurnStateCheckpointRequest,
 } from "@stella/contracts/turn-credential-broker";
 import { sha256Hex } from "../hash.js";
-import { INSTANCE_TIERS } from "../instance-size.js";
 import {
   nativeHistoryCursorFromRows,
   validNativeStateCheckpointMac,
@@ -28,14 +23,10 @@ import {
   AGENT_TURN_HEARTBEAT_MS,
   AGENT_WATCHDOG_DEADLINE_KEY,
   BUILDER_FALLBACK_MAX_RETRIES,
-  OBSERVED_BROWSER_SUSPENSION_KEY,
-  PENDING_BROWSER_SUSPENSION_KEY,
   agentExecutionMarkerKey,
   agentRecoveryIdentity,
-  bindObservedBrowserSuspensionToCanonicalCodeCall,
   builderFallbackRetryKey,
   builderFallbackTranscriptKey,
-  cloudBrowserSuspensionMarker,
   errorMessage,
   exactTurnIdentityMatches,
   log,
@@ -47,9 +38,7 @@ import type {
   AgentExecutionMarker,
   BuilderFallbackInput,
   BuilderFallbackTranscript,
-  ObservedBrowserSuspension,
   PendingAppBuildPublication,
-  PendingBrowserSuspension,
   PendingTerminal,
   TurnRequest,
   TurnStateCheckpointOperation,
@@ -71,7 +60,6 @@ export type AlarmsRecoveryHost = Pick<
   | "cleanupOwnerPurgedTurnStorage"
   | "currentSandboxTarget"
   | "deleteTurnStoragePreservingExactCancellations"
-  | "deliverBrowserSuspension"
   | "deliverExecutorLossTerminal"
   | "deliverTerminal"
   | "destroySandboxDurably"
@@ -87,9 +75,7 @@ export type AlarmsRecoveryHost = Pick<
   | "quiesceCurrentAgentSession"
   | "reconcileAgentCheckpointAfterQuiescence"
   | "recoverAgentTurnAfterExecutorLoss"
-  | "recoverObservedBrowserSuspension"
   | "registerTurn"
-  | "retainPendingBrowserSuspension"
   | "retireTerminalAppTurnStorage"
   | "runAlarm"
   | "runAlarmWithLease"
@@ -204,11 +190,6 @@ export const runAlarmWithLease = async (
           await host.ctx.storage.get<BuilderFallbackTranscript>(
             builderFallbackTranscriptKey(turn.turnId, turn.attemptGeneration!),
           ),
-        ) ||
-        Boolean(
-          await host.ctx.storage.get<ObservedBrowserSuspension>(
-            OBSERVED_BROWSER_SUSPENSION_KEY,
-          ),
         ));
     if (useRunLeaseForRecovery) {
       // Turn-state mutation is authorized only by the exact run lease bound
@@ -278,35 +259,6 @@ export const runAlarm = async (
   turn: TurnRequest,
 ): Promise<void> => {
   if (!(await host.ownsExactTurn(turn))) return;
-  const browserSuspension =
-    await host.ctx.storage.get<PendingBrowserSuspension>(
-      PENDING_BROWSER_SUSPENSION_KEY,
-    );
-  if (browserSuspension) {
-    if (
-      browserSuspension.turnId !== turn.turnId ||
-      browserSuspension.attemptGeneration !== turn.attemptGeneration
-    ) {
-      await host.mutateExactTurn(turn, async (txn) => {
-        await txn.delete(PENDING_BROWSER_SUSPENSION_KEY);
-      });
-      return;
-    }
-    const target = await host.currentSandboxTarget();
-    if (target) {
-      await host.terminateCurrentAgentSession(turn).catch(() => undefined);
-    }
-    if (!(await host.ownsExactTurn(turn))) return;
-    if (!(await host.deliverBrowserSuspension(turn, browserSuspension))) {
-      return;
-    }
-    if (!(await host.settleAgentTransientBackup(turn))) {
-      await host.setExactTurnAlarm(turn, Date.now() + 30_000);
-      return;
-    }
-    await host.deleteTurnStoragePreservingExactCancellations(turn, true);
-    return;
-  }
   if (await host.ctx.storage.get<boolean>("terminalDelivered")) {
     const pending =
       await host.ctx.storage.get<PendingTerminal>("pendingTerminal");
@@ -426,9 +378,8 @@ export const runAlarm = async (
     if (marker) {
       const lost =
         "The agent stopped unexpectedly. Its workspace changes were saved, but its report could not be recovered.";
-      let recoveredCheckpoint: TurnBrokerTurnStateCheckpointReceipt;
       try {
-        recoveredCheckpoint = await host.recoverAgentTurnAfterExecutorLoss(
+        await host.recoverAgentTurnAfterExecutorLoss(
           turn,
           marker,
           lost,
@@ -459,80 +410,6 @@ export const runAlarm = async (
             "The agent stopped unexpectedly and its workspace could not be recovered afterwards. Its report was lost.",
           threadError:
             "The agent stopped unexpectedly and its workspace could not be recovered.",
-        });
-        return;
-      }
-      let recoveredSuspension: CloudBrowserSuspension | null;
-      try {
-        recoveredSuspension = await host.recoverObservedBrowserSuspension(
-          turn,
-          recoveredCheckpoint,
-        );
-      } catch (error) {
-        log("error", "browser_suspension_recovery_retry", {
-          turnId: turn.turnId,
-          threadId: turn.threadId,
-          message: errorMessage(error),
-        });
-        await host.setExactTurnAlarm(turn, Date.now() + 30_000);
-        return;
-      }
-      if (recoveredSuspension) {
-        const pendingBrowserSuspension: PendingBrowserSuspension = {
-          schemaVersion: 1,
-          turnId: turn.turnId,
-          attemptGeneration: turn.attemptGeneration!,
-          suspension: recoveredSuspension,
-          payload: {
-            suspension: recoveredSuspension,
-            usage: {},
-            coldContainerStartMs: 0,
-            restoreMs: 0,
-            checkpointMs: 0,
-            wallClockMs: Math.max(0, Date.now() - marker.startedAt),
-            instanceType: INSTANCE_TIERS[marker.size].instanceType,
-          },
-          createdAt: Date.now(),
-        };
-        if (
-          !(await host.retainPendingBrowserSuspension(
-            turn,
-            pendingBrowserSuspension,
-          ))
-        ) {
-          await host.setExactTurnAlarm(turn, Date.now() + 1_000);
-          return;
-        }
-        try {
-          await host.terminateCurrentAgentSession(turn);
-        } catch (error) {
-          log("error", "browser_suspension_sandbox_termination_deferred", {
-            turnId: turn.turnId,
-            threadId: turn.threadId,
-            message: errorMessage(error),
-          });
-          return;
-        }
-        if (
-          (await host.deliverBrowserSuspension(
-            turn,
-            pendingBrowserSuspension,
-          )) &&
-          (await host.ownsExactTurn(turn))
-        ) {
-          if (await host.settleAgentTransientBackup(turn)) {
-            await host.deleteTurnStoragePreservingExactCancellations(
-              turn,
-              true,
-            );
-          } else {
-            await host.setExactTurnAlarm(turn, Date.now() + 30_000);
-          }
-        }
-        log("info", "browser_suspension_recovered_after_executor_loss", {
-          turnId: turn.turnId,
-          threadId: turn.threadId,
-          interactionId: recoveredSuspension.interactionId,
         });
         return;
       }
@@ -780,21 +657,6 @@ export const reconcileAgentCheckpointAfterQuiescence = async (
       accepted[0].operationId,
     );
     return accepted[0].receipt;
-  }
-
-  // A browser suspension can lose the executor after the durable archive
-  // commit but before its direct transcript callback completes. The exact
-  // checkpoint request carries that secret-free transcript, so replay it
-  // through the same durable Builder journal before considering a synthetic
-  // failure. This publishes the original archive/cursor; it never creates a
-  // second workspace checkpoint.
-  const browserRecovery = await ensureObservedBrowserSuspensionRecoveryJournal(
-    host,
-    turn,
-    operations,
-  );
-  if (browserRecovery) {
-    return await host.advanceBuilderFallback(turn, browserRecovery);
   }
 
   // A checkpoint whose transcript never became canonical must remain
@@ -1085,185 +947,4 @@ const recordBuilderFallbackRetry = async (
   const retries = ((await host.ctx.storage.get<number>(key)) ?? 0) + 1;
   await host.ctx.storage.put(key, retries);
   return retries;
-};
-
-export const recoverObservedBrowserSuspension = async (
-  host: AlarmsRecoveryHost,
-  turn: TurnRequest,
-  checkpoint: TurnBrokerTurnStateCheckpointReceipt,
-  signal?: AbortSignal,
-): Promise<CloudBrowserSuspension | null> => {
-  const observation = await host.ctx.storage.get<ObservedBrowserSuspension>(
-    OBSERVED_BROWSER_SUSPENSION_KEY,
-  );
-  if (!observation) return null;
-  const rows = host.fetchCanonicalAgentHistory(turn, {
-    excludeCurrentTurn: false,
-    ...(signal ? { signal } : {}),
-  });
-  return await bindObservedBrowserSuspensionToCanonicalCodeCall({
-    observation,
-    turnId: turn.turnId,
-    attemptGeneration: turn.attemptGeneration!,
-    checkpoint,
-    rows,
-  });
-};
-
-export const retainPendingBrowserSuspension = async (
-  host: AlarmsRecoveryHost,
-  turn: TurnRequest,
-  pending: PendingBrowserSuspension,
-): Promise<boolean> => {
-  return await host.ctx.storage.transaction(async (txn) => {
-    const [current, terminal, pendingTerminal, existingPending, observed] =
-      await Promise.all([
-        txn.get<TurnRequest>("turn"),
-        txn.get<boolean>("terminal"),
-        txn.get<PendingTerminal>("pendingTerminal"),
-        txn.get<PendingBrowserSuspension>(PENDING_BROWSER_SUSPENSION_KEY),
-        txn.get<ObservedBrowserSuspension>(OBSERVED_BROWSER_SUSPENSION_KEY),
-      ]);
-    if (
-      !exactTurnIdentityMatches(current, turn) ||
-      terminal ||
-      pendingTerminal
-    ) {
-      return false;
-    }
-    if (existingPending) {
-      return (
-        existingPending.turnId === pending.turnId &&
-        existingPending.attemptGeneration === pending.attemptGeneration &&
-        cloudBrowserSuspensionMarker(existingPending.suspension) ===
-          cloudBrowserSuspensionMarker(pending.suspension)
-      );
-    }
-    if (
-      !observed ||
-      observed.turnId !== turn.turnId ||
-      observed.attemptGeneration !== turn.attemptGeneration ||
-      !isCloudBrowserSuspension(observed.suspension) ||
-      cloudBrowserSuspensionMarker({
-        ...observed.suspension,
-        toolCallId: pending.suspension.toolCallId,
-      }) !== cloudBrowserSuspensionMarker(pending.suspension)
-    ) {
-      return false;
-    }
-    await txn.put(PENDING_BROWSER_SUSPENSION_KEY, pending);
-    await txn.delete(OBSERVED_BROWSER_SUSPENSION_KEY);
-    await txn.delete(
-      agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!),
-    );
-    await txn.setAlarm(Date.now() + 30_000);
-    return true;
-  });
-};
-
-const ensureObservedBrowserSuspensionRecoveryJournal = async (
-  host: AlarmsRecoveryHost,
-  turn: TurnRequest,
-  operations: TurnStateCheckpointOperation[],
-): Promise<BuilderFallbackTranscript | null> => {
-  const observation = await host.ctx.storage.get<ObservedBrowserSuspension>(
-    OBSERVED_BROWSER_SUSPENSION_KEY,
-  );
-  if (!observation) return null;
-  const candidates: Array<{
-    operation: Extract<TurnStateCheckpointOperation, { state: "succeeded" }>;
-    messages: NonNullable<
-      TurnBrokerTurnStateCheckpointRequest["suspensionTranscript"]
-    >;
-  }> = [];
-  for (const operation of operations) {
-    if (
-      operation.state !== "succeeded" ||
-      !operation.payload.suspensionTranscript
-    ) {
-      continue;
-    }
-    const messages = operation.payload.suspensionTranscript;
-    const bound = await bindObservedBrowserSuspensionToCanonicalCodeCall({
-      observation,
-      turnId: turn.turnId,
-      attemptGeneration: turn.attemptGeneration!,
-      checkpoint: operation.receipt,
-      rows: messages.map((message) => ({
-        ...message,
-        turnId: turn.turnId,
-      })),
-    });
-    if (bound) candidates.push({ operation, messages });
-  }
-  if (candidates.length > 1) {
-    throw new Error(
-      "Multiple suspended checkpoints matched the Browser Gateway wait.",
-    );
-  }
-  const candidate = candidates[0];
-  if (!candidate || !validBuilderFallbackMessages(candidate.messages)) {
-    return null;
-  }
-  const { operation, messages } = candidate;
-  const fallbackKey = builderFallbackTranscriptKey(
-    turn.turnId,
-    turn.attemptGeneration!,
-  );
-  const fallback: BuilderFallbackTranscript = {
-    schemaVersion: 1,
-    turnId: turn.turnId,
-    attemptGeneration: turn.attemptGeneration!,
-    requestId: operation.requestId,
-    requestFingerprint: operation.requestFingerprint,
-    createdAt: operation.createdAt,
-    payload: operation.payload,
-    messages: structuredClone(messages),
-    checkpointReceipt: operation.receipt,
-    transcriptCommitted: false,
-    workspacePublished: false,
-  };
-  return await host.ctx.storage.transaction(async (transaction) => {
-    const [currentTurn, currentObserved, currentOperation, existing] =
-      await Promise.all([
-        transaction.get<TurnRequest>("turn"),
-        transaction.get<ObservedBrowserSuspension>(
-          OBSERVED_BROWSER_SUSPENSION_KEY,
-        ),
-        transaction.get<TurnStateCheckpointOperation>(
-          turnStateCheckpointOperationKey(operation.requestId),
-        ),
-        transaction.get<BuilderFallbackTranscript>(fallbackKey),
-      ]);
-    if (!exactTurnIdentityMatches(currentTurn, turn)) {
-      throw new AgentTurnAuthorityLostError();
-    }
-    if (existing) {
-      if (
-        existing.requestId !== fallback.requestId ||
-        existing.requestFingerprint !== fallback.requestFingerprint ||
-        JSON.stringify(existing.messages) !== JSON.stringify(fallback.messages)
-      ) {
-        throw new Error("Browser suspension recovery journal conflicted.");
-      }
-      return existing;
-    }
-    if (
-      !currentObserved ||
-      currentObserved.turnId !== observation.turnId ||
-      currentObserved.attemptGeneration !== observation.attemptGeneration ||
-      currentObserved.responseBodySha256 !== observation.responseBodySha256 ||
-      !currentOperation ||
-      currentOperation.state !== "succeeded" ||
-      currentOperation.requestFingerprint !== operation.requestFingerprint ||
-      JSON.stringify(currentOperation.receipt) !==
-        JSON.stringify(operation.receipt) ||
-      JSON.stringify(currentOperation.payload) !==
-        JSON.stringify(operation.payload)
-    ) {
-      throw new Error("Browser suspension recovery state changed.");
-    }
-    await transaction.put(fallbackKey, fallback);
-    return fallback;
-  });
 };

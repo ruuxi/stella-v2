@@ -53,11 +53,6 @@ import {
 	ToolAbortAbandonedError,
 	ToolInactivityTimeoutError,
 } from "./errors.js";
-import {
-	type AgentToolSuspendedError,
-	bindAgentToolSuspensionToCall,
-	isAgentToolSuspendedError,
-} from "./suspension.js";
 import type {
 	AgentContext,
 	AgentEvent,
@@ -909,7 +904,7 @@ const executeToolCallsParallel = (
 		// joins settle before the turn continues.
 		const runningCalls: Array<{
 			prepared: PreparedToolCall;
-			fiber: Fiber.Fiber<FinalizedToolCallOutcome, AgentToolSuspendedError>;
+			fiber: Fiber.Fiber<FinalizedToolCallOutcome>;
 		}> = [];
 		for (const prepared of runnableCalls) {
 			const fiber = yield* Effect.forkChild(
@@ -964,8 +959,8 @@ const executeToolCallsParallel = (
 		for (const running of runningCalls) {
 			const joined = yield* Effect.exit(Fiber.join(running.fiber));
 			if (Exit.isFailure(joined)) {
-				// A suspension fails the window: still surface the results that
-				// settled ahead of it in join order (legacy in-order join behavior).
+				// A failed window still surfaces the results that settled ahead
+				// of it in join order (legacy in-order join behavior).
 				yield* emitResultMessages(false);
 				return yield* Effect.failCause(joined.cause);
 			}
@@ -1032,10 +1027,7 @@ const prepareToolCall = (
 	env: LoopEnv,
 	assistantMessage: AssistantMessage,
 	toolCall: AgentToolCall,
-): Effect.Effect<
-	PreparedToolCall | ImmediateToolCallOutcome,
-	AgentToolSuspendedError
-> => {
+): Effect.Effect<PreparedToolCall | ImmediateToolCallOutcome> => {
 	const { currentContext, config, signal, abortLatch } = env;
 	const tool = currentContext.tools?.find((t) => t.name === toolCall.name);
 	if (!tool) {
@@ -1080,18 +1072,15 @@ const prepareToolCall = (
 		},
 		catch: (error) => error,
 	}).pipe(
-		Effect.catch((error) => {
-			if (isAgentToolSuspendedError(error)) {
-				return Effect.fail(bindAgentToolSuspensionToCall(error, toolCall.id));
-			}
-			return Effect.succeed<ImmediateToolCallOutcome>({
+		Effect.catch((error) =>
+			Effect.succeed<ImmediateToolCallOutcome>({
 				kind: "immediate",
 				result: createErrorToolResult(
 					error instanceof Error ? error.message : String(error),
 				),
 				isError: true,
-			});
-		}),
+			}),
+		),
 	);
 	// Once the run is cancelled, stop preparing: no validation, no
 	// `beforeToolCall` (which may prompt the user), no execution. Each
@@ -1165,7 +1154,7 @@ type ToolWindowArgs = {
  */
 const executeToolWindow = (
 	args: ToolWindowArgs,
-): Effect.Effect<ExecutedToolCallOutcome, AgentToolSuspendedError> =>
+): Effect.Effect<ExecutedToolCallOutcome> =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const { prepared, signal, abortLatch, emit } = args;
@@ -1275,11 +1264,6 @@ const executeToolWindow = (
 			);
 			if (Exit.isFailure(executionExit)) {
 				const error = Cause.squash(executionExit.cause);
-				if (isAgentToolSuspendedError(error)) {
-					return yield* Effect.fail(
-						bindAgentToolSuspensionToCall(error, prepared.toolCall.id),
-					);
-				}
 				if (Exit.isFailure(updatesExit)) {
 					return yield* Effect.die(Cause.squash(updatesExit.cause));
 				}

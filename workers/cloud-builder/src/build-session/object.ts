@@ -1,5 +1,3 @@
-import type { CloudBrowserSuspension } from "@stella/contracts/cloud-browser";
-import { isCloudBrowserResumeReceipt } from "@stella/contracts/cloud-browser";
 import { isManagedModelAudience } from "@stella/contracts/gateway/capability";
 import type {
   TurnBrokerTurnStateCheckpointReceipt,
@@ -22,8 +20,6 @@ import {
   ensureBuilderFallbackTranscript,
   reconcileAgentCheckpointAfterQuiescence,
   recoverAgentTurnAfterExecutorLoss,
-  recoverObservedBrowserSuspension,
-  retainPendingBrowserSuspension,
   runAlarm,
   runAlarmWithLease,
   runScheduledTurnAlarm,
@@ -112,7 +108,6 @@ import type {
   BuilderFallbackInput,
   BuilderFallbackTranscript,
   BuildOwnerFenceLeaseReceipt,
-  PendingBrowserSuspension,
   PendingTerminal,
   TurnRequest,
   TurnStateCheckpointOperation,
@@ -123,7 +118,6 @@ import {
   cancelExactAgentTurn,
   cancelForOwnerPurge,
   claimTerminalDecision,
-  deliverBrowserSuspension,
   deliverExecutorLossTerminal,
   deliverTerminal,
   expireCurrentAgentTurn,
@@ -399,28 +393,6 @@ export class BuildSessionObject extends DurableObject<Env> {
       operation,
       canonicalHistoryCursor,
     );
-  }
-
-  /** @see src/build-session/alarms-recovery.ts */
-  private recoverObservedBrowserSuspension(
-    turn: TurnRequest,
-    checkpoint: TurnBrokerTurnStateCheckpointReceipt,
-    signal?: AbortSignal,
-  ): Promise<CloudBrowserSuspension | null> {
-    return recoverObservedBrowserSuspension(
-      this.self,
-      turn,
-      checkpoint,
-      signal,
-    );
-  }
-
-  /** @see src/build-session/alarms-recovery.ts */
-  private retainPendingBrowserSuspension(
-    turn: TurnRequest,
-    pending: PendingBrowserSuspension,
-  ): Promise<boolean> {
-    return retainPendingBrowserSuspension(this.self, turn, pending);
   }
 
   /** @see src/build-session/alarms-recovery.ts */
@@ -758,13 +730,6 @@ export class BuildSessionObject extends DurableObject<Env> {
     return wakeParentConversation(this.self, turn, completion);
   }
 
-  private deliverBrowserSuspension(
-    turn: TurnRequest,
-    pending: PendingBrowserSuspension,
-  ): Promise<boolean> {
-    return deliverBrowserSuspension(this.self, turn, pending);
-  }
-
   async alarm(): Promise<void> {
     await this.retryDueSandboxDestroyDebts();
     await this.retryOwnerFenceLeaseRetirements();
@@ -1025,13 +990,6 @@ export class BuildSessionObject extends DurableObject<Env> {
         { error: "audience and budgetMicroCents are required." },
         400,
       );
-    }
-    if (
-      turn.kind === "agent" &&
-      turn.browserResume !== undefined &&
-      !isCloudBrowserResumeReceipt(turn.browserResume)
-    ) {
-      return json({ error: "Browser resume receipt is invalid." }, 400);
     }
     if (
       turn.kind !== "agent" &&

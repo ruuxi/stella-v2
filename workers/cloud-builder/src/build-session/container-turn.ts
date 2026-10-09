@@ -82,7 +82,6 @@ import {
   agentContainerSize,
   agentExecutionMarkerKey,
   agentRecoveryIdentity,
-  cloudBrowserSuspensionMarker,
   errorMessage,
   exactTurnIdentityMatches,
   json,
@@ -100,12 +99,10 @@ import type {
   AgentExecutionMarker,
   AgentExecutorResult,
   Execution,
-  PendingBrowserSuspension,
   PendingTerminal,
   TurnRequest,
 } from "./shared/types.js";
 import type { ExecutionSession } from "../sandbox-client.js";
-import { isCloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import type { CloudCliTurnRoleInput } from "@stella/contracts/cloud-orchestrator-cli";
 import {
   CLOUD_TURN_ATTEMPT_ANCHOR,
@@ -138,7 +135,6 @@ export type ContainerTurnHost = Pick<
   | "cleanupOwnerPurgedTurnStorage"
   | "confirmAgentTurnStateRestore"
   | "deleteTurnStoragePreservingExactCancellations"
-  | "deliverBrowserSuspension"
   | "deliverTerminal"
   | "destroySandboxDurably"
   | "event"
@@ -149,10 +145,8 @@ export type ContainerTurnHost = Pick<
   | "publishAgentTurnWorkspace"
   | "quiesceCurrentAgentSession"
   | "reconcileAgentCheckpointAfterQuiescence"
-  | "recoverObservedBrowserSuspension"
   | "releaseAgentSessionResources"
   | "resolveAgentTurnState"
-  | "retainPendingBrowserSuspension"
   | "runAgentAttempt"
   | "sandbox"
   | "sandboxContainerRunning"
@@ -685,32 +679,11 @@ export const runContainerAgentTurn = async (
               "The agent stopped unexpectedly after making workspace changes.",
             result.builderFallback,
           );
-        const recoveredSuspension = await host.recoverObservedBrowserSuspension(
-          turn,
-          fallbackReceipt,
-          execution.signal,
-        );
-        if (recoveredSuspension) {
-          // The executor process/finalizer was lost after the Gateway wait,
-          // checkpoint, and transcript all committed. Reconstruct only the
-          // secret-free result; the canonical transcript supplies the outer
-          // Code id and the durable Gateway observation supplies the rest.
-          result = {
-            outcome: "suspended",
-            ok: false,
-            finalText: "",
-            usage: result.usage ?? {},
-            checkpointMs: result.checkpointMs ?? 0,
-            turnStateCheckpoint: fallbackReceipt,
-            suspension: recoveredSuspension,
-          };
-        } else {
-          result = {
-            ...result,
-            checkpointPolicy: undefined,
-            turnStateCheckpoint: fallbackReceipt,
-          };
-        }
+        result = {
+          ...result,
+          checkpointPolicy: undefined,
+          turnStateCheckpoint: fallbackReceipt,
+        };
       } catch (error) {
         if (
           error instanceof TurnStateRegistryBookkeepingError &&
@@ -874,127 +847,10 @@ export const runContainerAgentTurn = async (
           finalText:
             `${result.finalText ?? ""}\n\nHeads up: Stella could not validate the durable workspace receipt for this turn. Please retry before continuing this agent.`.trim(),
         };
-      } else if (result.outcome === "suspended") {
-        // A human wait is resumable only from the exact checkpoint whose
-        // transcript ends at the browser tool call. Never expose a takeover
-        // for a turn whose continuation receipt cannot be reconstructed.
-        result = {
-          outcome: "completed",
-          ok: false,
-          error:
-            "Stella couldn't hand this sign-in over to you safely. Please try again.",
-        };
-      }
-    }
-
-    if (
-      result.outcome === "suspended" &&
-      result.suspension &&
-      validTurnStateCheckpointReceipt(result.turnStateCheckpoint)
-    ) {
-      const verifiedSuspension = await host.recoverObservedBrowserSuspension(
-        turn,
-        result.turnStateCheckpoint,
-        execution.signal,
-      );
-      if (
-        !verifiedSuspension ||
-        cloudBrowserSuspensionMarker(verifiedSuspension) !==
-          cloudBrowserSuspensionMarker(result.suspension)
-      ) {
-        log("error", "browser_suspension_checkpoint_mismatch", {
-          turnId: turn.turnId,
-          threadId: turn.threadId,
-        });
-        result = {
-          outcome: "completed",
-          ok: false,
-          error:
-            "Stella couldn't hand this sign-in over to you safely. Please try again.",
-          turnStateCheckpoint: result.turnStateCheckpoint,
-        };
-      } else {
-        result = { ...result, suspension: verifiedSuspension };
       }
     }
 
     const wallClockMs = Math.round(performance.now() - requestStarted);
-    if (result.outcome === "suspended" && result.suspension) {
-      const pendingBrowserSuspension: PendingBrowserSuspension = {
-        schemaVersion: 1,
-        turnId: turn.turnId,
-        attemptGeneration: turn.attemptGeneration!,
-        suspension: result.suspension,
-        payload: {
-          suspension: result.suspension,
-          usage: result.usage,
-          coldContainerStartMs,
-          restoreMs,
-          checkpointMs,
-          wallClockMs,
-          instanceType: INSTANCE_TIERS[size].instanceType,
-        },
-        createdAt: Date.now(),
-      };
-      // Stop/timeout and suspension are competing decisions. Commit the
-      // secret-free wait descriptor only while no terminal path has won,
-      // and remove the execution marker in the same transaction so alarm
-      // recovery cannot mistake this intentionally exited executor for a
-      // crashed one.
-      const retained = await host.retainPendingBrowserSuspension(
-        turn,
-        pendingBrowserSuspension,
-      );
-      await host
-        .releaseAgentSessionResources({
-          sandboxId,
-          size,
-          workload: "world",
-          sessionId,
-          daemonDirectory,
-        })
-        .catch(() => undefined);
-      if (!retained) return;
-
-      const delivered = await host.deliverBrowserSuspension(
-        turn,
-        pendingBrowserSuspension,
-      );
-      if (delivered && (await host.ownsExactTurn(turn))) {
-        if (await host.settleAgentTransientBackup(turn)) {
-          await host.deleteTurnStoragePreservingExactCancellations(turn, true);
-        } else {
-          await host.setExactTurnAlarm(turn, Date.now() + 30_000);
-        }
-      }
-      log("info", "agent_turn_suspended_for_browser_handoff", {
-        turnId: turn.turnId,
-        threadId: turn.threadId,
-        interactionId: result.suspension.interactionId,
-        wallClockMs,
-      });
-      emitCloudTurnTelemetry(host.ctx, host.env, {
-        type: "cloud.turn",
-        workload: "agent",
-        phase: "suspended",
-        wallClockMs,
-        coldContainerStartMs,
-        restoreMs,
-        checkpointMs,
-        ...(typeof result.usage?.inputTokens === "number"
-          ? { inputTokens: result.usage.inputTokens }
-          : {}),
-        ...(typeof result.usage?.outputTokens === "number"
-          ? { outputTokens: result.usage.outputTokens }
-          : {}),
-        ...(typeof result.usage?.llmCalls === "number"
-          ? { llmCalls: result.usage.llmCalls }
-          : {}),
-        instanceType: INSTANCE_TIERS[size].instanceType,
-      });
-      return;
-    }
-
     let pending: PendingTerminal;
     if (result.ok) {
       pending = {
@@ -1571,7 +1427,7 @@ export const runAgentAttempt = async (
     let roleInput: CloudCliTurnRoleInput = {
       role: "agent",
       systemPrompt: renderCloudAgentPrompt("agents/general.md", {
-        names: cloudGeneralToolNames(admitted.engine),
+        names: cloudGeneralToolNames(),
         history: false,
       }),
     };
@@ -1631,7 +1487,6 @@ export const runAgentAttempt = async (
           : {}),
         ...(claudeAccount ? { claudeAccount } : {}),
         history: args.history,
-        ...(turn.browserResume ? { browserResume: turn.browserResume } : {}),
         ...(cloudSkills ? { skills: cloudSkills } : {}),
         ...(turn.execution ? { execution: turn.execution } : {}),
       }),

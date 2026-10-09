@@ -17,7 +17,6 @@ import type {
 } from "../../ai/types.js";
 import { streamSimple } from "../../ai/stream.js";
 import { runAgentLoop, runAgentLoopContinue } from "./agent-loop.js";
-import { isAgentToolSuspendedError } from "./suspension.js";
 import type {
   AfterToolCallContext,
   AfterToolCallResult,
@@ -755,8 +754,7 @@ export class ExplicitModelAgent {
         ? async (toolContext, signal) => {
             try {
               return await this._beforeToolCall?.(toolContext, signal);
-            } catch (error) {
-              if (isAgentToolSuspendedError(error)) throw error;
+            } catch {
               return undefined;
             }
           }
@@ -765,8 +763,7 @@ export class ExplicitModelAgent {
         ? async (toolContext, signal) => {
             try {
               return await this._afterToolCall?.(toolContext, signal);
-            } catch (error) {
-              if (isAgentToolSuspendedError(error)) throw error;
+            } catch {
               return undefined;
             }
           }
@@ -854,18 +851,6 @@ export class ExplicitModelAgent {
       // do not remain resident in the long-lived Agent working set.
       this._state.messages = context.messages.slice();
     } catch (err: unknown) {
-      if (isAgentToolSuspendedError(err)) {
-        // Event state contains the canonical assistant tool-call row and any
-        // earlier sibling tool results already completed in this sequential
-        // window. Keep those, but not discarded provider diagnostics.
-        this._state.messages = this._state.messages.filter(
-          (message) =>
-            message.role !== "assistant" ||
-            (message.stopReason !== "error" &&
-              message.stopReason !== "aborted"),
-        );
-        throw err;
-      }
       // A defensive in-loop retry can emit a failed diagnostic attempt before
       // its replacement call throws. Keep those discarded attempts out of the
       // resident mirror just as the successful reconciliation path above does.

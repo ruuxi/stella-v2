@@ -189,8 +189,6 @@ export type AgentTurnDispatch = {
   originConversationId?: string;
   /** The cloud agent that started the thread, which its report returns to. */
   parentThreadId?: string;
-  /** Resume a hosted-browser wait with this answer. */
-  browserResume?: import("@stella/contracts/cloud-browser").CloudBrowserResumeReceipt;
 };
 
 export type DeviceAgentTurnDispatch = {

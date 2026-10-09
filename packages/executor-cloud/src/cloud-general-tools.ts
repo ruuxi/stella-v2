@@ -13,8 +13,6 @@
  * plain-text read of extracted document text that does not cost a PTY turn.
  */
 
-import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-
 const CLOUD_GENERAL_TOOLS = [
   "Bash",
   "write_stdin",
@@ -28,9 +26,5 @@ const CLOUD_GENERAL_TOOLS = [
   "request_secure_input",
 ] as const;
 
-const CLOUD_STELLA_TOOLS = [...CLOUD_GENERAL_TOOLS, "code"] as const;
-
-export const cloudGeneralToolNames = (
-  engine: CloudExecutionSelection["engine"],
-): readonly string[] =>
-  engine === "stella" ? CLOUD_STELLA_TOOLS : CLOUD_GENERAL_TOOLS;
+export const cloudGeneralToolNames = (): readonly string[] =>
+  CLOUD_GENERAL_TOOLS;

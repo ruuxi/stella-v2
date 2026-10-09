@@ -6,7 +6,6 @@
  */
 
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import { isCloudBrowserResumeReceipt } from "@stella/contracts/cloud-browser";
 import {
   orchestratorCliThreadId,
   parseCloudOrchestratorCliTurnSpec,
@@ -360,7 +359,6 @@ export const HEADER_GATE_ADMITTED = "x-stella-gate-admitted";
 const AGENT_SOURCES: readonly CloudAgentTurnSource[] = [
   "desktop",
   "placement",
-  "browser-resume",
   "agent-thread",
   "orchestrator",
 ];
@@ -507,12 +505,6 @@ export const parseCloudAgentTurnStartRequest = (
       return fail("originConversationId is malformed.");
     request.originConversationId = originConversationId;
   }
-  if (value.browserResume !== undefined) {
-    if (!isCloudBrowserResumeReceipt(value.browserResume)) {
-      return fail("browserResume is malformed.");
-    }
-    request.browserResume = value.browserResume;
-  }
   if (!orchestratorRole) {
     if (request.source === "orchestrator") {
       return fail('source "orchestrator" requires agentRole "orchestrator".');
@@ -534,7 +526,6 @@ export const parseCloudAgentTurnStartRequest = (
     request.turnId === undefined ||
     request.parentThreadId !== undefined ||
     request.parentTurnId !== undefined ||
-    request.browserResume !== undefined ||
     request.threadId !== orchestratorCliThreadId(request.conversationId)
   ) {
     return fail("An orchestrator turn has a malformed identity.");

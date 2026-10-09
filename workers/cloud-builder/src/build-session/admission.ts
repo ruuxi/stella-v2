@@ -30,9 +30,7 @@ import {
   AGENT_TURN_HEARTBEAT_MS,
   AGENT_WATCHDOG_DEADLINE_KEY,
   CLOUD_TURN_SOURCES,
-  OBSERVED_BROWSER_SUSPENSION_KEY,
   OWNER_GATE_REFUSAL_STATUS,
-  PENDING_BROWSER_SUSPENSION_KEY,
   agentExecutionMarkerKey,
   builderFallbackTranscriptKey,
   errorMessage,
@@ -45,8 +43,6 @@ import { storeOrchestratorCliSpec } from "../orchestrator-cli-turn-store.js";
 import type {
   AgentExecutionMarker,
   BuilderFallbackTranscript,
-  ObservedBrowserSuspension,
-  PendingBrowserSuspension,
   PendingTerminal,
   TurnRequest,
 } from "./shared/types.js";
@@ -104,9 +100,6 @@ export const turnRequestFromAgentStart = (
   ...(start.originDeviceId ? { originDeviceId: start.originDeviceId } : {}),
   ...(start.originConversationId
     ? { originConversationId: start.originConversationId }
-    : {}),
-  ...(start.browserResume !== undefined
-    ? { browserResume: start.browserResume as TurnRequest["browserResume"] }
     : {}),
   ...(start.agentRole === "orchestrator" && start.orchestratorCli
     ? { agentRole: start.agentRole, orchestratorCli: start.orchestratorCli }
@@ -390,7 +383,7 @@ export const acceptAgentTurn = async (
           }
         }
         const currentAttempt = current.attemptGeneration;
-        const [executionMarker, fallbackJournal, observedSuspension] =
+        const [executionMarker, fallbackJournal] =
           Number.isSafeInteger(currentAttempt)
             ? await Promise.all([
                 host.ctx.storage.get<AgentExecutionMarker>(
@@ -399,23 +392,10 @@ export const acceptAgentTurn = async (
                 host.ctx.storage.get<BuilderFallbackTranscript>(
                   builderFallbackTranscriptKey(current.turnId, currentAttempt!),
                 ),
-                host.ctx.storage.get<ObservedBrowserSuspension>(
-                  OBSERVED_BROWSER_SUSPENSION_KEY,
-                ),
               ])
-            : [undefined, undefined, undefined];
-        const pendingBrowserSuspension =
-          await host.ctx.storage.get<PendingBrowserSuspension>(
-            PENDING_BROWSER_SUSPENSION_KEY,
-          );
+            : [undefined, undefined];
         const locallyRunning = host.agentTurnExecutions.has(current.turnId);
-        if (
-          locallyRunning ||
-          executionMarker ||
-          fallbackJournal ||
-          observedSuspension ||
-          pendingBrowserSuspension
-        ) {
+        if (locallyRunning || executionMarker || fallbackJournal) {
           if (!locallyRunning) {
             await host.ctx.storage.setAlarm(Date.now() + 1_000);
           }
@@ -492,8 +472,6 @@ export const acceptAgentTurn = async (
       });
       await host.ctx.storage.delete([
         "pendingTerminal",
-        PENDING_BROWSER_SUSPENSION_KEY,
-        OBSERVED_BROWSER_SUSPENSION_KEY,
         AGENT_RECOVERY_PENDING_KEY,
       ]);
       return {

@@ -44,7 +44,6 @@ import {
 import { CONVERSATION_TITLE_MAX } from "@stella/contracts/backend/conversations";
 import { OWNER_GENERATION_STALE } from "@stella/contracts/backend/protocol";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import type { CloudBrowserResumeReceipt } from "@stella/contracts/cloud-browser";
 import type {
   ThreadCompletedEvent,
   ThreadSpawnedEvent,
@@ -281,8 +280,6 @@ type DispatchJob = {
   turnId: string;
   attemptGeneration: number;
   attempt: number;
-  /** The hosted-browser answer this attempt resumes with. */
-  browserResume?: CloudBrowserResumeReceipt;
   availabilityRetries?: number;
 };
 
@@ -349,7 +346,6 @@ const runDispatch = async (ctx: OwnerContext, job: DispatchJob): Promise<void> =
         ? { originConversationId: thread.origin_conversation_id }
         : {}),
       ...(thread.parent_thread_id ? { parentThreadId: thread.parent_thread_id } : {}),
-      ...(job.browserResume ? { browserResume: job.browserResume } : {}),
     });
     ctx.db.run("DELETE FROM agent_dispatch_prompts WHERE turn_id = ?", turn.turn_id);
   } catch (error) {
@@ -901,7 +897,6 @@ const startAttempt = (
     fingerprint: string;
     prompt: string;
     attachments?: readonly string[];
-    browserResume?: CloudBrowserResumeReceipt;
   },
 ): void => {
   ctx.db.run(
@@ -933,7 +928,6 @@ const startAttempt = (
       turnId: input.turnId,
       attemptGeneration: input.thread.attempt_generation,
       attempt: 1,
-      ...(input.browserResume ? { browserResume: input.browserResume } : {}),
     } satisfies DispatchJob,
     { id: `dispatch:${input.turnId}` },
   );
@@ -1595,78 +1589,6 @@ const flushDeviceMessages = (ctx: OwnerContext, raw: unknown): { scheduled: numb
   return { scheduled };
 };
 
-/**
- * Resume a thread parked on a hosted-browser wait as its next attempt, with
- * the browser's answer. False when that exact wait is no longer current.
- */
-export const resumeWaitingAgentThread = (
-  ctx: OwnerContext,
-  input: {
-    threadId: string;
-    attemptGeneration: number;
-    ownerGeneration: string;
-    clientMsgId: string;
-    browserResume: CloudBrowserResumeReceipt;
-  },
-): boolean => {
-  const thread = readThread(ctx.db, input.threadId);
-  if (
-    !thread ||
-    thread.status !== "waiting_for_user" ||
-    thread.attempt_generation !== input.attemptGeneration ||
-    thread.owner_generation !== input.ownerGeneration
-  ) {
-    return false;
-  }
-  ctx.db.run(
-    `UPDATE agent_turns SET status = 'completed', updated_at = ?
-      WHERE thread_id = ? AND attempt_generation = ? AND status = 'waiting_for_user'`,
-    ctx.now,
-    thread.thread_id,
-    thread.attempt_generation,
-  );
-  ctx.db.run(
-    `UPDATE agent_threads SET status = 'running', attempt_generation = ?,
-       result_json = NULL, error_message = NULL, updated_at = ?
-     WHERE thread_id = ?`,
-    thread.attempt_generation + 1,
-    ctx.now,
-    thread.thread_id,
-  );
-  const resumed = readThread(ctx.db, thread.thread_id)!;
-  startAttempt(ctx, {
-    thread: resumed,
-    turnId: crypto.randomUUID(),
-    clientMsgId: input.clientMsgId,
-    fingerprint: "browser-resume",
-    prompt: `[Browser ${input.browserResume.result}] ${input.browserResume.safeMessage}`,
-    browserResume: input.browserResume,
-  });
-  return true;
-};
-
-/** Cancel a thread parked on a hosted-browser wait (the browser profile was reset). */
-export const cancelWaitingAgentThread = (
-  ctx: OwnerContext,
-  input: { threadId: string; attemptGeneration: number; message: string },
-): void => {
-  ctx.db.run(
-    `UPDATE agent_turns SET status = 'canceled', updated_at = ?
-      WHERE thread_id = ? AND attempt_generation = ? AND status = 'waiting_for_user'`,
-    ctx.now,
-    input.threadId,
-    input.attemptGeneration,
-  );
-  ctx.db.run(
-    `UPDATE agent_threads SET status = 'canceled', error_message = ?, updated_at = ?
-      WHERE thread_id = ? AND attempt_generation = ? AND status = 'waiting_for_user'`,
-    clip(input.message, 2_000),
-    ctx.now,
-    input.threadId,
-    input.attemptGeneration,
-  );
-};
-
 type CancelArgs = AgentThreadCalls["agentThreads.cancel"]["args"];
 type CancelResult = AgentThreadCalls["agentThreads.cancel"]["result"];
 
@@ -2025,21 +1947,6 @@ export const applyAgentThreadEvent = (
             event.createdAt,
           );
         }
-        return;
-      }
-      if (!event.terminal && event.eventKind === "waiting_for_user") {
-        db.run(
-          "UPDATE agent_turns SET status = 'waiting_for_user', updated_at = ? WHERE turn_id = ? AND status IN ('running', 'resuming')",
-          event.createdAt,
-          turn.turn_id,
-        );
-        db.run(
-          `UPDATE agent_threads SET status = 'waiting_for_user', updated_at = MAX(updated_at, ?)
-            WHERE thread_id = ? AND attempt_generation = ? AND status IN ('running', 'resuming')`,
-          event.createdAt,
-          turn.thread_id,
-          turn.attempt_generation,
-        );
         return;
       }
       if (event.terminal) {

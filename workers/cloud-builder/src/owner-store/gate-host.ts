@@ -277,16 +277,11 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
           description: input.description,
           prompt: input.prompt,
           execution: input.execution,
-          source: input.browserResume
-            ? "browser-resume"
-            : input.originDeviceId
-              ? "desktop"
-              : "agent-thread",
+          source: input.originDeviceId ? "desktop" : "agent-thread",
           ...(input.originDeviceId ? { originDeviceId: input.originDeviceId } : {}),
           ...(input.originConversationId
             ? { originConversationId: input.originConversationId }
             : {}),
-          ...(input.browserResume ? { browserResume: input.browserResume } : {}),
         },
       });
     } catch (error) {

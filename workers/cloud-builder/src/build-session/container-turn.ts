@@ -111,7 +111,9 @@ import {
   CLOUD_TURN_ATTEMPT_ANCHOR,
   CLOUD_TURN_ATTEMPT_DIRECTORY_FLAG,
   cloudTurnAttemptPaths,
+  cloudTurnInboxMessageName,
 } from "@stella/contracts/cloud-turn-attempt";
+import { sha256Hex } from "../hash.js";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 import { attachedToolPaths } from "@stella/executor-cloud/attached-tool-protocol";
 import { cloudGeneralToolNames } from "@stella/executor-cloud/cloud-general-tools";
@@ -323,6 +325,113 @@ export const interruptAgentForBuilderFallback = async (
   } finally {
     host.builderFallbackRecoveries.delete(turn.turnId);
   }
+};
+
+/** Longer input belongs in a file in the agent's workspace. */
+const AGENT_MESSAGE_MAX_CHARS = 64_000;
+
+/**
+ * `POST /steer`: new input for the agent this thread runs in its container,
+ * which takes it at its next step. The message is staged in the container
+ * and renamed into the attempt's inbox (see cloud-turn-attempt.ts), which
+ * exists only while the agent takes messages: `busy` when it is starting up
+ * or finishing, `not_running` when no attempt of this thread runs here.
+ */
+export const steerContainerAgent = async (
+  host: ContainerTurnHost,
+  request: Request,
+): Promise<Response> => {
+  const body = (await request.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  const messageId = body?.messageId;
+  const text = body?.text;
+  if (
+    typeof body?.ownerId !== "string" ||
+    typeof body.ownerGeneration !== "string" ||
+    typeof messageId !== "string" ||
+    !messageId ||
+    messageId.length > 256 ||
+    typeof text !== "string" ||
+    !text.trim() ||
+    text.length > AGENT_MESSAGE_MAX_CHARS
+  ) {
+    return json({ error: "Invalid agent message." }, 400);
+  }
+  const [turn, terminal] = await Promise.all([
+    host.ctx.storage.get<TurnRequest>("turn"),
+    host.ctx.storage.get<boolean>("terminal"),
+  ]);
+  if (
+    !turn ||
+    turn.kind !== "agent" ||
+    turn.agentRole === "orchestrator" ||
+    !turn.threadId ||
+    terminal !== false ||
+    !Number.isSafeInteger(turn.attemptGeneration) ||
+    turn.ownerId !== body.ownerId ||
+    turn.ownerGeneration !== body.ownerGeneration ||
+    (turn.execution?.engine !== "anthropic" &&
+      turn.execution?.engine !== "chatgpt")
+  ) {
+    return json({ accepted: false, reason: "not_running" });
+  }
+  // The marker is written once the executor runs; before it there is no
+  // inbox to deliver to.
+  const marker = await host
+    .exactAgentExecutionMarker(turn)
+    .catch(() => undefined);
+  if (!marker) return json({ accepted: false, reason: "busy" });
+  const paths = cloudTurnAttemptPaths(
+    await nativeStateThreadHash(turn),
+    turn.attemptGeneration!,
+  );
+  const name = cloudTurnInboxMessageName(
+    Date.now(),
+    await sha256Hex(messageId),
+  );
+  // Staged beside the attempt directories, never inside one: an attempt
+  // that already finished has had its directory removed.
+  const staged = `${CLOUD_TURN_ATTEMPT_ANCHOR}/.inbox-${crypto.randomUUID()}`;
+  const sandbox = host.sandbox(marker.sandboxId, marker.size, "world");
+  // Any call into a stopped container starts it again; a lost one is the
+  // alarm's to recover.
+  if (!(await host.sandboxContainerRunning(sandbox))) {
+    return json({ accepted: false, reason: "busy" });
+  }
+  try {
+    await withInfrastructureDeadline(
+      sandbox.writeFile(staged, JSON.stringify({ text })),
+      20_000,
+      "Agent message staging did not settle.",
+    );
+    const moved = await withInfrastructureDeadline(
+      sandbox.exec(
+        `mv -T ${staged} ${paths.inbox}/${name} 2>/dev/null || { rm -f ${staged}; exit 1; }`,
+      ),
+      20_000,
+      "Agent message delivery did not settle.",
+    );
+    if (!moved.success) return json({ accepted: false, reason: "busy" });
+  } catch (error) {
+    log("error", "agent_message_delivery_failed", {
+      turnId: turn.turnId,
+      threadId: turn.threadId,
+      message: errorMessage(error),
+    });
+    return json({ accepted: false, reason: "busy" });
+  }
+  log("info", "agent_message_delivered", {
+    turnId: turn.turnId,
+    threadId: turn.threadId,
+    attemptGeneration: turn.attemptGeneration,
+  });
+  return json({
+    accepted: true,
+    turnId: turn.turnId,
+    attemptGeneration: turn.attemptGeneration,
+  });
 };
 
 export const runContainerAgentTurn = async (

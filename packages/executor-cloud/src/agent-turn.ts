@@ -69,6 +69,7 @@ import {
   getAgentCompletion,
 } from "@stella/runtime/kernel/agent-runtime/run-shared.js";
 import { createCloudRelayModel } from "./relay-model.js";
+import { openAgentInbox } from "./agent-inbox.js";
 import { createCloudUserAskHost } from "./cloud-user-ask.js";
 import { pruneAgentHistory } from "./prune-history.js";
 import {
@@ -507,6 +508,12 @@ export const CLOUD_GENERAL_PROMPT = (options: {
 const asError = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
 
+const userTextMessage = (text: string): AgentMessage => ({
+  role: "user",
+  content: [{ type: "text", text }],
+  timestamp: Date.now(),
+});
+
 export const hydrateDriveForAgentTurn = async (
   options: Parameters<typeof materializeDriveFiles>[0],
   materialize: typeof materializeDriveFiles = materializeDriveFiles,
@@ -927,6 +934,16 @@ export const runAgentTurn = (
         );
       }
 
+      // Messages sent to this agent while it works. It stops taking them
+      // when it finishes; a message that lands later is refused, never lost.
+      const inbox = yield* Effect.acquireRelease(
+        Effect.tryPromise({
+          try: () => openAgentInbox(attempt.inbox),
+          catch: asError,
+        }),
+        (opened) => Effect.promise(() => opened.close().catch(() => [])),
+      );
+
       // Long-running threads accumulate transcript across send_message
       // continuations; keep the newest window that fits the model.
 
@@ -978,6 +995,7 @@ export const runAgentTurn = (
                     }
                   : {}),
                 onStreamEvent: cloudAgentProgressFromStream(emitEvent),
+                inbox,
               }),
             };
           } catch (error) {
@@ -1036,6 +1054,8 @@ export const runAgentTurn = (
           },
           sessionId: input.threadId,
           getApiKey: () => modelGateway!.capability,
+          getSteeringMessages: async () =>
+            (await inbox.take()).map(userTextMessage),
           toolExecution: "sequential",
           toolInactivityTimeoutMs: 5 * 60_000,
           // Same division of labor as the desktop runtime and the orchestrator
@@ -1097,6 +1117,15 @@ export const runAgentTurn = (
                   } else {
                     await agent.prompt(input.prompt);
                   }
+                  // A message that landed as the run ended starts one more.
+                  for (
+                    let late = await inbox.close();
+                    late.length > 0;
+                    late = await inbox.close()
+                  ) {
+                    await inbox.reopen();
+                    await agent.prompt(late.map(userTextMessage));
+                  }
                   const completion = getAgentCompletion(agent);
                   return {
                     ...completion,
@@ -1145,6 +1174,9 @@ export const runAgentTurn = (
           );
         });
       }
+      // The agent has stopped; nothing more is accepted for it. (A finished
+      // run already closed it; one that failed takes no more messages.)
+      yield* Effect.promise(() => inbox.close().catch(() => []));
       const executorBoundaryPushFailure = yield* Effect.promise(async () => {
         try {
           await pushWorldProjection({

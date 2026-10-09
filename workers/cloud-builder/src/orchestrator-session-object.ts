@@ -203,6 +203,7 @@ import {
   readCloudAgentToolOutcome as readSharedCloudAgentToolOutcome,
   rememberCloudAgentControlReceipt as rememberSharedCloudAgentControlReceipt,
   requireCloudAgentControlReceipt as requireSharedCloudAgentControlReceipt,
+  steerContainerAgent,
   toolFingerprint as sharedToolFingerprint,
   toolScopedId as sharedToolScopedId,
   type CloudAgentControlReceipt,
@@ -10776,16 +10777,22 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                   ? "steered"
                   : "resumed";
             } else if (isCloudAgentControlActive(prior.status)) {
-              const steered = await this.steerPiThread({
+              const steer = {
                 ownerId: turn.ownerId,
                 ownerGeneration: turn.ownerGeneration,
                 threadId: prior.threadId,
                 messageId: await toolScopedId("turn", toolCallId),
                 text: args.message,
-              });
-              if (!steered.accepted && steered.reason === "unknown") {
+              };
+              // A pi agent here, or else an agent in its own container.
+              const piSteered = await this.steerPiThread(steer);
+              const steered =
+                piSteered.accepted || piSteered.reason === "not_running"
+                  ? piSteered
+                  : await steerContainerAgent({ ...steer, env: this.env });
+              if (!steered.accepted && steered.reason === "busy") {
                 throw new Error(
-                  `${prior.threadId} works in its own container and takes no messages until it finishes. Its report arrives as [Agent completed]; stop it with pause_agent.`,
+                  `${prior.threadId} is starting up or just finishing in its container. Send the message again in a moment.`,
                 );
               }
               if (steered.accepted) {

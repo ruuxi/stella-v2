@@ -656,10 +656,7 @@ export type PiThreadSteer = Readonly<{
   text: string;
 }>;
 
-/**
- * `unknown`: no agent of that thread runs in the conversation. An agent in a
- * container takes no input while it works.
- */
+/** `unknown`: no agent of that thread runs in the conversation. */
 export type PiThreadSteerResult =
   | Readonly<{ accepted: true; turnId: string; attemptGeneration: number }>
   | Readonly<{ accepted: false; reason: "not_running" | "unknown" }>;
@@ -681,17 +678,58 @@ export type PiThreadPause = Readonly<{
 export type PiThreadPauseResult = "paused" | "terminal" | "changed" | "unknown";
 
 /**
- * New input for a cloud agent's running attempt. Only an agent on Stella's
- * models (its conversation's pi agent) takes input while it works; one in a
- * container (`unknown` there) does not.
+ * `busy`: the thread's container agent is starting up or finishing and takes
+ * no input this moment; sent again shortly, it either reaches the agent or
+ * finds it finished.
+ */
+export type CloudAgentSteerResult =
+  | Readonly<{ accepted: true; turnId: string; attemptGeneration: number }>
+  | Readonly<{ accepted: false; reason: "not_running" | "busy" }>;
+
+/**
+ * New input for the running attempt of an agent in its own container (Claude
+ * Code, Codex), through its BuildSession; it takes it at its next step.
+ */
+export const steerContainerAgent = async (
+  args: PiThreadSteer & { env: Pick<Cloudflare.Env, "BUILD_SESSIONS"> },
+): Promise<CloudAgentSteerResult> => {
+  const response = await args.env.BUILD_SESSIONS.getByName(args.threadId).fetch(
+    "https://build-session/steer",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        messageId: args.messageId,
+        text: args.text,
+      }),
+    },
+  );
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error(`Messaging the agent failed (${response.status}).`);
+  }
+  const result = (await response.json()) as CloudAgentSteerResult;
+  return result.accepted
+    ? result
+    : {
+        accepted: false,
+        reason: result.reason === "busy" ? "busy" : "not_running",
+      };
+};
+
+/**
+ * New input for a cloud agent's running attempt, which it takes at its next
+ * step: its conversation's pi agent, or else its container agent.
  */
 export const steerCloudAgent = async (
   args: PiThreadSteer & {
-    env: Pick<Cloudflare.Env, "ORCHESTRATOR_SESSIONS">;
+    env: Pick<Cloudflare.Env, "BUILD_SESSIONS" | "ORCHESTRATOR_SESSIONS">;
     conversationId: string;
   },
-): Promise<PiThreadSteerResult> =>
-  await args.env.ORCHESTRATOR_SESSIONS.getByName(
+): Promise<CloudAgentSteerResult> => {
+  const steered = await args.env.ORCHESTRATOR_SESSIONS.getByName(
     args.conversationId,
   ).steerPiThread({
     ownerId: args.ownerId,
@@ -700,6 +738,12 @@ export const steerCloudAgent = async (
     messageId: args.messageId,
     text: args.text,
   });
+  if (steered.accepted) return steered;
+  if (steered.reason === "not_running") {
+    return { accepted: false, reason: "not_running" };
+  }
+  return await steerContainerAgent(args);
+};
 
 /**
  * Stop one exact attempt of a cloud agent: its conversation's pi agent, or

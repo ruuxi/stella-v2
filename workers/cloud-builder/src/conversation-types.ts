@@ -316,9 +316,11 @@ export interface JournalReader {
   newest(limit: number): JournalRecord[];
   liveTurn(): LiveTurnSnapshot | null;
   /**
-   * Every agent the whole journal still shows as running, oldest start first.
+   * Every agent the conversation has running, oldest start first: where pi
+   * has run, the list its owner records keep (pi's agents and the owner's
+   * agent threads); elsewhere, the whole journal's agent cards folded.
    * Synchronous on purpose: `ready` is assembled with no await left to spend,
-   * and this answer comes from a cached fold over resident rows.
+   * and this answer comes from memory.
    */
   runningAgents(limit: number): AgentActivityEntry[];
 }
@@ -410,6 +412,8 @@ export interface ConversationHub {
    * clients whole on `broadcastRecord`, never as deltas.
    */
   broadcastTool(tool: ToolInput): void;
+  /** The running agents may have changed: every socket hears when they did. Must never throw. */
+  agentsChanged(): void;
   /** A batch of pi-durable events for the sockets watching the pi view. Must never throw. */
   broadcastPi(events: readonly unknown[]): void;
   /** How many sockets watch the pi view. */
@@ -490,6 +494,7 @@ export class NullConversationHub implements ConversationHub {
   async onError(): Promise<void> {}
   broadcastRecord(): void {}
   broadcastTool(): void {}
+  agentsChanged(): void {}
   broadcastPi(): void {}
   piSocketCount(): number {
     return 0;

@@ -2514,6 +2514,33 @@ export const agentThreadsDomain = {
           : [];
       });
     },
+    /**
+     * The threads a conversation lists as running: the ones whose cards it
+     * would show (`postAgentLifecycleCard`), read here rather than folded
+     * from the cards, which a lost post leaves running for good.
+     */
+    "agentThreads.runningIn": async (ctx, raw) => {
+      const args = object({ ownerGeneration: generation, conversationId: id(256) })(raw);
+      await assertGeneration(ctx, args.ownerGeneration);
+      return ctx.db
+        .all<ThreadRow>(
+          `SELECT * FROM agent_threads
+            WHERE (origin_conversation_id = ? OR (origin_conversation_id IS NULL AND conversation_id = ?))
+              AND parent_thread_id IS NULL AND status IN ${LIVE_STATUSES_SQL}
+            ORDER BY created_at ASC LIMIT ?`,
+          args.conversationId,
+          args.conversationId,
+          RUNNING_AGENT_THREADS_LIMIT,
+        )
+        .map((row) => ({
+          threadId: row.thread_id,
+          description: row.description,
+          agentType: row.agent_type,
+          attemptGeneration: row.attempt_generation,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        }));
+    },
   },
   jobs: {
     "agentThreads.dispatch": {

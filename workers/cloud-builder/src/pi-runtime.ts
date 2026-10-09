@@ -67,7 +67,6 @@ import {
   type AgentDirectoryHost,
   type AgentRunEnd,
   type RemoteAgentHost,
-  type StellaAgentStanding,
   type StellaAgentsHost,
 } from "@stella/agent/stella/agents";
 import type {
@@ -86,6 +85,7 @@ import type { StellaContextSources, StellaMemory } from "@stella/agent/stella/co
 import { importJournal, JournalSyncDoc, type JournalMessage } from "@stella/agent/stella/journal-sync";
 export { journalSeqOf } from "@stella/agent/stella/journal-sync";
 import type { AgentModelReasoningEffort, CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import type { AgentActivityEntry } from "@stella/contracts/conversation-agent-activity";
 import type { ExecutionContextSnapshot } from "@stella/contracts/execution-context";
 import {
   mergePiEntries,
@@ -312,6 +312,8 @@ export type PiRuntimeOptions = {
    * report wakes the orchestrator, but its lifecycle cards still end.
    */
   agentPaused?(event: PiAgentInfo & { threadId: string; turnId: string }): void;
+  /** One of Stella's own agents started or stopped running: `runningAgents` changed. */
+  agentsChanged?(): void;
   /**
    * Agents on the owner's devices, run there as a whole through the owner's
    * agent threads as the loop's are; their reports come back as wake turns.
@@ -426,6 +428,8 @@ type ActiveRun = {
   guard?: PiAgentGuard;
   /** The run's cloud browser, from its first use; its profile is saved when the run ends. */
   browser?: CloudBrowserClient;
+  /** When it was admitted: when the agent started running, as its listing says. */
+  startedAt: number;
 };
 
 /** An agent's container, from the start of its run until its last run ends. */
@@ -479,7 +483,7 @@ type Opened = {
   root: Conversation;
   rootSession: string;
   refreshTools(): void;
-  agents: Pick<OpenStellaHarness, "startAgent" | "messageAgent" | "pauseAgent" | "agentStandings">;
+  agents: Pick<OpenStellaHarness, "startAgent" | "messageAgent" | "pauseAgent">;
 };
 
 /** A cloud tool as the harness offers it. */
@@ -905,6 +909,7 @@ export class PiConversationRuntime {
           sessionId: await this.#providerSession(harness, run.agentConversationId, context),
           capability: await this.#mint(authority, turnId),
           ...(guard ? { guard } : {}),
+          startedAt: Date.now(),
         };
         const runs = this.#runs.get(active.sessionId) ?? [];
         runs.push(active);
@@ -922,6 +927,7 @@ export class PiConversationRuntime {
         const info = await this.#agentInfo(run.threadId, context);
         const cardTurnId = this.#cardTurnId(run.threadId, info);
         if (cardTurnId) this.#options.agentStarted?.({ threadId: run.threadId, turnId: cardTurnId, ...info });
+        this.#options.agentsChanged?.();
       },
       agentPaused: async ({ threadId }, context) => {
         const info = await this.#agentInfo(threadId, context);
@@ -937,6 +943,7 @@ export class PiConversationRuntime {
           if (runs.length === 0) this.#runs.delete(sessionId);
           break;
         }
+        if (run.parentConversationId === (await this.open()).root.id) this.#options.agentsChanged?.();
         // A run that used the cloud browser saves its profile (its sign-ins) for the agent's next runs.
         if (ended?.browser?.used()) {
           await ended.browser
@@ -1369,7 +1376,7 @@ export class PiConversationRuntime {
       if (kept) this.#state = kept;
       this.#setModels(kept);
       const storage = await openDurableObjectSqliteStorage(this.#options.storage);
-      const { harness, refreshTools, startAgent, messageAgent, pauseAgent, agentStandings } = await openStellaHarness(
+      const { harness, refreshTools, startAgent, messageAgent, pauseAgent } = await openStellaHarness(
         {
           storage,
           models: this.#models,
@@ -1387,7 +1394,7 @@ export class PiConversationRuntime {
       // Work an eviction cut off held containers this isolate never leased.
       await this.#sweepLeases().catch((error: unknown) => this.#options.report(error));
       harness.resume();
-      return { harness, root, rootSession, refreshTools, agents: { startAgent, messageAgent, pauseAgent, agentStandings } };
+      return { harness, root, rootSession, refreshTools, agents: { startAgent, messageAgent, pauseAgent } };
     })().catch((error: unknown) => {
       this.#opening = undefined;
       throw error;
@@ -1613,14 +1620,42 @@ export class PiConversationRuntime {
   }
 
   /**
-   * Where the agents this object runs stand, by thread id, for settling the
-   * ones the journal still shows as running: their own agents too, which got
-   * cards here before only Stella's own did. An agent on one of the owner's
-   * devices runs there: its record is the owner's agent threads.
+   * Stella's own agents that run here and are running now, as the
+   * conversation lists them: from the harness itself, not from its cards.
+   * Their agents are theirs to list. One on the owner's devices, and an
+   * agent thread's, are in the owner's agent threads, which list them.
    */
-  async agentStandings(context: Context): Promise<Map<string, StellaAgentStanding>> {
-    const { agents } = await this.open();
-    return new Map((await agents.agentStandings(context)).map((agent) => [agent.threadId, agent]));
+  async runningAgents(context: Context): Promise<AgentActivityEntry[]> {
+    const { harness, root } = await this.open();
+    const state = await harness.snapshot(StellaAgentsDoc, root.id, context);
+    const calls = Object.values(state?.calls ?? {});
+    // A run admitted here may not have reached the agent's conversation yet.
+    const admitted = new Map<number, ActiveRun>();
+    for (const runs of this.#runs.values()) {
+      for (const active of runs) admitted.set(active.run.agentConversationId, active);
+    }
+    const running: AgentActivityEntry[] = [];
+    for (const [threadId, agent] of Object.entries(state?.agents ?? {})) {
+      if (agent.remote || (agent.origin && "agentThread" in agent.origin)) continue;
+      const conversationId = agent.conversationId as ConversationId;
+      const active = admitted.get(conversationId);
+      if (!active && (await harness.snapshot(LiveDoc, conversationId, context))?.run === undefined) continue;
+      // A run an eviction cut off dates from the agent's first entry.
+      const first = active
+        ? undefined
+        : await harness.commit(async (tx) => (await tx.scanEntries({ conversationId, order: "ascending" }, 1)).items[0], context);
+      const startedAt = active?.startedAt ?? (first?.model?.[0] as { timestamp?: number } | undefined)?.timestamp ?? Date.now();
+      running.push({
+        agentId: threadId,
+        title: agent.description,
+        agentType: "general",
+        status: "running",
+        createdAtMs: startedAt,
+        updatedAtMs: startedAt,
+        attemptGeneration: Math.max(1, calls.filter((call) => call.threadId === threadId).length),
+      });
+    }
+    return running;
   }
 
   /** Pause an agent thread's agent: its run is marked at once, then winds down on its own. */

@@ -10451,7 +10451,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    * cards existed has none, so it read as running for good (the phantom
    * "N agents running" a phone showed). When a client connects, each agent
    * the journal lists as running is checked against its owner: this object's
-   * own pi agents, and the owner's agent threads for everything else (a
+   * own pi agents and theirs, and the owner's agent threads for everything else (a
    * computer's agents, cloud agents, agents on a device). One that ended is
    * settled with how it ended; one still running there is left alone, and a
    * computer settles its own on its next start (`computer-agent-reconcile`).
@@ -10477,7 +10477,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           const { contextFor } = await import("./pi-runtime.js");
           return await runtime.agentStandings(contextFor());
         })()
-      : new Map<string, { running: boolean; status: "completed" | "error" | "canceled"; attempt: number }>();
+      : new Map<string, import("@stella/agent/stella/agents").StellaAgentStanding>();
     const elsewhere = running.filter((entry) => !own.has(entry.agentId)).map((entry) => entry.agentId);
     const threads = new Map(
       (elsewhere.length === 0
@@ -10499,7 +10499,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       const thread = threads.get(entry.agentId);
       let ended: { kind: "completed" | "failed" | "canceled"; attempt: number; body: string } | null = null;
       if (mine) {
-        if (!mine.running) {
+        if (mine.status !== "running") {
           ended = {
             kind: mine.status === "error" ? "failed" : mine.status,
             attempt: entry.attemptGeneration ?? mine.attempt,

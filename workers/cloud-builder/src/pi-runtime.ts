@@ -67,6 +67,7 @@ import {
   type AgentDirectoryHost,
   type AgentRunEnd,
   type RemoteAgentHost,
+  type StellaAgentStanding,
   type StellaAgentsHost,
 } from "@stella/agent/stella/agents";
 import type {
@@ -478,7 +479,7 @@ type Opened = {
   root: Conversation;
   rootSession: string;
   refreshTools(): void;
-  agents: Pick<OpenStellaHarness, "startAgent" | "messageAgent" | "pauseAgent" | "agentRecords">;
+  agents: Pick<OpenStellaHarness, "startAgent" | "messageAgent" | "pauseAgent" | "agentStandings">;
 };
 
 /** A cloud tool as the harness offers it. */
@@ -892,7 +893,7 @@ export class PiConversationRuntime {
           expectedGeneration: authority.ownerGeneration,
         });
         if (!admission.ok) throw new Error(admission.message);
-        const { harness } = await this.open();
+        const { harness, root } = await this.open();
         const guard = await this.#options.agentGuard?.(authority, turnId).catch(async (error: unknown) => {
           await this.#gate(authority).release({ turnId }).catch(() => undefined);
           throw error;
@@ -915,6 +916,9 @@ export class PiConversationRuntime {
         void this.#lease(run.agentConversationId as ConversationId, active, context).catch((error: unknown) =>
           this.#options.report(error),
         );
+        // Stella's own agents, not their subagents: those report to the agent
+        // that started them, so nothing in this conversation would end their cards.
+        if (run.parentConversationId !== root.id) return;
         const info = await this.#agentInfo(run.threadId, context);
         const cardTurnId = this.#cardTurnId(run.threadId, info);
         if (cardTurnId) this.#options.agentStarted?.({ threadId: run.threadId, turnId: cardTurnId, ...info });
@@ -1365,7 +1369,7 @@ export class PiConversationRuntime {
       if (kept) this.#state = kept;
       this.#setModels(kept);
       const storage = await openDurableObjectSqliteStorage(this.#options.storage);
-      const { harness, refreshTools, startAgent, messageAgent, pauseAgent, agentRecords } = await openStellaHarness(
+      const { harness, refreshTools, startAgent, messageAgent, pauseAgent, agentStandings } = await openStellaHarness(
         {
           storage,
           models: this.#models,
@@ -1383,7 +1387,7 @@ export class PiConversationRuntime {
       // Work an eviction cut off held containers this isolate never leased.
       await this.#sweepLeases().catch((error: unknown) => this.#options.report(error));
       harness.resume();
-      return { harness, root, rootSession, refreshTools, agents: { startAgent, messageAgent, pauseAgent, agentRecords } };
+      return { harness, root, rootSession, refreshTools, agents: { startAgent, messageAgent, pauseAgent, agentStandings } };
     })().catch((error: unknown) => {
       this.#opening = undefined;
       throw error;
@@ -1610,24 +1614,13 @@ export class PiConversationRuntime {
 
   /**
    * Where the agents this object runs stand, by thread id, for settling the
-   * ones the journal still shows as running. An agent on one of the owner's
+   * ones the journal still shows as running: their own agents too, which got
+   * cards here before only Stella's own did. An agent on one of the owner's
    * devices runs there: its record is the owner's agent threads.
    */
-  async agentStandings(
-    context: Context,
-  ): Promise<Map<string, { running: boolean; status: "completed" | "error" | "canceled"; attempt: number }>> {
-    const { harness, root, agents } = await this.open();
-    const calls = Object.values((await harness.snapshot(StellaAgentsDoc, root.id, context))?.calls ?? {});
-    const standings = new Map<string, { running: boolean; status: "completed" | "error" | "canceled"; attempt: number }>();
-    for (const record of await agents.agentRecords(context)) {
-      if (record.placement.kind === "device") continue;
-      standings.set(record.threadId, {
-        running: record.status === "running",
-        status: record.paused ? "canceled" : record.status === "error" ? "error" : "completed",
-        attempt: Math.max(1, calls.filter((call) => call.threadId === record.threadId).length),
-      });
-    }
-    return standings;
+  async agentStandings(context: Context): Promise<Map<string, StellaAgentStanding>> {
+    const { agents } = await this.open();
+    return new Map((await agents.agentStandings(context)).map((agent) => [agent.threadId, agent]));
   }
 
   /** Pause an agent thread's agent: its run is marked at once, then winds down on its own. */

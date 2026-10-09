@@ -6,7 +6,7 @@
  * the app (`@stella/contracts/pi-chat`).
  */
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { AssistantMessage, Message, ModelThinkingLevel, TextContent } from "@earendil-works/pi-ai";
@@ -114,6 +114,12 @@ export type DesktopChatsOptions = {
     report: string;
     attempt: number;
   }): void;
+  /**
+   * What a conversation kept on this computer showed before it ran on
+   * pi-durable (the agent loops' store), oldest first: written into its
+   * transcript the first time pi opens it.
+   */
+  legacyHistory?(conversationId: string): Promise<LegacyMessage[]>;
   /** A watched conversation's events, for every attached client. */
   emit(payload: PiChatEventsPayload): void;
   report(error: unknown): void;
@@ -138,7 +144,20 @@ type Chat = {
   followUntil: number;
 };
 
+/** One message a conversation showed under the agent loops (`legacyHistory`). */
+export type LegacyMessage = { id: string; role: "user" | "assistant"; text: string; timestamp: number };
+
 const context = BACKGROUND_CONTEXT;
+
+/** How far a conversation's import of the agent loops' history got, so a crash mid-way resumes it. */
+const LegacyImportDoc = defineDoc<{ state?: "importing" | "done" }>({
+  kind: "stella.legacy-import",
+  version: 1,
+  scope: "conversation",
+  history: "latest",
+  fork: "current",
+  initial: () => ({}),
+});
 
 /** The response language a conversation's latest message asked for, so it holds across restarts. */
 const LocaleDoc = defineDoc<{ locale?: string }>({
@@ -152,7 +171,7 @@ const LocaleDoc = defineDoc<{ locale?: string }>({
 
 /**
  * A reply written into a transcript without a model call (the onboarding
- * greeting). It carries an empty usage: pi reads the last reply's usage to
+ * greeting, history imported from the agent loops). It carries an empty usage: pi reads the last reply's usage to
  * size the context, and the usage dashboard skips a call that cost nothing.
  */
 const writtenReply = (text: string, timestamp: number, model: string): AssistantMessage =>
@@ -237,6 +256,41 @@ export function desktopChats(options: DesktopChatsOptions) {
     }).catch((error: unknown) => options.report(error));
     await saving;
   };
+  /**
+   * A conversation the agent loops kept on this computer starts on pi with
+   * what they showed: its messages, written as they were, before anything
+   * else. Once per conversation; a crash mid-way resumes (each message is
+   * written once per id).
+   */
+  const importLegacyHistory = async (harness: Harness, root: Conversation, conversationId: string, fresh: boolean) => {
+    if (!options.legacyHistory) return;
+    const state = (await harness.snapshot(LegacyImportDoc, root.id, context))?.state;
+    if (state === "done" || (!fresh && state !== "importing")) return;
+    const setState = (next: "importing" | "done") =>
+      harness.commit(async (tx) => {
+        (await tx.doc(LegacyImportDoc, root.id)).state = next;
+        return undefined;
+      }, context);
+    await setState("importing");
+    for (const message of await options.legacyHistory(conversationId)) {
+      const text = message.text.trim();
+      if (!text) continue;
+      const model =
+        message.role === "user"
+          ? ({ role: "user", content: [{ type: "text", text }], timestamp: message.timestamp } as Message)
+          : writtenReply(text, message.timestamp, "legacy");
+      await root.submit(
+        {
+          type: "write",
+          requestId: `legacy:${message.id}`,
+          entry: { kind: message.role === "user" ? "pi.user" : "pi.assistant", model: [model] },
+        },
+        context,
+      );
+    }
+    await setState("done");
+  };
+
   const environments = desktopEnvironments(options.workspace);
   const models = createModels();
   let gateway: Promise<{ access: StellaGatewayAccess; gatewayOrigin: string }> | undefined;
@@ -308,7 +362,12 @@ export function desktopChats(options: DesktopChatsOptions) {
       let opened: Chat | undefined;
       chat = (async () => {
         await mkdir(directory, { recursive: true });
-        const storage = await openBunSqliteStorage(path.join(directory, fileName(conversationId)));
+        const file = path.join(directory, fileName(conversationId));
+        const fresh = await stat(file).then(
+          () => false,
+          () => true,
+        );
+        const storage = await openBunSqliteStorage(file);
         const destination: ExecutionDestination = {
           kind: "device",
           deviceId: options.deviceId ?? "this-computer",
@@ -374,6 +433,7 @@ export function desktopChats(options: DesktopChatsOptions) {
         const root = await harness.root(context, { agent: orchestrator });
         // A conversation from an older build keeps up with what the orchestrator is offered.
         if (offersAgentTools(await root.agent(context))) await root.configure(orchestrator, context);
+        await importLegacyHistory(harness, root, conversationId, fresh);
         // Recovered work needs the provider; it waits for sign-in otherwise.
         const alias = aliasOf((await root.agent(context)).model);
         void waitForProvider(alias).then(() => harness.resume());

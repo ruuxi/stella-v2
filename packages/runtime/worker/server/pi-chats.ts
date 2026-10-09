@@ -158,6 +158,17 @@ export const piChatsFor = (
           });
         })().catch((error) => console.warn("[pi-chat] computer thread completion failed", error));
       },
+      // A conversation kept on this computer brings what the agent loops
+      // showed; a cloud one gets its history from the journal.
+      legacyHistory: async (conversationId) =>
+        conversationId.startsWith("local_")
+          ? session.storage.runtimeStore.listSyncMessages(conversationId).map((message) => ({
+              id: message.localMessageId,
+              role: message.role,
+              text: message.text,
+              timestamp: message.timestamp,
+            }))
+          : [],
       emit: (payload) => hostBus.notify(NOTIFICATION_NAMES.PI_CHAT_EVENTS, payload),
       report: (error) => console.error("[pi-chat]", error),
     }),

@@ -117,7 +117,7 @@ export function drawerVeil(progress: number) {
   return t <= 0 ? 0 : t >= 1 ? 1 : veilCurve(t);
 }
 
-export const DRAWER_BLUR = { end: 0.75, power: 1.4 };
+export const DRAWER_BLUR = { end: 0.9, power: 1.4 };
 
 export function drawerBlur(progress: number) {
   "worklet";

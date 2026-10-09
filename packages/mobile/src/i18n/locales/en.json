@@ -182,13 +182,10 @@
       "messageActions": {
         "copied": "Copied",
         "copy": "Copy",
-        "fork": "Fork to new chat",
         "more": "More actions",
         "quote": "Quote",
         "readAloud": "Read aloud",
         "reply": "Reply",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Stop reading"

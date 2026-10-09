@@ -1108,7 +1108,7 @@ const orchestratorUnavailable = (): Response =>
  *
  * A conversation that answers 4xx no longer runs this attempt (or refused
  * the frame outright), so the broker is denied and the executor stops; a
- * 5xx, an edit lock or an unreachable object is answered 503 without the
+ * 5xx, a rate limit or an unreachable object is answered 503 without the
  * denial, so the executor can retry (the DO de-duplicates tool calls by
  * `toolCallId` and batches by `batchSeq`).
  */
@@ -1194,9 +1194,7 @@ const forwardOrchestratorBrokerRequest = async (
     decoded = undefined;
   }
   if (!response.ok) {
-    const editLocked =
-      isRecord(decoded) && decoded.code === "conversation_edit_in_progress";
-    if (response.status >= 500 || response.status === 429 || editLocked) {
+    if (response.status >= 500 || response.status === 429) {
       return orchestratorUnavailable();
     }
     log("info", "orchestrator_cli_forward_refused", {

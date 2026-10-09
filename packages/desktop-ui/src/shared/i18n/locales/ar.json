@@ -206,13 +206,10 @@
       "messageActions": {
         "copied": "تم النسخ",
         "copy": "نسخ",
-        "fork": "Fork to new chat",
         "more": "إجراءات أخرى",
         "quote": "Quote",
         "readAloud": "اقرأ بصوت عالٍ",
         "reply": "رد",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "أوقف القراءة"

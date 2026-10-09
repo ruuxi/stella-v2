@@ -176,13 +176,10 @@
       "messageActions": {
         "copied": "已複製",
         "copy": "複製",
-        "fork": "Fork to new chat",
         "more": "更多操作",
         "quote": "Quote",
         "readAloud": "朗讀",
         "reply": "回覆",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "停止朗讀"

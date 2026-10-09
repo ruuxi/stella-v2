@@ -188,13 +188,10 @@
       "messageActions": {
         "copied": "Copiat",
         "copy": "Copiază",
-        "fork": "Fork to new chat",
         "more": "Mai multe acțiuni",
         "quote": "Quote",
         "readAloud": "Citește cu voce tare",
         "reply": "Răspunde",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Oprește citirea"

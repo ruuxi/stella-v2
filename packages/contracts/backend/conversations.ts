@@ -56,46 +56,6 @@ export type ConversationCalls = {
     };
     result: { conversations: ConversationSummary[]; hasMore: boolean };
   };
-  /**
-   * Copy a conversation through `throughSeq` into a new one. The expected
-   * head fences the copy against a turn the client hasn't seen; a retried
-   * `requestId` returns the same fork.
-   */
-  "conversations.fork": {
-    args: {
-      sourceConversationId: string;
-      throughSeq: number;
-      expectedEpoch: number;
-      expectedLastSeq: number;
-      requestId: string;
-    };
-    result: {
-      conversationId: string;
-      sourceEpoch: number;
-      throughSeq: number;
-      targetEpoch: number;
-      lastSeq: number;
-      replayed: boolean;
-    };
-  };
-  /** Cut a conversation back to `throughSeq`, advancing its epoch. */
-  "conversations.rewind": {
-    args: {
-      conversationId: string;
-      throughSeq: number;
-      expectedEpoch: number;
-      expectedLastSeq: number;
-      requestId: string;
-      activeTurnPolicy: "conflict" | "cancel";
-    };
-    result: {
-      conversationId: string;
-      previousEpoch: number;
-      nextEpoch: number;
-      lastSeq: number;
-      replayed: boolean;
-    };
-  };
 };
 
 export type ConversationViews = {

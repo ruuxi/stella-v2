@@ -182,13 +182,10 @@
       "messageActions": {
         "copied": "Kopierat",
         "copy": "Kopiera",
-        "fork": "Fork to new chat",
         "more": "Fler åtgärder",
         "quote": "Quote",
         "readAloud": "Läs upp",
         "reply": "Svara",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Sluta läsa"

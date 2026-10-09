@@ -545,20 +545,6 @@ function RootLayout() {
     writeActiveCloudConversationIdCache(accountScope, conversationId);
   }, [accountScope, isCloudConversationReady, conversationId, isAuthLoading]);
 
-  // Opens + navigates to a conversation (tab store + router). Handed to the
-  // chat runtime so the Fork action can jump to the newly branched
-  // conversation.
-  const navigateToConversation = useCallback(
-    (targetConversationId: string, title?: string) => {
-      conversationTabs.openConversation(targetConversationId, title);
-      void router.navigate({
-        to: "/chat",
-        search: { c: targetConversationId },
-      });
-    },
-    [router],
-  );
-
   useLastLocationRestore(router);
   usePersistLastLocation(router);
 
@@ -653,7 +639,6 @@ function RootLayout() {
       <ChatRuntimeProvider
         activeConversationId={conversationId}
         isOnChatRoute={isOnChatRoute}
-        navigateToConversation={navigateToConversation}
       >
         <RootChrome conversationId={conversationId} />
       </ChatRuntimeProvider>

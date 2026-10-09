@@ -1201,9 +1201,8 @@ export class PiConversationRuntime {
    * Write what other writers journaled into the root conversation before a
    * turn answers: a computer's mirrored turns, another engine's. A record of
    * a turn this conversation ran itself (submitted as `turn:<id>`) is its own,
-   * and so is the turn about to run, except what a rewind dropped from its
-   * context (`rewind`). `read` gives journal records after a seq. Returns
-   * the seq the transcript now holds the journal through.
+   * and so is the turn about to run. `read` gives journal records after a
+   * seq. Returns the seq the transcript now holds the journal through.
    */
   async importJournal(
     read: (afterSeq: number) => Promise<{ records: readonly JournalRecordLike[]; complete: boolean }>,
@@ -1213,14 +1212,13 @@ export class PiConversationRuntime {
     const { harness, root } = await this.open();
     const state = await harness.snapshot(JournalSyncDoc, root.id, context);
     let after = state?.importedSeq ?? -1;
-    const whole = state?.importAllThrough ?? -1;
     const ran = new Map<string, boolean>();
     for (;;) {
       const page = await read(after);
       const messages: JournalMessage[] = [];
       for (const record of page.records) {
         if (record.kind !== "message" || !record.role || record.turnId === currentTurnId) continue;
-        let own = record.seq <= whole ? false : ran.get(record.turnId);
+        let own = ran.get(record.turnId);
         if (own === undefined) {
           own = Boolean(await root.commit((tx) => tx.submissionByRequest(root.id, `turn:${record.turnId}`), context));
           ran.set(record.turnId, own);
@@ -1234,24 +1232,6 @@ export class PiConversationRuntime {
       if (page.complete || through <= after) return through;
       after = through;
     }
-  }
-
-  /**
-   * The journal was rewound to `throughSeq` (its epoch is now `epoch`): the
-   * root's context starts over, and the next import brings back the whole
-   * journal that is left, this conversation's own turns too. Once per epoch.
-   */
-  async rewind(epoch: number, throughSeq: number, context: Context): Promise<void> {
-    const { harness, root } = await this.open();
-    if (((await harness.snapshot(JournalSyncDoc, root.id, context))?.epoch ?? 0) >= epoch) return;
-    await root.reset(undefined, context);
-    await harness.commit(async (tx) => {
-      const doc = await tx.doc(JournalSyncDoc, root.id);
-      doc.epoch = epoch;
-      doc.importedSeq = -1;
-      doc.importAllThrough = throughSeq;
-      return undefined;
-    }, context);
   }
 
   /** Entries of the root conversation as they commit, from `afterEntryId` on. */

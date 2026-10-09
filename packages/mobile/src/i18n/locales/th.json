@@ -176,13 +176,10 @@
       "messageActions": {
         "copied": "คัดลอกแล้ว",
         "copy": "คัดลอก",
-        "fork": "Fork to new chat",
         "more": "การดำเนินการเพิ่มเติม",
         "quote": "Quote",
         "readAloud": "อ่านออกเสียง",
         "reply": "ตอบกลับ",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "หยุดอ่าน"

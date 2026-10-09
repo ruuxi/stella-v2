@@ -12,8 +12,6 @@ import {
   IPC_CLOUD_CONVERSATION_CACHE_REPLACE,
   IPC_CLOUD_CONVERSATION_CACHE_RETAIN_ACCOUNT,
   IPC_LOCAL_CHAT_DELETE_CONVERSATION,
-  IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
-  IPC_LOCAL_CHAT_FORK_CONVERSATION,
   IPC_LOCAL_CHAT_GET_AGENT_REPORT,
   IPC_LOCAL_CHAT_LIST_LINEAGE_MESSAGES,
   IPC_LOCAL_CHAT_LIST_REPLY_COUNTS,
@@ -183,36 +181,6 @@ export const registerLocalChatHandlers = (
         event,
         IPC_LOCAL_CHAT_DELETE_CONVERSATION,
         (client) => client.deleteConversation(payload?.conversationId ?? ""),
-      ),
-  );
-
-  ipcMain.handle(
-    IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
-    async (event, payload: { conversationId?: string; eventId?: string }) =>
-      await withLocalChatClient(
-        options,
-        event,
-        IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
-        (client) =>
-          client.truncateConversation({
-            conversationId: payload?.conversationId ?? "",
-            eventId: payload?.eventId ?? "",
-          }),
-      ),
-  );
-
-  ipcMain.handle(
-    IPC_LOCAL_CHAT_FORK_CONVERSATION,
-    async (event, payload: { conversationId?: string; eventId?: string }) =>
-      await withLocalChatClient(
-        options,
-        event,
-        IPC_LOCAL_CHAT_FORK_CONVERSATION,
-        (client) =>
-          client.forkConversation({
-            conversationId: payload?.conversationId ?? "",
-            eventId: payload?.eventId ?? "",
-          }),
       ),
   );
 

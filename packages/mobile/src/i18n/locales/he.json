@@ -188,13 +188,10 @@
       "messageActions": {
         "copied": "הועתק",
         "copy": "העתק",
-        "fork": "Fork to new chat",
         "more": "פעולות נוספות",
         "quote": "Quote",
         "readAloud": "הקרא",
         "reply": "השב",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "הפסק הקראה"

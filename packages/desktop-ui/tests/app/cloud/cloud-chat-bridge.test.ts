@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { JournalRecord } from "../../../src/features/cloud/conversation-protocol";
 import {
   activateCloudConversationClientAuthority,
   pendingPrompts,
@@ -13,7 +12,6 @@ import {
 } from "../../../src/features/cloud/conversation-outbox";
 import {
   cloudPendingPromptsToEvents,
-  cloudPrefixBoundaryForUserMessage,
   cloudPromptFromSendArgs,
   latestInFlightCloudUserMessageId,
   localCloudTaskOverlay,
@@ -27,20 +25,6 @@ import {
   publishCloudExecutionSelection,
   resetCloudExecutionSelectionForTests,
 } from "../../../src/features/cloud/cloud-execution-store";
-
-const userRecord = (
-  seq: number,
-  clientMsgId = `client-${seq}`,
-): JournalRecord => ({
-  kind: "message",
-  seq,
-  turnId: `turn-${seq}`,
-  createdAtMs: seq + 10,
-  role: "user",
-  hidden: false,
-  clientMsgId,
-  payload: { content: `prompt ${seq}` },
-});
 
 const pendingIds = new Set<string>();
 const TEST_ACCOUNT_SCOPE = "account:test-owner";
@@ -96,31 +80,6 @@ afterEach(() => {
 });
 
 describe("cloud chat bridge authority", () => {
-  test("resolves fork and rewind against the canonical sequence before the user prompt", () => {
-    expect(
-      cloudPrefixBoundaryForUserMessage([userRecord(0)], "client-0"),
-    ).toEqual({ targetSeq: 0, throughSeq: -1 });
-
-    const records: JournalRecord[] = [
-      userRecord(4, "earlier"),
-      {
-        kind: "skipped",
-        seq: 5,
-        turnId: "future-turn",
-        createdAtMs: 15,
-        originalKind: "future-record",
-      },
-      userRecord(6, "target"),
-    ];
-    expect(cloudPrefixBoundaryForUserMessage(records, "target")).toEqual({
-      targetSeq: 6,
-      throughSeq: 5,
-    });
-    expect(
-      cloudPrefixBoundaryForUserMessage(records, "local-only-id"),
-    ).toBeNull();
-  });
-
   test("never revives SQLite rows while canonical cloud state is unavailable", () => {
     expect(shouldUseLocalCloudOverlay("live")).toBe(true);
     expect(shouldUseLocalCloudOverlay("idle")).toBe(false);
@@ -150,30 +109,6 @@ describe("cloud chat bridge authority", () => {
       ),
     ).toEqual([]);
     expect(localCloudTaskOverlay("live", [runningTask], 700_951)).toEqual([]);
-  });
-
-  test("binds modern Fork and Rewind actions to the fenced cloud API with no SQLite mutation", () => {
-    const source = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/use-full-shell-chat.js"),
-      "utf8",
-    );
-    expect(source).toContain('backendClient.call("conversations.fork", args)');
-    expect(source).toContain('backendClient.call("conversations.rewind", args)');
-    expect(source).toContain("expectedEpoch: head.epoch");
-    expect(source).toContain("expectedLastSeq: head.headSeq");
-    expect(source).toContain('activeTurnPolicy: "conflict"');
-    expect(source).toContain("refreshAfterCanonicalMutation()");
-    // Local chats fork and rewind in their own store; a cloud chat never
-    // reaches those calls. Each local branch returns before the cloud path.
-    const localBranch =
-      /if \(state\.storageMode === "local"\) \{[\s\S]*?\n {6}return;\n {4}\}/g;
-    const branches = source.match(localBranch) ?? [];
-    expect(branches).toHaveLength(2);
-    expect(branches.join("\n")).toContain("truncateLocalConversation(");
-    expect(branches.join("\n")).toContain("forkLocalConversation(");
-    const cloudOnly = source.replace(localBranch, "");
-    expect(cloudOnly).not.toContain("forkLocalConversation(");
-    expect(cloudOnly).not.toContain("truncateLocalConversation(");
   });
 
   test("pages complete cloud Activity history through the visible Home search", () => {

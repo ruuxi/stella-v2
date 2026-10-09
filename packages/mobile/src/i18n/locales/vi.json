@@ -176,13 +176,10 @@
       "messageActions": {
         "copied": "Đã sao chép",
         "copy": "Sao chép",
-        "fork": "Fork to new chat",
         "more": "Tác vụ khác",
         "quote": "Quote",
         "readAloud": "Đọc to",
         "reply": "Trả lời",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Dừng đọc"

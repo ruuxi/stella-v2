@@ -182,13 +182,10 @@
       "messageActions": {
         "copied": "Αντιγράφηκε",
         "copy": "Αντιγραφή",
-        "fork": "Fork to new chat",
         "more": "Περισσότερες ενέργειες",
         "quote": "Quote",
         "readAloud": "Ανάγνωση φωναχτά",
         "reply": "Απάντηση",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Διακοπή ανάγνωσης"

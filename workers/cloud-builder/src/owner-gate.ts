@@ -830,7 +830,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       homeChanged: (ownerGeneration, revision) =>
         this.homeContextCache().changed(ownerGeneration, revision),
       changeMemoryPolicy: (change) => this.changeMemoryPolicyForCall(change),
-      fence: (path, body) => this.ownerFenceCall(path, body),
       applyOwnerEvents: (events) => this.applyOwnerEvents(events),
       purgeOwner: (mode, requestId) => this.purgeOwnerPass(mode, requestId),
       log,

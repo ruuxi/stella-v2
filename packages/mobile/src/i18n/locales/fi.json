@@ -182,13 +182,10 @@
       "messageActions": {
         "copied": "Kopioitu",
         "copy": "Kopioi",
-        "fork": "Fork to new chat",
         "more": "Lisää toimintoja",
         "quote": "Quote",
         "readAloud": "Lue ääneen",
         "reply": "Vastaa",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Lopeta lukeminen"

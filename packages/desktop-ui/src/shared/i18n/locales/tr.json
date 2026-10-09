@@ -182,13 +182,10 @@
       "messageActions": {
         "copied": "Kopyalandı",
         "copy": "Kopyala",
-        "fork": "Fork to new chat",
         "more": "Diğer işlemler",
         "quote": "Quote",
         "readAloud": "Sesli oku",
         "reply": "Yanıtla",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Okumayı durdur"

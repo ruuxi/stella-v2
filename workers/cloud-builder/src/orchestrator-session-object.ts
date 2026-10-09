@@ -299,8 +299,6 @@ import {
   ConversationDeletedError,
   Journal,
   JournalContextIntegrityError,
-  JournalHeadConflictError,
-  type JournalRow,
   stampUserMessageSequences,
 } from "./journal.js";
 import { ConversationArchive } from "./archive.js";
@@ -323,24 +321,6 @@ import {
 } from "./local-turn-protocol.js";
 import { normalizeOwnerGeneration } from "./owner-generation.js";
 import { parseVoiceJournalRecords } from "./journal-append-protocol.js";
-import {
-  CONVERSATION_EDIT_LEASE_MS,
-  CONVERSATION_EDIT_LOCK_KEY,
-  CONVERSATION_EDIT_PAGE_BYTES,
-  CONVERSATION_EDIT_PAGE_ROWS,
-  conversationRewindHeadMatches,
-  CONVERSATION_FORK_TARGET_KEY,
-  parseConversationEditRequest,
-  rewindRuntimeAdmission,
-  sameConversationEditLock,
-  type ConversationEditLock,
-  type ConversationEditRequest,
-  type ForkConversationEditRequest,
-  type ForkConversationEditResult,
-  type ForkTargetState,
-  type RewindConversationEditRequest,
-  type RewindConversationEditResult,
-} from "./conversation-edit-protocol.js";
 import {
   CLOUD_CLI_TURN_DO_PATHS,
   orchestratorCliThreadId,
@@ -617,11 +597,6 @@ const PI_JOURNAL_IMPORT_BATCH = 200;
 const PI_MIRRORED_KEY = "piMirroredEntry";
 /** Set while pi has work in flight here, so a wake after eviction resumes it. */
 const PI_LIVE_KEY = "piLive";
-/**
- * A rewind pi has not followed yet: the journal's new epoch and the seq it
- * was cut after. The next pi turn resets its context and imports again.
- */
-const PI_REWOUND_KEY = "piRewound";
 const PI_HEARTBEAT_MS = 30_000;
 /** The agent tools a pi-durable conversation's harness has itself. */
 const PI_HARNESS_AGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
@@ -3082,12 +3057,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (
-      request.method === "POST" &&
-      url.pathname.startsWith("/internal/edit/")
-    ) {
-      return this.handleConversationEditRoute(url.pathname, request);
-    }
     if (url.pathname === "/socket") return this.handleSocket(request);
     if (request.method === "GET") {
       if (url.pathname === "/history") {
@@ -3099,13 +3068,11 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     if (request.method !== "POST") {
       return json({ error: "Method not allowed." }, 405);
     }
-    // Read-only, so an in-progress edit does not block it.
     if (url.pathname === "/history/query") {
       return this.handleHistoryQuery(request);
     }
     // A pi agent's container daemon (its drive and its delivered files),
-    // under its lease's own credential. Ahead of the edit lock: the lease
-    // belongs to an agent run already admitted here.
+    // under its lease's own credential.
     if (url.pathname === "/pi-turn-broker") {
       // Only where pi runs agents: a pi conversation, or one hosting a computer's cloud agent.
       if (
@@ -3118,8 +3085,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       const runtime = await this.openPiRuntime(this.piGatewayOrigin());
       return await runtime.handleBroker(request);
     }
-    // Frames of the running Claude Code turn, from its BuildSession. Ahead
-    // of the edit lock: an edit cannot start while a turn runs, and these
+    // Frames of the running Claude Code turn, from its BuildSession. These
     // only ever touch the exact active turn.
     if (url.pathname === CLOUD_CLI_TURN_DO_PATHS.tool) {
       return this.handleCliTurnTool(request);
@@ -3129,25 +3095,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     }
     if (url.pathname === CLOUD_CLI_TURN_DO_PATHS.terminal) {
       return this.handleCliTurnTerminal(request);
-    }
-    const conversationEdit = await this.activeConversationEditLock();
-    // `/turn` re-checks the lock inside its own admission critical section
-    // and answers with the turn-start contract's `conversation_locked`.
-    if (
-      conversationEdit &&
-      url.pathname !== "/cancel" &&
-      url.pathname !== "/purge" &&
-      url.pathname !== "/owner-purge-cancel" &&
-      url.pathname !== "/turn"
-    ) {
-      return json(
-        {
-          code: "conversation_edit_in_progress",
-          message: "This conversation is being edited. Try again shortly.",
-          retryAfterMs: 1_000,
-        },
-        409,
-      );
     }
     if (url.pathname === "/internal/dev-acceptance/probe") {
       return this.handleDevAcceptanceProbe(request);
@@ -4003,13 +3950,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // response/restart can replay without registering a new owner fence or
       // overwriting the original lease/payload.
       let heldForLocalTurn = false;
-      let editConflict = false;
       await this.ctx.blockConcurrencyWhile(async () => {
-        const editLock = await this.activeConversationEditLock();
-        if (editLock) {
-          editConflict = true;
-          return;
-        }
         // Owner-purge cancellation marks the durable lease receipt retiring in
         // this same DO. Recheck inside the admission critical section so a
         // register/assert winner cannot persist after its orphan was retired.
@@ -4047,18 +3988,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           );
         }
       });
-      if (editConflict) {
-        this.cloudHomePreparations.delete(turnId);
-        await this.unregisterOwnerTurn(turn);
-        await this.releaseOwnerGate(turn);
-        return turnStartErrorResponse(
-          "conversation_locked",
-          "This conversation is being edited. Try again shortly.",
-          true,
-          1_000,
-        );
-      }
-
       const admissionCommitMs = Math.round(performance.now() - commitStarted);
       const projectionStarted = performance.now();
       // Projections, after the durable commit and before the 202: the queue
@@ -5369,17 +5298,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       }
       // What other writers journaled since (a computer's turns, another
       // engine's) is part of the conversation this turn answers.
-      // A rewind since the last turn: what the journal no longer holds leaves
-      // pi's context too.
-      const rewound = await this.ctx.storage.get<{
-        epoch: number;
-        throughSeq: number;
-      }>(PI_REWOUND_KEY);
-      if (rewound) {
-        await runtime.rewind(rewound.epoch, rewound.throughSeq, context);
-        await this.ctx.storage.delete(PI_REWOUND_KEY);
-        log("info", "pi_rewound", { turnId: turn.turnId, ...rewound });
-      }
       const [, images] = await Promise.all([
         // Rows already rolled over to R2 are read from there.
         runtime.importJournal(
@@ -7243,7 +7161,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   private async turnRunning(): Promise<boolean> {
-    if (await this.activeConversationEditLock()) return true;
     const localLease =
       await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
     if (localLease) return true;
@@ -7364,948 +7281,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
 
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
     await this.hub.onError(ws, error);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Canonical fork / rewind
-  // ---------------------------------------------------------------------------
-
-  private async activeConversationEditLock(): Promise<ConversationEditLock | null> {
-    const lock =
-      (await this.ctx.storage.get<ConversationEditLock>(
-        CONVERSATION_EDIT_LOCK_KEY,
-      )) ?? null;
-    if (!lock) return null;
-    if (lock.expiresAt > Date.now()) return lock;
-    await this.ctx.storage.delete(CONVERSATION_EDIT_LOCK_KEY);
-    return null;
-  }
-
-  private async bindConversationEditOwner(
-    request: ConversationEditRequest,
-    createdAt: number,
-    title: string,
-  ): Promise<Response | null> {
-    const meta = this.journal.meta();
-    if (meta.owner_id && meta.owner_id !== request.ownerId) {
-      return json(
-        { code: "not_found", message: "Conversation not found." },
-        404,
-      );
-    }
-    if (!meta.owner_id) {
-      if (meta.next_seq !== 0) {
-        return json(
-          {
-            code: "owner_missing",
-            message: "Conversation ownership is unavailable.",
-          },
-          409,
-        );
-      }
-      this.journal.bindOwner({
-        ownerId: request.ownerId,
-        ownerGeneration: request.ownerGeneration,
-        createdAt,
-        title,
-        conversationId: this.conversationId(),
-      });
-    }
-    this.ownerGeneration = request.ownerGeneration;
-    await this.ctx.storage.put("ownerDataGeneration", request.ownerGeneration);
-    return null;
-  }
-
-  private async conversationHasRuntimeWork(): Promise<boolean> {
-    const [turn, terminal, localLease, queued] = await Promise.all([
-      this.ctx.storage.get<ChatTurnRequest>("turn"),
-      this.ctx.storage.get<boolean>("terminal"),
-      this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY),
-      this.ctx.storage.list({ prefix: "queued:", limit: 1 }),
-    ]);
-    return Boolean(
-      (turn !== undefined && terminal !== true) ||
-        localLease ||
-        queued.size > 0 ||
-        this.live ||
-        this.activeTurnId ||
-        this.currentPiRun ||
-        this.currentTurnCancellation ||
-        this.journal.inboxSize().rows > 0,
-    );
-  }
-
-  private async validConversationEditBoundary(
-    throughSeq: number,
-    headSeq: number,
-  ): Promise<boolean> {
-    if (throughSeq < -1 || throughSeq > headSeq) return false;
-    if (throughSeq === headSeq) return true;
-    const next = await this.archive.exportRawPage(
-      throughSeq + 1,
-      throughSeq + 1,
-      1,
-      CONVERSATION_EDIT_PAGE_BYTES,
-    );
-    const row = next.rows[0];
-    return Boolean(
-      row &&
-        row.seq === throughSeq + 1 &&
-        row.kind === "message" &&
-        row.role === "user" &&
-        row.hidden === 0,
-    );
-  }
-
-  private async handleConversationEditRoute(
-    path: string,
-    request: Request,
-  ): Promise<Response> {
-    const raw = (await request.json().catch(() => null)) as
-      | (Record<string, unknown> & {
-          fromSeq?: unknown;
-          rows?: unknown;
-          nextSeq?: unknown;
-        })
-      | null;
-    const parsed = parseConversationEditRequest(raw);
-    if (!parsed) {
-      return json(
-        { code: "bad_request", message: "Malformed conversation edit." },
-        400,
-      );
-    }
-    if (path.includes("fork-") && parsed.kind !== "fork") {
-      return json(
-        { code: "bad_request", message: "Wrong edit operation." },
-        400,
-      );
-    }
-    if (path.endsWith("/rewind") && parsed.kind !== "rewind") {
-      return json(
-        { code: "bad_request", message: "Wrong edit operation." },
-        400,
-      );
-    }
-    try {
-      switch (path) {
-        case "/internal/edit/fork-source/acquire":
-          return await this.acquireForkSource(
-            parsed as ForkConversationEditRequest,
-          );
-        case "/internal/edit/fork-source/export":
-          return await this.exportForkSource(
-            parsed as ForkConversationEditRequest,
-            raw?.fromSeq,
-          );
-        case "/internal/edit/fork-source/release":
-          return await this.releaseForkSource(
-            parsed as ForkConversationEditRequest,
-          );
-        case "/internal/edit/fork-target/begin":
-          return await this.beginForkTarget(
-            parsed as ForkConversationEditRequest,
-            raw,
-          );
-        case "/internal/edit/fork-target/import":
-          return await this.importForkTarget(
-            parsed as ForkConversationEditRequest,
-            raw,
-          );
-        case "/internal/edit/fork-target/status":
-          return await this.forkTargetStatus(
-            parsed as ForkConversationEditRequest,
-          );
-        case "/internal/edit/fork-target/complete":
-          return await this.completeForkTarget(
-            parsed as ForkConversationEditRequest,
-          );
-        case "/internal/edit/fork-target/release":
-          return await this.releaseForkTarget(
-            parsed as ForkConversationEditRequest,
-          );
-        case "/internal/edit/rewind":
-          return await this.rewindConversation(
-            parsed as RewindConversationEditRequest,
-          );
-        default:
-          return json({ error: "Not found." }, 404);
-      }
-    } catch (error) {
-      if (error instanceof JournalHeadConflictError) {
-        return json(
-          {
-            code: "head_conflict",
-            message: error.message,
-            epoch: error.epoch,
-            lastSeq: error.lastSeq,
-          },
-          409,
-        );
-      }
-      log("error", "conversation_edit_failed", {
-        path,
-        operationId: parsed.operationId,
-        message: errorMessage(error),
-      });
-      return json(
-        { code: "conversation_edit_failed", message: errorMessage(error) },
-        503,
-      );
-    }
-  }
-
-  private async acquireForkSource(
-    request: ForkConversationEditRequest,
-  ): Promise<Response> {
-    if (this.conversationId() !== request.sourceConversationId) {
-      return json(
-        { code: "not_found", message: "Conversation not found." },
-        404,
-      );
-    }
-    const result = await this.ctx.blockConcurrencyWhile(async () => {
-      const ownerError = await this.bindConversationEditOwner(
-        request,
-        request.sourceCreatedAt,
-        request.title,
-      );
-      if (ownerError) return ownerError;
-      const existing = await this.activeConversationEditLock();
-      if (
-        existing &&
-        (existing.kind !== "fork-source" ||
-          !sameConversationEditLock(existing, request))
-      ) {
-        return json(
-          {
-            code: "conversation_edit_in_progress",
-            message: "Another conversation edit is already running.",
-          },
-          409,
-        );
-      }
-      if (!existing && (await this.conversationHasRuntimeWork())) {
-        return json(
-          {
-            code: "turn_in_progress",
-            message:
-              "Wait for Stella to finish before forking this conversation.",
-            retryAfterMs: 1_000,
-          },
-          409,
-        );
-      }
-      const head = this.journal.head();
-      if (
-        head.epoch !== request.expectedEpoch ||
-        head.headSeq !== request.expectedLastSeq
-      ) {
-        return json(
-          {
-            code: "head_conflict",
-            message: "The conversation changed before it could be forked.",
-            epoch: head.epoch,
-            lastSeq: head.headSeq,
-          },
-          409,
-        );
-      }
-      const lock: ConversationEditLock = {
-        kind: "fork-source",
-        operationId: request.operationId,
-        ownerId: request.ownerId,
-        ownerGeneration: request.ownerGeneration,
-        expectedEpoch: request.expectedEpoch,
-        expectedLastSeq: request.expectedLastSeq,
-        throughSeq: request.throughSeq,
-        expiresAt: Date.now() + CONVERSATION_EDIT_LEASE_MS,
-      };
-      await this.ctx.storage.put(CONVERSATION_EDIT_LOCK_KEY, lock);
-      return null;
-    });
-    if (result) return result;
-    await this.archive.prepareForEdit();
-    if (
-      !(await this.validConversationEditBoundary(
-        request.throughSeq,
-        request.expectedLastSeq,
-      ))
-    ) {
-      await this.ctx.storage.delete(CONVERSATION_EDIT_LOCK_KEY);
-      return json(
-        {
-          code: "invalid_boundary",
-          message: "Fork at a user-message boundary.",
-        },
-        409,
-      );
-    }
-    const agentRuntime = await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY);
-    return json({
-      acquired: true,
-      sourceEpoch: request.expectedEpoch,
-      sourceLastSeq: request.expectedLastSeq,
-      // A fork runs on the engine its source ran on.
-      ...(agentRuntime === "pi" ? { agentRuntime } : {}),
-    });
-  }
-
-  private async requireForkSourceLock(
-    request: ForkConversationEditRequest,
-  ): Promise<ConversationEditLock | Response> {
-    const lock = await this.activeConversationEditLock();
-    if (
-      !lock ||
-      lock.kind !== "fork-source" ||
-      !sameConversationEditLock(lock, request)
-    ) {
-      return json(
-        {
-          code: "fork_lease_lost",
-          message: "The fork snapshot lease expired.",
-        },
-        409,
-      );
-    }
-    const head = this.journal.head();
-    if (
-      head.epoch !== request.expectedEpoch ||
-      head.headSeq !== request.expectedLastSeq
-    ) {
-      return json(
-        {
-          code: "head_conflict",
-          message: "The fork source changed.",
-          epoch: head.epoch,
-          lastSeq: head.headSeq,
-        },
-        409,
-      );
-    }
-    lock.expiresAt = Date.now() + CONVERSATION_EDIT_LEASE_MS;
-    await this.ctx.storage.put(CONVERSATION_EDIT_LOCK_KEY, lock);
-    return lock;
-  }
-
-  private async exportForkSource(
-    request: ForkConversationEditRequest,
-    fromValue: unknown,
-  ): Promise<Response> {
-    const lock = await this.requireForkSourceLock(request);
-    if (lock instanceof Response) return lock;
-    const fromSeq =
-      typeof fromValue === "number" && Number.isSafeInteger(fromValue)
-        ? fromValue
-        : -2;
-    if (fromSeq < 0 || fromSeq > request.throughSeq) {
-      return json(
-        { code: "bad_request", message: "Invalid fork cursor." },
-        400,
-      );
-    }
-    const page = await this.archive.exportRawPage(
-      fromSeq,
-      request.throughSeq,
-      CONVERSATION_EDIT_PAGE_ROWS,
-      CONVERSATION_EDIT_PAGE_BYTES,
-      async () => {
-        const renewed = await this.requireForkSourceLock(request);
-        if (renewed instanceof Response) {
-          throw new Error("The fork source lease expired. Retry the request.");
-        }
-      },
-    );
-    return json(page);
-  }
-
-  private async releaseForkSource(
-    request: ForkConversationEditRequest,
-  ): Promise<Response> {
-    const lock = await this.activeConversationEditLock();
-    if (
-      lock?.kind === "fork-source" &&
-      sameConversationEditLock(lock, request)
-    ) {
-      await this.ctx.storage.delete(CONVERSATION_EDIT_LOCK_KEY);
-    }
-    return json({ released: true });
-  }
-
-  private forkTargetMatches(
-    state: ForkTargetState,
-    request: ForkConversationEditRequest,
-  ): boolean {
-    return (
-      state.operationId === request.operationId &&
-      state.ownerId === request.ownerId &&
-      state.ownerGeneration === request.ownerGeneration &&
-      state.sourceConversationId === request.sourceConversationId &&
-      state.targetConversationId === request.targetConversationId &&
-      state.throughSeq === request.throughSeq &&
-      state.sourceEpoch === request.expectedEpoch &&
-      state.sourceLastSeq === request.expectedLastSeq
-    );
-  }
-
-  private forkTargetLock(
-    request: ForkConversationEditRequest,
-  ): ConversationEditLock {
-    return {
-      kind: "fork-target",
-      operationId: request.operationId,
-      ownerId: request.ownerId,
-      ownerGeneration: request.ownerGeneration,
-      expectedEpoch: request.expectedEpoch,
-      expectedLastSeq: request.expectedLastSeq,
-      throughSeq: request.throughSeq,
-      expiresAt: Date.now() + CONVERSATION_EDIT_LEASE_MS,
-    };
-  }
-
-  private async requireForkTargetLock(
-    request: ForkConversationEditRequest,
-  ): Promise<ConversationEditLock | Response> {
-    const lock = await this.activeConversationEditLock();
-    if (
-      !lock ||
-      lock.kind !== "fork-target" ||
-      !sameConversationEditLock(lock, request)
-    ) {
-      return json(
-        {
-          code: "fork_lease_lost",
-          message: "The fork target lease expired. Retry the same request.",
-        },
-        409,
-      );
-    }
-    lock.expiresAt = Date.now() + CONVERSATION_EDIT_LEASE_MS;
-    await this.ctx.storage.put(CONVERSATION_EDIT_LOCK_KEY, lock);
-    return lock;
-  }
-
-  private async beginForkTarget(
-    request: ForkConversationEditRequest,
-    raw: Record<string, unknown> | null,
-  ): Promise<Response> {
-    if (this.conversationId() !== request.targetConversationId) {
-      return json(
-        { code: "not_found", message: "Fork target not found." },
-        404,
-      );
-    }
-    const sourceEpoch = raw?.sourceEpoch;
-    const sourceLastSeq = raw?.sourceLastSeq;
-    if (
-      sourceEpoch !== request.expectedEpoch ||
-      sourceLastSeq !== request.expectedLastSeq
-    ) {
-      return json(
-        { code: "source_conflict", message: "Fork source changed." },
-        409,
-      );
-    }
-    return await this.ctx.blockConcurrencyWhile(async () => {
-      const activeLock = await this.activeConversationEditLock();
-      if (
-        activeLock &&
-        (activeLock.kind !== "fork-target" ||
-          !sameConversationEditLock(activeLock, request))
-      ) {
-        return json(
-          {
-            code: "conversation_edit_in_progress",
-            message: "Another conversation edit is already running.",
-          },
-          409,
-        );
-      }
-      const existing = await this.ctx.storage.get<ForkTargetState>(
-        CONVERSATION_FORK_TARGET_KEY,
-      );
-      if (existing) {
-        if (!this.forkTargetMatches(existing, request)) {
-          return json(
-            {
-              code: "target_conflict",
-              message: "Fork target is already in use.",
-            },
-            409,
-          );
-        }
-        await this.ctx.storage.put(
-          CONVERSATION_EDIT_LOCK_KEY,
-          this.forkTargetLock(request),
-        );
-        return json({ begun: true, replayed: true });
-      }
-      const meta = this.journal.meta();
-      if (
-        meta.next_seq !== 0 ||
-        (meta.owner_id !== "" && meta.owner_id !== request.ownerId) ||
-        (meta.conversation_id !== "" &&
-          meta.conversation_id !== request.targetConversationId)
-      ) {
-        return json(
-          { code: "target_conflict", message: "Fork target is not empty." },
-          409,
-        );
-      }
-      const ownerError = await this.bindConversationEditOwner(
-        request,
-        request.targetCreatedAt,
-        request.title,
-      );
-      if (ownerError) return ownerError;
-      const state: ForkTargetState = {
-        operationId: request.operationId,
-        ownerId: request.ownerId,
-        ownerGeneration: request.ownerGeneration,
-        sourceConversationId: request.sourceConversationId,
-        targetConversationId: request.targetConversationId,
-        sourceEpoch: request.expectedEpoch,
-        sourceLastSeq: request.expectedLastSeq,
-        throughSeq: request.throughSeq,
-        nextSeq: 0,
-        title: request.title,
-        createdAt: request.targetCreatedAt,
-        state: "copying",
-      };
-      await this.ctx.storage.put({
-        [CONVERSATION_FORK_TARGET_KEY]: state,
-        [CONVERSATION_EDIT_LOCK_KEY]: this.forkTargetLock(request),
-        // Its first pi turn imports the copied journal whole.
-        ...(raw?.sourceAgentRuntime === "pi"
-          ? { [AGENT_RUNTIME_KEY]: "pi" }
-          : {}),
-      });
-      return json({ begun: true, replayed: false });
-    });
-  }
-
-  private parseForkRows(value: unknown): JournalRow[] | null {
-    if (!Array.isArray(value) || value.length > CONVERSATION_EDIT_PAGE_ROWS) {
-      return null;
-    }
-    const rows: JournalRow[] = [];
-    for (const valueRow of value) {
-      if (
-        !valueRow ||
-        typeof valueRow !== "object" ||
-        Array.isArray(valueRow)
-      ) {
-        return null;
-      }
-      const row = valueRow as Partial<JournalRow>;
-      if (
-        !Number.isSafeInteger(row.seq) ||
-        typeof row.kind !== "string" ||
-        typeof row.turn_id !== "string" ||
-        typeof row.writer !== "string" ||
-        typeof row.writer_key !== "string" ||
-        !Number.isSafeInteger(row.created_at) ||
-        !Number.isSafeInteger(row.bytes) ||
-        typeof row.payload_json !== "string" ||
-        !Number.isSafeInteger(row.hidden) ||
-        !Number.isSafeInteger(row.model_skip) ||
-        !Number.isSafeInteger(row.open_calls) ||
-        !Number.isSafeInteger(row.tokens)
-      ) {
-        return null;
-      }
-      rows.push(row as JournalRow);
-    }
-    return rows;
-  }
-
-  private async importForkTarget(
-    request: ForkConversationEditRequest,
-    raw: Record<string, unknown> | null,
-  ): Promise<Response> {
-    const lock = await this.requireForkTargetLock(request);
-    if (lock instanceof Response) return lock;
-    const state = await this.ctx.storage.get<ForkTargetState>(
-      CONVERSATION_FORK_TARGET_KEY,
-    );
-    if (!state || !this.forkTargetMatches(state, request)) {
-      return json(
-        { code: "target_conflict", message: "Fork target is unavailable." },
-        409,
-      );
-    }
-    if (state.state === "complete")
-      return json({ imported: true, replayed: true });
-    const rows = this.parseForkRows(raw?.rows);
-    if (!rows || rows.length === 0) {
-      return json({ code: "bad_request", message: "Fork page is empty." }, 400);
-    }
-    const firstSeq = rows[0]!.seq;
-    const currentNext = this.journal.meta().next_seq;
-    if (firstSeq !== currentNext) {
-      return json(
-        {
-          code: "fork_cursor_conflict",
-          message: "Fork page does not match the target cursor.",
-          nextSeq: currentNext,
-        },
-        409,
-      );
-    }
-    const mappedSpills = new Map<string, string>();
-    for (const row of rows) {
-      if (!row.spill_key) continue;
-      let targetKey = mappedSpills.get(row.spill_key);
-      if (!targetKey) {
-        const beforeCopy = await this.requireForkTargetLock(request);
-        if (beforeCopy instanceof Response) return beforeCopy;
-        targetKey = await this.archive.copyForkSpill(
-          row.spill_key,
-          request.operationId,
-        );
-        const afterCopy = await this.requireForkTargetLock(request);
-        if (afterCopy instanceof Response) return afterCopy;
-        mappedSpills.set(row.spill_key, targetKey);
-      }
-      row.spill_key = targetKey;
-    }
-    const imported = this.journal.importForkRows(
-      rows,
-      request.operationId,
-      request.ownerId,
-    );
-    if (!imported) {
-      return json({ code: "bad_request", message: "Fork page is empty." }, 400);
-    }
-    const nextSeq = imported.lastSeq + 1;
-    if (raw?.nextSeq !== nextSeq || nextSeq > request.throughSeq + 1) {
-      throw new Error("Fork source and target cursors diverged.");
-    }
-    state.nextSeq = nextSeq;
-    await this.ctx.storage.put(CONVERSATION_FORK_TARGET_KEY, state);
-    return json({
-      imported: true,
-      nextSeq,
-      complete: nextSeq > request.throughSeq,
-    });
-  }
-
-  private async forkTargetStatus(
-    request: ForkConversationEditRequest,
-  ): Promise<Response> {
-    const lock = await this.requireForkTargetLock(request);
-    if (lock instanceof Response) return lock;
-    const state = await this.ctx.storage.get<ForkTargetState>(
-      CONVERSATION_FORK_TARGET_KEY,
-    );
-    if (!state || !this.forkTargetMatches(state, request)) {
-      return json(
-        { code: "target_conflict", message: "Fork target is unavailable." },
-        409,
-      );
-    }
-    const meta = this.journal.meta();
-    const preview =
-      state.state === "complete" ? this.journal.lastPreview(160) : null;
-    return json({
-      state: state.state,
-      nextSeq: meta.next_seq,
-      targetEpoch: meta.epoch,
-      lastSeq: meta.next_seq - 1,
-      ...(preview ? { lastPreview: preview.text, lastRole: preview.role } : {}),
-    });
-  }
-
-  private async completeForkTarget(
-    request: ForkConversationEditRequest,
-  ): Promise<Response> {
-    const lock = await this.requireForkTargetLock(request);
-    if (lock instanceof Response) return lock;
-    const state = await this.ctx.storage.get<ForkTargetState>(
-      CONVERSATION_FORK_TARGET_KEY,
-    );
-    if (!state || !this.forkTargetMatches(state, request)) {
-      return json(
-        { code: "target_conflict", message: "Fork target is unavailable." },
-        409,
-      );
-    }
-    const meta = this.journal.meta();
-    if (meta.next_seq !== request.throughSeq + 1) {
-      return json(
-        { code: "fork_incomplete", message: "Fork target is still copying." },
-        409,
-      );
-    }
-    // The source prefix may span many cold R2 segments. Import is deliberately
-    // gapless into SQLite first; cut it back to the normal hot window before
-    // the target becomes discoverable so a large fork does not stay resident.
-    await this.archive.maybeRollover(Date.now());
-    state.state = "complete";
-    state.nextSeq = meta.next_seq;
-    state.completedAt = Date.now();
-    await this.ctx.storage.put(CONVERSATION_FORK_TARGET_KEY, state);
-    return json({ complete: true });
-  }
-
-  private async releaseForkTarget(
-    request: ForkConversationEditRequest,
-  ): Promise<Response> {
-    const lock = await this.activeConversationEditLock();
-    if (
-      lock?.kind === "fork-target" &&
-      sameConversationEditLock(lock, request)
-    ) {
-      await this.ctx.storage.delete(CONVERSATION_EDIT_LOCK_KEY);
-      // Publish the copy to the owner's index now, not when a client first
-      // connects: the index row is what an owner purge finds it by.
-      await this.index
-        .flush({ activity: "idle", updatedAt: Date.now() })
-        .catch(() => undefined);
-    }
-    return json({ released: true });
-  }
-
-  private async requestRewindCancellation(): Promise<void> {
-    const queued = await this.ctx.storage.list({ prefix: "queued:", limit: 1 });
-    if (queued.size > 0) {
-      throw new Error("Queued turns must be canceled before rewinding.");
-    }
-    const localLease =
-      await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
-    if (localLease) await this.cancelLocalTurn(localLease);
-    const turn = await this.ctx.storage.get<ChatTurnRequest>("turn");
-    if (turn && !(await this.ctx.storage.get<boolean>("terminal"))) {
-      await this.cancelTurn(turn.turnId);
-    }
-  }
-
-  private async renewRewindLock(
-    request: RewindConversationEditRequest,
-  ): Promise<void> {
-    const lock = await this.activeConversationEditLock();
-    if (
-      !lock ||
-      lock.kind !== "rewind" ||
-      !sameConversationEditLock(lock, request)
-    ) {
-      throw new Error("The rewind lease expired. Retry the same request.");
-    }
-    lock.expiresAt = Date.now() + CONVERSATION_EDIT_LEASE_MS;
-    await this.ctx.storage.put(CONVERSATION_EDIT_LOCK_KEY, lock);
-  }
-
-  private async finalizeRewindSideEffects(
-    request: RewindConversationEditRequest,
-    now: number,
-  ): Promise<void> {
-    this.live = null;
-    this.hub.closeAll(1012);
-    const lock = await this.activeConversationEditLock();
-    if (lock?.kind === "rewind" && sameConversationEditLock(lock, request)) {
-      await this.ctx.storage.delete(CONVERSATION_EDIT_LOCK_KEY);
-    }
-    await this.index
-      .flush({ activity: "idle", updatedAt: now })
-      .catch(() => undefined);
-    await this.archive.drainPurge().catch((error) => {
-      log("error", "conversation_rewind_cleanup_deferred", {
-        operationId: request.operationId,
-        message: errorMessage(error),
-      });
-    });
-  }
-
-  private async rewindConversation(
-    request: RewindConversationEditRequest,
-  ): Promise<Response> {
-    if (this.conversationId() !== request.conversationId) {
-      return json(
-        { code: "not_found", message: "Conversation not found." },
-        404,
-      );
-    }
-    const meta = this.journal.meta();
-    const replay =
-      this.journal.conversationEditReceipt<RewindConversationEditResult>(
-        request.operationId,
-        "rewind",
-      );
-    if (replay) {
-      if (meta.owner_id !== request.ownerId) {
-        return json(
-          { code: "not_found", message: "Conversation not found." },
-          404,
-        );
-      }
-      await this.finalizeRewindSideEffects(request, Date.now());
-      return json({ ...replay, replayed: true });
-    }
-    const admission = await this.ctx.blockConcurrencyWhile(async () => {
-      const ownerError = await this.bindConversationEditOwner(
-        request,
-        meta.created_at,
-        meta.title || "Conversation",
-      );
-      if (ownerError) return { ok: false, response: ownerError } as const;
-      const head = this.journal.head();
-      const existingLock = await this.activeConversationEditLock();
-      if (
-        !conversationRewindHeadMatches(
-          request,
-          { epoch: head.epoch, lastSeq: head.headSeq },
-          existingLock,
-        )
-      ) {
-        return {
-          ok: false,
-          response: json(
-            {
-              code: "head_conflict",
-              message: "The conversation changed before it could be rewound.",
-              epoch: head.epoch,
-              lastSeq: head.headSeq,
-            },
-            409,
-          ),
-        } as const;
-      }
-      if (existingLock && !sameConversationEditLock(existingLock, request)) {
-        return {
-          ok: false,
-          response: json(
-            {
-              code: "conversation_edit_in_progress",
-              message: "Another edit is running.",
-            },
-            409,
-          ),
-        } as const;
-      }
-      const queued = await this.ctx.storage.list({
-        prefix: "queued:",
-        limit: 1,
-      });
-      const runtimeWork = await this.conversationHasRuntimeWork();
-      const runtimeAdmission = rewindRuntimeAdmission(request, {
-        runtimeWork,
-        queuedTurn: queued.size > 0,
-        continuingOperation: existingLock !== null,
-      });
-      if (runtimeAdmission === "turn-conflict") {
-        return {
-          ok: false,
-          response: json(
-            {
-              code: "turn_in_progress",
-              message: "Wait for Stella to finish before rewinding.",
-              retryAfterMs: 1_000,
-            },
-            409,
-          ),
-        } as const;
-      }
-      if (runtimeAdmission === "queued-conflict") {
-        return {
-          ok: false,
-          response: json(
-            {
-              code: "queued_turn_conflict",
-              message: "Cancel queued turns before rewinding.",
-            },
-            409,
-          ),
-        } as const;
-      }
-      const lock: ConversationEditLock = {
-        kind: "rewind",
-        operationId: request.operationId,
-        ownerId: request.ownerId,
-        ownerGeneration: request.ownerGeneration,
-        expectedEpoch: request.expectedEpoch,
-        expectedLastSeq: request.expectedLastSeq,
-        throughSeq: request.throughSeq,
-        expiresAt: Date.now() + CONVERSATION_EDIT_LEASE_MS,
-      };
-      await this.ctx.storage.put(CONVERSATION_EDIT_LOCK_KEY, lock);
-      return { ok: true, head, runtimeWork } as const;
-    });
-    if (!admission.ok) return admission.response;
-    const { head, runtimeWork } = admission;
-    if (runtimeWork) {
-      await this.requestRewindCancellation();
-      return json({
-        complete: false,
-        kind: "rewind",
-        operationId: request.operationId,
-        conversationId: request.conversationId,
-        previousEpoch: request.expectedEpoch,
-        nextEpoch: request.expectedEpoch,
-        lastSeq: request.expectedLastSeq,
-        cancelRequested: true,
-      } satisfies RewindConversationEditResult);
-    }
-    if (
-      !(await this.validConversationEditBoundary(
-        request.throughSeq,
-        head.headSeq,
-      ))
-    ) {
-      await this.ctx.storage.delete(CONVERSATION_EDIT_LOCK_KEY);
-      return json(
-        {
-          code: "invalid_boundary",
-          message: "Rewind at a user-message boundary.",
-        },
-        409,
-      );
-    }
-
-    const now = Date.now();
-    const plan = await this.archive.prepareTruncate(
-      request.throughSeq,
-      request.expectedEpoch + 1,
-      now,
-      () => this.renewRewindLock(request),
-    );
-    const result: RewindConversationEditResult & { replayed: boolean } = {
-      complete: true,
-      kind: "rewind",
-      operationId: request.operationId,
-      conversationId: request.conversationId,
-      previousEpoch: request.expectedEpoch,
-      nextEpoch: request.expectedEpoch + 1,
-      lastSeq: request.throughSeq,
-      ...(plan.lastPreview
-        ? {
-            lastPreview: plan.lastPreview.text,
-            lastRole: plan.lastPreview.role,
-          }
-        : {}),
-      replayed: false,
-    };
-    await this.renewRewindLock(request);
-    await this.journal.applyTruncate({
-      operationId: request.operationId,
-      throughSeq: request.throughSeq,
-      expectedEpoch: request.expectedEpoch,
-      expectedLastSeq: head.headSeq,
-      replacementSegment: plan.replacementSegment,
-      removedSegmentFirstSeqs: plan.removedSegmentFirstSeqs,
-      purgeKeys: plan.purgeKeys,
-      retiredWriterKeys: plan.retiredWriterKeys,
-      retiredTurnIds: plan.removedTurnIds,
-      retiredAt: now,
-      resultJson: JSON.stringify(result),
-    });
-    if ((await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi") {
-      await this.ctx.storage.put(PI_REWOUND_KEY, {
-        epoch: result.nextEpoch,
-        throughSeq: request.throughSeq,
-      });
-    }
-    await this.finalizeRewindSideEffects(request, now);
-    return json(result);
   }
 
   // ---------------------------------------------------------------------------
@@ -9408,7 +8383,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         terminal,
         terminalDelivered,
         queued,
-        editLock,
       ] = await Promise.all([
         this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY),
         clientMsgId
@@ -9423,13 +8397,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           prefix: "queued:",
           limit: 1,
         }),
-        this.activeConversationEditLock(),
       ]);
       const cloudBusy =
         Boolean(cloudTurn && terminal !== true) ||
         Boolean(cloudTurn && terminalDelivered !== true) ||
         queued.size > 0;
-      if (local || cloudBusy || editLock || this.purged()) return;
+      if (local || cloudBusy || this.purged()) return;
       if (clientMsgId) {
         const replay = classifyLocalClientMessageReplay(
           concurrentClientReceipt,
@@ -10445,16 +9418,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // same reason the append route re-reads it.
       if (this.purged()) {
         return json({ error: "This conversation was deleted." }, 410);
-      }
-      if (await this.activeConversationEditLock()) {
-        return json(
-          {
-            code: "conversation_edit_in_progress",
-            message: "This conversation is being edited. Try again shortly.",
-            retryAfterMs: 1_000,
-          },
-          409,
-        );
       }
       if (await this.turnRunning()) {
         const size = this.journal.inboxSize();

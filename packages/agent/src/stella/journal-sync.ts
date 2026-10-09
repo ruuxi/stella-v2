@@ -52,15 +52,10 @@ export type JournalSyncState = {
   mirrored?: number;
   open?: JournalOpenTurn;
   /**
-   * The journal epoch the transcript follows. A rewind starts a new one,
-   * whose seqs repeat the old ones': its imports are new writes.
+   * The journal epoch the transcript follows, when it started over on a new
+   * one whose seqs repeat the old ones': its imports are new writes.
    */
   epoch?: number;
-  /**
-   * After a rewind, the journal through this seq is imported whole, the
-   * host's own turns included: the reset dropped them from its context.
-   */
-  importAllThrough?: number;
 };
 
 /** How far the transcript and the journal are in step, per conversation. */

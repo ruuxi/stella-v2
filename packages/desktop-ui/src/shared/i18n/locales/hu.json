@@ -182,13 +182,10 @@
       "messageActions": {
         "copied": "Másolva",
         "copy": "Másolás",
-        "fork": "Fork to new chat",
         "more": "További műveletek",
         "quote": "Quote",
         "readAloud": "Felolvasás",
         "reply": "Válasz",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Felolvasás leállítása"

@@ -50,6 +50,7 @@ import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import { OfficePreviewCard } from "@/app/chat/OfficePreviewCard";
 import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";
 import { FilePills } from "@/app/chat/FilePills";
+import type { ConversationFileEntry } from "@/features/workspace-display/derive-conversation-files";
 import { MessageAttachments } from "@/app/chat/evidence/MessageAttachments";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import { AppPreviewCard } from "@/features/cloud/AppPreviewCard";
@@ -646,6 +647,29 @@ export const AssistantMessageRow = memo(
           },
         ]
       : unpreviewableFiles;
+    const fileKey = (file: ConversationFileEntry) =>
+      file.cloudDriveFile ? `cloud:${file.cloudDriveFile.path}` : `local:${file.path}`;
+    const completionFiles = conversationId
+      ? row.agentCompletion?.sections.flatMap((section) => section.files) ?? []
+      : [];
+    const replyFiles = [...completionFiles, ...attachedFiles].filter(
+      (file, index, all) =>
+        (file.cloudDriveFile || !evidencePathSet.has(file.path)) &&
+        all.findIndex((other) => fileKey(other) === fileKey(file)) === index,
+    );
+    const inlineImages = (row.inlineImagePayloads ?? []).filter(
+      (payload): payload is Extract<DisplayPayload, { kind: "media" }> =>
+        payload.kind === "media" &&
+        payload.presentation === "inline-image" &&
+        payload.asset.kind === "image",
+    );
+    const inlineImageStrip =
+      inlineImages.length > 0 ? (
+        <InlineGeneratedImageStrip
+          conversationId={conversationId}
+          payloads={inlineImages}
+        />
+      ) : null;
     // Shared predicate with ChatTimeline (which drops renderless rows
     // before virtualization) — see assistant-row-content.ts.
     if (!assistantRowHasVisibleContent(row)) {
@@ -679,13 +703,16 @@ export const AssistantMessageRow = memo(
             <div className="message-line message-line--assistant">
               <div className="assistant-message-text chat-bubble-text">
                 <Markdown text={text} cacheKey={row.cacheKey} hideHorizontalRules
-                  hiddenFilePaths={[
-                    ...(conversationId ? row.agentCompletion?.sections.slice(0, 3).flatMap((section) => section.files) ?? [] : []),
-                    ...(row.linkedFiles ?? []),
-                  ].map((file) => file.cloudDriveFile ? `cloud:${file.cloudDriveFile.path}` : `local:${file.path}`).concat(evidencePaths.map((filePath) => `local:${filePath}`))}
+                  hiddenFilePaths={[...completionFiles, ...linkedFiles]
+                    .map(fileKey)
+                    .concat(evidencePaths.map((filePath) => `local:${filePath}`))}
                 />
+                {inlineImageStrip}
                 {evidencePaths.length > 0 ? (
                   <MessageAttachments filePaths={evidencePaths} />
+                ) : null}
+                {replyFiles.length > 0 ? (
+                  <FilePills files={replyFiles} variant="bubble" />
                 ) : null}
               </div>
               {!row.isIntraTurn && (
@@ -700,8 +727,8 @@ export const AssistantMessageRow = memo(
               )}
             </div>
           )}
-          {attachedFiles.length > 0 ? (
-            <FilePills files={attachedFiles} />
+          {!hasText && replyFiles.length > 0 ? (
+            <FilePills files={replyFiles} />
           ) : null}
           {hasText
             ? extractStellaAppLinkSlugs(text).map((slug) => (
@@ -743,19 +770,7 @@ export const AssistantMessageRow = memo(
           {row.officePreviewRef && (
             <OfficePreviewCard previewRef={row.officePreviewRef} />
           )}
-          {row.inlineImagePayloads && row.inlineImagePayloads.length > 0 ? (
-            <InlineGeneratedImageStrip
-              conversationId={conversationId}
-              payloads={row.inlineImagePayloads.filter(
-                (
-                  payload,
-                ): payload is Extract<DisplayPayload, { kind: "media" }> =>
-                  payload.kind === "media" &&
-                  payload.presentation === "inline-image" &&
-                  payload.asset.kind === "image",
-              )}
-            />
-          ) : null}
+          {hasText ? null : inlineImageStrip}
           {row.sourceDiffPayloads && row.sourceDiffPayloads.length > 0 ? (
             <SourceDiffEndResource
               batchId={row.id}

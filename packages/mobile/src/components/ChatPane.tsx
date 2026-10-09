@@ -1,7 +1,9 @@
 import { AssistantBubble, SENT_BUBBLE_POP, useBubblePop } from "./BubblePop";
 import type { ReplyRef } from "@stella/contracts/reply-refs";
+import { cloudWorldDrivePath } from "@stella/contracts/cloud-world-paths";
 import { AgentReportSheet, ReplyFocus, type AgentReplyRef } from "./ReplyFocus";
 import { ReplyPreview, type ReplyAgentStatus } from "./ReplyPreview";
+import { ReplyFilePills } from "./ReplyFilePills";
 import { mobileReplyContexts, type MobileReplyContexts } from "../lib/mobile-reply-context";
 import {
   type ReactNode,
@@ -1576,6 +1578,17 @@ const ChatMessageRow = memo(function ChatMessageRow({
     paths.push(...extractLocalFileLinkPaths(item.text ?? ""));
     return paths;
   }, [consolidated.looseFiles, item.role, item.text]);
+  // A cloud turn names one drive file twice: drive-relative as an artifact,
+  // world-absolute as a link. The strip shows each file once.
+  const evidenceStripPaths = useMemo(() => {
+    const seen = new Set<string>();
+    return evidencePaths.filter((filePath) => {
+      const key = cloudWorldDrivePath(filePath) ?? filePath;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [evidencePaths]);
   // Schedule tool results render their human-readable summaries as plain
   // text lines in the flow (desktop parity — no chip/card). Every settled
   // Schedule call in the turn gets its line, in call order; unparseable or
@@ -1814,16 +1827,18 @@ const ChatMessageRow = memo(function ChatMessageRow({
   // media previews, then the rest as pills.
   const showEvidence = !isStandIn && evidencePaths.length > 0;
   const showArtifacts =
-    showMapArtifacts || showGeneratedImages || linkedAppSlugs.length > 0;
+    showMapArtifacts ||
+    (showGeneratedImages && !hasText) ||
+    linkedAppSlugs.length > 0;
   // Desktop renders the complete markdown body once, then attaches activity
   // and artifact cards at the row boundary. Keep the same shape on mobile:
   // stored text offsets still describe event chronology, but must never become
   // character-level insertion points that split prose (or markdown) in two.
   const groupAgentWorkArtifacts = agentWorkArtifacts;
   // Desktop parity: a task whose result this reply relays is quoted ABOVE
-  // the bubble the iMessage way, with its produced files as pills inside
-  // that quote. It is the only completion presentation; the settled spawn
-  // row below the text is gone. A settled follow-up keeps its spawn row.
+  // the bubble the iMessage way; the files it produced ride as pills at the
+  // bottom of the reply bubble itself. A settled follow-up keeps its spawn
+  // row.
   const completionQuotes = groupAgentWorkArtifacts.flatMap((artifact) => {
     if (
       artifact.payload.state !== "done" ||
@@ -1848,26 +1863,70 @@ const ChatMessageRow = memo(function ChatMessageRow({
             title: artifact.payload.title,
             files: [] as ChatArtifact[],
           }));
-    // Files the reply itself links join the quote's pills (desktop parity).
-    const linked = extractLocalFileLinkPaths(item.text ?? "").map((path) =>
-      stellaFileChatArtifact(path, artifact.conversationId),
-    );
     return agents.flatMap((agent) => {
       if (!agent.agentId) return [];
-      const seen = new Set(agent.files.map((file) => file.id));
-      const files = [...agent.files, ...linked.filter((file) => !seen.has(file.id))];
       return [{
         key: `${artifact.id}:${agent.agentId}`,
         artifactId: artifact.id,
         ref: { kind: "agent" as const, threadId: agent.agentId, title: agent.title || artifact.payload.title },
-        files,
+        files: agent.files,
       }];
     });
   });
   const quotedThreadIds = new Set(completionQuotes.map((quote) => quote.ref.threadId));
+  // Files a relayed task produced, minus any the evidence strip already shows
+  // because the reply links them.
+  const evidencePathSet = new Set(evidencePaths);
+  const replyFiles = onOpenArtifact
+    ? completionQuotes
+        .flatMap((quote) => quote.files)
+        .filter((file, index, all) => {
+          const filePath = artifactPrimaryFilePath(file.payload);
+          return (
+            !(filePath && evidencePathSet.has(filePath)) &&
+            all.findIndex((other) => other.id === file.id) === index
+          );
+        })
+    : [];
+  const showReplyFiles = !isStandIn && replyFiles.length > 0;
+  // Everything the reply attaches sits at the bottom of its bubble; a reply
+  // with no text shows the same pieces on their own.
+  const generatedImageCards = showGeneratedImages
+    ? generatedImages.map((artifact) => (
+        <GeneratedImageCard
+          key={artifact.id}
+          artifact={artifact}
+          access={desktopAccess ?? undefined}
+          colors={colors}
+          onPress={onOpenArtifact}
+        />
+      ))
+    : null;
+  const evidenceStrip = showEvidence ? (
+    <MessageEvidenceStrip
+      filePaths={evidenceStripPaths}
+      conversationId={conversationId}
+      access={desktopAccess ?? null}
+      colors={colors}
+      onOpen={onOpenStellaFile}
+      style={hasText ? styles.bubbleEvidence : undefined}
+    />
+  ) : null;
+  const replyFilePills =
+    showReplyFiles && onOpenArtifact ? (
+      <ReplyFilePills
+        files={replyFiles}
+        colors={colors}
+        onOpenArtifact={onOpenArtifact}
+        style={styles.bubbleFilePills}
+      />
+    ) : null;
+  const bubbleHasAttachments = showGeneratedImages || showEvidence || showReplyFiles;
+  const bubbleHasMedia = showGeneratedImages || showEvidence;
+  const fillAssistantBubble = boundedAssistantBubble || bubbleHasMedia;
   const assistantBubble = (
     <AssistantBubble
-      style={[styles.assistantBubble, boundedAssistantBubble && styles.assistantBlockBubble]}
+      style={[styles.assistantBubble, fillAssistantBubble && styles.assistantBlockBubble]}
       animate={!menuClone && (animate || mountedEmptyRef.current)}
     >
       <AssistantMarkdown
@@ -1876,6 +1935,15 @@ const ChatMessageRow = memo(function ChatMessageRow({
         fill={boundedAssistantBubble}
         onStellaFileLink={onOpenStellaFile}
       />
+      {bubbleHasAttachments ? (
+        <View style={styles.bubbleAttachments}>
+          {showGeneratedImages ? (
+            <View style={styles.artifactGroup}>{generatedImageCards}</View>
+          ) : null}
+          {evidenceStrip}
+          {replyFilePills}
+        </View>
+      ) : null}
     </AssistantBubble>
   );
   if (menuClone) return assistantBubble;
@@ -1894,8 +1962,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
               colors={colors}
               onOpen={() => onOpenReply(quote.ref)}
               onOpenReport={onOpenReport ? () => onOpenReport(quote.ref) : undefined}
-              files={quote.files}
-              onOpenArtifact={onOpenArtifact}
             />
           ))
         : null}
@@ -1930,7 +1996,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
           ref={bubbleRef}
           collapsable={false}
           style={[
-            boundedAssistantBubble ? styles.assistantBubbleSlotFill : styles.assistantBubbleSlot,
+            fillAssistantBubble ? styles.assistantBubbleSlotFill : styles.assistantBubbleSlot,
             menuActive && styles.bubbleHidden,
           ]}
         >
@@ -1975,30 +2041,13 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 />
               ))
             : null}
-          {showGeneratedImages
-            ? generatedImages.map((artifact) => {
-                return (
-                  <GeneratedImageCard
-                    key={artifact.id}
-                    artifact={artifact}
-                    access={desktopAccess ?? undefined}
-                    colors={colors}
-                    onPress={onOpenArtifact}
-                  />
-                );
-              })
-            : null}
+          {hasText ? null : generatedImageCards}
         </View>
       ) : null}
-      {showEvidence ? (
-        <MessageEvidenceStrip
-          filePaths={evidencePaths}
-          conversationId={conversationId}
-          access={desktopAccess ?? null}
-          colors={colors}
-          onOpen={onOpenStellaFile}
-        />
-      ) : null}
+      {hasText ? null : evidenceStrip}
+      {hasText || !replyFilePills ? null : (
+        <View style={styles.artifactGroupSpaced}>{replyFilePills}</View>
+      )}
       {item.stopped ? (
         <Text
           style={styles.stoppedTag}
@@ -5411,6 +5460,9 @@ const makeStyles = (colors: Colors) =>
       marginTop: 6,
     },
     artifactGroup: { gap: 10 },
+    bubbleAttachments: { gap: 10, paddingBottom: 12 },
+    bubbleFilePills: { marginTop: 2 },
+    bubbleEvidence: { marginTop: 0 },
     artifactGroupSpaced: { marginTop: 10 },
     assistantText: {
       color: colors.assistantBubbleText,

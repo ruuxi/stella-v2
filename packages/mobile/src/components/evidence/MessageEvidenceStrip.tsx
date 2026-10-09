@@ -7,6 +7,8 @@ import {
   View,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
+  type StyleProp,
+  type ViewStyle,
 } from "react-native";
 import { Image } from "expo-image";
 import type { EvidenceCard } from "@stella/contracts/chat-evidence";
@@ -20,6 +22,8 @@ import {
 import type { StoredPhoneAccess } from "../../lib/phone-access";
 import type { Colors } from "../../theme/colors";
 import { fonts } from "../../theme/fonts";
+import { fadeHex } from "../../theme/oklch";
+import { AGENT_ACTIVITY_INK } from "../../lib/agent-activity-presentation";
 import { CompareFrame } from "./CompareFrame";
 import { WaveformCard } from "./WaveformCard";
 
@@ -108,12 +112,14 @@ export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
   access,
   colors,
   onOpen,
+  style,
 }: {
   filePaths: readonly string[];
   conversationId: string;
   access: StoredPhoneAccess | null;
   colors: Colors;
   onOpen?: (filePath: string) => void;
+  style?: StyleProp<ViewStyle>;
 }) {
   const { media, pills, overflowCount } = useChatEvidence({
     filePaths,
@@ -152,7 +158,7 @@ export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
   if (media.length === 0 && pills.length === 0) return null;
 
   return (
-    <View style={styles.strip}>
+    <View style={[styles.strip, style]}>
       {media.length > 0 ? (
         <ScrollView
           ref={rowRef}
@@ -273,8 +279,11 @@ export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
                 style={({ pressed }) => [
                   styles.pill,
                   {
-                    backgroundColor: colors.surface,
-                    borderColor: colors.borderWeak,
+                    backgroundColor: fadeHex(colors[AGENT_ACTIVITY_INK.pillBorderInk], 0.03),
+                    borderColor: fadeHex(
+                      colors[AGENT_ACTIVITY_INK.pillBorderInk],
+                      AGENT_ACTIVITY_INK.pillBorderAlpha,
+                    ),
                     opacity: pressed ? 0.78 : 1,
                   },
                 ]}

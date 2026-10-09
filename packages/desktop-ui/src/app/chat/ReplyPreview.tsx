@@ -7,9 +7,9 @@
  * Clicking a preview opens focus on that target; an agent preview also
  * offers the task's full report.
  *
- * A task whose result this reply relays is quoted the same way, and that
- * bubble also holds the files the task produced as pills. It is the only
- * completion presentation: no separate row under the reply.
+ * A task whose result this reply relays is quoted the same way. Its
+ * produced files ride inside the reply bubble itself (see MessageRow), so
+ * the quote stays a single line.
  *
  * Whether a reference is worth quoting at all is decided upstream by the
  * shared reply-context rule (`@stella/contracts/reply-context`): a row only
@@ -22,8 +22,6 @@ import { useT } from "@/shared/i18n";
 import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
 import { useThreadActivityRecords } from "@/features/chat/hooks/use-thread-activity-records";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
-import type { ConversationFileEntry } from "@/features/workspace-display/derive-conversation-files";
-import { FilePills } from "./FilePills";
 import { TaskReportButton } from "./TaskReportButton";
 import "./reply-preview.css";
 
@@ -31,7 +29,7 @@ const MAX_STACKED_PREVIEWS = 3;
 
 type ReplyPreviewProps = {
   refs: readonly ReplyRef[];
-  /** Tasks whose results this reply relays: quoted with their files. */
+  /** Tasks whose results this reply relays. */
   completions?: readonly AgentCompletionSection[];
   conversationId: string;
 };
@@ -47,7 +45,7 @@ export const ReplyPreview = memo(function ReplyPreview({
 }: ReplyPreviewProps) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
-  // A completed task is quoted once: its completion (with files) wins over
+  // A completed task is quoted once: its completion wins over
   // a bare citation of the same thread.
   const completedThreadIds = new Set(completions.map((section) => section.agentId));
   const entries: PreviewEntry[] = [
@@ -80,7 +78,6 @@ export const ReplyPreview = memo(function ReplyPreview({
               conversationId={conversationId}
               status={activity.get(section.agentId)?.status ?? "completed"}
               liveTitle={activity.get(section.agentId)?.description ?? section.title}
-              files={section.files}
               completionEventId={section.completionEventId}
             />
           );
@@ -156,15 +153,12 @@ function AgentReplyPreview({
   conversationId,
   status,
   liveTitle,
-  files,
   completionEventId,
 }: {
   reference: Extract<ReplyRef, { kind: "agent" }>;
   conversationId: string;
   status?: "running" | "completed" | "error" | "canceled";
   liveTitle?: string;
-  /** The task's produced files, shown as pills inside the bubble. */
-  files?: readonly ConversationFileEntry[];
   /** Replay diagnostics identity of the completion this bubble quotes. */
   completionEventId?: string;
 }) {
@@ -195,11 +189,6 @@ function AgentReplyPreview({
       className="reply-preview__bubble reply-preview__bubble--agent"
       data-reply-ref-thread-id={reference.threadId}
       data-completion-event-id={completionEventId}
-      data-artifact-ids={
-        files && files.length > 0
-          ? files.map((entry) => entry.path).join(",")
-          : undefined
-      }
     >
       <div className="reply-preview__agent-main">
         <TaskReportButton
@@ -228,9 +217,6 @@ function AgentReplyPreview({
           Replies
         </button>
       </div>
-      {files && files.length > 0 ? (
-        <FilePills files={[...files]} variant="inline" />
-      ) : null}
     </div>
   );
 }

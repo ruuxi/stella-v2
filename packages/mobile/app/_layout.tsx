@@ -21,6 +21,10 @@ import {
 } from "../src/lib/notifications";
 import { installTextDefaults } from "../src/lib/setup-text-defaults";
 import { markSplashHidden } from "../src/lib/splash-state";
+import {
+  takeMainChatRequest,
+  useMainChatRequested,
+} from "../src/lib/main-chat-request";
 
 installTextDefaults();
 import { loadGuestMode, isGuest, setGuestMode } from "../src/lib/guest-mode";
@@ -34,8 +38,10 @@ import {
   loadOnboardingSeen,
 } from "../src/lib/onboarding";
 import {
+  MAIN_TAB_HREFS,
   enterMainShell,
   loadLastMainTabHref,
+  takePendingMainTab,
 } from "../src/lib/last-main-tab";
 import { observeCloudConversationIdentity } from "../src/lib/cloud-conversation-auth";
 import {
@@ -171,6 +177,7 @@ function AuthenticatedLayout() {
   const session = authClient.useSession();
   const router = useRouter();
   const pathname = usePathname();
+  const mainChatRequested = useMainChatRequested();
   const [guestReady, setGuestReady] = useState(false);
   const [initialMainHref, setInitialMainHref] = useState<string | null>(null);
   const splashHiddenRef = useRef(false);
@@ -284,6 +291,13 @@ function AuthenticatedLayout() {
       return;
     }
 
+    const openMainChat = () => {
+      if (!takeMainChatRequest()) return false;
+      takePendingMainTab();
+      router.dismissTo(MAIN_TAB_HREFS.chat);
+      return true;
+    };
+
     if (session.data) {
       const anonymous = session.data.user?.isAnonymous === true;
       if (isGuest() !== anonymous) void setGuestMode(anonymous);
@@ -298,6 +312,9 @@ function AuthenticatedLayout() {
       }
       if (!hasSeenOnboarding()) {
         router.replace("/onboarding");
+        return;
+      }
+      if (mainChatRequested && openMainChat()) {
         return;
       }
       if (onLogin || onIndex) {
@@ -317,16 +334,20 @@ function AuthenticatedLayout() {
         router.replace("/onboarding");
         return;
       }
+      if (mainChatRequested && openMainChat()) {
+        return;
+      }
       if (onIndex) {
         enterMainShell(router, initialMainHref);
       }
       return;
     }
 
-    if (onMain || onIndex) {
+    if (onMain || onIndex || (mainChatRequested && !onLogin)) {
       router.replace("/login");
     }
   }, [
+    mainChatRequested,
     pathname,
     router,
     session.data,

@@ -1863,10 +1863,10 @@
       "microphoneDeviceFallback": "Micrô {index}",
       "recovery": {
         "closing": "Đang đóng…",
-        "manageDescription": "Nếu quyền micrô bị kẹt, bạn có thể đặt lại và yêu cầu macOS hỏi lại.",
+        "manageDescription": "Đặt lại quyền micrô nếu bị kẹt.",
         "manageLabel": "Quản lý quyền truy cập micrô",
         "openSettings": "Mở Cài đặt",
-        "recoverDescription": "Sau khi bạn từ chối, macOS sẽ không tự hỏi lại. Hãy đặt lại quyền, rồi thoát và mở lại Stella.",
+        "recoverDescription": "macOS sẽ không hỏi lại. Hãy đặt lại rồi mở lại Stella.",
         "recoverLabel": "Khôi phục quyền truy cập micrô",
         "reset": "Đặt lại & khởi động lại"
       },
@@ -1879,22 +1879,22 @@
       },
       "speakerDeviceFallback": "Loa {index}",
       "superFast": {
-        "description": "Giữ micrô sẵn sàng để đọc chính tả bắt đầu với ít độ trễ hơn.",
+        "description": "Giữ micrô sẵn sàng để đọc chính tả bắt đầu nhanh hơn.",
         "label": "Đọc chính tả siêu nhanh"
       },
       "systemDefault": "Mặc định hệ thống",
       "wakeWord": {
-        "description": "Lắng nghe “Hey Stella” ở chế độ nền và bắt đầu cuộc trò chuyện bằng giọng nói. Khi tắt, micrô vẫn nhàn rỗi cho đến khi bạn nhấn đọc chính tả.",
+        "description": "Nói “Hey Stella” để bắt đầu trò chuyện bằng giọng nói.",
         "label": "Từ đánh thức “Hey Stella”"
       }
     },
     "browserExtension": {
       "action": "Tải tiện ích",
-      "description": "Cho phép Stella xem trang bạn đang ở và thực hiện thao tác trong trình duyệt của bạn.",
+      "description": "Cho phép Stella xem và thao tác trong trình duyệt của bạn.",
       "title": "Stella cho Chrome"
     },
     "chatStorage": {
-      "description": "Truy cập các cuộc trò chuyện của bạn trên mọi thiết bị. Tắt để giữ lịch sử trò chuyện riêng chỉ trên máy tính này. Khi bật lại, những cuộc trò chuyện đó sẽ không được tải lên. Các nhà cung cấp AI vẫn xử lý tin nhắn của bạn.",
+      "description": "Đồng bộ cuộc trò chuyện giữa các thiết bị. Khi tắt, chúng ở lại máy tính này.",
       "endVoice": "Hãy kết thúc cuộc trò chuyện bằng giọng nói để thay đổi nơi lưu trò chuyện.",
       "error": "Không thể thay đổi nơi lưu trò chuyện. Hãy thử lại.",
       "title": "Lưu lịch sử trò chuyện trên đám mây"
@@ -1913,13 +1913,13 @@
       "upgrade": "Nâng cấp"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Một Stella nhỏ lơ lửng trên màn hình nền của bạn.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "Khóa API",
-      "empty": "Chưa có nhà cung cấp nào được kết nối. Chọn một tùy chọn khác Stella trong bộ chọn mô hình ở trên để thêm khóa API hoặc đăng nhập.",
+      "empty": "Chưa có nhà cung cấp. Thêm từ bộ chọn mô hình ở trên.",
       "removeKey": "Xóa khóa",
       "removingKey": "Đang xóa…",
       "signOut": "Đăng xuất",
@@ -1938,7 +1938,7 @@
       "addClaude": "Thêm tài khoản Claude",
       "addInCloud": "Trên đám mây",
       "addOnComputer": "Trên máy tính này",
-      "cardIntro": "Dùng gói Claude hoặc ChatGPT bạn đã trả phí. Mỗi nơi đăng nhập riêng: từng máy tính và đám mây của bạn.",
+      "cardIntro": "Dùng gói Claude hoặc ChatGPT bạn đang trả phí.",
       "cardTitle": "Tài khoản Claude và ChatGPT",
       "chatgptBrowserWaiting": "Hoàn tất đăng nhập ChatGPT trong trình duyệt của bạn.",
       "chatgptCloudSignedIn": "Đám mây của bạn đã đăng nhập ChatGPT.",
@@ -1959,7 +1959,7 @@
         "whereComputer": "Đang đăng nhập Claude Code trên máy tính này."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Code chưa được cài trên máy tính này. Hãy cài đặt để dùng Claude tại đây.",
+      "cliMissing": "Cài Claude Code trên máy tính này để dùng Claude tại đây.",
       "connecting": "Đang kết nối…",
       "defaultSignedOut": "Claude Code trên máy tính này chưa đăng nhập.",
       "enablePlanUsage": "Bật sử dụng gói ChatGPT",
@@ -1970,14 +1970,14 @@
       "needsChatgptCloud": "Hãy tiếp tục với ChatGPT cho đám mây của bạn trước",
       "needsClaudeCloud": "Hãy đăng nhập Claude trên đám mây trước",
       "openChatgptAgain": "Mở lại ChatGPT",
-      "pasteHintChatgpt": "Sau khi bạn chấp thuận, ChatGPT sẽ chuyển bạn đến một trang không tải được. Hãy sao chép toàn bộ địa chỉ của trang đó và dán vào đây.",
+      "pasteHintChatgpt": "Sao chép địa chỉ trang ChatGPT mở ra và dán vào đây.",
       "pastePlaceholderUrl": "Dán địa chỉ vào đây",
       "placeCloud": "Đám mây",
       "placeComputer": "Máy tính này",
       "placeOtherComputer": "Máy tính khác",
       "placeSignedIn": "{place}: đã đăng nhập",
       "placeSignedOut": "{place}: chưa đăng nhập",
-      "planUsageOffBody": "Stella không thể dùng gói ChatGPT của bạn cho đến khi bạn cho phép. Chọn “Bật sử dụng gói ChatGPT” trên tài khoản hoặc dùng mô hình khác.",
+      "planUsageOffBody": "Chọn “Bật sử dụng gói ChatGPT” trên tài khoản hoặc chọn mô hình khác.",
       "planUsageOffTitle": "Đã đăng nhập, nhưng chưa bật sử dụng gói ChatGPT",
       "remove": "Xóa",
       "removed": "Đã xóa.",
@@ -2034,7 +2034,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Mức độ Stella cố liên hệ bạn khi cần câu trả lời.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2078,7 +2078,7 @@
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "note": "Máy tính đã đăng nhập hiển thị ở đây. Bật một máy để gửi việc cho nó.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2092,16 +2092,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Chọn ngôn ngữ Stella sử dụng trong ứng dụng và khi phản hồi bạn.",
+      "description": "Cho ứng dụng và câu trả lời của Stella.",
       "title": "Ngôn ngữ"
     },
     "lockedComputerUse": {
-      "description": "Cho phép Stella tiếp tục các tác vụ sử dụng máy tính sau khi máy Mac này bị khóa. Yêu cầu lời nhắc quản trị viên và che màn hình khi Stella làm việc.",
+      "description": "Giữ các tác vụ điều khiển máy tính chạy khi máy Mac này khóa.",
       "title": "Sử dụng máy tính khi đã khóa",
       "unsupported": "Sử dụng máy tính khi đã khóa chỉ có trên macOS."
     },
     "memory": {
-      "description": "Đưa các ký ức đã lưu và hồ sơ của bạn vào ngữ cảnh mô hình của Stella. Các máy tính của bạn và đám mây giữ cùng một bộ nhớ, được mã hóa cả khi truyền lẫn khi lưu trữ. Việc tắt tùy chọn này sẽ tạm dừng điều đó và loại bộ nhớ khỏi các cuộc trò chuyện sau nhưng không xóa bộ nhớ đó.",
+      "description": "Dùng ký ức đã lưu trong câu trả lời. Tắt sẽ không xóa chúng.",
       "title": "Bộ nhớ"
     },
     "modelPicker": {
@@ -2135,7 +2135,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Dùng bất kỳ máy chủ cục bộ tương thích OpenAI nào. Ollama thường chạy ở URL bên dưới.",
+        "hint": "Bất kỳ máy chủ cục bộ tương thích OpenAI nào, như Ollama.",
         "modelNameAriaLabel": "Tên mô hình cục bộ",
         "serverUrlAriaLabel": "URL máy chủ cục bộ"
       },
@@ -2179,7 +2179,7 @@
       "title": "Chuyển động"
     },
     "nativeFontSmoothing": {
-      "description": "Hiển thị văn bản như các ứng dụng macOS, với khử răng cưa thang độ xám.",
+      "description": "Khử răng cưa thang xám, như ứng dụng macOS gốc.",
       "title": "Làm mịn phông chữ gốc"
     },
     "notifications": {
@@ -2188,18 +2188,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Chạy lại phần giới thiệu. Dữ liệu của bạn vẫn giữ nguyên.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Cho phép Stella đọc văn bản đã chọn và mở bằng phím tắt ⌘+nhấp chuột phải ở bất kỳ đâu trên máy tính của bạn.",
+        "description": "Đọc văn bản đã chọn và mở bằng ⌘+nhấp chuột phải.",
         "label": "Trợ năng"
       },
       "enable": "Bật",
       "granted": "Đã cấp",
       "microphone": {
-        "description": "Dùng cho giọng nói và đọc chính tả. Đặt lại nếu Stella từng bị từ chối và macOS không hỏi lại.",
+        "description": "Cho giọng nói và đọc chính tả.",
         "label": "Micrô"
       },
       "opening": "Đang mở…",
@@ -2208,11 +2208,11 @@
       "restart": {
         "action": "Khởi động lại",
         "closing": "Đang đóng…",
-        "description": "Quay màn hình vừa được bật. Thoát và mở lại Stella để hoàn tất thiết lập.",
+        "description": "Mở lại Stella để hoàn tất bật ghi màn hình.",
         "label": "Khởi động lại Stella"
       },
       "screen": {
-        "description": "Cho phép Stella xem màn hình của bạn để hỗ trợ điều bạn đang xem. Bạn có thể cần thoát và mở lại Stella sau khi bật mục này.",
+        "description": "Cho phép Stella xem nội dung trên màn hình của bạn.",
         "label": "Quay màn hình"
       },
       "title": "Quyền"
@@ -2232,7 +2232,7 @@
         "other": "Đã ghép nối {count} điện thoại"
       },
       "pairing": {
-        "body": "Mở ứng dụng Stella trên điện thoại và quét mã QR, hoặc nhập mã bên dưới. Bạn chỉ cần làm việc này một lần.",
+        "body": "Quét mã QR trong ứng dụng Stella trên điện thoại hoặc nhập mã.",
         "headline": "Quét hoặc nhập mã này",
         "qrAlt": "Quét để ghép nối điện thoại của bạn"
       },
@@ -2268,7 +2268,7 @@
         "description": "Định tuyến trợ lý trò chuyện của Stella qua {provider}.",
         "label": "Trợ lý"
       },
-      "description": "{provider} có thể đảm nhận nhiều phần của Stella. Hãy chọn phần bạn muốn giao cho nó — Stella vẫn lo phần còn lại.",
+      "description": "Chọn {provider} sẽ dùng cho việc gì.",
       "errors": {
         "apply": "Không áp dụng được cài đặt nhà cung cấp."
       },
@@ -2297,7 +2297,7 @@
     },
     "resetCustomizations": {
       "action": "Khôi phục mặc định",
-      "description": "Xóa các tùy chỉnh kỹ năng và chỉnh sửa tính cách của bạn để áp dụng thiết lập mặc định của Stella. Những gì bị xóa được giữ trong ~/.stella/.trash phòng khi bạn muốn lấy lại.",
+      "description": "Khôi phục kỹ năng và tính cách mặc định. Tệp cũ được chuyển vào ~/.stella/.trash.",
       "done": "Đã khôi phục mặc định. Các tùy chỉnh trước đây của bạn đã được chuyển vào ~/.stella/.trash.",
       "error": "Không thể khôi phục mặc định.",
       "none": "Bạn đang dùng mặc định của Stella rồi.",
@@ -2331,7 +2331,7 @@
       "change": "Thay đổi",
       "clear": "Xóa",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Nhấn để đọc chính tả, nhấn lần nữa để kết thúc."
       },
       "errors": {
         "load": "Không tải được phím tắt.",
@@ -2369,7 +2369,7 @@
       "defaultOption": "Mặc định của Stella",
       "delete": "Xóa",
       "deleted": "Đã xóa lời nhắc.",
-      "description": "Lời nhắc mặc định của Stella luôn cập nhật cùng ứng dụng. Lưu lời nhắc của riêng bạn để dùng thay thế — nó được giữ riêng nên bản cập nhật không bao giờ ghi đè.",
+      "description": "Dùng lời nhắc của riêng bạn thay cho mặc định của Stella.",
       "duplicate": "Nhân bản",
       "edit": "Sửa",
       "error": "Đã xảy ra lỗi.",
@@ -2386,11 +2386,12 @@
       "account": "Tài khoản & Pháp lý",
       "audio": "Âm thanh",
       "general": "Chung",
-      "shortcuts": "Phím tắt"
+      "shortcuts": "Phím tắt",
+      "privacy": "Quyền riêng tư"
     },
     "title": "Cài đặt",
     "voiceAgent": {
-      "description": "Hiện các nút giọng nói và gọi để bạn nói chuyện với Stella. Đọc chính tả vẫn hoạt động trong cả hai trường hợp.",
+      "description": "Hiện nút điều khiển giọng nói và cuộc gọi. Đọc chính tả vẫn hoạt động.",
       "error": "Không thể cập nhật cài đặt giọng nói.",
       "title": "Trò chuyện bằng giọng nói"
     },
@@ -2412,6 +2413,13 @@
         "openai": "Giọng nói OpenAI",
         "xai": "Giọng nói Grok"
       }
+    },
+    "groups": {
+      "app": "Ứng dụng",
+      "personal": "Cá nhân"
+    },
+    "nav": {
+      "more": "Thêm"
     }
   },
   "shell": {

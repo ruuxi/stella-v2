@@ -1863,10 +1863,10 @@
       "microphoneDeviceFallback": "Mikrofon {index}",
       "recovery": {
         "closing": "Menutup…",
-        "manageDescription": "Jika izin mikrofon macet, Anda dapat mengaturnya ulang dan meminta macOS untuk bertanya lagi.",
+        "manageDescription": "Atur ulang izin mikrofon jika macet.",
         "manageLabel": "Kelola akses mikrofon",
         "openSettings": "Buka Pengaturan",
-        "recoverDescription": "Setelah Anda menolak, macOS tidak akan bertanya lagi dengan sendirinya. Atur ulang izin, lalu tutup dan buka kembali Stella.",
+        "recoverDescription": "macOS tidak akan bertanya lagi. Atur ulang, lalu buka kembali Stella.",
         "recoverLabel": "Pulihkan akses mikrofon",
         "reset": "Atur ulang & mulai ulang"
       },
@@ -1879,22 +1879,22 @@
       },
       "speakerDeviceFallback": "Speaker {index}",
       "superFast": {
-        "description": "Menjaga mikrofon tetap siap agar dikte dimulai dengan lebih sedikit jeda.",
+        "description": "Menjaga mikrofon tetap siap agar dikte mulai lebih cepat.",
         "label": "Dikte super cepat"
       },
       "systemDefault": "Default sistem",
       "wakeWord": {
-        "description": "Mendengarkan “Hey Stella” di latar belakang dan memulai percakapan suara. Saat nonaktif, mikrofon tetap diam hingga Anda menekan dikte.",
+        "description": "Ucapkan “Hey Stella” untuk memulai percakapan suara.",
         "label": "Kata pemicu “Hey Stella”"
       }
     },
     "browserExtension": {
       "action": "Dapatkan ekstensi",
-      "description": "Memungkinkan Stella melihat halaman yang sedang Anda buka dan melakukan tindakan di browser Anda.",
+      "description": "Izinkan Stella melihat dan bertindak di browser Anda.",
       "title": "Stella untuk Chrome"
     },
     "chatStorage": {
-      "description": "Akses obrolan Anda di semua perangkat. Nonaktifkan untuk menyimpan riwayat obrolan terpisah hanya di komputer ini. Saat diaktifkan kembali, obrolan tersebut tidak akan diunggah. Penyedia AI tetap memproses pesan Anda.",
+      "description": "Sinkronkan chat antar perangkat. Jika nonaktif, chat tetap di komputer ini.",
       "endVoice": "Akhiri percakapan suara untuk mengubah penyimpanan obrolan.",
       "error": "Tidak dapat mengubah penyimpanan obrolan. Coba lagi.",
       "title": "Simpan riwayat obrolan di cloud"
@@ -1913,13 +1913,13 @@
       "upgrade": "Tingkatkan"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Stella kecil yang melayang di atas desktop Anda.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "Kunci API",
-      "empty": "Belum ada penyedia yang terhubung. Pilih opsi selain Stella di pemilih model di atas untuk menambahkan kunci API atau masuk.",
+      "empty": "Belum ada penyedia. Tambahkan dari pemilih model di atas.",
       "removeKey": "Hapus kunci",
       "removingKey": "Menghapus…",
       "signOut": "Keluar",
@@ -1938,7 +1938,7 @@
       "addClaude": "Tambahkan akun Claude",
       "addInCloud": "Di cloud",
       "addOnComputer": "Di komputer ini",
-      "cardIntro": "Gunakan paket Claude atau ChatGPT yang sudah Anda bayar. Setiap tempat masuk sendiri-sendiri: tiap komputer, dan cloud Anda.",
+      "cardIntro": "Gunakan paket Claude atau ChatGPT yang sudah Anda bayar.",
       "cardTitle": "Akun Claude & ChatGPT",
       "chatgptBrowserWaiting": "Selesaikan proses masuk ke ChatGPT di browser Anda.",
       "chatgptCloudSignedIn": "Cloud Anda sudah masuk ke ChatGPT.",
@@ -1959,7 +1959,7 @@
         "whereComputer": "Masuk ke Claude Code di komputer ini."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Code belum terpasang di komputer ini. Pasang untuk menggunakan Claude di sini.",
+      "cliMissing": "Instal Claude Code di komputer ini untuk menggunakan Claude di sini.",
       "connecting": "Menghubungkan…",
       "defaultSignedOut": "Claude Code di komputer ini belum masuk.",
       "enablePlanUsage": "Aktifkan penggunaan paket ChatGPT",
@@ -1970,14 +1970,14 @@
       "needsChatgptCloud": "Siapkan ChatGPT untuk cloud Anda terlebih dahulu",
       "needsClaudeCloud": "Masuk ke Claude di cloud terlebih dahulu",
       "openChatgptAgain": "Buka ChatGPT lagi",
-      "pasteHintChatgpt": "Setelah Anda menyetujui, ChatGPT mengarahkan Anda ke halaman yang tidak dapat dimuat. Salin alamat lengkap halaman itu dan tempel di sini.",
+      "pasteHintChatgpt": "Salin alamat halaman yang dibuka ChatGPT dan tempel di sini.",
       "pastePlaceholderUrl": "Tempel alamat di sini",
       "placeCloud": "Cloud",
       "placeComputer": "Komputer ini",
       "placeOtherComputer": "Komputer lain",
       "placeSignedIn": "{place}: sudah masuk",
       "placeSignedOut": "{place}: belum masuk",
-      "planUsageOffBody": "Stella tidak dapat menggunakan paket ChatGPT Anda sampai Anda mengizinkannya. Pilih “Aktifkan penggunaan paket ChatGPT” pada akun, atau gunakan model lain.",
+      "planUsageOffBody": "Pilih “Aktifkan penggunaan paket ChatGPT” pada akun, atau pilih model lain.",
       "planUsageOffTitle": "Sudah masuk, tetapi penggunaan paket ChatGPT belum diaktifkan",
       "remove": "Hapus",
       "removed": "Dihapus.",
@@ -2034,7 +2034,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Seberapa gigih Stella menghubungi Anda saat butuh jawaban.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2078,7 +2078,7 @@
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "note": "Komputer yang sudah masuk muncul di sini. Aktifkan satu untuk mengirim tugas.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2092,16 +2092,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Pilih bahasa yang digunakan Stella di aplikasi dan saat menjawab Anda.",
+      "description": "Untuk aplikasi dan balasan Stella.",
       "title": "Bahasa"
     },
     "lockedComputerUse": {
-      "description": "Memungkinkan Stella melanjutkan tugas penggunaan komputer setelah Mac ini terkunci. Memerlukan izin administrator dan menutupi layar selama Stella bekerja.",
+      "description": "Tugas penggunaan komputer tetap berjalan saat Mac ini terkunci.",
       "title": "Penggunaan komputer saat terkunci",
       "unsupported": "Penggunaan komputer saat terkunci hanya tersedia di macOS."
     },
     "memory": {
-      "description": "Sertakan memori tersimpan dan profil Anda dalam konteks model Stella. Komputer Anda dan cloud menyimpan memori yang sama, dienkripsi saat dikirim maupun disimpan. Menonaktifkan opsi ini akan menjedanya dan mengecualikan memori dari percakapan berikutnya, tetapi tidak menghapusnya.",
+      "description": "Gunakan memori tersimpan dalam balasan. Menonaktifkan tidak menghapusnya.",
       "title": "Memori"
     },
     "modelPicker": {
@@ -2135,7 +2135,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Gunakan server lokal apa pun yang kompatibel dengan OpenAI. Ollama biasanya berjalan di URL di bawah ini.",
+        "hint": "Server lokal apa pun yang kompatibel dengan OpenAI, seperti Ollama.",
         "modelNameAriaLabel": "Nama model lokal",
         "serverUrlAriaLabel": "URL server lokal"
       },
@@ -2179,7 +2179,7 @@
       "title": "Gerakan"
     },
     "nativeFontSmoothing": {
-      "description": "Merender teks seperti aplikasi macOS, dengan anti-aliasing skala abu-abu.",
+      "description": "Anti-aliasing skala abu-abu, seperti aplikasi macOS asli.",
       "title": "Penghalusan font asli"
     },
     "notifications": {
@@ -2188,18 +2188,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Jalankan orientasi lagi. Data Anda tetap ada.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Memungkinkan Stella membaca teks yang dipilih dan terbuka melalui pintasan ⌘+klik kanan di mana saja di komputer Anda.",
+        "description": "Baca teks terpilih dan buka dengan ⌘+klik kanan.",
         "label": "Aksesibilitas"
       },
       "enable": "Aktifkan",
       "granted": "Diberikan",
       "microphone": {
-        "description": "Digunakan untuk suara dan dikte. Atur ulang jika Stella sebelumnya ditolak dan macOS tidak meminta lagi.",
+        "description": "Untuk suara dan dikte.",
         "label": "Mikrofon"
       },
       "opening": "Membuka…",
@@ -2208,11 +2208,11 @@
       "restart": {
         "action": "Mulai ulang",
         "closing": "Menutup…",
-        "description": "Rekam layar baru saja diaktifkan. Tutup dan buka kembali Stella untuk menyelesaikan pengaturan.",
+        "description": "Buka kembali Stella untuk menyelesaikan pengaktifan perekaman layar.",
         "label": "Mulai ulang Stella"
       },
       "screen": {
-        "description": "Memungkinkan Stella melihat layar Anda agar bisa membantu dengan apa yang Anda lihat. Anda mungkin perlu menutup dan membuka kembali Stella setelah mengaktifkannya.",
+        "description": "Izinkan Stella melihat apa yang ada di layar Anda.",
         "label": "Rekam layar"
       },
       "title": "Izin"
@@ -2232,7 +2232,7 @@
         "other": "{count} ponsel dipasangkan"
       },
       "pairing": {
-        "body": "Buka aplikasi Stella di ponsel Anda dan pindai kode QR, atau ketik kode di bawah ini. Anda hanya perlu melakukannya sekali.",
+        "body": "Pindai kode QR di aplikasi Stella di ponsel, atau masukkan kodenya.",
         "headline": "Pindai atau masukkan kode ini",
         "qrAlt": "Pindai untuk memasangkan ponsel Anda"
       },
@@ -2268,7 +2268,7 @@
         "description": "Alihkan asisten obrolan Stella melalui {provider}.",
         "label": "Asisten"
       },
-      "description": "{provider} dapat menjalankan lebih dari satu bagian Stella. Pilih bagian mana yang ingin Anda serahkan — Stella tetap menangani sisanya.",
+      "description": "Pilih apa yang harus dijalankan {provider}.",
       "errors": {
         "apply": "Gagal menerapkan pengaturan penyedia."
       },
@@ -2297,7 +2297,7 @@
     },
     "resetCustomizations": {
       "action": "Pulihkan default",
-      "description": "Menghapus kustomisasi skill dan pengeditan kepribadian Anda agar default bawaan Stella berlaku. Yang dihapus disimpan di ~/.stella/.trash jika Anda ingin mengembalikannya.",
+      "description": "Pulihkan skill dan kepribadian bawaan. File lama dipindah ke ~/.stella/.trash.",
       "done": "Default dipulihkan. Kustomisasi Anda sebelumnya dipindahkan ke ~/.stella/.trash.",
       "error": "Tidak dapat memulihkan default.",
       "none": "Anda sudah menggunakan default Stella.",
@@ -2331,7 +2331,7 @@
       "change": "Ubah",
       "clear": "Hapus",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Tekan untuk mulai dikte, tekan lagi untuk selesai."
       },
       "errors": {
         "load": "Gagal memuat pintasan.",
@@ -2369,7 +2369,7 @@
       "defaultOption": "Bawaan Stella",
       "delete": "Hapus",
       "deleted": "Prompt dihapus.",
-      "description": "Prompt bawaan Stella selalu diperbarui bersama aplikasi. Simpan prompt Anda sendiri untuk dipakai sebagai gantinya — disimpan terpisah, jadi pembaruan tidak akan menimpanya.",
+      "description": "Gunakan prompt Anda sendiri, bukan bawaan Stella.",
       "duplicate": "Duplikat",
       "edit": "Edit",
       "error": "Terjadi kesalahan.",
@@ -2386,11 +2386,12 @@
       "account": "Akun & legal",
       "audio": "Audio",
       "general": "Umum",
-      "shortcuts": "Pintasan"
+      "shortcuts": "Pintasan",
+      "privacy": "Privasi"
     },
     "title": "Pengaturan",
     "voiceAgent": {
-      "description": "Tampilkan kontrol suara dan panggilan agar kamu bisa berbicara dengan Stella. Dikte tetap berfungsi.",
+      "description": "Tampilkan kontrol suara dan panggilan. Dikte tetap berfungsi.",
       "error": "Gagal memperbarui pengaturan suara.",
       "title": "Percakapan suara"
     },
@@ -2412,6 +2413,13 @@
         "openai": "Suara OpenAI",
         "xai": "Suara Grok"
       }
+    },
+    "groups": {
+      "app": "Aplikasi",
+      "personal": "Pribadi"
+    },
+    "nav": {
+      "more": "Lainnya"
     }
   },
   "shell": {

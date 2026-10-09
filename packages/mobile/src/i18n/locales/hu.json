@@ -1873,10 +1873,10 @@
       "microphoneDeviceFallback": "Mikrofon {index}",
       "recovery": {
         "closing": "Bezárás…",
-        "manageDescription": "Ha a mikrofon engedélye elakad, visszaállíthatod, és megkérheted a macOS-t, hogy kérdezzen rá újra.",
+        "manageDescription": "Állítsd vissza a mikrofonengedélyt, ha elakad.",
         "manageLabel": "Mikrofon-hozzáférés kezelése",
         "openSettings": "Beállítások megnyitása",
-        "recoverDescription": "Miután nemet mondtál, a macOS magától nem kérdez rá újra. Állítsd vissza az engedélyt, majd lépj ki a Stellából, és nyisd meg újra.",
+        "recoverDescription": "A macOS nem kérdez újra. Állítsd vissza, majd nyisd meg újra a Stellát.",
         "recoverLabel": "Mikrofon-hozzáférés helyreállítása",
         "reset": "Visszaállítás és újraindítás"
       },
@@ -1889,22 +1889,22 @@
       },
       "speakerDeviceFallback": "Hangszóró {index}",
       "superFast": {
-        "description": "Készenlétben tartja a mikrofont, hogy a diktálás kevesebb késéssel induljon.",
+        "description": "Készenlétben tartja a mikrofont, így a diktálás gyorsabban indul.",
         "label": "Szupergyors diktálás"
       },
       "systemDefault": "Rendszer alapértelmezett",
       "wakeWord": {
-        "description": "A háttérben figyel a „Hey Stella” szóra, és hangbeszélgetést indít. Kikapcsolva a mikrofon inaktív marad, amíg meg nem nyomod a diktálást.",
+        "description": "Mondd: „Hey Stella”, és indul a hangbeszélgetés.",
         "label": "Ébresztőszó: „Hey Stella”"
       }
     },
     "browserExtension": {
       "action": "Bővítmény beszerzése",
-      "description": "Lehetővé teszi a Stellának, hogy lássa az oldalt, amelyen vagy, és műveleteket végezzen a böngésződben.",
+      "description": "Engedd, hogy a Stella lássa a böngésződet és műveleteket végezzen benne.",
       "title": "Stella Chrome-hoz"
     },
     "chatStorage": {
-      "description": "Érd el a beszélgetéseidet minden eszközödön. Kikapcsolva külön beszélgetési előzmény marad csak ezen a számítógépen. Visszakapcsoláskor ezek a beszélgetések nem töltődnek fel. Az MI-szolgáltatók továbbra is feldolgozzák az üzeneteidet.",
+      "description": "Szinkronizálja a csevegéseket az eszközök között. Kikapcsolva ezen a gépen maradnak.",
       "endVoice": "Fejezd be a hangbeszélgetést a beszélgetéstárolás módosításához.",
       "error": "Nem sikerült módosítani a beszélgetéstárolást. Próbáld újra.",
       "title": "Beszélgetési előzmények mentése a felhőbe"
@@ -1923,13 +1923,13 @@
       "upgrade": "Csomag váltása"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Egy kis Stella, amely az asztalod fölött lebeg.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "API-kulcs",
-      "empty": "Még nincs csatlakoztatott szolgáltató. Válassz a Stellától eltérő lehetőséget a fenti modellválasztóban API-kulcs hozzáadásához vagy bejelentkezéshez.",
+      "empty": "Még nincs szolgáltató. Adj hozzá egyet a fenti modellválasztóból.",
       "removeKey": "Kulcs eltávolítása",
       "removingKey": "Eltávolítás…",
       "signOut": "Kijelentkezés",
@@ -1948,7 +1948,7 @@
       "addClaude": "Claude-fiók hozzáadása",
       "addInCloud": "A felhőben",
       "addOnComputer": "Ezen a számítógépen",
-      "cardIntro": "Használd a már előfizetett Claude- vagy ChatGPT-csomagodat. Minden helyen külön kell bejelentkezni: minden számítógépen és a felhődben is.",
+      "cardIntro": "Használd a már előfizetett Claude- vagy ChatGPT-csomagodat.",
       "cardTitle": "Claude- és ChatGPT-fiókok",
       "chatgptBrowserWaiting": "Fejezd be a bejelentkezést a ChatGPT-be a böngésződben.",
       "chatgptCloudSignedIn": "A felhőd be van jelentkezve a ChatGPT-be.",
@@ -1969,7 +1969,7 @@
         "whereComputer": "Bejelentkezés a Claude Code-ba ezen a számítógépen."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "A Claude Code nincs telepítve ezen a számítógépen. Telepítsd, hogy itt is használhasd a Claude-ot.",
+      "cliMissing": "Telepítsd a Claude Code-ot erre a gépre, hogy itt használhasd a Claude-ot.",
       "connecting": "Csatlakozás…",
       "defaultSignedOut": "A Claude Code nincs bejelentkezve ezen a számítógépen.",
       "enablePlanUsage": "ChatGPT-előfizetés használatának engedélyezése",
@@ -1980,14 +1980,14 @@
       "needsChatgptCloud": "Előbb állítsd be a ChatGPT-t a felhődhöz",
       "needsClaudeCloud": "Előbb jelentkezz be a Claude-ba a felhőben",
       "openChatgptAgain": "ChatGPT megnyitása újra",
-      "pasteHintChatgpt": "A jóváhagyás után a ChatGPT egy olyan oldalra visz, amely nem töltődik be. Másold ki az oldal teljes címét, és illeszd be ide.",
+      "pasteHintChatgpt": "Másold ki a ChatGPT által megnyitott oldal címét, és illeszd be ide.",
       "pastePlaceholderUrl": "Illeszd be ide a címet",
       "placeCloud": "Felhő",
       "placeComputer": "Ez a számítógép",
       "placeOtherComputer": "Másik számítógép",
       "placeSignedIn": "{place}: bejelentkezve",
       "placeSignedOut": "{place}: nincs bejelentkezve",
-      "planUsageOffBody": "A Stella nem használhatja a ChatGPT-csomagodat, amíg nem engedélyezed. Válaszd a fióknál a „ChatGPT-csomag használatának engedélyezése” lehetőséget, vagy használj másik modellt.",
+      "planUsageOffBody": "Válaszd a fióknál a „ChatGPT-előfizetés használatának engedélyezése” lehetőséget, vagy másik modellt.",
       "planUsageOffTitle": "Bejelentkezve, de a ChatGPT-csomag használata nincs engedélyezve",
       "remove": "Eltávolítás",
       "removed": "Eltávolítva.",
@@ -2044,7 +2044,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Mennyire igyekszik elérni a Stella, ha válaszra van szüksége.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2088,7 +2088,7 @@
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "note": "A bejelentkezett gépek itt jelennek meg. Engedélyezz egyet, hogy munkát küldj neki.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2102,16 +2102,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Válaszd ki a Stella által az alkalmazásban és a válaszokban használt nyelvet.",
+      "description": "Az alkalmazáshoz és a Stella válaszaihoz.",
       "title": "Nyelv"
     },
     "lockedComputerUse": {
-      "description": "Lehetővé teszi a Stellának, hogy a Mac zárolása után is folytassa a számítógép-használati feladatokat. Rendszergazdai jóváhagyást igényel, és letakarja a képernyőt, amíg a Stella dolgozik.",
+      "description": "A számítógép-használati feladatok futnak tovább, amikor ez a Mac zárolódik.",
       "title": "Számítógép-használat zárolt állapotban",
       "unsupported": "A számítógép-használat zárolt állapotban csak macOS-en érhető el."
     },
     "memory": {
-      "description": "A mentett emlékeket és a profilodat is foglald bele Stella modellkontextusába. A számítógépeid és a felhő ugyanazt a memóriát tartják, átvitel közben és tárolva is titkosítva. Kikapcsoláskor ez szünetel, és a memória kimarad a későbbi beszélgetésekből, de nem törlődik.",
+      "description": "Mentett emlékek használata a válaszokban. A kikapcsolás nem törli őket.",
       "title": "Memória"
     },
     "modelPicker": {
@@ -2145,7 +2145,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Használj bármilyen helyi, OpenAI-kompatibilis kiszolgálót. Az Ollama általában az alábbi címen fut.",
+        "hint": "Bármilyen helyi, OpenAI-kompatibilis szerver, például az Ollama.",
         "modelNameAriaLabel": "Helyi modell neve",
         "serverUrlAriaLabel": "Helyi kiszolgáló URL-je"
       },
@@ -2189,7 +2189,7 @@
       "title": "Mozgás"
     },
     "nativeFontSmoothing": {
-      "description": "Úgy jeleníti meg a szöveget, ahogy a macOS-alkalmazások, szürkeárnyalatos élsimítással.",
+      "description": "Szürkeárnyalatos élsimítás, mint a natív macOS-alkalmazásokban.",
       "title": "Natív betűsimítás"
     },
     "notifications": {
@@ -2198,18 +2198,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "A bevezetés újrafuttatása. Az adataid megmaradnak.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Lehetővé teszi a Stellának, hogy elolvassa a kijelölt szöveget, és a ⌘+jobb kattintás gyorsbillentyűvel megnyíljon a számítógép bármely pontján.",
+        "description": "Kijelölt szöveg olvasása és megnyitás ⌘+jobb kattintással.",
         "label": "Kisegítő lehetőségek"
       },
       "enable": "Engedélyezés",
       "granted": "Megadva",
       "microphone": {
-        "description": "Hanghoz és diktáláshoz használatos. Állítsd vissza, ha a Stellát korábban elutasították, és a macOS nem kérdez rá újra.",
+        "description": "Hanghoz és diktáláshoz.",
         "label": "Mikrofon"
       },
       "opening": "Megnyitás…",
@@ -2218,11 +2218,11 @@
       "restart": {
         "action": "Újraindítás",
         "closing": "Bezárás…",
-        "description": "A képernyőrögzítés most lett bekapcsolva. A beállítás befejezéséhez lépj ki a Stellából, és nyisd meg újra.",
+        "description": "Nyisd meg újra a Stellát a képernyőrögzítés bekapcsolásának befejezéséhez.",
         "label": "Stella újraindítása"
       },
       "screen": {
-        "description": "Lehetővé teszi a Stellának, hogy lássa a képernyődet, így segíthet abban, amit nézel. Bekapcsolás után előfordulhat, hogy ki kell lépned a Stellából, és újra meg kell nyitnod.",
+        "description": "Engedd, hogy a Stella lássa, mi van a képernyődön.",
         "label": "Képernyőrögzítés"
       },
       "title": "Engedélyek"
@@ -2243,7 +2243,7 @@
         "other": "{count} telefon párosítva"
       },
       "pairing": {
-        "body": "Nyisd meg a Stella alkalmazást a telefonodon, és olvasd be a QR-kódot, vagy írd be az alábbi kódot. Ezt csak egyszer kell megtenned.",
+        "body": "Olvasd be a QR-kódot a telefonos Stella alkalmazásban, vagy írd be a kódot.",
         "headline": "Olvasd be vagy írd be ezt a kódot",
         "qrAlt": "Olvasd be a telefonod párosításához"
       },
@@ -2279,7 +2279,7 @@
         "description": "A Stella csevegőasszisztense ezen keresztül fusson: {provider}.",
         "label": "Asszisztens"
       },
-      "description": "A(z) {provider} a Stella több részét is működtetheti. Válaszd ki, hol vegye át a szerepet — a többit a Stella intézi tovább.",
+      "description": "Válaszd ki, mit hajtson a(z) {provider}.",
       "errors": {
         "apply": "Nem sikerült alkalmazni a szolgáltatóbeállításokat."
       },
@@ -2308,7 +2308,7 @@
     },
     "resetCustomizations": {
       "action": "Alapértelmezések visszaállítása",
-      "description": "Eltávolítja a készség-testreszabásaidat és a személyiség-módosításaidat, hogy a Stella alapértelmezései érvényesüljenek. Az eltávolítottak a ~/.stella/.trash mappában maradnak, ha vissza szeretnéd őket.",
+      "description": "Alapértelmezett képességek és személyiség visszaállítása. A régi fájlok a ~/.stella/.trash mappába kerülnek.",
       "done": "Alapértelmezések visszaállítva. Korábbi testreszabásaid a ~/.stella/.trash mappába kerültek.",
       "error": "Nem sikerült visszaállítani az alapértelmezéseket.",
       "none": "Már a Stella alapértelmezéseit használod.",
@@ -2342,7 +2342,7 @@
       "change": "Módosítás",
       "clear": "Törlés",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Nyomd meg a diktáláshoz, majd újra a befejezéshez."
       },
       "errors": {
         "load": "A gyorsbillentyűk betöltése sikertelen.",
@@ -2380,7 +2380,7 @@
       "defaultOption": "Stella alapértelmezése",
       "delete": "Törlés",
       "deleted": "Prompt törölve.",
-      "description": "A Stella alapértelmezett promptja mindig frissül az alkalmazással. Mentsd el a sajátodat, hogy azt használja – külön tárolódik, így a frissítések soha nem írják felül.",
+      "description": "Saját prompt használata a Stella alapértelmezése helyett.",
       "duplicate": "Másolat",
       "edit": "Szerkesztés",
       "error": "Valami hiba történt.",
@@ -2397,11 +2397,12 @@
       "account": "Fiók és jogi",
       "audio": "Hang",
       "general": "Általános",
-      "shortcuts": "Gyorsbillentyűk"
+      "shortcuts": "Gyorsbillentyűk",
+      "privacy": "Adatvédelem"
     },
     "title": "Beállítások",
     "voiceAgent": {
-      "description": "Megjeleníti a hang- és hívásvezérlőket, hogy hangosan beszélhess Stellával. A diktálás ettől függetlenül működik.",
+      "description": "Hang- és hívásvezérlők megjelenítése. A diktálás mindenképp működik.",
       "error": "A hangbeállítás frissítése nem sikerült.",
       "title": "Beszélgetés hanggal"
     },
@@ -2423,6 +2424,13 @@
         "openai": "OpenAI hangok",
         "xai": "Grok hangok"
       }
+    },
+    "groups": {
+      "app": "Alkalmazás",
+      "personal": "Személyes"
+    },
+    "nav": {
+      "more": "Továbbiak"
     }
   },
   "shell": {

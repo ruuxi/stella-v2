@@ -1883,10 +1883,10 @@
       "microphoneDeviceFallback": "Microfono {index}",
       "recovery": {
         "closing": "Chiusura…",
-        "manageDescription": "Se l'autorizzazione del microfono dovesse bloccarsi, puoi reimpostarla e chiedere a macOS di richiederla di nuovo.",
+        "manageDescription": "Reimposta il permesso del microfono se si blocca.",
         "manageLabel": "Gestisci l'accesso al microfono",
         "openSettings": "Apri Impostazioni",
-        "recoverDescription": "Una volta che hai detto di no, macOS non chiede più da solo. Reimposta l'autorizzazione, quindi chiudi e riapri Stella.",
+        "recoverDescription": "macOS non lo chiederà più. Reimpostalo, poi riapri Stella.",
         "recoverLabel": "Ripristina l'accesso al microfono",
         "reset": "Reimposta e riavvia"
       },
@@ -1899,22 +1899,22 @@
       },
       "speakerDeviceFallback": "Altoparlante {index}",
       "superFast": {
-        "description": "Mantiene il microfono pronto così la dettatura parte con meno ritardo.",
+        "description": "Tiene il microfono pronto così la dettatura parte prima.",
         "label": "Dettatura super veloce"
       },
       "systemDefault": "Predefinito di sistema",
       "wakeWord": {
-        "description": "Ascolta «Hey Stella» in background e avvia una conversazione vocale. Quando è disattivato, il microfono resta inattivo finché non premi detta.",
+        "description": "Di’ «Hey Stella» per avviare una conversazione vocale.",
         "label": "Parola di attivazione «Hey Stella»"
       }
     },
     "browserExtension": {
       "action": "Ottieni estensione",
-      "description": "Consente a Stella di vedere la pagina su cui ti trovi e di agire nel tuo browser.",
+      "description": "Permetti a Stella di vedere e agire nel tuo browser.",
       "title": "Stella per Chrome"
     },
     "chatStorage": {
-      "description": "Accedi alle tue chat da tutti i dispositivi. Disattiva per mantenere una cronologia separata solo su questo computer. Riattivandolo, quelle chat non verranno caricate. I fornitori di IA continuano a elaborare i tuoi messaggi.",
+      "description": "Sincronizza le chat tra dispositivi. Se disattivato, restano su questo computer.",
       "endVoice": "Termina la conversazione vocale per cambiare l'archiviazione delle chat.",
       "error": "Impossibile cambiare l'archiviazione delle chat. Riprova.",
       "title": "Salva la cronologia delle chat nel cloud"
@@ -1933,13 +1933,13 @@
       "upgrade": "Aggiorna piano"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Una piccola Stella che fluttua sulla tua scrivania.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "Chiave API",
-      "empty": "Ancora nessun provider connesso. Scegli un'opzione diversa da Stella nel selettore di modelli qui sopra per aggiungere una chiave API o accedere.",
+      "empty": "Ancora nessun provider. Aggiungine uno dal selettore dei modelli qui sopra.",
       "removeKey": "Rimuovi chiave",
       "removingKey": "Rimozione…",
       "signOut": "Esci",
@@ -1958,7 +1958,7 @@
       "addClaude": "Aggiungi account Claude",
       "addInCloud": "Nel cloud",
       "addOnComputer": "Su questo computer",
-      "cardIntro": "Usa il piano Claude o ChatGPT che paghi già. Ogni posto ha un accesso separato: ogni computer e il tuo cloud.",
+      "cardIntro": "Usa il piano Claude o ChatGPT che paghi già.",
       "cardTitle": "Account Claude e ChatGPT",
       "chatgptBrowserWaiting": "Completa l'accesso a ChatGPT nel browser.",
       "chatgptCloudSignedIn": "Il tuo cloud ha eseguito l’accesso a ChatGPT.",
@@ -1979,7 +1979,7 @@
         "whereComputer": "Accesso a Claude Code su questo computer."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Code non è installato su questo computer. Installalo per usare Claude qui.",
+      "cliMissing": "Installa Claude Code su questo computer per usare Claude qui.",
       "connecting": "Connessione…",
       "defaultSignedOut": "Claude Code su questo computer non ha eseguito l’accesso.",
       "enablePlanUsage": "Attiva l'uso del piano ChatGPT",
@@ -1990,14 +1990,14 @@
       "needsChatgptCloud": "Prima configura ChatGPT per il tuo cloud",
       "needsClaudeCloud": "Prima accedi a Claude nel cloud",
       "openChatgptAgain": "Apri di nuovo ChatGPT",
-      "pasteHintChatgpt": "Dopo l'approvazione, ChatGPT ti porta a una pagina che non si carica. Copia l'indirizzo completo di quella pagina e incollalo qui.",
+      "pasteHintChatgpt": "Copia l’indirizzo della pagina aperta da ChatGPT e incollalo qui.",
       "pastePlaceholderUrl": "Incolla qui l'indirizzo",
       "placeCloud": "Cloud",
       "placeComputer": "Questo computer",
       "placeOtherComputer": "Un altro computer",
       "placeSignedIn": "{place}: accesso eseguito",
       "placeSignedOut": "{place}: accesso non eseguito",
-      "planUsageOffBody": "Stella non può usare il tuo piano ChatGPT finché non lo consenti. Scegli «Attiva l’uso del piano ChatGPT» sull’account oppure usa un altro modello.",
+      "planUsageOffBody": "Scegli «Attiva l'uso del piano ChatGPT» sull’account oppure un altro modello.",
       "planUsageOffTitle": "Accesso eseguito, ma l’uso del piano ChatGPT non è attivo",
       "remove": "Rimuovi",
       "removed": "Rimosso.",
@@ -2054,7 +2054,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Quanto insiste Stella per raggiungerti quando le serve una risposta.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2098,7 +2098,7 @@
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "note": "Qui compaiono i computer collegati. Attivane uno per inviargli lavoro.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2112,16 +2112,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Scegli la lingua che Stella userà nell'app e quando ti risponde.",
+      "description": "Per l’app e le risposte di Stella.",
       "title": "Lingua"
     },
     "lockedComputerUse": {
-      "description": "Consente a Stella di continuare le attività di uso del computer dopo che questo Mac si blocca. Richiede una richiesta da amministratore e copre lo schermo mentre Stella lavora.",
+      "description": "Mantieni attive le attività di uso del computer quando questo Mac si blocca.",
       "title": "Uso a computer bloccato",
       "unsupported": "L'uso a computer bloccato è disponibile solo su macOS."
     },
     "memory": {
-      "description": "Includi i ricordi salvati e il tuo profilo nel contesto del modello di Stella. I tuoi computer e il cloud mantengono la stessa memoria, crittografata sia in transito sia a riposo. Disattivando questa opzione la sincronizzazione si mette in pausa e la memoria viene esclusa dalle conversazioni future, ma non eliminata.",
+      "description": "Usa i ricordi salvati nelle risposte. Disattivarlo non li elimina.",
       "title": "Memoria"
     },
     "modelPicker": {
@@ -2155,7 +2155,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Usa qualsiasi server locale compatibile con OpenAI. Ollama di solito gira all'URL qui sotto.",
+        "hint": "Qualsiasi server locale compatibile con OpenAI, come Ollama.",
         "modelNameAriaLabel": "Nome del modello locale",
         "serverUrlAriaLabel": "URL del server locale"
       },
@@ -2199,7 +2199,7 @@
       "title": "Animazioni"
     },
     "nativeFontSmoothing": {
-      "description": "Mostra il testo come fanno le app di macOS, con antialiasing in scala di grigi.",
+      "description": "Antialiasing in scala di grigi, come le app macOS native.",
       "title": "Smussatura caratteri nativa"
     },
     "notifications": {
@@ -2208,18 +2208,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Ripeti l’onboarding. I tuoi dati restano.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Consente a Stella di leggere il testo selezionato e di aprirsi con la scorciatoia ⌘+clic destro ovunque sul computer.",
+        "description": "Leggi il testo selezionato e apri con ⌘+clic destro.",
         "label": "Accessibilità"
       },
       "enable": "Abilita",
       "granted": "Concessa",
       "microphone": {
-        "description": "Usato per voce e dettatura. Reimposta se in precedenza Stella è stata negata e macOS non chiede più.",
+        "description": "Per voce e dettatura.",
         "label": "Microfono"
       },
       "opening": "Apertura…",
@@ -2228,11 +2228,11 @@
       "restart": {
         "action": "Riavvia",
         "closing": "Chiusura…",
-        "description": "La cattura schermo è stata appena attivata. Chiudi e riapri Stella per completare la configurazione.",
+        "description": "Riapri Stella per completare l’attivazione della registrazione schermo.",
         "label": "Riavvia Stella"
       },
       "screen": {
-        "description": "Consente a Stella di vedere lo schermo per aiutarti con ciò che stai guardando. Potresti dover chiudere e riaprire Stella dopo averlo attivato.",
+        "description": "Permetti a Stella di vedere cosa c’è sullo schermo.",
         "label": "Cattura schermo"
       },
       "title": "Autorizzazioni"
@@ -2254,7 +2254,7 @@
         "other": "{count} telefoni abbinati"
       },
       "pairing": {
-        "body": "Apri l'app Stella sul telefono e scansiona il codice QR, oppure digita il codice qui sotto. Devi farlo una sola volta.",
+        "body": "Scansiona il codice QR nell’app Stella sul telefono o inserisci il codice.",
         "headline": "Scansiona o inserisci questo codice",
         "qrAlt": "Scansiona per abbinare il telefono"
       },
@@ -2290,7 +2290,7 @@
         "description": "Instrada l'assistente di chat di Stella tramite {provider}.",
         "label": "Assistente"
       },
-      "description": "{provider} può gestire più di una parte di Stella. Scegli dove vuoi che subentri: al resto continua a pensarci Stella.",
+      "description": "Scegli a cosa deve servire {provider}.",
       "errors": {
         "apply": "Applicazione delle impostazioni del provider non riuscita."
       },
@@ -2319,7 +2319,7 @@
     },
     "resetCustomizations": {
       "action": "Ripristina predefinite",
-      "description": "Rimuove le tue personalizzazioni delle skill e le modifiche alla personalità per applicare le impostazioni predefinite di Stella. Ciò che viene rimosso resta in ~/.stella/.trash nel caso tu voglia recuperarlo.",
+      "description": "Ripristina skill e personalità predefinite. I vecchi file vanno in ~/.stella/.trash.",
       "done": "Impostazioni predefinite ripristinate. Le tue personalizzazioni precedenti sono state spostate in ~/.stella/.trash.",
       "error": "Impossibile ripristinare le impostazioni predefinite.",
       "none": "Stai già usando le impostazioni predefinite di Stella.",
@@ -2353,7 +2353,7 @@
       "change": "Cambia",
       "clear": "Cancella",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Premi per dettare, premi di nuovo per finire."
       },
       "errors": {
         "load": "Impossibile caricare le scorciatoie.",
@@ -2391,7 +2391,7 @@
       "defaultOption": "Predefinito di Stella",
       "delete": "Elimina",
       "deleted": "Prompt eliminato.",
-      "description": "Il prompt predefinito di Stella si aggiorna sempre con l'app. Salva il tuo per usarlo al suo posto: viene conservato separatamente, così gli aggiornamenti non lo sovrascrivono mai.",
+      "description": "Usa un tuo prompt invece di quello predefinito di Stella.",
       "duplicate": "Duplica",
       "edit": "Modifica",
       "error": "Qualcosa è andato storto.",
@@ -2408,11 +2408,12 @@
       "account": "Account e note legali",
       "audio": "Audio",
       "general": "Generale",
-      "shortcuts": "Scorciatoie"
+      "shortcuts": "Scorciatoie",
+      "privacy": "Privacy"
     },
     "title": "Impostazioni",
     "voiceAgent": {
-      "description": "Mostra i controlli vocali e di chiamata per parlare con Stella a voce. La dettatura funziona in ogni caso.",
+      "description": "Mostra i controlli di voce e chiamata. La dettatura funziona comunque.",
       "error": "Impossibile aggiornare l'impostazione vocale.",
       "title": "Conversazioni vocali"
     },
@@ -2434,6 +2435,13 @@
         "openai": "Voci OpenAI",
         "xai": "Voci Grok"
       }
+    },
+    "groups": {
+      "app": "App",
+      "personal": "Personale"
+    },
+    "nav": {
+      "more": "Altro"
     }
   },
   "shell": {

@@ -1873,10 +1873,10 @@
       "microphoneDeviceFallback": "Mikrofoni {index}",
       "recovery": {
         "closing": "Suljetaan…",
-        "manageDescription": "Jos mikrofonin käyttöoikeus jää jumiin, voit nollata sen ja pyytää macOS:ää kysymään uudelleen.",
+        "manageDescription": "Nollaa mikrofonin käyttöoikeus, jos se jumittaa.",
         "manageLabel": "Hallitse mikrofonin käyttöoikeutta",
         "openSettings": "Avaa Asetukset",
-        "recoverDescription": "Kun olet kieltäytynyt, macOS ei kysy enää itsestään. Nollaa käyttöoikeus, sulje sitten Stella ja avaa se uudelleen.",
+        "recoverDescription": "macOS ei kysy uudelleen. Nollaa se ja avaa Stella uudelleen.",
         "recoverLabel": "Palauta mikrofonin käyttöoikeus",
         "reset": "Nollaa ja käynnistä uudelleen"
       },
@@ -1889,22 +1889,22 @@
       },
       "speakerDeviceFallback": "Kaiutin {index}",
       "superFast": {
-        "description": "Pitää mikrofonin valmiina, jotta sanelu alkaa pienemmällä viiveellä.",
+        "description": "Pitää mikrofonin valmiina, jotta sanelu alkaa nopeammin.",
         "label": "Supernopea sanelu"
       },
       "systemDefault": "Järjestelmän oletus",
       "wakeWord": {
-        "description": "Kuuntelee ”Hey Stella” -sanaa taustalla ja aloittaa puhekeskustelun. Kun pois päältä, mikrofoni pysyy lepotilassa, kunnes painat sanelua.",
+        "description": "Sano ”Hey Stella” aloittaaksesi puhekeskustelun.",
         "label": "Herätyssana ”Hey Stella”"
       }
     },
     "browserExtension": {
       "action": "Hanki laajennus",
-      "description": "Antaa Stellan nähdä sivun, jolla olet, ja toimia selaimessasi.",
+      "description": "Anna Stellan nähdä selaimesi ja toimia siinä.",
       "title": "Stella Chromelle"
     },
     "chatStorage": {
-      "description": "Käytä keskustelujasi kaikilla laitteilla. Poista käytöstä, jos haluat pitää erillisen keskusteluhistorian vain tällä tietokoneella. Kun otat asetuksen takaisin käyttöön, näitä keskusteluja ei ladata pilveen. Tekoälypalvelut käsittelevät viestejäsi edelleen.",
+      "description": "Synkronoi keskustelut laitteiden välillä. Pois päältä ne pysyvät tällä tietokoneella.",
       "endVoice": "Lopeta puhekeskustelu, jotta voit muuttaa keskustelujen tallennusta.",
       "error": "Keskustelujen tallennusta ei voitu muuttaa. Yritä uudelleen.",
       "title": "Tallenna keskusteluhistoria pilveen"
@@ -1923,13 +1923,13 @@
       "upgrade": "Päivitä tilaus"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Pieni Stella, joka leijuu työpöytäsi päällä.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "API-avain",
-      "empty": "Ei vielä yhdistettyjä palveluntarjoajia. Valitse yllä olevasta mallivalitsimesta muu kuin Stella lisätäksesi API-avaimen tai kirjautuaksesi sisään.",
+      "empty": "Ei vielä palveluntarjoajia. Lisää yksi yllä olevasta mallivalitsimesta.",
       "removeKey": "Poista avain",
       "removingKey": "Poistetaan…",
       "signOut": "Kirjaudu ulos",
@@ -1948,7 +1948,7 @@
       "addClaude": "Lisää Claude-tili",
       "addInCloud": "Pilvessä",
       "addOnComputer": "Tällä tietokoneella",
-      "cardIntro": "Käytä Claude- tai ChatGPT-tilausta, josta jo maksat. Jokainen paikka kirjautuu erikseen: jokainen tietokone ja pilvesi.",
+      "cardIntro": "Käytä Claude- tai ChatGPT-tilausta, josta jo maksat.",
       "cardTitle": "Claude- ja ChatGPT-tilit",
       "chatgptBrowserWaiting": "Viimeistele kirjautuminen ChatGPT:hen selaimessasi.",
       "chatgptCloudSignedIn": "Pilvesi on kirjautunut ChatGPT:hen.",
@@ -1969,7 +1969,7 @@
         "whereComputer": "Kirjaudutaan Claude Codeen tällä tietokoneella."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Codea ei ole asennettu tälle tietokoneelle. Asenna se, niin voit käyttää Claudea täällä.",
+      "cliMissing": "Asenna Claude Code tälle tietokoneelle käyttääksesi Claudea täällä.",
       "connecting": "Yhdistetään…",
       "defaultSignedOut": "Claude Code ei ole kirjautunut tällä tietokoneella.",
       "enablePlanUsage": "Ota ChatGPT-tilauksen käyttö käyttöön",
@@ -1980,14 +1980,14 @@
       "needsChatgptCloud": "Yhdistä ensin ChatGPT pilveesi",
       "needsClaudeCloud": "Kirjaudu ensin Claudeen pilvessä",
       "openChatgptAgain": "Avaa ChatGPT uudelleen",
-      "pasteHintChatgpt": "Hyväksymisen jälkeen ChatGPT ohjaa sinut sivulle, joka ei lataudu. Kopioi sivun koko osoite ja liitä se tähän.",
+      "pasteHintChatgpt": "Kopioi ChatGPT:n avaaman sivun osoite ja liitä se tähän.",
       "pastePlaceholderUrl": "Liitä osoite tähän",
       "placeCloud": "Pilvi",
       "placeComputer": "Tämä tietokone",
       "placeOtherComputer": "Toinen tietokone",
       "placeSignedIn": "{place}: kirjautunut",
       "placeSignedOut": "{place}: ei kirjautunut",
-      "planUsageOffBody": "Stella ei voi käyttää ChatGPT-tilaustasi, ennen kuin sallit sen. Valitse tililtä ”Ota ChatGPT-tilauksen käyttö käyttöön” tai käytä toista mallia.",
+      "planUsageOffBody": "Valitse tililtä ”Ota ChatGPT-tilauksen käyttö käyttöön” tai valitse toinen malli.",
       "planUsageOffTitle": "Kirjautunut, mutta ChatGPT-tilauksen käyttöä ei ole otettu käyttöön",
       "remove": "Poista",
       "removed": "Poistettu.",
@@ -2044,7 +2044,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Kuinka sinnikkäästi Stella yrittää tavoittaa sinut, kun se tarvitsee vastauksen.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2088,7 +2088,7 @@
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "note": "Kirjautuneet tietokoneet näkyvät tässä. Ota yksi käyttöön lähettääksesi sille töitä.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2102,16 +2102,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Valitse kieli, jota Stella käyttää sovelluksessa ja vastauksissa.",
+      "description": "Sovellukselle ja Stellan vastauksille.",
       "title": "Kieli"
     },
     "lockedComputerUse": {
-      "description": "Antaa Stellan jatkaa tietokoneen käyttötehtäviä tämän Macin lukitsemisen jälkeen. Vaatii järjestelmänvalvojan vahvistuksen ja peittää näytön Stellan työskennellessä.",
+      "description": "Pidä tietokoneen käyttötehtävät käynnissä, kun tämä Mac lukittuu.",
       "title": "Käyttö lukitulla tietokoneella",
       "unsupported": "Käyttö lukitulla tietokoneella on saatavilla vain macOS:ssä."
     },
     "memory": {
-      "description": "Sisällytä tallennetut muistot ja profiilisi Stellan mallikontekstiin. Tietokoneillasi ja pilvessä on sama muisti, joka on salattu siirron aikana sekä levossa. Kun poistat tämän käytöstä, synkronointi keskeytyy eikä muistia käytetä tulevissa keskusteluissa, mutta sitä ei poisteta.",
+      "description": "Käytä tallennettuja muistoja vastauksissa. Poistaminen käytöstä ei poista niitä.",
       "title": "Muisti"
     },
     "modelPicker": {
@@ -2145,7 +2145,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Käytä mitä tahansa paikallista OpenAI-yhteensopivaa palvelinta. Ollama toimii yleensä alla olevassa osoitteessa.",
+        "hint": "Mikä tahansa paikallinen OpenAI-yhteensopiva palvelin, kuten Ollama.",
         "modelNameAriaLabel": "Paikallisen mallin nimi",
         "serverUrlAriaLabel": "Paikallisen palvelimen osoite"
       },
@@ -2189,7 +2189,7 @@
       "title": "Liike"
     },
     "nativeFontSmoothing": {
-      "description": "Piirtää tekstin kuten macOS-sovellukset, harmaasävyreunanpehmennyksellä.",
+      "description": "Harmaasävyreunanpehmennys kuten natiiveissa macOS-sovelluksissa.",
       "title": "Natiivi fonttien pehmennys"
     },
     "notifications": {
@@ -2198,18 +2198,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Käy käyttöönotto uudelleen läpi. Tietosi säilyvät.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Antaa Stellan lukea valitun tekstin ja avautua pikanäppäimellä ⌘+oikea napsautus missä tahansa tietokoneellasi.",
+        "description": "Lue valittu teksti ja avaa ⌘+oikealla napsautuksella.",
         "label": "Saavutettavuus"
       },
       "enable": "Ota käyttöön",
       "granted": "Myönnetty",
       "microphone": {
-        "description": "Käytetään ääneen ja saneluun. Nollaa, jos Stella estettiin aiemmin eikä macOS kysy enää.",
+        "description": "Puheelle ja sanelulle.",
         "label": "Mikrofoni"
       },
       "opening": "Avataan…",
@@ -2218,11 +2218,11 @@
       "restart": {
         "action": "Käynnistä uudelleen",
         "closing": "Suljetaan…",
-        "description": "Näytön tallennus otettiin juuri käyttöön. Sulje ja avaa Stella uudelleen viimeistelläksesi käyttöönoton.",
+        "description": "Avaa Stella uudelleen viimeistelläksesi näytön tallennuksen käyttöönoton.",
         "label": "Käynnistä Stella uudelleen"
       },
       "screen": {
-        "description": "Antaa Stellan nähdä näyttösi, jotta se voi auttaa siinä, mitä katsot. Saatat joutua sulkemaan ja avaamaan Stellan uudelleen tämän käyttöönoton jälkeen.",
+        "description": "Anna Stellan nähdä, mitä näytölläsi on.",
         "label": "Näytön tallennus"
       },
       "title": "Käyttöoikeudet"
@@ -2243,7 +2243,7 @@
         "other": "{count} puhelinta paritettu"
       },
       "pairing": {
-        "body": "Avaa Stella-sovellus puhelimessasi ja skannaa QR-koodi tai kirjoita alla oleva koodi. Tämä tarvitsee tehdä vain kerran.",
+        "body": "Skannaa QR-koodi puhelimen Stella-sovelluksessa tai syötä koodi.",
         "headline": "Skannaa tai syötä tämä koodi",
         "qrAlt": "Skannaa paritellaksesi puhelimesi"
       },
@@ -2279,7 +2279,7 @@
         "description": "Ohjaa Stellan chat-avustaja palvelun {provider} kautta.",
         "label": "Avustaja"
       },
-      "description": "{provider} voi hoitaa useampaa Stellan osaa. Valitse, missä haluat sen ottavan ohjat — Stella hoitaa loput.",
+      "description": "Valitse, mihin {provider} on käytössä.",
       "errors": {
         "apply": "Palveluntarjoajan asetusten käyttöönotto epäonnistui."
       },
@@ -2308,7 +2308,7 @@
     },
     "resetCustomizations": {
       "action": "Palauta oletukset",
-      "description": "Poistaa taitomuokkauksesi ja persoonallisuuden muutokset, jotta Stellan oletusasetukset tulevat käyttöön. Poistetut tallennetaan kansioon ~/.stella/.trash siltä varalta, että haluat ne takaisin.",
+      "description": "Palauta oletustaidot ja -persoonallisuus. Vanhat tiedostot siirtyvät kansioon ~/.stella/.trash.",
       "done": "Oletukset palautettu. Aiemmat muokkauksesi siirrettiin kansioon ~/.stella/.trash.",
       "error": "Oletuksia ei voitu palauttaa.",
       "none": "Käytät jo Stellan oletuksia.",
@@ -2342,7 +2342,7 @@
       "change": "Muuta",
       "clear": "Tyhjennä",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Paina aloittaaksesi sanelun, paina uudelleen lopettaaksesi."
       },
       "errors": {
         "load": "Pikanäppäimien lataaminen epäonnistui.",
@@ -2380,7 +2380,7 @@
       "defaultOption": "Stellan oletus",
       "delete": "Poista",
       "deleted": "Kehote poistettu.",
-      "description": "Stellan oletuskehote päivittyy aina sovelluksen mukana. Tallenna oma kehotteesi käyttääksesi sitä sen sijaan – se säilytetään erikseen, joten päivitykset eivät koskaan korvaa sitä.",
+      "description": "Käytä omaa kehotettasi Stellan oletuksen sijaan.",
       "duplicate": "Monista",
       "edit": "Muokkaa",
       "error": "Jokin meni pieleen.",
@@ -2397,11 +2397,12 @@
       "account": "Tili ja oikeudelliset",
       "audio": "Ääni",
       "general": "Yleiset",
-      "shortcuts": "Pikanäppäimet"
+      "shortcuts": "Pikanäppäimet",
+      "privacy": "Tietosuoja"
     },
     "title": "Asetukset",
     "voiceAgent": {
-      "description": "Näytä puhe- ja puhelupainikkeet, jotta voit puhua Stellalle ääneen. Sanelu toimii kummassakin tapauksessa.",
+      "description": "Näytä puhe- ja puhelusäätimet. Sanelu toimii joka tapauksessa.",
       "error": "Puheasetusta ei voitu päivittää.",
       "title": "Puhekeskustelut"
     },
@@ -2423,6 +2424,13 @@
         "openai": "OpenAI-äänet",
         "xai": "Grok-äänet"
       }
+    },
+    "groups": {
+      "app": "Sovellus",
+      "personal": "Omat"
+    },
+    "nav": {
+      "more": "Lisää"
     }
   },
   "shell": {

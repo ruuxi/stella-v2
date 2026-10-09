@@ -1873,10 +1873,10 @@
       "microphoneDeviceFallback": "Microfoon {index}",
       "recovery": {
         "closing": "Afsluiten…",
-        "manageDescription": "Als de microfoonmachtiging ooit vastloopt, kun je deze resetten en macOS vragen opnieuw te vragen.",
+        "manageDescription": "Reset de microfoontoestemming als die vastloopt.",
         "manageLabel": "Microfoontoegang beheren",
         "openSettings": "Instellingen openen",
-        "recoverDescription": "Zodra je nee hebt gezegd, vraagt macOS niet meer uit zichzelf. Reset de machtiging en sluit Stella af en open deze opnieuw.",
+        "recoverDescription": "macOS vraagt het niet opnieuw. Reset het en open Stella opnieuw.",
         "recoverLabel": "Microfoontoegang herstellen",
         "reset": "Resetten en opnieuw starten"
       },
@@ -1889,22 +1889,22 @@
       },
       "speakerDeviceFallback": "Luidspreker {index}",
       "superFast": {
-        "description": "Houdt de microfoon paraat zodat dicteren met minder vertraging start.",
+        "description": "Houdt de microfoon paraat zodat dicteren sneller start.",
         "label": "Supersnel dicteren"
       },
       "systemDefault": "Systeemstandaard",
       "wakeWord": {
-        "description": "Luistert op de achtergrond naar “Hey Stella” en start een spraakgesprek. Wanneer uit, blijft de microfoon inactief totdat je op dicteren drukt.",
+        "description": "Zeg “Hey Stella” om een spraakgesprek te starten.",
         "label": "Wekwoord “Hey Stella”"
       }
     },
     "browserExtension": {
       "action": "Extensie ophalen",
-      "description": "Laat Stella de pagina zien waar je bent en acties uitvoeren in je browser.",
+      "description": "Laat Stella je browser zien en erin handelen.",
       "title": "Stella voor Chrome"
     },
     "chatStorage": {
-      "description": "Bekijk je chats op al je apparaten. Schakel dit uit om een aparte chatgeschiedenis alleen op deze computer te houden. Bij het terugzetten worden die chats niet geüpload. AI-aanbieders verwerken je berichten nog steeds.",
+      "description": "Synchroniseer chats tussen apparaten. Uit houdt ze op deze computer.",
       "endVoice": "Beëindig je spraakgesprek om de chatopslag te wijzigen.",
       "error": "Kan de chatopslag niet wijzigen. Probeer het opnieuw.",
       "title": "Chatgeschiedenis in de cloud bewaren"
@@ -1923,13 +1923,13 @@
       "upgrade": "Upgraden"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Een kleine Stella die boven je bureaublad zweeft.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "API-sleutel",
-      "empty": "Nog geen providers verbonden. Kies hierboven in de modelkiezer een andere optie dan Stella om een API-sleutel toe te voegen of je aan te melden.",
+      "empty": "Nog geen providers. Voeg er een toe via de modelkiezer hierboven.",
       "removeKey": "Sleutel verwijderen",
       "removingKey": "Verwijderen…",
       "signOut": "Afmelden",
@@ -1948,7 +1948,7 @@
       "addClaude": "Claude-account toevoegen",
       "addInCloud": "In de cloud",
       "addOnComputer": "Op deze computer",
-      "cardIntro": "Gebruik het Claude- of ChatGPT-abonnement waarvoor je al betaalt. Elke plek logt apart in: elke computer en je cloud.",
+      "cardIntro": "Gebruik het Claude- of ChatGPT-abonnement waarvoor je al betaalt.",
       "cardTitle": "Claude- en ChatGPT-accounts",
       "chatgptBrowserWaiting": "Rond het inloggen bij ChatGPT af in je browser.",
       "chatgptCloudSignedIn": "Je cloud is ingelogd bij ChatGPT.",
@@ -1969,7 +1969,7 @@
         "whereComputer": "Inloggen bij Claude Code op deze computer."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Code is niet geïnstalleerd op deze computer. Installeer het om Claude hier te gebruiken.",
+      "cliMissing": "Installeer Claude Code op deze computer om Claude hier te gebruiken.",
       "connecting": "Verbinden…",
       "defaultSignedOut": "Claude Code op deze computer is niet ingelogd.",
       "enablePlanUsage": "Gebruik van ChatGPT-abonnement inschakelen",
@@ -1980,14 +1980,14 @@
       "needsChatgptCloud": "Stel eerst ChatGPT in voor je cloud",
       "needsClaudeCloud": "Log eerst in bij Claude in de cloud",
       "openChatgptAgain": "ChatGPT opnieuw openen",
-      "pasteHintChatgpt": "Na je goedkeuring stuurt ChatGPT je naar een pagina die niet laadt. Kopieer het volledige adres van die pagina en plak het hier.",
+      "pasteHintChatgpt": "Kopieer het adres van de pagina die ChatGPT opent en plak het hier.",
       "pastePlaceholderUrl": "Plak het adres hier",
       "placeCloud": "Cloud",
       "placeComputer": "Deze computer",
       "placeOtherComputer": "Een andere computer",
       "placeSignedIn": "{place}: ingelogd",
       "placeSignedOut": "{place}: niet ingelogd",
-      "planUsageOffBody": "Stella kan je ChatGPT-abonnement pas gebruiken als je dat toestaat. Kies ‘Gebruik van ChatGPT-abonnement inschakelen’ bij het account, of gebruik een ander model.",
+      "planUsageOffBody": "Kies ‘Gebruik van ChatGPT-abonnement inschakelen’ bij het account, of kies een ander model.",
       "planUsageOffTitle": "Ingelogd, maar gebruik van het ChatGPT-abonnement staat niet aan",
       "remove": "Verwijderen",
       "removed": "Verwijderd.",
@@ -2044,7 +2044,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Hoe hard Stella probeert je te bereiken als ze een antwoord nodig heeft.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2088,7 +2088,7 @@
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "note": "Ingelogde computers verschijnen hier. Schakel er een in om er werk naartoe te sturen.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2102,16 +2102,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Kies de taal die Stella gebruikt in de app en in antwoorden.",
+      "description": "Voor de app en de antwoorden van Stella.",
       "title": "Taal"
     },
     "lockedComputerUse": {
-      "description": "Laat Stella computergebruik-taken voortzetten nadat deze Mac is vergrendeld. Vereist een beheerdersverzoek en bedekt het scherm terwijl Stella werkt.",
+      "description": "Laat computergebruik-taken doorlopen als deze Mac vergrendelt.",
       "title": "Gebruik bij vergrendelde computer",
       "unsupported": "Gebruik bij vergrendelde computer is alleen beschikbaar op macOS."
     },
     "memory": {
-      "description": "Neem opgeslagen herinneringen en je profiel op in de modelcontext van Stella. Je computers en de cloud houden hetzelfde geheugen bij, versleuteld tijdens overdracht en opslag. Als je dit uitschakelt, wordt dat gepauzeerd en wordt het geheugen niet gebruikt in toekomstige gesprekken, maar niet verwijderd.",
+      "description": "Gebruik opgeslagen herinneringen in antwoorden. Uitzetten verwijdert ze niet.",
       "title": "Geheugen"
     },
     "modelPicker": {
@@ -2145,7 +2145,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Gebruik elke lokale OpenAI-compatibele server. Ollama draait meestal op de URL hieronder.",
+        "hint": "Elke lokale OpenAI-compatibele server, zoals Ollama.",
         "modelNameAriaLabel": "Naam lokaal model",
         "serverUrlAriaLabel": "URL lokale server"
       },
@@ -2189,7 +2189,7 @@
       "title": "Beweging"
     },
     "nativeFontSmoothing": {
-      "description": "Geeft tekst weer zoals macOS-apps, met antialiasing in grijswaarden.",
+      "description": "Anti-aliasing in grijstinten, zoals native macOS-apps.",
       "title": "Native lettertype-afronding"
     },
     "notifications": {
@@ -2198,18 +2198,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Doorloop de introductie opnieuw. Je gegevens blijven bewaard.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Laat Stella geselecteerde tekst lezen en openen via de sneltoets ⌘+rechtermuisklik overal op je computer.",
+        "description": "Lees geselecteerde tekst en open met ⌘+rechtsklik.",
         "label": "Toegankelijkheid"
       },
       "enable": "Inschakelen",
       "granted": "Verleend",
       "microphone": {
-        "description": "Gebruikt voor stem en dictee. Reset als Stella eerder is geweigerd en macOS niet opnieuw vraagt.",
+        "description": "Voor spraak en dicteren.",
         "label": "Microfoon"
       },
       "opening": "Openen…",
@@ -2218,11 +2218,11 @@
       "restart": {
         "action": "Opnieuw starten",
         "closing": "Afsluiten…",
-        "description": "Schermopname is zojuist ingeschakeld. Sluit Stella af en open opnieuw om de installatie te voltooien.",
+        "description": "Open Stella opnieuw om schermopname volledig in te schakelen.",
         "label": "Stella opnieuw starten"
       },
       "screen": {
-        "description": "Laat Stella je scherm zien om te helpen met waar je naar kijkt. Mogelijk moet je Stella afsluiten en opnieuw openen nadat je dit hebt ingeschakeld.",
+        "description": "Laat Stella zien wat er op je scherm staat.",
         "label": "Schermopname"
       },
       "title": "Machtigingen"
@@ -2243,7 +2243,7 @@
         "other": "{count} telefoons gekoppeld"
       },
       "pairing": {
-        "body": "Open de Stella-app op je telefoon en scan de QR-code, of typ de code hieronder. Dit hoef je maar één keer te doen.",
+        "body": "Scan de QR-code in de Stella-app op je telefoon, of voer de code in.",
         "headline": "Scan of voer deze code in",
         "qrAlt": "Scan om je telefoon te koppelen"
       },
@@ -2279,7 +2279,7 @@
         "description": "Stuur Stella’s chatassistent via {provider}.",
         "label": "Assistent"
       },
-      "description": "{provider} kan meer dan één onderdeel van Stella aandrijven. Kies waar het het overneemt — Stella doet de rest.",
+      "description": "Kies waarvoor {provider} gebruikt moet worden.",
       "errors": {
         "apply": "Providerinstellingen toepassen mislukt."
       },
@@ -2308,7 +2308,7 @@
     },
     "resetCustomizations": {
       "action": "Standaarden herstellen",
-      "description": "Verwijdert je skill-aanpassingen en persoonlijkheidsbewerkingen zodat Stella's standaarden gelden. Verwijderde items blijven bewaard in ~/.stella/.trash voor het geval je ze terug wilt.",
+      "description": "Herstel standaardvaardigheden en -persoonlijkheid. Oude bestanden gaan naar ~/.stella/.trash.",
       "done": "Standaarden hersteld. Je eerdere aanpassingen zijn verplaatst naar ~/.stella/.trash.",
       "error": "Kon de standaarden niet herstellen.",
       "none": "Je gebruikt al Stella's standaardinstellingen.",
@@ -2342,7 +2342,7 @@
       "change": "Wijzigen",
       "clear": "Wissen",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Druk om te dicteren, druk nogmaals om te stoppen."
       },
       "errors": {
         "load": "Sneltoetsen laden mislukt.",
@@ -2380,7 +2380,7 @@
       "defaultOption": "Stella's standaard",
       "delete": "Verwijderen",
       "deleted": "Prompt verwijderd.",
-      "description": "Stella's standaardprompt wordt altijd met de app bijgewerkt. Sla je eigen prompt op om die in plaats daarvan te gebruiken — hij wordt apart bewaard, dus updates overschrijven hem nooit.",
+      "description": "Gebruik je eigen prompt in plaats van die van Stella.",
       "duplicate": "Dupliceren",
       "edit": "Bewerken",
       "error": "Er ging iets mis.",
@@ -2397,11 +2397,12 @@
       "account": "Account & juridisch",
       "audio": "Audio",
       "general": "Algemeen",
-      "shortcuts": "Sneltoetsen"
+      "shortcuts": "Sneltoetsen",
+      "privacy": "Privacy"
     },
     "title": "Instellingen",
     "voiceAgent": {
-      "description": "Toon de spraak- en belknoppen zodat je hardop met Stella kunt praten. Dicteren blijft hoe dan ook werken.",
+      "description": "Toon spraak- en belknoppen. Dicteren werkt hoe dan ook.",
       "error": "Spraakinstelling kon niet worden bijgewerkt.",
       "title": "Spraakgesprekken"
     },
@@ -2423,6 +2424,13 @@
         "openai": "OpenAI-stemmen",
         "xai": "Grok-stemmen"
       }
+    },
+    "groups": {
+      "app": "App",
+      "personal": "Persoonlijk"
+    },
+    "nav": {
+      "more": "Meer"
     }
   },
   "shell": {

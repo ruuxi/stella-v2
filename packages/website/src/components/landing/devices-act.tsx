@@ -31,8 +31,8 @@ export function DevicesAct() {
       const r = view.getBoundingClientRect();
       const narrow = r.width < 700;
       const fit = narrow
-        ? Math.min(r.height / 830, r.width / 400)
-        : Math.min(r.height / 830, r.width / 1040);
+        ? Math.min(r.height / 880, r.width / 400)
+        : Math.min(r.height / 880, r.width / 1040);
       stageRef.current?.style.setProperty("--fit", String(fit));
     };
     measure();

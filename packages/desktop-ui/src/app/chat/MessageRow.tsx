@@ -52,7 +52,11 @@ import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";
 import { FilePills } from "@/app/chat/FilePills";
 import type { ConversationFileEntry } from "@/features/workspace-display/derive-conversation-files";
 import { MessageAttachments } from "@/app/chat/evidence/MessageAttachments";
-import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
+import {
+  dropAttachmentOnlyLines,
+  extractLocalFileLinkPaths,
+} from "@stella/contracts/local-file-links";
+import { cloudWorldDrivePath } from "@stella/contracts/cloud-world-paths";
 import { AppPreviewCard } from "@/features/cloud/AppPreviewCard";
 import { extractStellaAppLinkSlugs } from "@stella/contracts/workspace-apps";
 import { VoiceSessionCard } from "@/app/chat/VoiceSessionCard";
@@ -658,6 +662,22 @@ export const AssistantMessageRow = memo(
         (file.cloudDriveFile || !evidencePathSet.has(file.path)) &&
         all.findIndex((other) => fileKey(other) === fileKey(file)) === index,
     );
+    // Links whose files the reply attaches keep their words in a sentence
+    // (the Markdown pass unlinks them); a line made only of such links goes.
+    const hiddenFileKeys = [...completionFiles, ...linkedFiles]
+      .map(fileKey)
+      .concat(evidencePaths.map((filePath) => `local:${filePath}`));
+    const hiddenFileKeySet = new Set(hiddenFileKeys);
+    const bodyText = hasText
+      ? dropAttachmentOnlyLines(text, (filePath) => {
+          const drivePath = cloudWorldDrivePath(filePath);
+          return (
+            hiddenFileKeySet.has(`local:${filePath}`) ||
+            (drivePath !== null && hiddenFileKeySet.has(`cloud:${drivePath}`))
+          );
+        })
+      : text;
+    const hasBody = bodyText.trim().length > 0;
     const inlineImages = (row.inlineImagePayloads ?? []).filter(
       (payload): payload is Extract<DisplayPayload, { kind: "media" }> =>
         payload.kind === "media" &&
@@ -696,17 +716,15 @@ export const AssistantMessageRow = memo(
               conversationId={conversationId}
             />
           ) : null}
-          {hasText && (
+          {hasBody && (
             // Bubble + its hover control share one horizontal line, so the
             // ellipsis sits to the RIGHT of the bubble and reserves no height.
             // Only a turn's final assistant message carries it: mid-turn
             // preambles render no control at all.
             <div className="message-line message-line--assistant">
               <div className="assistant-message-text chat-bubble-text">
-                <Markdown text={text} cacheKey={row.cacheKey} hideHorizontalRules
-                  hiddenFilePaths={[...completionFiles, ...linkedFiles]
-                    .map(fileKey)
-                    .concat(evidencePaths.map((filePath) => `local:${filePath}`))}
+                <Markdown text={bodyText} cacheKey={row.cacheKey} hideHorizontalRules
+                  hiddenFilePaths={hiddenFileKeys}
                 />
                 {conversationId &&
                 ((row.replyRefs && row.replyRefs.length > 0) || hasAgentCompletion) ? (
@@ -735,7 +753,7 @@ export const AssistantMessageRow = memo(
               )}
             </div>
           )}
-          {hasText && (inlineImageStrip || evidencePaths.length > 0) ? (
+          {hasBody && (inlineImageStrip || evidencePaths.length > 0) ? (
             <div className="assistant-media">
               {inlineImageStrip}
               {evidencePaths.length > 0 ? (
@@ -743,7 +761,13 @@ export const AssistantMessageRow = memo(
               ) : null}
             </div>
           ) : null}
-          {!hasText && replyFiles.length > 0 ? (
+          {!hasBody && evidencePaths.length > 0 ? (
+            <div className="assistant-media">
+              <MessageAttachments filePaths={evidencePaths} part="media" />
+              <MessageAttachments filePaths={evidencePaths} part="documents" />
+            </div>
+          ) : null}
+          {!hasBody && replyFiles.length > 0 ? (
             <FilePills files={replyFiles} />
           ) : null}
           {hasText
@@ -786,7 +810,7 @@ export const AssistantMessageRow = memo(
           {row.officePreviewRef && (
             <OfficePreviewCard previewRef={row.officePreviewRef} />
           )}
-          {hasText ? null : inlineImageStrip}
+          {hasBody ? null : inlineImageStrip}
           {row.sourceDiffPayloads && row.sourceDiffPayloads.length > 0 ? (
             <SourceDiffEndResource
               batchId={row.id}

@@ -28,6 +28,7 @@ import {
 import { LOCAL_PROVIDER_ID } from "@stella/agent/provider/byok";
 import { stellaModel, stellaProvider } from "@stella/agent/provider/stella";
 import type { ResolvedLlmRoute } from "./model-routing.js";
+import { withProcessableImages } from "./shared/image-payload.js";
 
 export type RouteCompletionOptions = Pick<
   SimpleStreamOptions,
@@ -97,9 +98,10 @@ const UNAUTHORIZED = /(?:^|\b)401(?:\b|$)|\bunauthorized\b|\btoken_(?:expired|re
 
 export async function completeOnRoute(
   route: ResolvedLlmRoute,
-  context: Context,
+  requested: Context,
   options: RouteCompletionOptions = {},
 ): Promise<AssistantMessage> {
+  const context = { ...requested, messages: [...withProcessableImages(requested.messages)] };
   const { apiKey: givenKey, ...request } = options;
   const models = createModels();
   if (route.stella) {

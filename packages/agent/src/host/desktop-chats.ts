@@ -17,8 +17,10 @@ import {
   watchEvents,
   type AgentEventStream,
   type Conversation,
+  type ConversationId,
   type EntryId,
   type Harness,
+  type ModelRef,
   type Submission,
   type UserInput,
 } from "@earendil-works/pi-durable";
@@ -54,10 +56,18 @@ import { StellaAgentsDoc, type RemoteAgentHost } from "../stella/agents.ts";
 import type { StellaToolHost } from "../stella/host-tools.ts";
 import {
   parseStellaModelId,
+  STELLA_PROVIDER_ID,
   stellaProvider,
   type StellaGatewayAccess,
   type StellaModelSpec,
 } from "../provider/stella.ts";
+import {
+  byokModels,
+  parseModelPick,
+  stellaCredentialStore,
+  storeOnlyAuthContext,
+  type StellaCredentialAccess,
+} from "../provider/byok.ts";
 import { openBunSqliteStorage } from "../storage/bun-sqlite.ts";
 import { desktopAgentsHost, desktopEnvironments } from "./desktop-agents.ts";
 import { journalMirror, type DesktopJournal, type JournalMirror } from "./desktop-journal.ts";
@@ -95,6 +105,8 @@ export type DesktopChatsOptions = {
   memoryEnabled?(): boolean;
   /** The model the user picked for the orchestrator (`stella/<alias>`, or another provider's). */
   stellaModel?(): string | undefined;
+  /** The keys the user brought for other providers' models (BYOK), as the app keeps them. */
+  credentials?: StellaCredentialAccess;
   /** The orchestrator's thinking level, from the user's reasoning effort. */
   thinkingLevel?(): ModelThinkingLevel;
   /** Stella's own tools (web, html, image_gen, ask_user, …) for one conversation. */
@@ -292,7 +304,14 @@ export function desktopChats(options: DesktopChatsOptions) {
   };
 
   const environments = desktopEnvironments(options.workspace);
-  const models = createModels();
+  // A model on another provider runs with the key the user stored for it,
+  // never one found in this process's environment.
+  const models = createModels(
+    options.credentials
+      ? { credentials: stellaCredentialStore(options.credentials), authContext: storeOnlyAuthContext }
+      : {},
+  );
+  const byok = byokModels(models);
   let gateway: Promise<{ access: StellaGatewayAccess; gatewayOrigin: string }> | undefined;
   /** Each Stella model alias in use, resolved for the orchestrator and agents. */
   const specsByAlias = new Map<string, Promise<StellaModelSpec[]>>();
@@ -338,6 +357,25 @@ export function desktopChats(options: DesktopChatsOptions) {
     }
     const all = await Promise.all([...specsByAlias.values()].map((specs) => specs.catch(() => [])));
     models.setProvider(stellaProvider({ access, models: all.flat() }));
+  };
+
+  /** The orchestrator's model for the user's pick: a Stella alias, or a model on the user's own key. */
+  const pickedModel = async (): Promise<ModelRef> => {
+    const pick = parseModelPick(options.stellaModel?.());
+    if (!pick || pick.kind === "stella") {
+      const alias = pick?.alias ?? STELLA_DEFAULT_ALIAS;
+      await ensureProvider(alias);
+      return stellaModelRef("orchestrator", alias);
+    }
+    const ref = byok.ensure(pick);
+    if ("error" in ref) throw new Error(ref.error);
+    return ref;
+  };
+
+  /** A model a conversation or one of its agents is on, ready to run (after a restart too). */
+  const ensureModel = async (ref: ModelRef | undefined): Promise<void> => {
+    if (!ref || ref.provider === STELLA_PROVIDER_ID) await ensureProvider(aliasOf(ref));
+    else byok.restore(ref);
   };
 
   /** The alias a conversation's agent runs on. */
@@ -434,9 +472,20 @@ export function desktopChats(options: DesktopChatsOptions) {
         // A conversation from an older build keeps up with what the orchestrator is offered.
         if (offersAgentTools(await root.agent(context))) await root.configure(orchestrator, context);
         await importLegacyHistory(harness, root, conversationId, fresh);
-        // Recovered work needs the provider; it waits for sign-in otherwise.
-        const alias = aliasOf((await root.agent(context)).model);
-        void waitForProvider(alias).then(() => harness.resume());
+        // Recovered work needs its models: a Stella alias waits for sign-in; a
+        // model on the user's own key is ready at once.
+        const rootModel = (await root.agent(context)).model;
+        for (const agent of Object.values((await harness.snapshot(StellaAgentsDoc, root.id, context))?.agents ?? {})) {
+          if (agent.remote) continue;
+          const model = (await (await harness.conversation(agent.conversationId as ConversationId, context))?.agent(context))?.model;
+          if (model && model.provider !== STELLA_PROVIDER_ID) byok.restore(model);
+        }
+        if (rootModel && rootModel.provider !== STELLA_PROVIDER_ID) {
+          byok.restore(rootModel);
+          void harness.resume();
+        } else {
+          void waitForProvider(aliasOf(rootModel)).then(() => harness.resume());
+        }
         const journal = options.journal?.(conversationId);
         const mirror = journal
           ? await journalMirror({
@@ -632,15 +681,17 @@ export function desktopChats(options: DesktopChatsOptions) {
     content: UserInput,
     sent: { locale?: string } = {},
   ) => {
-    // The Stella model the user picked (a BYOK pick runs on the default for now).
-    const picked = options.stellaModel?.();
-    const alias = picked?.startsWith("stella/") ? picked : STELLA_DEFAULT_ALIAS;
-    await ensureProvider(alias);
+    // The model the user picked: one of Stella's, or one on their own key.
+    const model = await pickedModel();
     const chat = await open(conversationId);
     const agent = await chat.root.agent(context);
     const thinkingLevel = options.thinkingLevel?.() ?? "off";
-    if (aliasOf(agent.model) !== alias || agent.thinkingLevel !== thinkingLevel) {
-      await chat.root.configure({ model: stellaModelRef("orchestrator", alias), thinkingLevel }, context);
+    if (
+      agent.model?.provider !== model.provider ||
+      agent.model?.modelId !== model.modelId ||
+      agent.thinkingLevel !== thinkingLevel
+    ) {
+      await chat.root.configure({ model, thinkingLevel }, context);
     }
     // The tool catalog follows the runtime's (extension tools come and go).
     chat.refreshTools();
@@ -664,7 +715,7 @@ export function desktopChats(options: DesktopChatsOptions) {
   /** The conversation open and its model ready, for work the host starts in it. */
   const ready = async (conversationId: string): Promise<Chat> => {
     const chat = await open(conversationId);
-    await ensureProvider(aliasOf((await chat.root.agent(context)).model));
+    await ensureModel((await chat.root.agent(context)).model);
     chat.refreshTools();
     await markActive(conversationId, true);
     return chat;

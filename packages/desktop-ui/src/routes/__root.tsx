@@ -77,7 +77,6 @@ const SubscriptionUpgradeDialog = lazy(() =>
 import { ShellTopBarFull } from "@/shell/ShellTopBarFull";
 import { GlobalModelsControl } from "@/shell/GlobalModelsControl";
 import { DisplayPanelTopBar } from "@/shell/DisplayPanelTopBar";
-import { StellaContextMenu } from "@/shell/context-menu/StellaContextMenu";
 import {
   displayTabs,
   useDisplayPanelExpanded,
@@ -748,8 +747,8 @@ function RootChrome({ conversationId }: { conversationId: string | null }) {
     [],
   );
 
-  // Route-aware default surface for a manual panel open (right-click /
-  // keyboard). Home never opens to a duplicate chat — it shows the Home
+  // Route-aware default surface for a manual panel open (keyboard /
+  // toggle). Home never opens to a duplicate chat — it shows the Home
   // launcher; every other route opens the chat viewer. An already-active
   // artifact viewer (media / canvas / pdf / …) reopens as-is regardless of
   // route so summoning doesn't lose what the user was looking at.
@@ -831,14 +830,6 @@ function RootChrome({ conversationId }: { conversationId: string | null }) {
   // Tabs are otherwise sticky — only the user closes them.
   useEffect(() => {
     ensureChatDisplayTab();
-  }, []);
-
-  const handleContextMenuOpenPanel = useCallback(() => {
-    displayTabs.setPanelOpen(true);
-  }, []);
-
-  const handleContextMenuClosePanel = useCallback(() => {
-    displayTabs.setPanelOpen(false);
   }, []);
 
   const { latestDisplayPayloadRef } = useDisplayPayloadRouting({
@@ -1005,45 +996,39 @@ function RootChrome({ conversationId }: { conversationId: string | null }) {
         <MobileActivityNotificationsBridge />
       ) : null}
 
-      <StellaContextMenu
-        isOpen={panelOpen}
-        onOpen={handleContextMenuOpenPanel}
-        onClose={handleContextMenuClosePanel}
-      >
-        <div className="content-area">
-          <div
-            className={`persistent-chat-surface${isOnChatRoute ? " persistent-chat-surface--active" : ""}`}
-            aria-hidden={!isOnChatRoute}
-          >
-            <ChatColumn
-              conversation={chat.conversation}
-              composer={chat.composer}
-              scroll={chat.scroll}
-              conversationId={conversationId}
-              showHomeContent={chat.showHomeContent}
-            />
-          </div>
-          <div
-            className={`route-outlet-surface${isOnChatRoute ? "" : " route-outlet-surface--active"}`}
-            aria-hidden={isOnChatRoute}
-          >
-            <Outlet />
-          </div>
+      <div className="content-area">
+        <div
+          className={`persistent-chat-surface${isOnChatRoute ? " persistent-chat-surface--active" : ""}`}
+          aria-hidden={!isOnChatRoute}
+        >
+          <ChatColumn
+            conversation={chat.conversation}
+            composer={chat.composer}
+            scroll={chat.scroll}
+            conversationId={conversationId}
+            showHomeContent={chat.showHomeContent}
+          />
         </div>
+        <div
+          className={`route-outlet-surface${isOnChatRoute ? "" : " route-outlet-surface--active"}`}
+          aria-hidden={isOnChatRoute}
+        >
+          <Outlet />
+        </div>
+      </div>
 
-        {/* The top bar spans the whole shell, then follows the main column's
-            right edge when the display panel opens. It is rendered after the
-            content area's drag strip so its `no-drag` controls remain
-            interactive, and it carries the activity indicator that replaced
-            the standalone right-hand activity surface. */}
-        <ShellTopBarFull onSignIn={showAuthDialog} />
+      {/* The top bar spans the whole shell, then follows the main column's
+          right edge when the display panel opens. It is rendered after the
+          content area's drag strip so its `no-drag` controls remain
+          interactive, and it carries the activity indicator that replaced
+          the standalone right-hand activity surface. */}
+      <ShellTopBarFull onSignIn={showAuthDialog} />
 
-        <DisplayPanelTopBar />
+      <DisplayPanelTopBar />
 
-        <Suspense fallback={null}>
-          <RightSidebar ref={rightSidebarRef} />
-        </Suspense>
-      </StellaContextMenu>
+      <Suspense fallback={null}>
+        <RightSidebar ref={rightSidebarRef} />
+      </Suspense>
 
       {/* Global bottom-right Models control — top-level, not owned by the
           right sidebar (state/overlay/lifecycle stay global), but its on-screen

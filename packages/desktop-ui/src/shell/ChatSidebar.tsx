@@ -685,7 +685,6 @@ const SidebarComposerForm = memo(function SidebarComposerForm({
   return (
     <form
       ref={formRef}
-      data-composer-context-menu="native"
       className={`chat-sidebar-form${formExpanded ? " expanded" : ""}`}
       onSubmit={(event) => {
         event.preventDefault();

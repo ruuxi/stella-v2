@@ -278,7 +278,6 @@ function ComposerImpl({
             ref={formRef}
             data-testid="chat-composer"
             data-conversation-id={conversationId ?? undefined}
-            data-composer-context-menu="native"
             className={`composer-form${isExpanded ? " expanded" : ""}`}
             aria-busy={isStreaming}
             onSubmit={(event) => {

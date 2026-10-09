@@ -26,6 +26,8 @@ import { responseLanguageSection } from "@stella/runtime/kernel/runner/locale-pr
 import { StellaAgentDoc, type StellaAgentRole } from "./agent-doc.ts";
 import { processableImagesHook } from "./processable-images.ts";
 import type { StellaAgentPromptId, StellaContextSources } from "./context.ts";
+import { renderDeviceDestination, SWITCH_DESTINATION_TOOL_NAME } from "./execution.ts";
+import { placementOf, StellaPlacementDoc } from "./placement.ts";
 
 export const STELLA_PROMPT_EXTENSION = "stella-prompt";
 
@@ -116,14 +118,19 @@ export function stellaPromptExtension(sources: StellaContextSources) {
         { tag: false },
       ),
       section("skills", async (_input, context) => sources.skillsCatalog(context), { tag: false }),
-      section(
-        "execution-devices",
-        orchestratorOnly(async (input, context) => {
-          const snapshot = await sources.executionContext(input.conversationId, context);
-          return snapshot && renderExecutionDevices(snapshot);
-        }),
-      ),
+      // Stella's, and an agent's that can move its own tools to one of them.
+      section("execution-devices", async (input, context) => {
+        const switchable = input.agent.tools.some((tool) => tool.name === SWITCH_DESTINATION_TOOL_NAME);
+        if ((await role(input, context)).agentType !== "orchestrator" && !switchable) return undefined;
+        const snapshot = await sources.executionContext(input.conversationId, context);
+        return snapshot && renderExecutionDevices(snapshot, { switchable });
+      }),
       section("execution-destination", async (input, context) => {
+        // A conversation whose tools run on one of the user's computers says which.
+        const placement = placementOf(await input.read.snapshot(StellaPlacementDoc, input.conversationId, context));
+        if (placement?.kind === "device") {
+          return renderDeviceDestination(placement, (await role(input, context)).agentType === "orchestrator");
+        }
         const snapshot = await sources.executionContext(input.conversationId, context);
         return snapshot && renderExecutionDestination(snapshot);
       }),

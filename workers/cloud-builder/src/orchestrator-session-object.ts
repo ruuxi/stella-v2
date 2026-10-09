@@ -5371,14 +5371,17 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       const text = turn.hiddenMessage
         ? report.prompt
         : `${report.prompt.replace(/\s+$/u, "")}\n\n${formatMessageRefTag(promptSeq)}`;
+      // Marked as the journal row is: the clock is context, and a prompt the
+      // user did not write (a wake, an agent's note) is read, not shown.
+      const hidden = { stella: { hidden: true as const } };
       const submission = await root.submit(
         {
           type: "input",
           requestId: `turn:${turn.turnId}`,
           whenBusy: "followUp",
           content: [
-            { type: "text", text: `<current-time>${clock}</current-time>` },
-            { type: "text", text },
+            { type: "text", text: `<current-time>${clock}</current-time>`, ...hidden },
+            { type: "text", text, ...(turn.hiddenMessage ? hidden : {}) },
             ...(turn.attachments?.length
               ? [
                   {
@@ -5500,6 +5503,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           log: (event, fields) => log("info", event, fields),
           deliverReport: (report, authority, agent) =>
             this.deliverPiAgentReport(report, authority, agent),
+          deliverNote: (note, authority) =>
+            this.deliverPiAgentNote(note, authority),
           // A computer's cloud agent reports to that computer: its journal
           // import takes the card and gives it to its orchestrator.
           deliverOriginReport: async (report, turnId) => {
@@ -5658,25 +5663,24 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     };
   }
 
-  private async deliverPiAgentReport(
-    report: import("@stella/agent/stella/agents").AgentReport,
+  /**
+   * A hidden wake turn on this conversation for one of its pi agents, from
+   * the turn plane's service side: what Stella reads is the prompt, and no
+   * client shows it. Idempotent per `clientMsgId`.
+   */
+  private async startPiAgentWake(
     authority: import("./pi-runtime.js").PiAuthority,
-    agent: import("./pi-runtime.js").PiAgentInfo,
-  ): Promise<void> {
-    const limit = AGENT_MESSAGE_FRAMED_MAX_CHARS;
-    const prompt =
-      report.text.length <= limit
-        ? report.text
-        : `${report.text.slice(0, limit - 40)}\n[report truncated]`;
+    wake: { clientMsgId: string; prompt: string },
+  ): Promise<Response> {
     const start: CloudTurnStartRequest = {
       protocol: TURN_PLANE_PROTOCOL,
-      clientMsgId: report.requestId.slice(0, 64),
-      prompt,
+      clientMsgId: wake.clientMsgId,
+      prompt: wake.prompt,
       lane: "wake",
       source: "agent-thread",
       hiddenMessage: true,
     };
-    const response = await this.handleTurnStart(
+    return await this.handleTurnStart(
       new Request("https://orchestrator-session/turn", {
         method: "POST",
         headers: {
@@ -5688,6 +5692,45 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         body: JSON.stringify(start),
       }),
     );
+  }
+
+  /** A note one of this conversation's pi agents sent Stella: a hidden wake turn, as its report is. */
+  private async deliverPiAgentNote(
+    note: import("@stella/agent/stella/agents").AgentNote,
+    authority: import("./pi-runtime.js").PiAuthority,
+  ): Promise<void> {
+    const response = await this.startPiAgentWake(authority, {
+      clientMsgId: note.requestId.slice(0, 64),
+      prompt: note.text.slice(0, AGENT_MESSAGE_FRAMED_MAX_CHARS),
+    });
+    const body = await response.text().catch(() => "");
+    if (response.status !== 202 && response.status !== 200) {
+      throw new Error(
+        `Stella did not take the agent's message (${response.status}): ${body.slice(0, 300)}`,
+      );
+    }
+    log("info", "pi_agent_note_delivered", {
+      conversationId: authority.conversationId,
+      threadId: note.threadId,
+      requestId: note.requestId,
+      status: response.status,
+    });
+  }
+
+  private async deliverPiAgentReport(
+    report: import("@stella/agent/stella/agents").AgentReport,
+    authority: import("./pi-runtime.js").PiAuthority,
+    agent: import("./pi-runtime.js").PiAgentInfo,
+  ): Promise<void> {
+    const limit = AGENT_MESSAGE_FRAMED_MAX_CHARS;
+    const prompt =
+      report.text.length <= limit
+        ? report.text
+        : `${report.text.slice(0, limit - 40)}\n[report truncated]`;
+    const response = await this.startPiAgentWake(authority, {
+      clientMsgId: report.requestId.slice(0, 64),
+      prompt,
+    });
     const body = await response.text().catch(() => "");
     if (response.status !== 202 && response.status !== 200) {
       throw new Error(

@@ -20,7 +20,7 @@ import {
   type EntryId,
   type Harness,
 } from "@earendil-works/pi-durable";
-import { PI_REPORT_RE, piMessageText, piUserView, type PiUserMessage } from "@stella/contracts/pi-chat";
+import { piMessageText, piUserHidden, piUserView, type PiUserMessage } from "@stella/contracts/pi-chat";
 import { splitReplyRefs } from "@stella/contracts/reply-refs";
 
 /** One message the log holds that pi did not write. */
@@ -230,10 +230,9 @@ export async function localLogMirror(args: {
         if (message && !fromLog(entry)) {
           const key = `${root.id}:${entry.id}`;
           if (entry.kind === "pi.user" && message.role === "user") {
-            const said = piMessageText(message as PiUserMessage);
             const { text } = piUserView(message as PiUserMessage);
-            // An agent's report and a prompt the app sent are not the user's words.
-            if (text.trim() && !PI_REPORT_RE.test(said.trimStart())) {
+            // An agent's report or note and a prompt the app sent are not the user's words.
+            if (text.trim() && !piUserHidden(message as PiUserMessage)) {
               await log.write({ key, role: "user", text: text.trim(), timestamp: message.timestamp });
               replyTo = key;
             }

@@ -59,6 +59,7 @@ import {
 import { StellaAgentDoc } from "@stella/agent/stella/agent-doc";
 import {
   StellaAgentsDoc,
+  type AgentNote,
   type AgentOrigin,
   type AgentReport,
   type AgentRun,
@@ -280,6 +281,8 @@ export type PiRuntimeOptions = {
   log(event: string, fields: Record<string, unknown>): void;
   /** An agent's report for the orchestrator, as a hidden wake turn. */
   deliverReport(report: AgentReport, authority: PiAuthority, agent: PiAgentInfo): Promise<void>;
+  /** A note an agent sent the orchestrator (`send_message` to "stella"), as a hidden wake turn. */
+  deliverNote(note: AgentNote, authority: PiAuthority): Promise<void>;
   /**
    * A report of an agent a computer's orchestrator started here: it goes
    * back to that computer (an `agent-report` card in the journal), not to
@@ -956,6 +959,10 @@ export class PiConversationRuntime {
         const info = await this.#agentInfo(report.threadId, context);
         await this.#options.deliverReport(report, authority, files?.length ? { ...info, files } : info);
         if (files) await this.#options.storage.delete(filesKey);
+      },
+      deliverNote: async (note) => {
+        const { authority } = await this.#agentState();
+        await this.#options.deliverNote(note, authority);
       },
     };
   }

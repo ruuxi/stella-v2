@@ -4,6 +4,7 @@ import type {
   EventRecord,
   MessageRecord,
 } from "@stella/contracts/local-chat";
+import { isPiAgentText } from "@stella/contracts/pi-chat";
 import { groupEventsIntoMessages } from "@/features/chat/lib/group-events-into-messages";
 import type { JournalRecord } from "./conversation-protocol";
 import { messageText } from "./conversation-protocol";
@@ -579,19 +580,21 @@ export const journalRecordsToMessageRecords = (
         const attachments = userAttachments(record.payload);
         // A prompt with nothing to show (older desktop turns mirrored their
         // lifecycle wake as an empty, unflagged user record) renders like a
-        // hidden one: no bubble, no slot.
+        // hidden one: no bubble, no slot. So does one an agent sent (a note
+        // stored before it was flagged), whose reply still shows.
         const blank =
           !userText.trim() &&
           attachments.length === 0 &&
           !userDisplayContext(record.payload) &&
           !contentBlocks(record.payload).some((block) => block.type !== "text");
+        const unshown = blank || isPiAgentText(userText);
         events.push({
           _id: userMessageId,
           timestamp,
           type: "user_message",
           payload: {
             ...textPayload(
-              blank && !record.hidden ? { ...record, hidden: true } : record,
+              unshown && !record.hidden ? { ...record, hidden: true } : record,
               userText,
             ),
             ...(attachments.length > 0 ? { attachments } : {}),

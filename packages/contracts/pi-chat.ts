@@ -433,12 +433,40 @@ export const piMessageText = (message: PiMessage | undefined): string => {
 export const PI_REPORT_RE = /^\[(Agent completed|Task failed|Task canceled|Subagent paused)\]/;
 
 /**
+ * A note an agent sent with `send_message`, as `formatAgentMessage`
+ * (`agent-directory`) frames it: the whole text, not a message that quotes one.
+ */
+const AGENT_NOTE_RE = /^<agent-message from="[^"\n]*" thread_id="[^"\n]*">\n[\s\S]*\n<\/agent-message>$/;
+
+/** Text from Stella's agents, not the user: an agent's report, or a note an agent sent. */
+export const isPiAgentText = (text: string): boolean =>
+  PI_REPORT_RE.test(text.trimStart()) || AGENT_NOTE_RE.test(text.trim());
+
+/**
+ * A user message an agent sent: one of its text parts is a report or a note.
+ * Readers hide it, and show Stella's answer to it.
+ */
+export const isPiAgentInput = (message: PiUserMessage): boolean =>
+  typeof message.content === "string"
+    ? isPiAgentText(message.content)
+    : message.content.some((part) => part.type === "text" && isPiAgentText(part.text));
+
+/**
+ * Whether readers hide a user message: one the user never wrote (an agent's
+ * report or note, a prompt the app sent), or one with nothing to show.
+ */
+export const piUserHidden = (message: PiUserMessage): boolean => {
+  const { text, display } = piUserView(message);
+  return isPiAgentText(piMessageText(message)) || isPiAgentText(text) || (!text.trim() && !display);
+};
+
+/**
  * A user message as the conversation journal holds one, and its readers
  * render it: the text the user typed or said, previews of what they attached
  * (images as image blocks, files as declared attachments) and the context
  * chips, without the parts the runtime added for the model. A message the user
- * never wrote (an agent's report, a prompt the app sent) is hidden and keeps
- * its whole text, so a reader can still tell what it answered.
+ * never wrote (an agent's report or note, a prompt the app sent) is hidden and
+ * keeps its whole text, so a reader can still tell what it answered.
  */
 export const piJournalUserMessage = (
   message: PiUserMessage,
@@ -450,7 +478,7 @@ export const piJournalUserMessage = (
       : message.content.flatMap((part) =>
           (part.type === "text" || part.type === "image") && part.stella?.clientMsgId ? [part.stella.clientMsgId] : [],
         )[0];
-  const hidden = PI_REPORT_RE.test(piMessageText(message).trimStart()) || (!text.trim() && !display);
+  const hidden = piUserHidden(message);
   const images: PiContentBlock[] = [];
   const files: Array<Record<string, unknown>> = [];
   for (const attachment of display?.attachments ?? []) {

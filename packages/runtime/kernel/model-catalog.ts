@@ -7,8 +7,7 @@
  * and `@stella/agent` for chats).
  */
 
-import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
-import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/models";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import type {
   RuntimeModelCatalogModel,
   RuntimeModelCatalogSnapshot,
@@ -70,27 +69,6 @@ export const isRegisteredModelReference = (rawReference: string): boolean => {
         reference === `${model.provider}/${model.id}`,
     ),
   );
-};
-
-/**
- * Models that take xhigh although the vendored catalog has no thinking map
- * entry saying so (it predates the maps).
- */
-const takesXhigh = (model: Model<Api>): boolean =>
-  /gpt-5\.[2-6]/.test(model.id) ||
-  (model.api === "anthropic-messages" && /opus-4[.-]6/.test(model.id));
-
-/** The thinking levels a model takes, as pi-ai reads its catalog entry. */
-export const supportedThinkingLevels = (
-  model: Model<Api>,
-): ModelThinkingLevel[] => {
-  const levels = getSupportedThinkingLevels(model);
-  return model.reasoning &&
-    !levels.includes("xhigh") &&
-    model.thinkingLevelMap?.xhigh === undefined &&
-    takesXhigh(model)
-    ? [...levels, "xhigh"]
-    : levels;
 };
 
 const listingModel = (model: Model<Api>): RuntimeModelCatalogModel => ({

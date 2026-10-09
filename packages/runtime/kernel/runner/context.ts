@@ -84,7 +84,7 @@ import {
   getClaudeCodeRuntimeEffortLevel,
 } from "../integrations/claude-code-agent-runtime.js";
 import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
-import { supportedThinkingLevels } from "../model-catalog.js";
+import { supportedThinkingLevels } from "../model-thinking-levels.js";
 import type {
   PersistedRuntimeThreadPayload,
   RuntimeThreadMessage,

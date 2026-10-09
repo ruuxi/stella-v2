@@ -393,7 +393,6 @@ type Env = Pick<
   | "ORCHESTRATOR_SESSIONS"
   | "OWNER_GATES"
   | "WORLDS"
-  | "LOADER"
   | "BUILDER_SERVICE_SECRET"
 > &
   Partial<
@@ -11487,7 +11486,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         ? createWorldMemory(() => ownerMemoryWorld(worldBinding, turn.ownerId))
         : undefined;
     const codeTool = await createCloudCodeAgentTool({
-      loader: this.env.LOADER,
       tools:
         harness === "pi"
           ? tools.filter((tool) => !PI_HARNESS_AGENT_TOOL_NAMES.has(tool.name))
@@ -11566,7 +11564,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       declines: this.connectorDeclines(),
     });
     const code = await createCloudCodeAgentTool({
-      loader: this.env.LOADER,
       tools: [web],
       executionScope: `${authority.ownerGeneration}:${authority.conversationId}:pi-agents`,
       connect: createCloudConnectClient(connectors),

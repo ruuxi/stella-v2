@@ -17,14 +17,12 @@
     "typecheck": "bun run types:check && tsc --noEmit",
     "test:unit": "bun test tests --path-ignore-patterns 'tests/*-workerd.test.ts'",
     "test:workerd": "bun test tests/*-workerd.test.ts",
-    "test": "bun run test:unit && bun run test:workerd && bun run test:code-workerd",
-    "build:dry-run": "node scripts/check-production-bundle.mjs",
-    "test:code-workerd": "bun tests/cloud-code-workerd-acceptance.mjs"
+    "test": "bun run test:unit && bun run test:workerd",
+    "build:dry-run": "node scripts/check-production-bundle.mjs"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.7",
     "@breezystack/lamejs": "1.2.7",
-    "@cloudflare/codemode": "0.5.3",
     "@cloudflare/sandbox": "1.0.0",
     "@cloudflare/worker-bundler": "^0.2.5",
     "@earendil-works/chord": "1.1.0",
@@ -37,6 +35,7 @@
     "@stella/executor-cloud": "workspace:*",
     "@stella/model-catalog": "workspace:*",
     "@stella/runtime": "workspace:*",
+    "acorn": "8.18.0",
     "better-auth": "1.7.7",
     "effect": "4.0.0",
     "hono": "4.13.12",

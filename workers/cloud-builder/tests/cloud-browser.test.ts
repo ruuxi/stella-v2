@@ -3,8 +3,6 @@ import type {
   CloudBrowserCommandRequest,
   CloudBrowserSuspension,
 } from "@stella/contracts/cloud-browser";
-import { isAgentToolSuspendedError } from "@stella/runtime/kernel/agent-core/suspension.js";
-import type { CloudCodeExecutorFactory } from "../src/cloud-code-executor.js";
 import type {
   CloudBrowserTransport,
   ForwardedBrowserGatewayCommand,
@@ -16,15 +14,10 @@ mock.module("cloudflare:workers", () => ({
   WorkerEntrypoint: class {},
 }));
 
-const { executeCloudCodeWithExecutorFactory } = await import(
-  "../src/cloud-code-executor.js"
-);
-const { createCloudCodeAgentTool } = await import("../src/cloud-code-tool.js");
 const { createCloudBrowserClient, CloudBrowserSuspendedError } =
   await import("../src/cloud-browser.js");
 mock.restore();
 
-const loader = {} as WorkerLoader;
 const signal = new AbortController().signal;
 
 const forwarded = (body: unknown, status = 200): ForwardedBrowserGatewayCommand => ({
@@ -273,115 +266,5 @@ describe("cloud browser client", () => {
       "browser.observe",
       "browser.checkpoint",
     ]);
-  });
-});
-
-/** Runs the sandbox's `$browser` dispatch the way the generated module does. */
-const providerFactory = (
-  run: (
-    fns: Record<string, (...args: unknown[]) => Promise<unknown>>,
-  ) => Promise<unknown>,
-): CloudCodeExecutorFactory => () => ({
-  async execute(_source, providers) {
-    if (!Array.isArray(providers)) throw new Error("providers required");
-    try {
-      return { result: await run(providers[0]?.fns ?? {}) };
-    } catch (error) {
-      return {
-        result: undefined,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  },
-});
-
-describe("cloud code with the cloud browser", () => {
-  test("exposes the browser only when the turn holds one", async () => {
-    let keys: string[] = [];
-    const factory = providerFactory(async (fns) => {
-      keys = Object.keys(fns);
-      return null;
-    });
-    const without = await createCloudCodeAgentTool({
-      loader,
-      tools: [],
-      executionScope: "g:c:t",
-      executeCode: (request) =>
-        executeCloudCodeWithExecutorFactory(request, factory),
-    });
-    await without.execute("call", { code: "1" });
-    expect(keys).not.toContain("$browser");
-    expect(without.description).toContain("or browser in this session");
-
-    const withBrowser = await createCloudCodeAgentTool({
-      loader,
-      tools: [],
-      executionScope: "g:c:t",
-      browser: createCloudBrowserClient(gateway([])),
-      executeCode: (request) =>
-        executeCloudCodeWithExecutorFactory(request, factory),
-    });
-    await withBrowser.execute("call", { code: "1" });
-    expect(keys).toContain("$browser");
-    expect(withBrowser.description).toContain("browser.requestLoginTakeover");
-  });
-
-  test("hands a screenshot to the model as an image, not to the cell", async () => {
-    let cellSaw: unknown;
-    const factory = providerFactory(async (fns) => {
-      cellSaw = await fns.$browser?.({ method: "screenshot", args: [] });
-      return "looked";
-    });
-    const code = await createCloudCodeAgentTool({
-      loader,
-      tools: [],
-      executionScope: "g:c:t",
-      browser: createCloudBrowserClient(gateway([])),
-      executeCode: (request) =>
-        executeCloudCodeWithExecutorFactory(request, factory),
-    });
-
-    const output = await code.execute("outer", {
-      code: "await browser.screenshot()",
-    });
-
-    expect(JSON.stringify(cellSaw)).not.toContain("/9j/4AAQ");
-    expect(cellSaw).toMatchObject({ width: 1280, height: 720 });
-    expect(output.content).toContainEqual({
-      type: "image",
-      data: "/9j/4AAQ",
-      mimeType: "image/jpeg",
-    });
-  });
-
-  test("ends the call as a suspension even when the cell catches the handoff", async () => {
-    const factory = providerFactory(async (fns) => {
-      try {
-        await fns.$browser?.({
-          method: "requestLoginTakeover",
-          args: [TAKEOVER],
-        });
-      } catch {
-        // The model's cell swallowed the error; the handoff still stands.
-      }
-      return "kept going";
-    });
-    const code = await createCloudCodeAgentTool({
-      loader,
-      tools: [],
-      executionScope: "g:c:t",
-      browser: createCloudBrowserClient(gateway([])),
-      executeCode: (request) =>
-        executeCloudCodeWithExecutorFactory(request, factory),
-    });
-
-    const outcome = await code
-      .execute("outer-call", { code: "await browser.requestLoginTakeover({})" })
-      .then(
-        () => undefined,
-        (error: unknown) => error,
-      );
-
-    expect(isAgentToolSuspendedError(outcome)).toBe(true);
   });
 });

@@ -20,7 +20,7 @@ and nothing else breaks.
 - **A Cloudflare account on the Workers Paid plan.** Stella uses Workers,
   Durable Objects (SQLite), D1, R2, KV, Queues, Cron Triggers, rate-limit
   bindings, **Containers** (cloud agent sandboxes), **Dynamic Workers** (the
-  `worker_loaders` binding, for code mode), **Artifacts** (open beta; holds the
+  `worker_loaders` binding, for workspace apps), **Artifacts** (open beta; holds the
   app's source), **Browser Run** (the cloud browser) and **Pipelines** (one
   stream, for telemetry).
 - **An OpenRouter API key.** The default models for every agent run on

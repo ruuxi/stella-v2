@@ -10,7 +10,7 @@
  * materialized and rejected afterwards.
  */
 
-import { CLOUD_CODE_WORKER_VALUE_MAX_BYTES } from "./cloud-code-worker-executor.js";
+import { CLOUD_CODE_VALUE_MAX_BYTES } from "./cloud-code-executor.js";
 import { utf8Length } from "./conversation-types.js";
 
 /** Literals, quoted identifiers and comments, which may contain anything. */
@@ -37,7 +37,7 @@ export const runHistoryQuery = (
   storage: DurableObjectStorage,
   query: string,
   params: readonly SqlStorageValue[],
-  maxBytes = CLOUD_CODE_WORKER_VALUE_MAX_BYTES,
+  maxBytes = CLOUD_CODE_VALUE_MAX_BYTES,
 ): Record<string, SqlStorageValue>[] => {
   const statement = readOnlyHistoryQuery(query);
   return storage.transactionSync(() => {

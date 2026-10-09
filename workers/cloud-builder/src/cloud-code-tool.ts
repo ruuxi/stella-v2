@@ -47,15 +47,13 @@ import {
   type CloudCodeExecutionResult,
   type CloudCodeIntrinsic,
   type CloudCodeToolDefinition,
-} from "./cloud-code-executor.js";
-import {
   CLOUD_CODE_BROWSER_INTRINSIC,
   CLOUD_CODE_CONNECT_INTRINSIC,
   CLOUD_CODE_DESCRIBE_INTRINSIC,
   CLOUD_CODE_HISTORY_INTRINSIC,
   CLOUD_CODE_MEMORY_INTRINSIC,
   CLOUD_CODE_SEARCH_INTRINSIC,
-} from "./cloud-code-worker-executor.js";
+} from "./cloud-code-executor.js";
 import { sha256Hex } from "./hash.js";
 import type {
   CloudBrowserClient,
@@ -89,16 +87,23 @@ const CODE_EXCLUDED_TOOL_NAMES: ReadonlySet<string> = new Set([
  * The model-facing contract is the device `code` tool's: the same `tools`
  * proxy (`$list`/`$search`/`$describe`, `tools.<name>(args)`), the same
  * `connect` client, the same demoted-tool catalog suffix. Only the runtime
- * differs, and the differences are stated rather than hidden: a fresh
- * sandbox per call (no persistent bindings, no cell_id), and no
- * computer-use globals because the cloud has no device. An agent's code also
- * gets the `browser` global over Stella's private Browser Run profile; the
- * orchestrator's never does.
+ * differs, and the differences are stated rather than hidden: a confined
+ * interpreter for a JavaScript subset, fresh per call (no persistent
+ * bindings, no cell_id), and no computer-use globals because the cloud has
+ * no device. An agent's code also gets the `browser` global over Stella's
+ * private Browser Run profile; the orchestrator's never does.
  */
 const cloudCodeToolDescription = (browser: boolean): string =>
-  `Run JavaScript with top-level await in Stella's cloud code runtime — a fresh isolated sandbox per call. Call the immutable globals directly: connect, history, tools${browser ? ", and browser" : ""}. End with an expression to return its value; console.log lines come back in a [console] section. Bindings do not persist between calls and there is no cell_id, codeRuntime, or sky${browser ? "" : ", or browser"} in this session, so do the whole computation in one call and return a structured-cloneable value. The sandbox has no network and no secrets of its own; reach the outside world only through tools${browser ? ", connect, and browser" : " and connect"}. ${browser ? `${CLOUD_CODE_BROWSER_SENTENCE} ` : ""}tools exposes allowed Stella tools. Use tools.$list() for exact names/access expressions; non-identifier names require bracket notation such as tools[\"mcp.server/tool\"](...). Use tools.$search({ query: \"<capability>\" }) for ranked signatures, and tools.$describe(name) for a complete unfamiliar schema. Use Promise.all for independent calls. Nested tools retain permissions, cancellation, and route artifacts, and a failing nested call rejects with the tool's own error so you can catch it; tools requiring explicit approval are unavailable inside code and must be called directly. connect is the connector client for the user's connected services (connect.documentation() explains it): discover → actions → schema → call. ` +
+  `Run JavaScript with top-level await in Stella's cloud code runtime — a confined interpreter, fresh per call. Call the immutable globals directly: connect, history, tools${browser ? ", and browser" : ""}. Every call on them returns a promise, so await it (including tools.$list() and connect.documentation()). End with an expression or return to give back a plain JSON value; console.log lines come back in a [console] section. ${CLOUD_CODE_LANGUAGE_SENTENCE} Bindings do not persist between calls and there is no cell_id, codeRuntime, or sky${browser ? "" : ", or browser"} in this session, so do the whole computation in one call. The runtime has no network and no secrets of its own; reach the outside world only through tools${browser ? ", connect, and browser" : " and connect"}. ${browser ? `${CLOUD_CODE_BROWSER_SENTENCE} ` : ""}tools exposes allowed Stella tools. Use await tools.$list() for exact names/access expressions; non-identifier names require bracket notation such as tools[\"mcp.server/tool\"](...). Use tools.$search({ query: \"<capability>\" }) for ranked signatures, and tools.$describe(name) for a complete unfamiliar schema. Use Promise.all for independent calls. Nested tools retain permissions, cancellation, and route artifacts, and a failing nested call rejects with the tool's own error so you can catch it; tools requiring explicit approval are unavailable inside code and must be called directly. connect is the connector client for the user's connected services (connect.documentation() explains it): discover → actions → schema → call. ` +
   `${CODE_TOOL_HISTORY_SENTENCE} ${CODE_TOOL_MEMORY_SENTENCE} ` +
   `One execution may make at most ${CLOUD_CODE_MAX_TOOL_CALLS} nested tool calls, with at most ${CLOUD_CODE_MAX_CONCURRENT_TOOL_CALLS} running concurrently, and runs for at most ${Math.round(CLOUD_CODE_MAX_TIMEOUT_MS / 1000)} seconds.`;
+
+/**
+ * What the interpreter runs, so the model writes code inside it the first
+ * time instead of learning the subset from `UnsupportedSyntax` errors.
+ */
+const CLOUD_CODE_LANGUAGE_SENTENCE =
+  "The language is a JavaScript subset: data literals, destructuring, spread, template literals, optional chaining, if/switch/loops, functions and arrow functions, try/catch/throw, array/string/Object/Math/JSON/Number helpers, RegExp, Date, Map, Set, URL, and Promise.all/allSettled/race. There are no classes, generators, imports, eval, timers, fetch, new Promise, or .then/.catch/.finally chains (use await with try/catch), and only listed standard methods are callable.";
 
 /**
  * The cloud browser contract, stated in full because it differs from the
@@ -185,7 +190,6 @@ export type CloudCodeExecute = (
 ) => Promise<CloudCodeExecutionResult>;
 
 export type CreateCloudCodeAgentToolOptions = Readonly<{
-  loader: WorkerLoader;
   tools: readonly CloudCodeSourceAgentTool[];
   /** Stable owner-generation + conversation + turn identity. */
   executionScope: string;
@@ -205,7 +209,7 @@ export type CreateCloudCodeAgentToolOptions = Readonly<{
    * is no `browser` at all, as in the cloud orchestrator.
    */
   browser?: CloudBrowserClient;
-  /** Test seam; production always uses the official Dynamic Worker executor. */
+  /** Test seam; production always uses the confined interpreter. */
   executeCode?: CloudCodeExecute;
 }>;
 
@@ -483,7 +487,7 @@ const connectIntrinsic =
 
 /**
  * One `connect.<method>(...args)` against a host-side client. Shared by the
- * isolate's intrinsic and the turn broker, which serves the same call for the
+ * code runtime's intrinsic and the turn broker, which serves the same call for the
  * container's `code`.
  */
 const invokeCloudConnect = async (
@@ -608,7 +612,7 @@ export const createCloudCodeAgentTool = async (
   const value = await loadTypeBoxValue();
   const liftedMaps = new Map<string, MapRouteArtifact[]>();
   const liftedScreenshots = new Map<string, LiftedScreenshot[]>();
-  const prepared = await prepareCloudCodeTools(
+  const prepared = prepareCloudCodeTools(
     sourceTools.map((tool) => definitionForAgentTool(tool, value, liftedMaps)),
   );
   const catalog = sourceTools.map(catalogEntryForTool);
@@ -652,7 +656,6 @@ export const createCloudCodeAgentTool = async (
       let result: CloudCodeExecutionResult;
       try {
         result = await executeCode({
-          loader: options.loader,
           code: args.code,
           tools: prepared,
           executionId,
@@ -690,7 +693,6 @@ export const createCloudCodeAgentTool = async (
                 code: result.code,
                 error: result.error,
                 ...(result.tool ? { tool: result.tool } : {}),
-                ...(result.cleanup ? { cleanup: result.cleanup } : {}),
                 toolCallId,
               },
           ...(maps.length > 0 ? { maps } : {}),

@@ -18,7 +18,7 @@
  */
 
 // Set up HTTP proxy for fetch() calls (respects HTTP_PROXY, HTTPS_PROXY env vars)
-import "../http-proxy.js";
+import "../../../kernel/shared/http-proxy.js";
 
 // GitHub Copilot
 export {

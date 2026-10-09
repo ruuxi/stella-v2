@@ -8,26 +8,26 @@
  */
 
 function escapeHtml(value: string): string {
-	return value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;")
-		.replaceAll("'", "&#39;");
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 function renderPage(options: {
-	title: string;
-	heading: string;
-	message: string;
-	details?: string;
+  title: string;
+  heading: string;
+  message: string;
+  details?: string;
 }): string {
-	const title = escapeHtml(options.title);
-	const heading = escapeHtml(options.heading);
-	const message = escapeHtml(options.message);
-	const details = options.details ? escapeHtml(options.details) : undefined;
+  const title = escapeHtml(options.title);
+  const heading = escapeHtml(options.heading);
+  const message = escapeHtml(options.message);
+  const details = options.details ? escapeHtml(options.details) : undefined;
 
-	return `<!doctype html>
+  return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -127,18 +127,18 @@ function renderPage(options: {
 }
 
 export function oauthSuccessHtml(message: string): string {
-	return renderPage({
-		title: "Stella — connected",
-		heading: "Connected",
-		message,
-	});
+  return renderPage({
+    title: "Stella — connected",
+    heading: "Connected",
+    message,
+  });
 }
 
 export function oauthErrorHtml(message: string, details?: string): string {
-	return renderPage({
-		title: "Stella — couldn't connect",
-		heading: "Couldn't connect",
-		message,
-		details,
-	});
+  return renderPage({
+    title: "Stella — couldn't connect",
+    heading: "Couldn't connect",
+    message,
+    details,
+  });
 }

@@ -1,6 +1,6 @@
 import { Cause, Effect, Exit, Scope } from "effect";
 import { loadModelRegistry } from "@stella/contracts/model-registry";
-import "../ai/utils/http-proxy.js";
+import "../kernel/shared/http-proxy.js";
 import { registerBuiltInApiProviders } from "../ai/providers/register-builtins.js";
 import {
   getFileLogger,

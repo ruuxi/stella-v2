@@ -14,7 +14,7 @@ import {
   resolveImageCaps,
   SAFE_FALLBACK_MAX_BYTES,
   SAFE_FALLBACK_MAX_EDGE,
-} from "@stella/runtime/ai/utils/image-caps";
+} from "@stella/runtime/kernel/shared/image-caps";
 
 describe("resolveImageCaps", () => {
   it("gives Anthropic high-resolution-tier models the 2576px long edge", () => {

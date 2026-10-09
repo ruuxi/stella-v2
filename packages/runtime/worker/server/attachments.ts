@@ -9,7 +9,7 @@ import {
   resolveImageCaps,
   type ImageCapTarget,
   type ImageCaps,
-} from "../../ai/utils/image-caps.js";
+} from "../../kernel/shared/image-caps.js";
 import {
   detectImageMimeTypeFromBytes,
   imageMimeTypeFromPath,

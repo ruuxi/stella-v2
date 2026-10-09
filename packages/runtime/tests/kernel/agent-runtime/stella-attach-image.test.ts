@@ -8,7 +8,7 @@ import {
   prepareAuthorizedToolImageBlocks,
   truncateModelVisibleToolText,
 } from "@stella/runtime/kernel/agent-runtime/tool-adapters";
-import { MAX_IMAGE_BASE64_BYTES } from "@stella/runtime/ai/utils/image-payload";
+import { MAX_IMAGE_BASE64_BYTES } from "@stella/runtime/kernel/shared/image-payload";
 import { createSyncTempDirTracker } from "../../helpers/temp.js";
 
 const tempDirs = createSyncTempDirTracker();

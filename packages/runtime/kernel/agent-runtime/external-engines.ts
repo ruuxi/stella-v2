@@ -45,7 +45,7 @@ import {
   truncateModelVisibleToolText,
   preserveModelVisibleToolText,
 } from "./tool-adapters.js";
-import type { ImageCapTarget } from "../../ai/utils/image-caps.js";
+import type { ImageCapTarget } from "../shared/image-caps.js";
 import {
   markOrchestratorErrorReported,
   resolveInterruptionReason,

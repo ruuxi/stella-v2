@@ -1,5 +1,5 @@
 import type { Api, Model } from "../../ai/types.js";
-import type { ImageCapTarget } from "../../ai/utils/image-caps.js";
+import type { ImageCapTarget } from "../shared/image-caps.js";
 import type { AgentMessage } from "../agent-core/types.js";
 import type { CloudThread } from "./orchestrator-launch.js";
 import type { BackgroundCompactionScheduler } from "../agent-runtime/compaction-scheduler.js";

@@ -4,7 +4,6 @@
     "new AbortController": 1,
     "setTimeout(": 2
   },
-  "ai/utils/oauth/chatgpt.ts": 1,
   "headless/cli.ts": 1,
   "kernel/agent-runtime/compaction-scheduler.ts": 1,
   "kernel/agent-runtime/external-engine-lifecycle.ts": 2,

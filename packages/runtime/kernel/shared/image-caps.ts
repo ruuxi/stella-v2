@@ -12,8 +12,8 @@
  * This module resolves the caps from the *resolved target provider/model* so
  * an image reaches each model at the best quality that provider actually
  * supports, while never exceeding a provider's hard ceiling. It is a pure,
- * dependency-free module in the `ai` layer (no `kernel` imports) so both the
- * `ai` send boundary and the `kernel` resize step can share one definition.
+ * dependency-free module so every place an image is prepared for a model
+ * (tool results, attachments, the resize step) shares one definition.
  *
  * Verified against provider docs (2026-07):
  *   - Anthropic Messages API: max dimensions 8000x8000; high-resolution-tier

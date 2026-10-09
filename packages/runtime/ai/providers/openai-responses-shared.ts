@@ -32,7 +32,7 @@ import { shortHash } from "../utils/hash.js";
 import { parseStreamingJson } from "../utils/json-parse.js";
 import { providerAbortedStopMessage } from "../utils/provider-stop.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
-import { normalizeProviderToolInputSchema } from "../utils/tool-schema.js";
+import { normalizeProviderToolInputSchema } from "../../kernel/tools/provider-tool-schema.js";
 import { transformMessages } from "./transform-messages.js";
 
 // =============================================================================

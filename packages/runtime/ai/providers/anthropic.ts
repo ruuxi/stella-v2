@@ -30,14 +30,14 @@ import type {
 	ToolCall,
 	ToolResultMessage,
 } from "../types.js";
-import { sanitizeInlineImagePayload } from "../utils/image-payload.js";
+import { sanitizeInlineImagePayload } from "../../kernel/shared/image-payload.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.js";
 import { anomalousStreamStopError, pausedTurnStopMessage, providerAbortedStopMessage } from "../utils/provider-stop.js";
 import { readRetryAfterMs } from "../utils/retry.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
-import { normalizeProviderToolInputSchema } from "../utils/tool-schema.js";
+import { normalizeProviderToolInputSchema } from "../../kernel/tools/provider-tool-schema.js";
 
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.js";
 import { GATEWAY_REQUEST_TIMEOUT_MS, gatewayRequestHeaders, isGatewayRelayBaseUrl, isManagedStellaRelayModel } from "./model-gateway.js";

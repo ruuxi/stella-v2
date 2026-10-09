@@ -3,7 +3,7 @@ import {
   parseCloudTurnAttemptDirectory,
 } from "@stella/contracts/cloud-turn-attempt";
 import { loadModelRegistry } from "@stella/contracts/model-registry";
-import "@stella/runtime/ai/utils/http-proxy.js";
+import "@stella/runtime/kernel/shared/http-proxy.js";
 import { forkAbortTimer } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import { Effect } from "effect";
 import { readFile, rm, writeFile } from "node:fs/promises";

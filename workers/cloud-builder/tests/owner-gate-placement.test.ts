@@ -422,18 +422,26 @@ describe("dispatch submission", () => {
       harness.instance.submit({ request, now: NOW }),
     );
     expect(admitted.ok).toBe(true);
-    // The gate holds one running row under the dispatch id the build session
-    // was told to adopt.
-    const status = await harness.instance.status(NOW);
-    expect(status.running.map((run: { turnId: string }) => run.turnId)).toEqual(
-      [admitted.response.dispatch.dispatchId],
-    );
+    // An agent on Stella's models starts in its conversation as a pi agent,
+    // under the dispatch id, and pi admits its runs itself: the dispatch's own
+    // hold goes back.
+    const started = () =>
+      harness.forwarded.filter((call) => call.url === "rpc:startPiThread");
+    expect(started()).toHaveLength(1);
+    expect(started()[0]?.body).toMatchObject({
+      attempt: { turnId: admitted.response.dispatch.dispatchId },
+    });
+    expect(admitted.response.dispatch.state).toBe("cloud_running");
+    expect((await harness.instance.status(NOW)).running).toHaveLength(0);
 
     const replayed = await withNow(NOW, () =>
       harness.instance.submit({ request, now: NOW }),
     );
     expect(replayed.ok).toBe(true);
-    expect((await harness.instance.status(NOW)).running).toHaveLength(1);
+    expect(replayed.response.dispatch.dispatchId).toBe(
+      admitted.response.dispatch.dispatchId,
+    );
+    expect(started()).toHaveLength(1);
   });
 
   test("a cloud chat dispatch admits each exact turn once in the owner gate", async () => {

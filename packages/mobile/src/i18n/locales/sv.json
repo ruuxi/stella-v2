@@ -1873,10 +1873,10 @@
       "microphoneDeviceFallback": "Mikrofon {index}",
       "recovery": {
         "closing": "Stänger…",
-        "manageDescription": "Om mikrofonbehörigheten någonsin fastnar kan du återställa den och be macOS fråga igen.",
+        "manageDescription": "Återställ mikrofonbehörigheten om den fastnar.",
         "manageLabel": "Hantera mikrofonåtkomst",
         "openSettings": "Öppna Inställningar",
-        "recoverDescription": "När du väl har sagt nej frågar macOS inte igen av sig själv. Återställ behörigheten och avsluta sedan och öppna Stella igen.",
+        "recoverDescription": "macOS frågar inte igen. Återställ den och öppna Stella igen.",
         "recoverLabel": "Återställ mikrofonåtkomst",
         "reset": "Återställ och starta om"
       },
@@ -1889,22 +1889,22 @@
       },
       "speakerDeviceFallback": "Högtalare {index}",
       "superFast": {
-        "description": "Håller mikrofonen redo så att dikteringen startar med mindre fördröjning.",
+        "description": "Håller mikrofonen redo så att diktering startar snabbare.",
         "label": "Supersnabb diktering"
       },
       "systemDefault": "Systemstandard",
       "wakeWord": {
-        "description": "Lyssnar efter ”Hey Stella” i bakgrunden och startar en röstkonversation. När det är av förblir mikrofonen vilande tills du trycker på diktera.",
+        "description": "Säg ”Hey Stella” för att starta ett röstsamtal.",
         "label": "Väckningsord ”Hey Stella”"
       }
     },
     "browserExtension": {
       "action": "Hämta tillägg",
-      "description": "Låter Stella se sidan du är på och utföra åtgärder i din webbläsare.",
+      "description": "Låt Stella se och agera i din webbläsare.",
       "title": "Stella för Chrome"
     },
     "chatStorage": {
-      "description": "Kom åt dina chattar på alla enheter. Stäng av för att behålla en separat chatthistorik bara på den här datorn. Om du slår på det igen laddas de chattarna inte upp. AI-leverantörer behandlar fortfarande dina meddelanden.",
+      "description": "Synka chattar mellan enheter. Av håller dem på den här datorn.",
       "endVoice": "Avsluta röstsamtalet för att ändra chattlagringen.",
       "error": "Det gick inte att ändra chattlagringen. Försök igen.",
       "title": "Spara chatthistoriken i molnet"
@@ -1923,13 +1923,13 @@
       "upgrade": "Uppgradera"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "En liten Stella som svävar över skrivbordet.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "API-nyckel",
-      "empty": "Inga leverantörer anslutna ännu. Välj ett annat alternativ än Stella i modellväljaren ovan för att lägga till en API-nyckel eller logga in.",
+      "empty": "Inga leverantörer än. Lägg till en via modellväljaren ovan.",
       "removeKey": "Ta bort nyckel",
       "removingKey": "Tar bort…",
       "signOut": "Logga ut",
@@ -1948,7 +1948,7 @@
       "addClaude": "Lägg till Claude-konto",
       "addInCloud": "I molnet",
       "addOnComputer": "På den här datorn",
-      "cardIntro": "Använd Claude- eller ChatGPT-abonnemanget du redan betalar för. Varje plats loggar in för sig: varje dator och ditt moln.",
+      "cardIntro": "Använd Claude- eller ChatGPT-abonnemanget du redan betalar för.",
       "cardTitle": "Claude- och ChatGPT-konton",
       "chatgptBrowserWaiting": "Slutför inloggningen till ChatGPT i webbläsaren.",
       "chatgptCloudSignedIn": "Ditt moln är inloggat på ChatGPT.",
@@ -1969,7 +1969,7 @@
         "whereComputer": "Loggar in på Claude Code på den här datorn."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Code är inte installerat på den här datorn. Installera det för att använda Claude här.",
+      "cliMissing": "Installera Claude Code på den här datorn för att använda Claude här.",
       "connecting": "Ansluter…",
       "defaultSignedOut": "Claude Code på den här datorn är inte inloggat.",
       "enablePlanUsage": "Aktivera användning av ChatGPT-abonnemang",
@@ -1980,14 +1980,14 @@
       "needsChatgptCloud": "Fortsätt med ChatGPT för ditt moln först",
       "needsClaudeCloud": "Logga in på Claude i molnet först",
       "openChatgptAgain": "Öppna ChatGPT igen",
-      "pasteHintChatgpt": "När du har godkänt skickar ChatGPT dig till en sida som inte läses in. Kopiera sidans fullständiga adress och klistra in den här.",
+      "pasteHintChatgpt": "Kopiera adressen till sidan som ChatGPT öppnar och klistra in den här.",
       "pastePlaceholderUrl": "Klistra in adressen här",
       "placeCloud": "Moln",
       "placeComputer": "Den här datorn",
       "placeOtherComputer": "En annan dator",
       "placeSignedIn": "{place}: inloggad",
       "placeSignedOut": "{place}: inte inloggad",
-      "planUsageOffBody": "Stella kan inte använda ditt ChatGPT-abonnemang förrän du tillåter det. Välj ”Aktivera användning av ChatGPT-abonnemang” på kontot, eller använd en annan modell.",
+      "planUsageOffBody": "Välj ”Aktivera användning av ChatGPT-abonnemang” på kontot, eller välj en annan modell.",
       "planUsageOffTitle": "Inloggad, men användning av ChatGPT-abonnemanget är inte aktiverad",
       "remove": "Ta bort",
       "removed": "Borttaget.",
@@ -2044,7 +2044,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Hur ihärdigt Stella försöker nå dig när den behöver ett svar.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2088,7 +2088,7 @@
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "note": "Inloggade datorer visas här. Aktivera en för att skicka arbete till den.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2102,16 +2102,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Välj språket Stella ska använda i appen och i svar.",
+      "description": "För appen och Stellas svar.",
       "title": "Språk"
     },
     "lockedComputerUse": {
-      "description": "Låter Stella fortsätta datoranvändningsuppgifter efter att den här Macen låses. Kräver en administratörsfråga och täcker skärmen medan Stella arbetar.",
+      "description": "Låt datoranvändningsuppgifter fortsätta när den här Macen låses.",
       "title": "Datoranvändning vid låst skärm",
       "unsupported": "Datoranvändning vid låst skärm är endast tillgänglig på macOS."
     },
     "memory": {
-      "description": "Inkludera sparade minnen och din profil i Stellas modellkontext. Dina datorer och molnet har samma minne, krypterat både under överföring och lagring. Om du stänger av detta pausas det och minnet utesluts från framtida konversationer, men det raderas inte.",
+      "description": "Använd sparade minnen i svar. Att stänga av raderar dem inte.",
       "title": "Minne"
     },
     "modelPicker": {
@@ -2145,7 +2145,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Använd valfri lokal OpenAI-kompatibel server. Ollama körs oftast på URL:en nedan.",
+        "hint": "Valfri lokal OpenAI-kompatibel server, som Ollama.",
         "modelNameAriaLabel": "Namn på lokal modell",
         "serverUrlAriaLabel": "URL till lokal server"
       },
@@ -2189,7 +2189,7 @@
       "title": "Rörelse"
     },
     "nativeFontSmoothing": {
-      "description": "Renderar text som macOS-appar gör, med kantutjämning i gråskala.",
+      "description": "Kantutjämning i gråskala, som i inbyggda macOS-appar.",
       "title": "Inbyggd teckenutjämning"
     },
     "notifications": {
@@ -2198,18 +2198,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Kör introduktionen igen. Dina data behålls.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Låter Stella läsa markerad text och öppnas med kortkommandot ⌘+högerklick var som helst på datorn.",
+        "description": "Läs markerad text och öppna med ⌘+högerklick.",
         "label": "Hjälpmedel"
       },
       "enable": "Aktivera",
       "granted": "Beviljad",
       "microphone": {
-        "description": "Används för röst och diktering. Återställ om Stella tidigare nekades och macOS inte frågar igen.",
+        "description": "För röst och diktering.",
         "label": "Mikrofon"
       },
       "opening": "Öppnar…",
@@ -2218,11 +2218,11 @@
       "restart": {
         "action": "Starta om",
         "closing": "Stänger…",
-        "description": "Skärminspelning slogs precis på. Avsluta och öppna Stella igen för att slutföra konfigurationen.",
+        "description": "Öppna Stella igen för att slutföra aktiveringen av skärminspelning.",
         "label": "Starta om Stella"
       },
       "screen": {
-        "description": "Låter Stella se din skärm så att den kan hjälpa till med det du tittar på. Du kan behöva avsluta och öppna Stella igen efter att du slagit på detta.",
+        "description": "Låt Stella se vad som finns på skärmen.",
         "label": "Skärminspelning"
       },
       "title": "Behörigheter"
@@ -2243,7 +2243,7 @@
         "other": "{count} telefoner parkopplade"
       },
       "pairing": {
-        "body": "Öppna Stella-appen på din telefon och skanna QR-koden, eller skriv in koden nedan. Du behöver bara göra detta en gång.",
+        "body": "Skanna QR-koden i Stella-appen på telefonen, eller ange koden.",
         "headline": "Skanna eller ange den här koden",
         "qrAlt": "Skanna för att parkoppla din telefon"
       },
@@ -2279,7 +2279,7 @@
         "description": "Låt Stellas chattassistent gå via {provider}.",
         "label": "Assistent"
       },
-      "description": "{provider} kan driva mer än en del av Stella. Välj var du vill att den tar över — Stella sköter resten.",
+      "description": "Välj vad {provider} ska driva.",
       "errors": {
         "apply": "Det gick inte att tillämpa leverantörsinställningarna."
       },
@@ -2308,7 +2308,7 @@
     },
     "resetCustomizations": {
       "action": "Återställ standarder",
-      "description": "Tar bort dina anpassningar av färdigheter och personlighetsändringar så att Stellas standarder gäller. Det som tas bort sparas i ~/.stella/.trash om du vill ha tillbaka det.",
+      "description": "Återställ standardfärdigheter och personlighet. Gamla filer hamnar i ~/.stella/.trash.",
       "done": "Standarder återställda. Dina tidigare anpassningar flyttades till ~/.stella/.trash.",
       "error": "Kunde inte återställa standarderna.",
       "none": "Du använder redan Stellas standardinställningar.",
@@ -2342,7 +2342,7 @@
       "change": "Ändra",
       "clear": "Rensa",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Tryck för att diktera, tryck igen för att avsluta."
       },
       "errors": {
         "load": "Det gick inte att läsa in kortkommandon.",
@@ -2380,7 +2380,7 @@
       "defaultOption": "Stellas standard",
       "delete": "Ta bort",
       "deleted": "Prompten togs bort.",
-      "description": "Stellas standardprompt uppdateras alltid med appen. Spara din egen för att använda den i stället – den sparas separat, så uppdateringar skriver aldrig över den.",
+      "description": "Använd din egen prompt i stället för Stellas standard.",
       "duplicate": "Duplicera",
       "edit": "Redigera",
       "error": "Något gick fel.",
@@ -2397,11 +2397,12 @@
       "account": "Konto & juridiskt",
       "audio": "Ljud",
       "general": "Allmänt",
-      "shortcuts": "Genvägar"
+      "shortcuts": "Genvägar",
+      "privacy": "Integritet"
     },
     "title": "Inställningar",
     "voiceAgent": {
-      "description": "Visa röst- och samtalskontrollerna så att du kan prata högt med Stella. Diktering fungerar ändå.",
+      "description": "Visa röst- och samtalskontroller. Diktering fungerar oavsett.",
       "error": "Kunde inte uppdatera röstinställningen.",
       "title": "Röstsamtal"
     },
@@ -2423,6 +2424,13 @@
         "openai": "OpenAI-röster",
         "xai": "Grok-röster"
       }
+    },
+    "groups": {
+      "app": "App",
+      "personal": "Personligt"
+    },
+    "nav": {
+      "more": "Mer"
     }
   },
   "shell": {

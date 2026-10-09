@@ -1863,10 +1863,10 @@
       "microphoneDeviceFallback": "ไมโครโฟน {index}",
       "recovery": {
         "closing": "กำลังปิด…",
-        "manageDescription": "หากสิทธิ์ไมโครโฟนค้าง คุณสามารถรีเซ็ตและขอให้ macOS ถามอีกครั้ง",
+        "manageDescription": "รีเซ็ตสิทธิ์ไมโครโฟนหากค้าง",
         "manageLabel": "จัดการการเข้าถึงไมโครโฟน",
         "openSettings": "เปิดการตั้งค่า",
-        "recoverDescription": "เมื่อคุณปฏิเสธแล้ว macOS จะไม่ถามอีกด้วยตัวเอง รีเซ็ตสิทธิ์ แล้วปิดและเปิด Stella อีกครั้ง",
+        "recoverDescription": "macOS จะไม่ถามอีก รีเซ็ตแล้วเปิด Stella ใหม่",
         "recoverLabel": "กู้คืนการเข้าถึงไมโครโฟน",
         "reset": "รีเซ็ตและรีสตาร์ท"
       },
@@ -1879,22 +1879,22 @@
       },
       "speakerDeviceFallback": "ลำโพง {index}",
       "superFast": {
-        "description": "ทำให้ไมโครโฟนพร้อมเพื่อให้การบอกตามคำพูดเริ่มได้โดยมีความหน่วงน้อยลง",
+        "description": "ให้ไมโครโฟนพร้อมใช้ เพื่อให้การบอกตามคำพูดเริ่มเร็วขึ้น",
         "label": "การบอกตามคำพูดแบบเร็วพิเศษ"
       },
       "systemDefault": "ค่าเริ่มต้นของระบบ",
       "wakeWord": {
-        "description": "ฟัง “Hey Stella” อยู่เบื้องหลังและเริ่มการสนทนาด้วยเสียง เมื่อปิด ไมโครโฟนจะอยู่เฉยจนกว่าคุณจะกดบอกตามคำพูด",
+        "description": "พูด “Hey Stella” เพื่อเริ่มสนทนาด้วยเสียง",
         "label": "คำปลุก “Hey Stella”"
       }
     },
     "browserExtension": {
       "action": "รับส่วนขยาย",
-      "description": "ให้ Stella เห็นหน้าเว็บที่คุณกำลังดูและดำเนินการในเบราว์เซอร์ของคุณ",
+      "description": "ให้ Stella เห็นและทำงานในเบราว์เซอร์ของคุณ",
       "title": "Stella สำหรับ Chrome"
     },
     "chatStorage": {
-      "description": "เข้าถึงแชทของคุณได้จากทุกอุปกรณ์ ปิดเพื่อเก็บประวัติแชทแยกไว้เฉพาะบนคอมพิวเตอร์เครื่องนี้ เมื่อเปิดกลับมา แชทเหล่านั้นจะไม่ถูกอัปโหลด ผู้ให้บริการ AI ยังคงประมวลผลข้อความของคุณ",
+      "description": "ซิงค์แชทข้ามอุปกรณ์ เมื่อปิด แชทจะอยู่ในคอมพิวเตอร์เครื่องนี้",
       "endVoice": "จบการสนทนาด้วยเสียงก่อนเพื่อเปลี่ยนการจัดเก็บแชท",
       "error": "เปลี่ยนการจัดเก็บแชทไม่สำเร็จ ลองอีกครั้ง",
       "title": "บันทึกประวัติแชทไว้บนคลาวด์"
@@ -1913,13 +1913,13 @@
       "upgrade": "อัปเกรด"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Stella ตัวเล็กลอยอยู่เหนือเดสก์ท็อปของคุณ",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "คีย์ API",
-      "empty": "ยังไม่มีผู้ให้บริการที่เชื่อมต่อ เลือกตัวเลือกอื่นที่ไม่ใช่ Stella ในตัวเลือกโมเดลด้านบนเพื่อเพิ่มคีย์ API หรือลงชื่อเข้าใช้",
+      "empty": "ยังไม่มีผู้ให้บริการ เพิ่มได้จากตัวเลือกโมเดลด้านบน",
       "removeKey": "ลบคีย์",
       "removingKey": "กำลังลบ…",
       "signOut": "ออกจากระบบ",
@@ -1938,7 +1938,7 @@
       "addClaude": "เพิ่มบัญชี Claude",
       "addInCloud": "ในคลาวด์",
       "addOnComputer": "บนคอมพิวเตอร์เครื่องนี้",
-      "cardIntro": "ใช้แพ็กเกจ Claude หรือ ChatGPT ที่คุณจ่ายอยู่แล้ว แต่ละที่ต้องลงชื่อเข้าใช้แยกกัน: คอมพิวเตอร์แต่ละเครื่องและคลาวด์ของคุณ",
+      "cardIntro": "ใช้แพ็กเกจ Claude หรือ ChatGPT ที่คุณจ่ายอยู่แล้ว",
       "cardTitle": "บัญชี Claude และ ChatGPT",
       "chatgptBrowserWaiting": "ลงชื่อเข้าใช้ ChatGPT ในเบราว์เซอร์ให้เสร็จ",
       "chatgptCloudSignedIn": "คลาวด์ของคุณลงชื่อเข้าใช้ ChatGPT แล้ว",
@@ -1959,7 +1959,7 @@
         "whereComputer": "กำลังลงชื่อเข้าใช้ Claude Code บนคอมพิวเตอร์เครื่องนี้"
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "ยังไม่ได้ติดตั้ง Claude Code บนคอมพิวเตอร์เครื่องนี้ ติดตั้งเพื่อใช้ Claude ที่นี่",
+      "cliMissing": "ติดตั้ง Claude Code ในคอมพิวเตอร์เครื่องนี้เพื่อใช้ Claude ที่นี่",
       "connecting": "กำลังเชื่อมต่อ…",
       "defaultSignedOut": "Claude Code บนคอมพิวเตอร์เครื่องนี้ยังไม่ได้ลงชื่อเข้าใช้",
       "enablePlanUsage": "เปิดใช้แพ็กเกจ ChatGPT",
@@ -1970,14 +1970,14 @@
       "needsChatgptCloud": "ดำเนินการต่อด้วย ChatGPT สำหรับคลาวด์ของคุณก่อน",
       "needsClaudeCloud": "ลงชื่อเข้าใช้ Claude ในคลาวด์ก่อน",
       "openChatgptAgain": "เปิด ChatGPT อีกครั้ง",
-      "pasteHintChatgpt": "หลังจากอนุมัติ ChatGPT จะพาคุณไปยังหน้าที่โหลดไม่ขึ้น คัดลอกที่อยู่แบบเต็มของหน้านั้นแล้ววางที่นี่",
+      "pasteHintChatgpt": "คัดลอกที่อยู่ของหน้าที่ ChatGPT เปิด แล้ววางที่นี่",
       "pastePlaceholderUrl": "วางที่อยู่ที่นี่",
       "placeCloud": "คลาวด์",
       "placeComputer": "คอมพิวเตอร์เครื่องนี้",
       "placeOtherComputer": "คอมพิวเตอร์เครื่องอื่น",
       "placeSignedIn": "{place}: ลงชื่อเข้าใช้แล้ว",
       "placeSignedOut": "{place}: ยังไม่ได้ลงชื่อเข้าใช้",
-      "planUsageOffBody": "Stella ใช้แพ็กเกจ ChatGPT ของคุณไม่ได้จนกว่าคุณจะอนุญาต เลือก “เปิดใช้แพ็กเกจ ChatGPT” ที่บัญชี หรือใช้โมเดลอื่น",
+      "planUsageOffBody": "เลือก “เปิดใช้แพ็กเกจ ChatGPT” ที่บัญชี หรือเลือกโมเดลอื่น",
       "planUsageOffTitle": "ลงชื่อเข้าใช้แล้ว แต่ยังไม่ได้เปิดใช้แพ็กเกจ ChatGPT",
       "remove": "ลบ",
       "removed": "ลบแล้ว",
@@ -2034,7 +2034,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Stella จะพยายามติดต่อคุณมากแค่ไหนเมื่อต้องการคำตอบ",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2078,7 +2078,7 @@
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "note": "คอมพิวเตอร์ที่ลงชื่อเข้าใช้จะแสดงที่นี่ เปิดใช้เครื่องหนึ่งเพื่อส่งงานให้",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2092,16 +2092,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "เลือกภาษาที่ Stella ใช้ในแอปและในการตอบกลับ",
+      "description": "สำหรับแอปและคำตอบของ Stella",
       "title": "ภาษา"
     },
     "lockedComputerUse": {
-      "description": "ให้ Stella ทำงานควบคุมคอมพิวเตอร์ต่อหลังจาก Mac เครื่องนี้ล็อก ต้องมีการยืนยันจากผู้ดูแลระบบและจะปิดบังหน้าจอขณะที่ Stella ทำงาน",
+      "description": "ให้งานควบคุมคอมพิวเตอร์ทำงานต่อเมื่อ Mac เครื่องนี้ล็อก",
       "title": "ใช้คอมพิวเตอร์ขณะล็อก",
       "unsupported": "การใช้คอมพิวเตอร์ขณะล็อกใช้ได้บน macOS เท่านั้น"
     },
     "memory": {
-      "description": "รวมความทรงจำที่บันทึกไว้และโปรไฟล์ของคุณไว้ในบริบทโมเดลของ Stella คอมพิวเตอร์ของคุณและคลาวด์เก็บหน่วยความจำชุดเดียวกัน ซึ่งเข้ารหัสทั้งระหว่างส่งและขณะจัดเก็บ การปิดตัวเลือกนี้จะหยุดการซิงค์ชั่วคราวและไม่นำความทรงจำไปใช้ในการสนทนาครั้งต่อไป แต่จะไม่ลบความทรงจำ",
+      "description": "ใช้ความทรงจำที่บันทึกไว้ในคำตอบ การปิดจะไม่ลบความทรงจำ",
       "title": "หน่วยความจำ"
     },
     "modelPicker": {
@@ -2135,7 +2135,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "ใช้เซิร์ฟเวอร์ในเครื่องที่รองรับ OpenAI ใดก็ได้ โดยทั่วไป Ollama จะทำงานที่ URL ด้านล่าง",
+        "hint": "เซิร์ฟเวอร์ภายในเครื่องที่รองรับ OpenAI เช่น Ollama",
         "modelNameAriaLabel": "ชื่อโมเดลในเครื่อง",
         "serverUrlAriaLabel": "URL ของเซิร์ฟเวอร์ในเครื่อง"
       },
@@ -2179,7 +2179,7 @@
       "title": "การเคลื่อนไหว"
     },
     "nativeFontSmoothing": {
-      "description": "แสดงข้อความเหมือนแอป macOS ด้วยการลบรอยหยักแบบเฉดสีเทา",
+      "description": "การลบรอยหยักแบบเฉดสีเทา เหมือนแอป macOS ดั้งเดิม",
       "title": "การลบรอยหยักฟอนต์แบบเนทีฟ"
     },
     "notifications": {
@@ -2188,18 +2188,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "เริ่มการแนะนำใหม่ ข้อมูลของคุณยังอยู่",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "ให้ Stella อ่านข้อความที่เลือกและเปิดด้วยทางลัด ⌘+คลิกขวาได้ทุกที่บนคอมพิวเตอร์ของคุณ",
+        "description": "อ่านข้อความที่เลือกและเปิดด้วย ⌘+คลิกขวา",
         "label": "การช่วยการเข้าถึง"
       },
       "enable": "เปิดใช้งาน",
       "granted": "ให้สิทธิ์แล้ว",
       "microphone": {
-        "description": "ใช้สำหรับเสียงและการบอกตามคำพูด รีเซ็ตหาก Stella เคยถูกปฏิเสธและ macOS ไม่ถามอีก",
+        "description": "สำหรับเสียงและการบอกตามคำพูด",
         "label": "ไมโครโฟน"
       },
       "opening": "กำลังเปิด…",
@@ -2208,11 +2208,11 @@
       "restart": {
         "action": "รีสตาร์ท",
         "closing": "กำลังปิด…",
-        "description": "เพิ่งเปิดการบันทึกหน้าจอ ปิดและเปิด Stella อีกครั้งเพื่อตั้งค่าให้เสร็จ",
+        "description": "เปิด Stella ใหม่เพื่อเปิดการบันทึกหน้าจอให้เสร็จ",
         "label": "รีสตาร์ท Stella"
       },
       "screen": {
-        "description": "ให้ Stella เห็นหน้าจอของคุณเพื่อช่วยกับสิ่งที่คุณกำลังดู คุณอาจต้องปิดและเปิด Stella อีกครั้งหลังเปิดใช้งานสิ่งนี้",
+        "description": "ให้ Stella เห็นสิ่งที่อยู่บนหน้าจอของคุณ",
         "label": "การบันทึกหน้าจอ"
       },
       "title": "สิทธิ์"
@@ -2232,7 +2232,7 @@
         "other": "จับคู่แล้ว {count} เครื่อง"
       },
       "pairing": {
-        "body": "เปิดแอป Stella บนโทรศัพท์ของคุณแล้วสแกนรหัส QR หรือพิมพ์รหัสด้านล่าง คุณทำสิ่งนี้เพียงครั้งเดียว",
+        "body": "สแกนคิวอาร์โค้ดในแอป Stella บนโทรศัพท์ หรือป้อนรหัส",
         "headline": "สแกนหรือป้อนรหัสนี้",
         "qrAlt": "สแกนเพื่อจับคู่โทรศัพท์ของคุณ"
       },
@@ -2268,7 +2268,7 @@
         "description": "ส่งผู้ช่วยแชทของ Stella ผ่าน {provider}",
         "label": "ผู้ช่วย"
       },
-      "description": "{provider} ขับเคลื่อน Stella ได้มากกว่าหนึ่งส่วน เลือกส่วนที่คุณอยากให้รับหน้าที่ — Stella จะดูแลส่วนที่เหลือต่อไป",
+      "description": "เลือกว่าจะให้ {provider} ขับเคลื่อนอะไร",
       "errors": {
         "apply": "ใช้การตั้งค่าผู้ให้บริการไม่สำเร็จ"
       },
@@ -2297,7 +2297,7 @@
     },
     "resetCustomizations": {
       "action": "คืนค่าเริ่มต้น",
-      "description": "ลบการปรับแต่งสกิลและการแก้ไขบุคลิกภาพของคุณเพื่อให้ใช้ค่าเริ่มต้นของ Stella สิ่งที่ถูกลบจะถูกเก็บไว้ใน ~/.stella/.trash เผื่อคุณต้องการนำกลับมา",
+      "description": "คืนค่าสกิลและบุคลิกเริ่มต้น ไฟล์เก่าจะย้ายไปที่ ~/.stella/.trash",
       "done": "คืนค่าเริ่มต้นแล้ว การปรับแต่งก่อนหน้าของคุณถูกย้ายไปที่ ~/.stella/.trash",
       "error": "ไม่สามารถคืนค่าเริ่มต้นได้",
       "none": "คุณใช้ค่าเริ่มต้นของ Stella อยู่แล้ว",
@@ -2331,7 +2331,7 @@
       "change": "เปลี่ยน",
       "clear": "ล้าง",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "กดเพื่อเริ่มบอกตามคำพูด กดอีกครั้งเพื่อจบ"
       },
       "errors": {
         "load": "โหลดทางลัดไม่สำเร็จ",
@@ -2369,7 +2369,7 @@
       "defaultOption": "ค่าเริ่มต้นของ Stella",
       "delete": "ลบ",
       "deleted": "ลบพรอมต์แล้ว",
-      "description": "พรอมต์เริ่มต้นของ Stella จะอัปเดตพร้อมแอปเสมอ บันทึกพรอมต์ของคุณเองเพื่อใช้แทน — เก็บแยกไว้ต่างหาก การอัปเดตจึงไม่เขียนทับ",
+      "description": "ใช้พรอมต์ของคุณเองแทนค่าเริ่มต้นของ Stella",
       "duplicate": "ทำสำเนา",
       "edit": "แก้ไข",
       "error": "เกิดข้อผิดพลาด",
@@ -2386,11 +2386,12 @@
       "account": "บัญชีและกฎหมาย",
       "audio": "เสียง",
       "general": "ทั่วไป",
-      "shortcuts": "ทางลัด"
+      "shortcuts": "ทางลัด",
+      "privacy": "ความเป็นส่วนตัว"
     },
     "title": "การตั้งค่า",
     "voiceAgent": {
-      "description": "แสดงปุ่มเสียงและการโทรเพื่อให้คุณพูดคุยกับ Stella ได้ การพิมพ์ด้วยเสียงยังใช้งานได้ทั้งสองแบบ",
+      "description": "แสดงปุ่มควบคุมเสียงและการโทร การบอกตามคำพูดใช้ได้ทั้งสองแบบ",
       "error": "ไม่สามารถอัปเดตการตั้งค่าเสียงได้",
       "title": "การสนทนาด้วยเสียง"
     },
@@ -2412,6 +2413,13 @@
         "openai": "เสียง OpenAI",
         "xai": "เสียง Grok"
       }
+    },
+    "groups": {
+      "app": "แอป",
+      "personal": "ส่วนตัว"
+    },
+    "nav": {
+      "more": "เพิ่มเติม"
     }
   },
   "shell": {

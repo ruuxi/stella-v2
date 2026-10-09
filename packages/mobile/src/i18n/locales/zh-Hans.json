@@ -1863,10 +1863,10 @@
       "microphoneDeviceFallback": "麦克风 {index}",
       "recovery": {
         "closing": "正在关闭…",
-        "manageDescription": "如果麦克风权限卡住，你可以重置它并让 macOS 再次询问。",
+        "manageDescription": "麦克风权限卡住时可将其重置。",
         "manageLabel": "管理麦克风访问权限",
         "openSettings": "打开设置",
-        "recoverDescription": "一旦你拒绝，macOS 就不会自动再次询问。请重置权限，然后退出并重新打开 Stella。",
+        "recoverDescription": "macOS 不会再次询问。请重置后重新打开 Stella。",
         "recoverLabel": "恢复麦克风访问权限",
         "reset": "重置并重启"
       },
@@ -1879,22 +1879,22 @@
       },
       "speakerDeviceFallback": "扬声器 {index}",
       "superFast": {
-        "description": "让麦克风保持就绪，使听写以更少的延迟开始。",
+        "description": "让麦克风保持就绪，听写启动更快。",
         "label": "超快听写"
       },
       "systemDefault": "系统默认",
       "wakeWord": {
-        "description": "在后台监听「Hey Stella」并开始语音对话。关闭时，麦克风将保持空闲，直到你按下听写。",
+        "description": "说「Hey Stella」即可开始语音对话。",
         "label": "唤醒词「Hey Stella」"
       }
     },
     "browserExtension": {
       "action": "获取扩展",
-      "description": "让 Stella 查看你所在的页面并在浏览器中执行操作。",
+      "description": "让 Stella 查看并操作你的浏览器。",
       "title": "Stella for Chrome"
     },
     "chatStorage": {
-      "description": "在所有设备上访问你的聊天。关闭后，聊天记录将单独保存在这台电脑上。重新开启时，这些聊天不会被上传。AI 提供方仍会处理你的消息。",
+      "description": "在设备间同步聊天。关闭后仅保存在这台电脑上。",
       "endVoice": "结束语音对话后才能更改聊天存储方式。",
       "error": "无法更改聊天存储方式。请重试。",
       "title": "将聊天记录保存到云端"
@@ -1913,13 +1913,13 @@
       "upgrade": "升级"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "一个悬浮在桌面上的小 Stella。",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "API 密钥",
-      "empty": "尚未连接任何提供商。在上方的模型选择器中选择 Stella 以外的选项，以添加 API 密钥或登录。",
+      "empty": "还没有提供方。可从上方的模型选择器添加。",
       "removeKey": "移除密钥",
       "removingKey": "正在移除…",
       "signOut": "退出登录",
@@ -1938,7 +1938,7 @@
       "addClaude": "添加 Claude 账号",
       "addInCloud": "在云端",
       "addOnComputer": "在这台电脑上",
-      "cardIntro": "使用你已付费的 Claude 或 ChatGPT 套餐。每个位置单独登录：每台电脑以及你的云端。",
+      "cardIntro": "使用你已付费的 Claude 或 ChatGPT 套餐。",
       "cardTitle": "Claude 和 ChatGPT 账号",
       "chatgptBrowserWaiting": "请在浏览器中完成 ChatGPT 登录。",
       "chatgptCloudSignedIn": "你的云端已登录 ChatGPT。",
@@ -1959,7 +1959,7 @@
         "whereComputer": "正在这台电脑上登录 Claude Code。"
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "这台电脑未安装 Claude Code。请先安装，才能在这里使用 Claude。",
+      "cliMissing": "在这台电脑上安装 Claude Code，即可在此使用 Claude。",
       "connecting": "正在连接…",
       "defaultSignedOut": "这台电脑上的 Claude Code 未登录。",
       "enablePlanUsage": "启用 ChatGPT 套餐使用",
@@ -1970,14 +1970,14 @@
       "needsChatgptCloud": "请先继续为云端设置 ChatGPT",
       "needsClaudeCloud": "请先在云端登录 Claude",
       "openChatgptAgain": "再次打开 ChatGPT",
-      "pasteHintChatgpt": "批准后，ChatGPT 会将你带到一个无法加载的页面。复制该页面的完整地址并粘贴到这里。",
+      "pasteHintChatgpt": "复制 ChatGPT 打开的页面地址并粘贴到这里。",
       "pastePlaceholderUrl": "在此粘贴地址",
       "placeCloud": "云端",
       "placeComputer": "这台电脑",
       "placeOtherComputer": "其他电脑",
       "placeSignedIn": "{place}：已登录",
       "placeSignedOut": "{place}：未登录",
-      "planUsageOffBody": "在你允许之前，Stella 无法使用你的 ChatGPT 套餐。请在账号上选择「启用 ChatGPT 套餐使用」，或使用其他模型。",
+      "planUsageOffBody": "请在账号上选择「启用 ChatGPT 套餐使用」，或选择其他模型。",
       "planUsageOffTitle": "已登录，但未启用 ChatGPT 套餐使用",
       "remove": "移除",
       "removed": "已移除。",
@@ -2034,7 +2034,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Stella 需要答复时联系你的力度。",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2078,7 +2078,7 @@
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
+      "note": "已登录的电脑会显示在这里。启用一台即可向它发送任务。",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2092,16 +2092,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "选择 Stella 在应用内和回复中使用的语言。",
+      "description": "用于应用界面和 Stella 的回复。",
       "title": "语言"
     },
     "lockedComputerUse": {
-      "description": "允许 Stella 在此 Mac 锁定后继续电脑操作任务。需要管理员授权，并在 Stella 工作时遮盖屏幕。",
+      "description": "这台 Mac 锁定后，电脑操作任务继续运行。",
       "title": "锁屏时使用电脑",
       "unsupported": "锁屏时使用电脑仅在 macOS 上可用。"
     },
     "memory": {
-      "description": "将已保存的记忆和你的个人资料纳入 Stella 的模型上下文。你的电脑和云端保存相同的记忆，并在传输和静态存储时加密。关闭此选项后，同步会暂停，记忆不会用于后续对话，但不会被删除。",
+      "description": "在回复中使用已保存的记忆。关闭不会删除它们。",
       "title": "记忆"
     },
     "modelPicker": {
@@ -2135,7 +2135,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "可使用任意本地 OpenAI 兼容服务器。Ollama 通常运行在下方的网址。",
+        "hint": "任何兼容 OpenAI 的本地服务器，例如 Ollama。",
         "modelNameAriaLabel": "本地模型名称",
         "serverUrlAriaLabel": "本地服务器网址"
       },
@@ -2179,7 +2179,7 @@
       "title": "动态效果"
     },
     "nativeFontSmoothing": {
-      "description": "像 macOS 应用那样渲染文本，使用灰度抗锯齿。",
+      "description": "灰度抗锯齿，与原生 macOS 应用一致。",
       "title": "原生字体平滑"
     },
     "notifications": {
@@ -2188,18 +2188,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "重新进行新手引导。你的数据会保留。",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "让 Stella 读取选中的文本，并可在电脑任意位置通过 ⌘+右键快捷方式打开。",
+        "description": "读取所选文本，并通过 ⌘+右键打开。",
         "label": "辅助功能"
       },
       "enable": "启用",
       "granted": "已授权",
       "microphone": {
-        "description": "用于语音和听写。如果之前拒绝了 Stella 且 macOS 不再询问，请重置。",
+        "description": "用于语音和听写。",
         "label": "麦克风"
       },
       "opening": "正在打开…",
@@ -2208,11 +2208,11 @@
       "restart": {
         "action": "重启",
         "closing": "正在关闭…",
-        "description": "屏幕录制刚刚开启。请退出并重新打开 Stella 以完成设置。",
+        "description": "重新打开 Stella 以完成屏幕录制的开启。",
         "label": "重启 Stella"
       },
       "screen": {
-        "description": "让 Stella 查看你的屏幕，以便协助你正在查看的内容。开启后你可能需要退出并重新打开 Stella。",
+        "description": "让 Stella 查看你屏幕上的内容。",
         "label": "屏幕录制"
       },
       "title": "权限"
@@ -2232,7 +2232,7 @@
         "other": "已配对 {count} 部手机"
       },
       "pairing": {
-        "body": "在手机上打开 Stella 应用并扫描二维码，或输入下方的代码。此操作只需进行一次。",
+        "body": "在手机上的 Stella 应用中扫描二维码，或输入代码。",
         "headline": "扫描或输入此代码",
         "qrAlt": "扫描以配对你的手机"
       },
@@ -2268,7 +2268,7 @@
         "description": "将 Stella 的聊天助手路由到 {provider}。",
         "label": "助手"
       },
-      "description": "{provider} 可以驱动 Stella 的多个部分。选择你希望它接管的部分 — 其余仍由 Stella 负责。",
+      "description": "选择 {provider} 用于哪些功能。",
       "errors": {
         "apply": "应用提供商设置失败。"
       },
@@ -2297,7 +2297,7 @@
     },
     "resetCustomizations": {
       "action": "恢复默认",
-      "description": "移除你的技能自定义和人格编辑，恢复 Stella 自带的默认设置。被移除的内容会保存在 ~/.stella/.trash 中，以便随时找回。",
+      "description": "恢复默认技能和性格。旧文件会移到 ~/.stella/.trash。",
       "done": "已恢复默认设置。你之前的自定义内容已移至 ~/.stella/.trash。",
       "error": "无法恢复默认设置。",
       "none": "你已经在使用 Stella 的默认设置。",
@@ -2331,7 +2331,7 @@
       "change": "更改",
       "clear": "清除",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "按一下开始听写，再按一下结束。"
       },
       "errors": {
         "load": "加载快捷键失败。",
@@ -2369,7 +2369,7 @@
       "defaultOption": "Stella 默认",
       "delete": "删除",
       "deleted": "提示词已删除。",
-      "description": "Stella 的默认提示词始终随应用更新。保存你自己的提示词即可改用它——它单独存放，更新永远不会覆盖。",
+      "description": "使用你自己的提示词，而非 Stella 的默认设置。",
       "duplicate": "复制",
       "edit": "编辑",
       "error": "出了点问题。",
@@ -2386,11 +2386,12 @@
       "account": "账户与法律",
       "audio": "音频",
       "general": "通用",
-      "shortcuts": "快捷键"
+      "shortcuts": "快捷键",
+      "privacy": "隐私"
     },
     "title": "设置",
     "voiceAgent": {
-      "description": "显示语音和通话控件，让你可以直接和 Stella 说话。语音输入不受此设置影响。",
+      "description": "显示语音和通话控件。听写不受影响。",
       "error": "无法更新语音设置。",
       "title": "语音对话"
     },
@@ -2412,6 +2413,13 @@
         "openai": "OpenAI 语音",
         "xai": "Grok 语音"
       }
+    },
+    "groups": {
+      "app": "应用",
+      "personal": "个人"
+    },
+    "nav": {
+      "more": "更多"
     }
   },
   "shell": {

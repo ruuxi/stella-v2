@@ -7,7 +7,10 @@
  * sent again under the same request id (the gate resends what is pending
  * when this computer reconnects, and a replayed call reuses its id) is
  * answered from the run it already has, finished or not, so nothing runs
- * twice and a result sent while the socket was down is not lost.
+ * twice and a result sent while the socket was down is not lost. A resent
+ * call this computer has no run of (its Stella restarted mid-call, or the
+ * call never arrived) fails: it may have partly run, and only the agent can
+ * judge running it again.
  */
 
 import { Cause, Deferred, Effect, Exit } from "effect";
@@ -88,7 +91,7 @@ export class DeviceToolServer {
   }
 
   /** Take one call without blocking the socket's frame loop. */
-  handle(frame: { requestId: string; callJson: string }): void {
+  handle(frame: { requestId: string; callJson: string; resume?: true }): void {
     const { requestId } = frame;
     if (typeof requestId !== "string" || !requestId || requestId.length > DEVICE_TOOL_LIMITS.requestId) return;
     this.prune();
@@ -101,6 +104,16 @@ export class DeviceToolServer {
     // Still running: it answers when it ends.
     if (this.running.has(requestId)) {
       this.options.send({ type: "tool.accepted", requestId });
+      return;
+    }
+    if (frame.resume) {
+      this.options.send({
+        type: "tool.error",
+        requestId,
+        code: "failed",
+        message:
+          "That computer's connection dropped while the call was on its way or running, and it has no record of the call now (its Stella may have restarted), so the call may have run partly or not at all. Check before running it again.",
+      });
       return;
     }
     // A stop interrupts the run, which aborts the signal the call runs under.

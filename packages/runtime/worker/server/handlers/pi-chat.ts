@@ -8,6 +8,8 @@ import { piChatRequest } from "../pi-chats.js";
 import * as WorkerSessions from "../sessions.js";
 import { fromPromise, type WorkerRpcHandlers } from "../rpc.js";
 
+/** How long a cloud agent's call waits for this runtime to finish starting. */
+const DEVICE_TOOL_RUNNER_WAIT_MS = 30_000;
 /** A cloud agent's tool calls running here, by request id: each one's stop. */
 const deviceToolStops = new Map<string, () => void>();
 
@@ -28,7 +30,14 @@ export const piChatHandlers: WorkerRpcHandlers = {
   [METHOD_NAMES.INTERNAL_WORKER_RUN_DEVICE_TOOL]: (params) =>
     Effect.gen(function* () {
       const session = yield* WorkerSessions.sessionOrFail(() => new RunnerUnavailableError());
-      yield* session.runner.initialized;
+      // A runtime still starting answers soon or not at all: the call fails
+      // rather than wait on it, and the agent can try again.
+      yield* session.runner.initialized.pipe(
+        Effect.timeoutOrElse({
+          duration: DEVICE_TOOL_RUNNER_WAIT_MS,
+          orElse: () => Effect.fail(new Error("Stella on this computer is still starting. Try again in a moment.")),
+        }),
+      );
       const runner = session.runnerCell.get();
       if (!runner) return yield* Effect.fail(new RunnerUnavailableError());
       const { requestId, call } = params as { requestId: string; call: DeviceToolCall };

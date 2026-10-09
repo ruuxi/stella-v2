@@ -3,12 +3,12 @@
  * user, assistant and tool-result entries are pi-ai messages, the same shape
  * the cloud journal carries, so they go through the journal's projection
  * (`journalRecordsToMessageRecords`): a turn is a user entry and the entries
- * after it. Agent reports arrive as user input and render hidden, as wakes
- * do; a generation that failed ends its turn with a notice. What a voice call
+ * after it. Agent reports and notes arrive as user input and render hidden,
+ * as wakes do; a generation that failed ends its turn with a notice. What a voice call
  * said is model history and stays out; the call's summary shows.
  */
 import {
-  PI_REPORT_RE as REPORT,
+  isPiAgentInput,
   piJournalUserMessage,
   piMessageText,
   type PiChatState,
@@ -55,8 +55,8 @@ export const projectPiChat = (state: Pick<PiChatState, "entries" | "requestIds">
       // A message sent here binds by its request; one placed or imported, by the id its row carries.
       const clientMsgId = state.requestIds[entry.id] ?? journaled.clientMsgId;
       const { message: payload, hidden } = journaled;
-      // A report's reply shows; a turn the app started stays out whole.
-      const automation = hidden && !REPORT.test(piMessageText(message).trimStart());
+      // A reply to an agent's report or note shows; a turn the app started stays out whole.
+      const automation = hidden && !isPiAgentInput(message);
       turn = {
         userMessageId: clientMsgId ?? `cloud:${turnId}:message:${entry.id}`,
         assistantMessages: 0,

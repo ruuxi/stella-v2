@@ -28,8 +28,8 @@ import type { ExecutionDestination } from "@stella/contracts/execution-context";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import { splitReplyRefs } from "@stella/contracts/reply-refs";
 import {
+  isPiAgentText,
   mergePiEntries,
-  PI_REPORT_RE,
   piEntriesForClients,
   piMessageText,
   piEventsForClients,
@@ -829,9 +829,9 @@ export function desktopChats(options: DesktopChatsOptions) {
       const message = entry.model?.[0];
       if (entry.kind === "pi.user" && message?.role === "user") {
         // What the user typed or said; not the context and notices sent along,
-        // a report, or a prompt the app wrote.
+        // an agent's report or note, or a prompt the app wrote.
         const text = piUserView(message).text || ((message as PiUserMessage).source === "voice" ? piMessageText(message) : "");
-        if (text.trim() && !PI_REPORT_RE.test(text.trimStart())) {
+        if (text.trim() && !isPiAgentText(text)) {
           items.push({ role: "user", content: text, timestamp: message.timestamp });
         }
       } else if (entry.kind === "pi.assistant" && message?.role === "assistant") {

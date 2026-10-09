@@ -34,6 +34,7 @@ import {
 } from "@/platform/backend/backend-client";
 import type { EventRecord } from "@stella/contracts/local-chat";
 import {
+  isPiAgentInput,
   PI_REPORT_RE,
   piMessageText,
   piUserView,
@@ -395,6 +396,9 @@ const createPiFeed = (args: {
       if (PI_REPORT_RE.test(text)) {
         hiddenTurn = false;
         update = reportUpdate(entry, text);
+      } else if (isPiAgentInput(user)) {
+        // A note an agent sent Stella: nothing to say, but Stella's answer to it is relayed.
+        hiddenTurn = false;
       } else {
         const typed = piUserView(user).text.trim();
         hiddenTurn = !typed || user.source === "voice";

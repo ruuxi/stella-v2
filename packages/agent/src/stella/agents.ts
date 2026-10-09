@@ -17,7 +17,7 @@
  * `agent_status`, `pause_agent`.
  */
 import type { Context } from "@earendil-works/chord";
-import { Type, type AssistantMessage, type ModelThinkingLevel } from "@earendil-works/pi-ai";
+import { Type, type AssistantMessage, type ModelThinkingLevel, type TextContent } from "@earendil-works/pi-ai";
 import {
   AssistantEntry,
   configure,
@@ -35,6 +35,7 @@ import {
   type TaskRuntime,
   type ToolExecutionApi,
 } from "@earendil-works/pi-durable";
+import { AGENT_MESSAGE_MAX_CHARS, formatAgentMessage, STELLA_MESSAGE_TARGET } from "@stella/contracts/agent-directory";
 import { parseStellaModelId, stellaModelId, STELLA_PROVIDER_ID } from "../provider/stella.ts";
 import { MAX_AGENT_DEPTH, StellaAgentDoc, type StellaAgentRole } from "./agent-doc.ts";
 import { agentToolSelection } from "./host-tools.ts";
@@ -144,6 +145,17 @@ export type AgentReport = {
   settled?: true;
 };
 
+/** A note an agent sent its Stella (`send_message` to "stella"), arriving at the orchestrator. */
+export type AgentNote = {
+  rootConversationId: ConversationId;
+  /** The sending agent. */
+  threadId: string;
+  /** The framed `<agent-message>` Stella reads, which no reader shows. */
+  text: string;
+  /** Exactly-once key for the delivery. */
+  requestId: string;
+};
+
 /**
  * A report of a remote agent came back to the conversation that started it
  * (`StellaAgentsHost.remote`), or one of its messages was settled without
@@ -213,6 +225,11 @@ export type StellaAgentsHost = {
    * conversation. The cloud sends it through its turn plane instead.
    */
   deliverReport?(report: AgentReport, context: Context): Promise<void>;
+  /**
+   * A note for the orchestrator. Default: a hidden follow-up input to the
+   * root conversation. The cloud sends it through its turn plane instead.
+   */
+  deliverNote?(note: AgentNote, context: Context): Promise<void>;
   /** An agent's report reached the orchestrator: the desktop tells the user. */
   agentReported?(agent: { threadId: string; description: string; failed: boolean; report: string }): void;
 };
@@ -612,17 +629,78 @@ export function stellaAgents(host: StellaAgentsHost) {
     },
   });
 
+  /**
+   * `send_message` to "stella": a note for the orchestrator an agent works
+   * for, found up its chain of starters. It goes where the agent's reports
+   * go, so only to a Stella its reports reach in this conversation; once per
+   * call, by the call's task id.
+   */
+  const messageStella = async (api: ToolExecutionApi, message: string, context: Context) => {
+    const self = await roleOf(api, api.conversationId, context);
+    if (self.agentType === "orchestrator" || !self.threadId) {
+      throw new Error(`"${STELLA_MESSAGE_TARGET}" is you. Message an agent by its thread_id.`);
+    }
+    if (message.trim().length > AGENT_MESSAGE_MAX_CHARS) {
+      throw new Error(`The message is over ${AGENT_MESSAGE_MAX_CHARS} characters. Send the essentials, or write the rest to a file and point to it.`);
+    }
+    // The orchestrator, and the agent under it the chain goes through: whose
+    // record says where reports go.
+    let top = self;
+    let root = self.parentConversationId as ConversationId | undefined;
+    while (root !== undefined) {
+      const parent = await roleOf(api, root, context);
+      if (parent.agentType === "orchestrator") break;
+      top = parent;
+      root = parent.parentConversationId as ConversationId | undefined;
+    }
+    const state = root === undefined ? undefined : await api.snapshot(StellaAgentsDoc, root, context);
+    const record = top.threadId ? state?.agents[top.threadId] : undefined;
+    const reportsHere =
+      record !== undefined &&
+      !record.origin &&
+      Object.values(state?.calls ?? {}).some((call) => call.threadId === top.threadId && call.reporter >= 0);
+    if (root === undefined || !reportsHere) {
+      throw new Error(
+        "The Stella you work for runs on another host, which send_message cannot reach from here. Put what it needs in your final report.",
+      );
+    }
+    const note: AgentNote = {
+      rootConversationId: root,
+      threadId: self.threadId,
+      text: formatAgentMessage({ threadId: self.threadId, label: self.description ?? "An agent" }, message),
+      requestId: `agent-note:${api.taskId}`,
+    };
+    if (host.deliverNote) {
+      await host.deliverNote(note, context);
+    } else {
+      const stella = await api.conversation(root, context);
+      if (!stella) throw new Error("Stella is not reachable from here.");
+      // Read by the model, never shown: the user did not write it.
+      const hidden: TextContent & { stella: { hidden: true } } = { type: "text", text: note.text, stella: { hidden: true } };
+      await stella.submit({ type: "input", content: [hidden], whenBusy: "followUp", requestId: note.requestId }, context);
+    }
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: "Delivered to Stella, which reads it as its next turn. Your final report still goes back on its own.",
+        },
+      ],
+    };
+  };
+
   const sendMessage = defineTool({
     name: "send_message",
     description:
-      "Message an agent you started by thread_id, including while it is busy; it reads the message before its next step. Steer it, correct it, or resume it on the same thread after it finished or was paused. A successful result means the message was delivered, not that any work finished; completion still arrives in [Agent completed]. agent_status without a thread_id lists who you can reach.",
+      'Message an agent you started by thread_id, including while it is busy; it reads the message before its next step. Steer it, correct it, or resume it on the same thread after it finished or was paused. A successful result means the message was delivered, not that any work finished; completion still arrives in [Agent completed]. agent_status without a thread_id lists who you can reach. An agent reaches the Stella it works for with thread_id "stella", for something worth surfacing before it finishes.',
     parameters: Type.Object({
-      thread_id: Type.String({ description: "A thread_id from agent_status." }),
+      thread_id: Type.String({ description: 'A thread_id from agent_status, or "stella".' }),
       message: Type.String({ description: "The message. To your own agent, send only what is new or changed." }),
     }),
     replay: "safe",
     execute: async (args, api, context) => {
       const threadId = args.thread_id.trim();
+      if (threadId.toLowerCase() === STELLA_MESSAGE_TARGET) return await messageStella(api, args.message, context);
       const known = (await api.snapshot(StellaAgentsDoc, api.conversationId, context))?.agents[threadId];
       const remote = known?.remote ? remoteHostOf(known) : undefined;
       if (known?.remote) {

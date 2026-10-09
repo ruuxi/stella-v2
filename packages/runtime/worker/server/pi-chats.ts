@@ -13,6 +13,10 @@ import {
   loadLocalPreferences,
 } from "../../kernel/preferences/local-preferences.js";
 import {
+  getAccessibleLocalLlmApiKey,
+  getAccessibleLocalLlmOAuthApiKey,
+} from "../../kernel/storage/local-llm-credential-access.js";
+import {
   getPlacementCancellation,
   persistPlacementCancellation,
   type PlacementLocalExecutionKind,
@@ -71,6 +75,10 @@ export const piChatsFor = (
       siteAuth: () => session.runnerCell.get()?.getStellaSiteAuth() ?? null,
       memoryEnabled: () => loadLocalPreferences(session.config.get().stellaDataDirPath).memoryEnabled,
       stellaModel: () => getModelOverride(session.config.get().stellaDataDirPath, "orchestrator"),
+      credentials: {
+        apiKey: (provider) => getAccessibleLocalLlmApiKey(session.config.get().stellaDataDirPath, provider),
+        oauthToken: (provider) => getAccessibleLocalLlmOAuthApiKey(session.config.get().stellaDataDirPath, provider),
+      },
       thinkingLevel: () => {
         const effort = getReasoningEffort(session.config.get().stellaDataDirPath, "orchestrator");
         return effort === "default" ? "off" : effort;

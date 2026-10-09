@@ -658,11 +658,11 @@ const PI_LIVE_KEY = "piLive";
 /** Where this pi conversation's brain runs (`@stella/contracts/turn-plane/pi-brain`). */
 const PI_BRAIN_KEY = "piBrain";
 /**
- * Durable key: the brief a Claude Code turn's `switch_destination` left for
- * the computer Stella moved to, placed there once that turn ends.
+ * Durable key: the brief a turn's `switch_destination` left for the computer
+ * Stella moved to (pi's or Claude Code's), placed there once that turn ends.
  */
-const CLI_BRAIN_HANDOFF_KEY = "orchestratorCliBrainHandoff";
-type CliBrainHandoff = {
+const BRAIN_HANDOFF_KEY = "brainHandoff";
+type BrainHandoff = {
   turnId: string;
   ownerId: string;
   ownerGeneration: string;
@@ -5571,6 +5571,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       await this.ctx.storage.put(PI_MIRRORED_KEY, mirrored).catch(() => undefined);
       // Agents this turn started keep running after it.
       await this.piHeartbeat().catch(() => undefined);
+      await this.placeBrainHandoff(
+        turn.turnId,
+        turnCancellation.aborted || executionSignal.aborted,
+      );
     }
   }
 
@@ -5680,16 +5684,24 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           agentGuard: (authority, turnId) =>
             this.piAgentGuard(authority, turnId),
           deviceAgents: this.piDeviceAgents(),
+          // Her brief continues there once this turn ends (`runPiTurn`).
           moveBrain: async (authority, host, brief) => {
-            await this.setPiBrain(host);
-            await this.placeOnPiBrain({
+            const handoff: BrainHandoff = {
+              turnId: this.activeTurnId ?? "",
               ownerId: authority.ownerId,
               ownerGeneration: authority.ownerGeneration,
               deviceId: host.deviceId,
               clientMsgId: `handoff-${crypto.randomUUID()}`,
               prompt: piBrainHandoffPrompt("the cloud", brief),
-              handoff: true,
-            });
+            };
+            if (this.activeTurnId) {
+              await this.putTurnState({ [BRAIN_HANDOFF_KEY]: handoff });
+              await this.setPiBrain(host);
+              return;
+            }
+            // No turn of this object's runs her: nothing to wait for.
+            await this.setPiBrain(host);
+            await this.placeOnPiBrain({ ...handoff, handoff: true });
           },
           // What the agents reach beyond this conversation's harness: the
           // owner's agent threads and other sessions, as the loop's do.
@@ -6758,7 +6770,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           },
         );
       }
-      await this.placeCliBrainHandoff(
+      await this.placeBrainHandoff(
         turn.turnId,
         turnCancellation.aborted || executionSignal.aborted,
       );
@@ -6766,21 +6778,21 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   /**
-   * Stella moved to one of the owner's computers during this Claude Code
-   * turn (`switch_destination`): now that the turn has ended, her brief
-   * continues there, as pi's hand-off does. A turn the user stopped leaves
-   * her there with nothing to carry on.
+   * Stella moved to one of the owner's computers during this turn, pi's or
+   * Claude Code's (`switch_destination`): now that the turn has ended, her
+   * brief continues there, as a computer's hand-off does. A turn the user
+   * stopped leaves her there with nothing to carry on.
    */
-  private async placeCliBrainHandoff(
+  private async placeBrainHandoff(
     turnId: string,
     stopped: boolean,
   ): Promise<void> {
-    const handoff = await this.getTurnState<CliBrainHandoff>(
-      CLI_BRAIN_HANDOFF_KEY,
+    const handoff = await this.getTurnState<BrainHandoff>(
+      BRAIN_HANDOFF_KEY,
     );
     if (!handoff) return;
-    if (this.ctx.storage.kv) this.ctx.storage.kv.delete(CLI_BRAIN_HANDOFF_KEY);
-    else await this.ctx.storage.delete(CLI_BRAIN_HANDOFF_KEY);
+    if (this.ctx.storage.kv) this.ctx.storage.kv.delete(BRAIN_HANDOFF_KEY);
+    else await this.ctx.storage.delete(BRAIN_HANDOFF_KEY);
     if (handoff.turnId !== turnId || stopped) return;
     try {
       const dispatchId = await this.placeOnPiBrain({
@@ -11762,14 +11774,14 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               workingAgents: () => this.workingAgentDescriptions(),
               move: async (host, brief, toolCallId) => {
                 await this.putTurnState({
-                  [CLI_BRAIN_HANDOFF_KEY]: {
+                  [BRAIN_HANDOFF_KEY]: {
                     turnId: turn.turnId,
                     ownerId: turn.ownerId,
                     ownerGeneration: turn.ownerGeneration,
                     deviceId: host.deviceId,
                     clientMsgId: await toolScopedId("message", toolCallId),
                     prompt: piBrainHandoffPrompt("the cloud", brief),
-                  } satisfies CliBrainHandoff,
+                  } satisfies BrainHandoff,
                 });
                 await this.setPiBrain({ host: "device", ...host });
               },

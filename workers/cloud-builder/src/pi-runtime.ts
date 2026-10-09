@@ -51,6 +51,7 @@ import {
   stellaModelRef,
   type OpenStellaHarness,
 } from "@stella/agent/harness";
+import { CHATGPT_PROVIDER_ID, chatGptModel, chatGptProvider } from "@stella/agent/provider/chatgpt";
 import {
   stellaProvider,
   type StellaGatewayAccess,
@@ -115,7 +116,8 @@ const CLIENT_HISTORY_PAGE = 200;
 /** A client frame of entries stays well under the socket's message limit. */
 const CLIENT_FRAME_BYTES = 512 * 1024;
 
-export type PiStellaExecution = Extract<CloudExecutionSelection, { engine: "stella" }>;
+/** A turn pi runs: on Stella's models, or on the owner's ChatGPT plan through the gateway's native lane. */
+export type PiExecution = Extract<CloudExecutionSelection, { engine: "stella" | "chatgpt" }>;
 
 /** Whose agents these are, as the latest chat turn admitted them. */
 export type PiAuthority = {
@@ -125,14 +127,14 @@ export type PiAuthority = {
   conversationId: string;
   audience: ManagedModelAudience;
   budgetMicroCents: number;
-  execution: PiStellaExecution;
+  execution: PiExecution;
 };
 
 /** What an agent needs when no turn is bound: kept in storage. */
 type PiAgentState = {
   version: 1;
   authority: PiAuthority;
-  /** The provider's models: the orchestrator's and the general agent's. */
+  /** The `stella` provider's models: the orchestrator's and the general agent's (none on a ChatGPT turn). */
   models: StellaModelSpec[];
   skillsCatalog?: string;
   executionContext: ExecutionContextSnapshot;
@@ -180,9 +182,8 @@ export type PiTurnBinding = {
   capability: string;
   fetch: typeof fetch;
   authority: PiAuthority;
-  /** The orchestrator's model, and the same alias for its agents. */
-  model: StellaModelSpec;
-  agentModel: StellaModelSpec;
+  /** On Stella's models: the orchestrator's, and the same alias for its agents. */
+  stellaModels?: { model: StellaModelSpec; agentModel: StellaModelSpec };
   thinkingLevel: ModelThinkingLevel;
   sources: PiTurnSources;
   /** The turn's orchestrator tools (web, html, image_gen, Read, drive, …), code excluded. */
@@ -256,8 +257,12 @@ export type PiAgentGuard = {
 export const contextFor = (signal?: AbortSignal): Context =>
   signal ? withAbortSignal(signal, BACKGROUND_CONTEXT) : BACKGROUND_CONTEXT;
 
-export const thinkingLevelFor = (effort: AgentModelReasoningEffort): ModelThinkingLevel =>
-  effort === "default" || effort === "none" ? "off" : effort;
+/**
+ * The thinking level of a turn's reasoning effort. A ChatGPT plan's default
+ * is its provider's (medium); Stella's models think only when asked.
+ */
+export const thinkingLevelFor = (effort: AgentModelReasoningEffort, engine: PiExecution["engine"] = "stella"): ModelThinkingLevel =>
+  effort === "none" ? "off" : effort === "default" ? (engine === "chatgpt" ? "medium" : "off") : effort;
 
 const MEMORY_FIELDS: Record<string, keyof Omit<StellaMemory, "enabled">> = {
   "~/.stella/core-memory.md": "core",
@@ -456,12 +461,15 @@ export class PiConversationRuntime {
     const control = env.MODEL_GATEWAY_CONTROL;
     if (!gateway || !control) throw new Error("Model gateway is not configured.");
     const capability = await this.#runCapability(active);
+    const send = (value: Request) => (active.guard ? active.guard.fetch(value) : gateway.fetch(value));
+    // The native lane serves a plan's request as one stream; the managed lane's cancellation is Stella's own.
+    if ((await this.#agentState()).authority.execution.engine === "chatgpt") return await send(withBearer(request, capability));
     return await fetchWithManagedCancellation({
       request: withBearer(request, capability),
       capability,
       control: control as unknown as ModelGatewayControl,
       waitUntil: (work) => this.#options.waitUntil(work),
-      fetch: (value) => (active.guard ? active.guard.fetch(value) : gateway.fetch(value)),
+      fetch: send,
     });
   }
 
@@ -490,11 +498,29 @@ export class PiConversationRuntime {
     return this.#state;
   }
 
-  #setModels(models: readonly StellaModelSpec[]): void {
-    const key = JSON.stringify(models);
+  #setModels(state: Pick<PiAgentState, "models" | "authority">): void {
+    const { execution } = state.authority;
+    const plan = execution.engine === "chatgpt" ? chatGptModel(execution.model) : undefined;
+    const key = JSON.stringify([state.models, plan?.id]);
     if (key === this.#modelKey) return;
-    this.#models.setProvider(stellaProvider({ access: this.#access(), models }));
+    const access = this.#access();
+    this.#models.setProvider(stellaProvider({ access, models: state.models }));
+    if (plan) {
+      this.#models.setProvider(
+        chatGptProvider({
+          models: [plan],
+          transport: { baseUrl: access.relayBaseUrl, fetch: (request, route) => access.fetch(request, undefined, route) },
+        }),
+      );
+    }
     this.#modelKey = key;
+  }
+
+  /** The orchestrator's model for a turn's execution. */
+  #rootModel(execution: PiExecution) {
+    return execution.engine === "chatgpt"
+      ? { provider: CHATGPT_PROVIDER_ID, modelId: execution.model }
+      : stellaModelRef("orchestrator", execution.model);
   }
 
   #sources(): StellaContextSources {
@@ -841,7 +867,7 @@ export class PiConversationRuntime {
       const kept = await this.#options.storage.get<PiAgentState>(PI_AGENT_STATE_KEY);
       if (kept) {
         this.#state = kept;
-        this.#setModels(kept.models);
+        this.#setModels(kept);
       }
       const storage = await openDurableObjectSqliteStorage(this.#options.storage);
       const { harness, refreshTools, startAgent, messageAgent, pauseAgent } = await openStellaHarness(
@@ -879,7 +905,7 @@ export class PiConversationRuntime {
     const state: PiAgentState = {
       version: 1,
       authority: binding.authority,
-      models: [binding.model, binding.agentModel],
+      models: binding.stellaModels ? [binding.stellaModels.model, binding.stellaModels.agentModel] : [],
       ...(binding.sources.skillsCatalog ? { skillsCatalog: binding.sources.skillsCatalog } : {}),
       executionContext: binding.sources.executionContext,
       tools,
@@ -891,7 +917,7 @@ export class PiConversationRuntime {
       await this.#options.storage.put(PI_AGENT_STATE_KEY, state);
       this.#state = state;
     }
-    this.#setModels(state.models);
+    this.#setModels(state);
     (await this.#opening?.catch(() => undefined))?.refreshTools();
     this.#binding = binding;
     this.#notify("root");
@@ -904,7 +930,7 @@ export class PiConversationRuntime {
   async configureRoot(binding: PiTurnBinding, context: Context): Promise<void> {
     const { root } = await this.open();
     const agent = await root.agent(context);
-    const model = stellaModelRef("orchestrator", binding.model.alias);
+    const model = this.#rootModel(binding.authority.execution);
     if (
       offersAgentTools(agent) ||
       agent.model?.provider !== model.provider ||

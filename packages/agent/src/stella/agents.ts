@@ -17,7 +17,7 @@
  * `agent_status`, `pause_agent`.
  */
 import type { Context } from "@earendil-works/chord";
-import { Type, type AssistantMessage } from "@earendil-works/pi-ai";
+import { Type, type AssistantMessage, type ModelThinkingLevel } from "@earendil-works/pi-ai";
 import {
   AssistantEntry,
   configure,
@@ -110,6 +110,9 @@ export type AgentRun = {
 };
 
 /** An agent's report, arriving at the orchestrator. */
+/** The model an agent runs on, and at what thinking level. */
+type RunsOn = { model?: ModelRef; thinkingLevel?: ModelThinkingLevel };
+
 export type AgentReport = {
   rootConversationId: ConversationId;
   threadId: string;
@@ -405,10 +408,18 @@ export function stellaAgents(host: StellaAgentsHost) {
     abort: (_reporter, runtime, context) => runtime.commit(() => ({ status: "terminal", outcome: { status: "aborted" } }), context),
   });
 
-  const childModel = (parent: ModelRef | undefined): ModelRef | undefined => {
-    if (parent?.provider !== STELLA_PROVIDER_ID) return parent;
+  /**
+   * What an agent runs on, from its caller: Stella's alias as a general
+   * agent, or else the caller's own model at the caller's thinking level (a
+   * ChatGPT plan turn is admitted for one reasoning effort).
+   */
+  const childRun = (caller: RunsOn): RunsOn => {
+    const parent = caller.model;
+    if (parent?.provider !== STELLA_PROVIDER_ID) {
+      return { model: parent, ...(caller.thinkingLevel ? { thinkingLevel: caller.thinkingLevel } : {}) };
+    }
     const parsed = parseStellaModelId(parent.modelId);
-    return parsed ? { provider: STELLA_PROVIDER_ID, modelId: stellaModelId("general", parsed.alias) } : parent;
+    return { model: parsed ? { provider: STELLA_PROVIDER_ID, modelId: stellaModelId("general", parsed.alias) } : parent };
   };
 
   const callerPlacement = async (api: ToolExecutionApi, context: Context): Promise<StellaPlacement> =>
@@ -427,7 +438,7 @@ export function stellaAgents(host: StellaAgentsHost) {
       depth: number;
       description: string;
       prompt: string;
-      model: ModelRef | undefined;
+      runsOn: RunsOn;
       placement: StellaPlacement;
       /** Its caller runs it and reads its answer itself; nothing reports here. */
       detached?: boolean;
@@ -437,7 +448,7 @@ export function stellaAgents(host: StellaAgentsHost) {
       origin?: { deviceId: string };
     },
   ): Promise<{ threadId: string; existing: boolean }> => {
-    const { parentConversationId, depth, description, model, placement } = args;
+    const { parentConversationId, depth, description, runsOn, placement } = args;
     const state = await tx.doc(StellaAgentsDoc, parentConversationId);
     const prior = state.calls[args.callKey];
     if (prior) return { threadId: prior.threadId, existing: true };
@@ -449,7 +460,8 @@ export function stellaAgents(host: StellaAgentsHost) {
     const child = await tx.createConversation({ ownership: { kind: "task", taskId: anchor } });
     const threadId = args.threadId && !state.agents[args.threadId] ? args.threadId : `${slug(description)}-${child.id}`;
     await configure(tx, child.id, {
-      ...(model ? { model } : {}),
+      ...(runsOn.model ? { model: runsOn.model } : {}),
+      ...(runsOn.thinkingLevel ? { thinkingLevel: runsOn.thinkingLevel } : {}),
       // An agent has file, shell and agent tools, not the orchestrator's
       // (it copied the starter's selection); one at the depth limit cannot
       // start agents.
@@ -514,10 +526,12 @@ export function stellaAgents(host: StellaAgentsHost) {
       if ("error" in placement) throw new Error(placement.error);
       const callerAgent = await api.agent(context);
       const requested = args.model?.trim();
-      const model =
-        requested && requested.startsWith("stella/")
-          ? { provider: STELLA_PROVIDER_ID, modelId: stellaModelId("general", requested) }
-          : childModel(callerAgent.model);
+      // Another Stella alias only for a caller on Stella's models: a turn on
+      // the user's own model or plan is admitted for that model alone.
+      const runsOn =
+        requested?.startsWith("stella/") && callerAgent.model?.provider === STELLA_PROVIDER_ID
+          ? { model: { provider: STELLA_PROVIDER_ID, modelId: stellaModelId("general", requested) } }
+          : childRun(callerAgent);
       const description = args.description.trim() || "agent";
       const remote = host.remote?.(placement);
       if (remote) {
@@ -559,7 +573,7 @@ export function stellaAgents(host: StellaAgentsHost) {
             depth,
             description,
             prompt: args.prompt,
-            model,
+            runsOn,
             placement,
           }),
         context,
@@ -727,7 +741,7 @@ export function stellaAgents(host: StellaAgentsHost) {
     context: Context,
   ): Promise<{ threadId: string; existing: boolean }> => {
     const root = await harness.root(context);
-    const model = childModel((await root.agent(context)).model);
+    const runsOn = childRun(await root.agent(context));
     return await harness.commit(
       (tx) =>
         createAgent(tx, {
@@ -736,7 +750,7 @@ export function stellaAgents(host: StellaAgentsHost) {
           depth: 1,
           description: args.description.trim() || "agent",
           prompt: args.prompt,
-          model,
+          runsOn,
           placement: host.rootPlacement,
           ...(args.threadId ? { threadId: args.threadId } : {}),
           ...(args.origin ? { origin: args.origin } : {}),
@@ -881,7 +895,7 @@ export function stellaAgents(host: StellaAgentsHost) {
    */
   const runPlacedAgent = async (harness: Harness, args: PlacedAgentRun, context: Context): Promise<PlacedAgentResult> => {
     const root = await harness.root(context);
-    const model = childModel((await root.agent(context)).model);
+    const runsOn = childRun(await root.agent(context));
     const { threadId } = await harness.commit(
       (tx) =>
         createAgent(tx, {
@@ -890,7 +904,7 @@ export function stellaAgents(host: StellaAgentsHost) {
           depth: 1,
           description: args.description.trim() || "agent",
           prompt: args.prompt,
-          model,
+          runsOn,
           placement: host.rootPlacement,
           detached: true,
         }),

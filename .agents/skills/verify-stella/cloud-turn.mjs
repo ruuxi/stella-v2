@@ -4,7 +4,7 @@
 // verifier, then polls the conversation's canonical history on the worker
 // until the turn's final assistant message lands.
 //
-//   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--email <owner>] [--wait 180] [--agent-runtime pi] [--watch-pi] [--locale es] [--attach <drive path>]
+//   node .agents/skills/verify-stella/cloud-turn.mjs --prompt "..." [--conversation <id>] [--email <owner>] [--wait 180] [--agent-runtime pi] [--watch-pi] [--locale es] [--attach <drive path>] [--engine chatgpt --model <id> [--effort <level>]]
 //   (--prompt-file <path> instead of --prompt for prompts too long for one argument)
 //
 // `--agent-runtime pi` creates the conversation on the pi-durable runtime; it
@@ -12,6 +12,11 @@
 //
 // `--locale` sends the turn with that reply-language locale, as a client in
 // that language does.
+//
+// `--engine chatgpt --model <id>` sends the turn for the owner's ChatGPT plan
+// (`--effort`, default `default`), as a client whose cloud engine is ChatGPT
+// does. A test owner has no ChatGPT sign-in, so the gateway refuses the
+// model call after checking it.
 //
 // `--watch-pi` also opens the conversation socket with `pi=1`, prints the pi
 // view's frames as they arrive, and folds them with the clients' reducer
@@ -50,6 +55,10 @@ const locale = flag("--locale");
 // A file already in the owner's drive, attached to the turn as a client attaches one.
 const attach = flag("--attach");
 const watchPi = args.includes("--watch-pi");
+const engine = flag("--engine");
+const execution = engine
+  ? { engine, provider: engine, model: flag("--model", ""), reasoningEffort: flag("--effort", "default") }
+  : undefined;
 const devVarsPath = new URL("../../../workers/cloud-builder/.dev.vars", import.meta.url).pathname;
 const devVar = (name) => {
   if (!existsSync(devVarsPath)) return "";
@@ -93,6 +102,7 @@ const started = await fetch(`${builderUrl}/conversations/${conversationId}/turns
     ...(agentRuntime ? { agentRuntime } : {}),
     ...(locale ? { locale } : {}),
     ...(attach ? { attachments: [attach] } : {}),
+    ...(execution ? { execution } : {}),
   }),
 });
 const startedBody = await started.json().catch(() => null);

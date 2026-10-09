@@ -1,6 +1,8 @@
 import { ActivityIndicator, View } from "react-native";
+import Animated from "react-native-reanimated";
 import { Host, Button, RNHostView } from "@expo/ui/swift-ui";
 import {
+  accessibilityHidden as hideFromAccessibility,
   accessibilityLabel,
   buttonBorderShape,
   buttonStyle,
@@ -24,6 +26,8 @@ export function GlassIconButton({
   loading = false,
   disabled: isDisabled = false,
   style,
+  iconStyle,
+  accessibilityHidden = false,
 }: GlassIconButtonProps) {
   const colors = useColors();
   const { isDark } = useTheme();
@@ -41,11 +45,13 @@ export function GlassIconButton({
           frame({ width: size, height: size }),
           accessibilityLabel(label),
           disabled(isDisabled),
+          ...(accessibilityHidden ? [hideFromAccessibility(true)] : []),
         ]}
       >
         <RNHostView matchContents>
           <View
             pointerEvents="none"
+            accessibilityElementsHidden={accessibilityHidden}
             style={{
               width: size - 16,
               height: size - 16,
@@ -56,11 +62,13 @@ export function GlassIconButton({
             {loading ? (
               <ActivityIndicator size="small" color={colors.textMuted} />
             ) : (
-              <Icon
-                name={icon}
-                size={iconSize}
-                color={muted ? colors.textMuted : colors.text}
-              />
+              <Animated.View style={iconStyle}>
+                <Icon
+                  name={icon}
+                  size={iconSize}
+                  color={muted ? colors.textMuted : colors.text}
+                />
+              </Animated.View>
             )}
             {dot ? (
               <View

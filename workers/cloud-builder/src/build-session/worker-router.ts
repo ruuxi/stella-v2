@@ -1159,9 +1159,16 @@ app.all("/cloud-home/:rest{.*}", userAuth(), async (c, next) => {
 app.all(`/sessions/:sessionId{${BROKER_SESSION_ID}}/turn-broker`, async (c) => {
   const brokerSessionId = c.req.param("sessionId");
   const request = c.req.raw;
-  const response = await c.env.BUILD_SESSIONS.getByName(brokerSessionId).fetch(
-    new Request("https://build-session/turn-broker", request),
-  );
+  // A pi agent's container presents `pi:<conversation>`: its broker is that
+  // conversation's orchestrator object, which holds the agent's lease.
+  const piConversation = /^pi(?::|%3[Aa])([A-Za-z0-9._~-]{1,128})$/u.exec(brokerSessionId)?.[1];
+  const response = piConversation
+    ? await c.env.ORCHESTRATOR_SESSIONS.getByName(piConversation).fetch(
+        new Request("https://orchestrator-session/pi-turn-broker", request),
+      )
+    : await c.env.BUILD_SESSIONS.getByName(brokerSessionId).fetch(
+        new Request("https://build-session/turn-broker", request),
+      );
   if (devAcceptanceProbesEnabled(c.env)) {
     const diagnosticTarget = validateTurnBrokerTarget(
       request.headers.get(TURN_BROKER_HEADERS.targetMethod),

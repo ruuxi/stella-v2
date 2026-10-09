@@ -3157,6 +3157,21 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     if (url.pathname === "/history/query") {
       return this.handleHistoryQuery(request);
     }
+    // A pi agent's container daemon (its drive and its delivered files),
+    // under its lease's own credential. Ahead of the edit lock: the lease
+    // belongs to an agent run already admitted here.
+    if (url.pathname === "/pi-turn-broker") {
+      // Only where pi runs agents: a pi conversation, or one hosting a computer's cloud agent.
+      if (
+        !this.piRuntime &&
+        (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) !== "pi" &&
+        !(await this.ctx.storage.get<boolean>(PI_LIVE_KEY))
+      ) {
+        return json({ error: "Turn broker request failed." }, 401);
+      }
+      const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+      return await runtime.handleBroker(request);
+    }
     // Frames of the running Claude Code turn, from its BuildSession. Ahead
     // of the edit lock: an edit cannot start while a turn runs, and these
     // only ever touch the exact active turn.
@@ -6497,6 +6512,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       }
     })();
     if (typeof wakeTurnId !== "string" || !wakeTurnId) return;
+    // What the agent saved to the drive and linked, as the loop's agents' files card.
+    if (agent.files?.length) {
+      this.publishTurnFilesCard(wakeTurnId, `pi-files:${report.requestId}`, agent.files);
+    }
     const outcome = piReportOutcome(report.text);
     const identity = { agentId: report.threadId, attemptGeneration: agent.attempt };
     this.publishAgentLifecycleCard(wakeTurnId, Date.now(), {

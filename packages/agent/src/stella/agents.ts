@@ -109,10 +109,18 @@ export type AgentRun = {
   runId: string;
 };
 
-/** An agent's report, arriving at the orchestrator. */
+/** How an agent's run ended, for the host that ran it. */
+export type AgentRunEnd = {
+  /** The answer's text, when the run answered. */
+  answer?: string;
+  /** Paused or stopped before it answered. */
+  aborted?: true;
+};
+
 /** The model an agent runs on, and at what thinking level. */
 type RunsOn = { model?: ModelRef; thinkingLevel?: ModelThinkingLevel };
 
+/** An agent's report, arriving at the orchestrator. */
 export type AgentReport = {
   rootConversationId: ConversationId;
   threadId: string;
@@ -192,7 +200,7 @@ export type StellaAgentsHost = {
    * the cloud admits the run and binds its model capability here.
    */
   beginAgentRun?(run: AgentRun, context: Context): Promise<void>;
-  endAgentRun?(run: AgentRun, context: Context): Promise<void>;
+  endAgentRun?(run: AgentRun, context: Context, end?: AgentRunEnd): Promise<void>;
   /**
    * A report for the orchestrator. Default: a follow-up input to the root
    * conversation. The cloud sends it through its turn plane instead.
@@ -295,53 +303,59 @@ export function stellaAgents(host: StellaAgentsHost) {
         let settled: Awaited<ReturnType<Awaited<ReturnType<NonNullable<Awaited<ReturnType<typeof runtime.conversation>>>["submit"]>>["wait"]>> | undefined;
         // A run the host refuses (admission, credentials) is reported as failed.
         let refused: string | undefined;
+        // How the run ended, for the host once its report is settled.
+        let end: AgentRunEnd = {};
         try {
-          await host.beginAgentRun?.(run, context);
-          const agent = await runtime.conversation(agentConversationId, context);
-          if (!agent) throw new Error(`Agent ${threadId} no longer exists.`);
-          const submission = await agent.submit(
-            { type: "input", content: message, whenBusy: "steer", requestId: `agent-msg:${reporter.id}` },
-            context,
-          );
-          settled = await submission.wait(context);
-        } catch (error) {
-          if (context.abortSignal?.aborted) throw error;
-          refused = error instanceof Error ? error.message : String(error);
+          try {
+            await host.beginAgentRun?.(run, context);
+            const agent = await runtime.conversation(agentConversationId, context);
+            if (!agent) throw new Error(`Agent ${threadId} no longer exists.`);
+            const submission = await agent.submit(
+              { type: "input", content: message, whenBusy: "steer", requestId: `agent-msg:${reporter.id}` },
+              context,
+            );
+            settled = await submission.wait(context);
+          } catch (error) {
+            if (context.abortSignal?.aborted) throw error;
+            refused = error instanceof Error ? error.message : String(error);
+          }
+          if (settled?.status === "unanswered" && settled.reason === "aborted") end = { aborted: true };
+          // Read before the commit: nothing may wait on the Session inside it.
+          const self = await roleOf(runtime, runtime.conversationId, context);
+          await runtime.commit(async (tx) => {
+            const next = (report?: string): { status: "running"; checkpoint: ReporterState } => ({
+              status: "running",
+              checkpoint: report === undefined ? { phase: "report" } : { phase: "report", report },
+            });
+            const state = await tx.doc(StellaAgentsDoc, runtime.conversationId);
+            const agent = state.agents[threadId];
+            const description = agent?.description ?? threadId;
+            if (refused !== undefined || settled === undefined) {
+              return next(failedReport({ threadId, description, error: refused ?? "The agent did not run." }));
+            }
+            if (settled.status === "unanswered") {
+              // Paused: nothing to report.
+              if (settled.reason === "aborted") return next();
+              return next(failedReport({ threadId, description, error: settled.reason }));
+            }
+            if (settled.type !== "input" || !agent) return next();
+            const answer = (await tx.entry(AssistantEntry, settled.answer))?.model?.[0] as AssistantMessage | undefined;
+            end = { answer: textOf(answer) };
+            if (agent.reported.includes(settled.answer)) return next();
+            agent.reported.push(settled.answer);
+            return next(
+              completedReport({
+                threadId,
+                description,
+                result: textOf(answer),
+                toParentAgent: self.agentType !== "orchestrator",
+                ...(reporter.input.fromUser ? { userMessage: message } : {}),
+              }),
+            );
+          }, context);
         } finally {
-          await host.endAgentRun?.(run, context);
+          await host.endAgentRun?.(run, context, end);
         }
-        // Read before the commit: nothing may wait on the Session inside it.
-        const self = await roleOf(runtime, runtime.conversationId, context);
-        await runtime.commit(async (tx) => {
-          const next = (report?: string): { status: "running"; checkpoint: ReporterState } => ({
-            status: "running",
-            checkpoint: report === undefined ? { phase: "report" } : { phase: "report", report },
-          });
-          const state = await tx.doc(StellaAgentsDoc, runtime.conversationId);
-          const agent = state.agents[threadId];
-          const description = agent?.description ?? threadId;
-          if (refused !== undefined || settled === undefined) {
-            return next(failedReport({ threadId, description, error: refused ?? "The agent did not run." }));
-          }
-          if (settled.status === "unanswered") {
-            // Paused: nothing to report.
-            if (settled.reason === "aborted") return next();
-            return next(failedReport({ threadId, description, error: settled.reason }));
-          }
-          if (settled.type !== "input" || !agent) return next();
-          if (agent.reported.includes(settled.answer)) return next();
-          agent.reported.push(settled.answer);
-          const answer = (await tx.entry(AssistantEntry, settled.answer))?.model?.[0] as AssistantMessage | undefined;
-          return next(
-            completedReport({
-              threadId,
-              description,
-              result: textOf(answer),
-              toParentAgent: self.agentType !== "orchestrator",
-              ...(reporter.input.fromUser ? { userMessage: message } : {}),
-            }),
-          );
-        }, context);
       },
       report: async (reporter, runtime, context) => {
         const report = reporter.state.checkpoint.report;

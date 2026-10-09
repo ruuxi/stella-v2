@@ -445,10 +445,7 @@ export function useFullShellChat({
   const loadLatestMessages = storageMode === "local" && !piChat.enabled
     ? localMessageFeed.loadLatest
     : NO_NEWER_CLOUD_MESSAGES;
-  // pi's agents come whole.
-  const hasOlderActivity = piChat.enabled
-    ? false
-    : storageMode === "local"
+  const hasOlderActivity = storageMode === "local"
     ? localActivityFeed.hasOlderActivity
     : cloudChat.hasOlderActivity;
   const isLoadingOlderActivity = storageMode === "local"
@@ -1096,7 +1093,8 @@ export function useFullShellChat({
       extraTail: cloudChat.extraTail,
       activity: {
         activities,
-        hasOlder: hasOlderActivity,
+        // pi's agents come whole: there is no older activity to page in.
+        hasOlder: piChat.enabled ? false : hasOlderActivity,
         isLoadingOlder: isLoadingOlderActivity,
         loadOlder: loadOlderActivity,
       },
@@ -1138,6 +1136,7 @@ export function useFullShellChat({
       latestCompletedTool,
       hasToolActivity,
       hasOlderActivity,
+      piChat.enabled,
       hasOlderFiles,
       hasOlderMessages,
       hasNewerMessages,

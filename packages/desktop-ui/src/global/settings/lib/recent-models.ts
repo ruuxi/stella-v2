@@ -64,7 +64,7 @@ export const pruneRecentModels = (
  * Namespaces whose model-id space is open-ended, so a typed custom id is
  * valid WITHOUT appearing in the merged catalog. Pass-through gateways
  * (OpenRouter, Vercel AI Gateway) accept arbitrary `<vendor>/<model>` slugs
- * the built-in catalog has never heard of (stealth models are the
+ * the baked/pi.dev-fed catalog has never heard of (stealth models are the
  * canonical case), and `local/…` ids name user-configured local servers.
  * Mirrors the runtime resolver's open-ended gateway set in
  * `runtime/kernel/model-routing-matching.ts`, which synthesizes a route for

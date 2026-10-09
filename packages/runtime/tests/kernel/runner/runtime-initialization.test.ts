@@ -29,6 +29,8 @@ const makeLifecycleHarness = (
     loadExtensions?: (
       signal: AbortSignal,
     ) => Promise<ReturnType<typeof emptyExtensions>>;
+    initializeModels?: (signal: AbortSignal) => Promise<void>;
+    refreshModels?: (signal: AbortSignal) => Promise<void>;
   } = {},
 ) => {
   const events: string[] = [];
@@ -98,6 +100,10 @@ const makeLifecycleHarness = (
   const lifecycle = {
     loadExtensions: async ({ signal }: { signal: AbortSignal }) =>
       overrides.loadExtensions?.(signal) ?? emptyExtensions(),
+    initializeModels: async ({ signal }: { signal: AbortSignal }) =>
+      overrides.initializeModels?.(signal),
+    refreshModels: async ({ signal }: { signal: AbortSignal }) =>
+      overrides.refreshModels?.(signal),
     installLoadedExtensions: () => events.push("extensions-installed"),
     startWatchers: () => events.push("watchers-started"),
     stopWatchers: () => events.push("watchers-stopped"),
@@ -241,16 +247,21 @@ describe("runtime initialization ownership", () => {
 
   it("interrupts and joins startup before teardown, with no late registry or watcher commit", async () => {
     const extensions = deferred<ReturnType<typeof emptyExtensions>>();
+    const models = deferred<void>();
     const signals: AbortSignal[] = [];
     const { runtime, state, events } = makeLifecycleHarness({
       loadExtensions: (signal) => {
         signals.push(signal);
         return extensions.promise;
       },
+      initializeModels: (signal) => {
+        signals.push(signal);
+        return models.promise;
+      },
     });
 
     runtime.start();
-    await vi.waitFor(() => expect(signals).toHaveLength(1));
+    await vi.waitFor(() => expect(signals).toHaveLength(2));
     const stopped = runtime.stop();
 
     expect(signals.every((signal) => signal.aborted)).toBe(true);
@@ -260,6 +271,7 @@ describe("runtime initialization ownership", () => {
     expect(state.initializationPromise).toBeNull();
 
     extensions.resolve(emptyExtensions());
+    models.resolve();
     await stopped;
     await Promise.resolve();
 
@@ -271,15 +283,77 @@ describe("runtime initialization ownership", () => {
     expect(state.isInitialized).toBe(false);
   });
 
-  it("memoizes repeated stop after initialization", async () => {
+  it("does not finish initialization when stop lands after extensions but before models", async () => {
+    const models = deferred<void>();
+    let modelSignal: AbortSignal | null = null;
     const { runtime, state, events } = makeLifecycleHarness({
       loadExtensions: async () => emptyExtensions(),
+      initializeModels: (signal) => {
+        modelSignal = signal;
+        return models.promise;
+      },
+    });
+
+    runtime.start();
+    await vi.waitFor(() => expect(events).toContain("extensions-installed"));
+    const stopped = runtime.stop();
+    expect(modelSignal?.aborted).toBe(true);
+    expect(events).not.toContain("backend-disposed");
+
+    models.resolve();
+    await stopped;
+
+    expect(events).not.toContain("watchers-started");
+    expect(state.isInitialized).toBe(false);
+    expect(events).toContain("backend-disposed");
+  });
+
+  it("owns and joins the post-ready catalog refresh before shutdown dependencies", async () => {
+    const refresh = deferred<void>();
+    let refreshSignal: AbortSignal | null = null;
+    const { runtime, state, events } = makeLifecycleHarness({
+      loadExtensions: async () => emptyExtensions(),
+      initializeModels: async () => undefined,
+      refreshModels: (signal) => {
+        refreshSignal = signal;
+        return refresh.promise;
+      },
     });
 
     runtime.start();
     await state.initializationPromise;
+    await vi.waitFor(() => expect(refreshSignal).not.toBeNull());
     expect(state.isInitialized).toBe(true);
     expect(events).toContain("watchers-started");
+
+    const stopped = runtime.stop();
+    expect(refreshSignal?.aborted).toBe(true);
+    expect(events).toContain("watchers-stopped");
+    expect(events).not.toContain("backend-disposed");
+
+    refresh.resolve();
+    await stopped;
+
+    expect(events.indexOf("backend-disposed")).toBeGreaterThan(
+      events.indexOf("watchers-stopped"),
+    );
+    expect(state.isInitialized).toBe(false);
+  });
+
+  it("keeps initialization failure watcher-free and memoizes repeated stop", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const failure = new Error("model initialization failed");
+    const { runtime, state, events } = makeLifecycleHarness({
+      loadExtensions: async () => emptyExtensions(),
+      initializeModels: async () => {
+        throw failure;
+      },
+    });
+
+    runtime.start();
+    await expect(state.initializationPromise).rejects.toBe(failure);
+    expect(state.isInitialized).toBe(false);
+    expect(events).not.toContain("watchers-started");
 
     const firstStop = runtime.stop();
     const secondStop = runtime.stop();
@@ -295,13 +369,12 @@ describe("runtime initialization ownership", () => {
     expect(events.filter((event) => event === "watchers-stopped")).toHaveLength(
       1,
     );
-    expect(state.isInitialized).toBe(false);
   });
 
   it("does not admit initialization after the runner was already stopped", async () => {
-    const loadExtensions = vi.fn(async () => emptyExtensions());
+    const initializeModels = vi.fn(async () => undefined);
     const { runtime, state, events } = makeLifecycleHarness({
-      loadExtensions,
+      initializeModels,
     });
 
     const firstStop = runtime.stop();
@@ -310,7 +383,7 @@ describe("runtime initialization ownership", () => {
     runtime.start();
     await Promise.resolve();
 
-    expect(loadExtensions).not.toHaveBeenCalled();
+    expect(initializeModels).not.toHaveBeenCalled();
     expect(state.isRunning).toBe(false);
     expect(state.initializationPromise).toBeNull();
     expect(events).not.toContain("watchers-started");

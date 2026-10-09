@@ -6,7 +6,6 @@ import { Cause, Effect, Exit, Layer, ManagedRuntime } from "effect";
 import { formatLlmRouteFailure } from "@stella/contracts/llm-route-failure";
 import type { GatewayProtocol } from "@stella/contracts/gateway/api";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { setManagedProviderModels } from "./model-catalog.js";
 import {
   STELLA_DEFAULT_MODEL,
   STELLA_MODELS_PATH,
@@ -120,7 +119,7 @@ const CATALOG_FETCH_TIMEOUT_MS = 15_000;
 /** Minimum spacing between background refresh attempts per identity. */
 const CATALOG_REFRESH_MIN_INTERVAL_MS = 30_000;
 
-const publishStellaCatalog = async (
+const publishCatalogToModelRuntime = async (
   catalog: StellaModelCatalog,
   site: StellaSiteConfig,
 ): Promise<void> => {
@@ -145,7 +144,8 @@ const publishStellaCatalog = async (
       }),
     )
     .filter((route): route is NonNullable<typeof route> => Boolean(route));
-  setManagedProviderModels(
+  const { modelRuntime } = await import("./model-runtime.js");
+  modelRuntime.setManagedProviderModels(
     STELLA_PROVIDER,
     routes.map((route) => ({ ...route.model, provider: STELLA_PROVIDER })),
   );
@@ -462,7 +462,7 @@ const fetchStellaModelCatalogEffect = (args: {
 
     const cached = catalogCache.get(request.identityKey);
     if (cached) {
-      yield* tryCatalogOp(() => publishStellaCatalog(cached, args.site));
+      yield* tryCatalogOp(() => publishCatalogToModelRuntime(cached, args.site));
       return cloneCatalog(cached);
     }
 
@@ -489,7 +489,7 @@ const fetchStellaModelCatalogEffect = (args: {
             Effect.flatMap((catalog) =>
               catalog
                 ? tryCatalogOp(() =>
-                    publishStellaCatalog(catalog, args.site),
+                    publishCatalogToModelRuntime(catalog, args.site),
                   )
                 : Effect.void,
             ),
@@ -497,7 +497,7 @@ const fetchStellaModelCatalogEffect = (args: {
         );
       }
       yield* tryCatalogOp(() =>
-        publishStellaCatalog(diskCached, args.site),
+        publishCatalogToModelRuntime(diskCached, args.site),
       );
       return cloneCatalog(diskCached);
     }
@@ -507,7 +507,7 @@ const fetchStellaModelCatalogEffect = (args: {
     );
     if (fetched) {
       yield* tryCatalogOp(() =>
-        publishStellaCatalog(fetched, args.site),
+        publishCatalogToModelRuntime(fetched, args.site),
       );
     }
     return fetched;
@@ -643,10 +643,14 @@ export const withStellaModelCatalogMetadata = (args: {
       const gatewayOrigin = yield* requireGatewayOrigin(args.site);
       const { resolvedModelId } = resolution;
       const lookup = getManagedStellaRegistryLookup(resolvedModelId);
-      const registryModel = findRegistryModel(
-        lookup.provider,
-        lookup.candidates,
-      );
+      const registryModel =
+        findRegistryModel(lookup.provider, lookup.candidates) ??
+        (yield* tryCatalogOp(async () => {
+          const { modelRuntime } = await import("./model-runtime.js");
+          return modelRuntime
+            .ensureProviderModel(lookup.provider, lookup.candidates)
+            .catch(() => undefined);
+        }));
 
       const resolvedRoute = createStellaRoute({
         site: args.site,

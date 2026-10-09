@@ -79,7 +79,7 @@ Spawn `bun <entry>` in stdio mode, write a probe request immediately, then
 | --- | --- |
 | `spawnToTransportMs` | spawn → first response. Over stdio the peer only attaches after the entry graph is evaluated and `main()` reaches `startWorkerTransport`, so this is "process up + module graph + main prelude". (`internal.worker.readyz` is answered pre-attach only by the socket transport; over stdio it returns METHOD_NOT_FOUND, which is the cheap round trip we want.) |
 | `initializeRttMs` | `internal.worker.initialize` round trip (session graph, SQLite open/migrate, lazy runner import) |
-| `initializedToReadyMs` | initialize → `health.ready` (runner init: extensions, catalog). This is what the host's `runtime-ready` waits on. |
+| `initializedToReadyMs` | initialize → `health.ready` (runner init: extensions, models.json, catalog). This is what the host's `runtime-ready` waits on. |
 | `spawnToReadyMs` | headline |
 | breakdown | `execToProcessStartMs` (spawn → worker `performance.timeOrigin`), `processStartToPreloadMs`, `preloadMs`, `entryGraphToTransportMs` |
 

@@ -86,6 +86,13 @@ vi.mock("../../kernel/connectors/process-registry.js", () => ({
   sweepStaleConnectorBridgeProcesses: async () => null,
 }));
 
+vi.mock("../../kernel/model-runtime.js", () => ({
+  modelRuntime: {
+    onCatalogChanged: () => () => undefined,
+    getSnapshotForListing: async () => ({ models: [] }),
+  },
+}));
+
 vi.mock("../../kernel/storage/database.js", async () => {
   const { DatabaseSync } = await import("node:sqlite");
   const { getDesktopDatabasePath, initializeDesktopDatabase } = await import(

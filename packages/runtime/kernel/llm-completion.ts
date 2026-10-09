@@ -39,6 +39,8 @@ export type RouteCompletionOptions = Pick<
 
 /** A local server often takes no key, but the OpenAI client always sends one. */
 const LOCAL_PLACEHOLDER_KEY = "stella-local";
+/** The same for a models.json proxy whose auth travels in its configured headers. */
+const CREDENTIALLESS_PLACEHOLDER_KEY = "stella-credentialless";
 
 let upstream: readonly Provider[] | undefined;
 const upstreamProvider = (id: string): Provider | undefined =>
@@ -69,6 +71,9 @@ const keyedProvider = (id: string, model: Model<Api>, fallbackKey?: string): Pro
 /** The provider and model a route on the user's own key runs on. */
 const directTarget = (route: ResolvedLlmRoute): { provider: Provider; model: Model<Api> } => {
   const { model } = route;
+  if (route.credentialless) {
+    return { provider: keyedProvider(model.provider, model, CREDENTIALLESS_PLACEHOLDER_KEY), model };
+  }
   if (model.provider === CHATGPT_PROVIDER_ID) {
     const plan = chatGptModel(model.id);
     if (!plan) throw new Error(`chatgpt/${model.id} isn't a model Stella can run on your ChatGPT plan.`);
@@ -79,9 +84,13 @@ const directTarget = (route: ResolvedLlmRoute): { provider: Provider; model: Mod
   }
   const provider = upstreamProvider(model.provider);
   if (!provider) return { provider: keyedProvider(model.provider, model), model };
-  // pi-ai's own entry carries the request shape its implementation expects.
+  // pi-ai's own entry carries the request shape its implementation expects,
+  // unless models.json moved the model to another endpoint or API.
   const known = provider.getModels().find((candidate) => candidate.id === model.id);
-  return { provider, model: known ?? model };
+  if (known && (known.baseUrl !== model.baseUrl || known.api !== model.api)) {
+    return { provider: keyedProvider(model.provider, model), model };
+  }
+  return { provider, model: known ? { ...known, headers: model.headers ?? known.headers } : model };
 };
 
 const UNAUTHORIZED = /(?:^|\b)401(?:\b|$)|\bunauthorized\b|\btoken_(?:expired|revoked)\b|authentication token is expired/i;
@@ -102,11 +111,17 @@ export async function completeOnRoute(
     models.setProvider(stellaProvider({ access, models: [spec] }));
     return await models.completeSimple(stellaModel(spec, access.relayBaseUrl), context, managed);
   }
-  const { provider, model } = directTarget(route);
-  models.setProvider(provider);
-  const send = (apiKey: string | undefined) =>
-    models.completeSimple(model, context, { ...request, ...(apiKey ? { apiKey } : {}) });
+  // Reading the key applies the route's configured models.json headers.
   const apiKey = givenKey ?? (await route.getApiKey())?.trim();
+  const send = (key: string | undefined) => {
+    const { provider, model } = directTarget(route);
+    models.setProvider(provider);
+    return models.completeSimple(model, context, {
+      ...request,
+      ...(key ? { apiKey: key } : {}),
+      ...(model.headers ? { headers: model.headers } : {}),
+    });
+  };
   const message = await send(apiKey);
   // A short-lived credential the provider rejected is minted again once.
   if (message.stopReason !== "error" || !route.refreshApiKey || !UNAUTHORIZED.test(message.errorMessage ?? "")) {

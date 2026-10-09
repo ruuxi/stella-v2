@@ -7,11 +7,7 @@
 
 import fs from "fs";
 import path from "path";
-import {
-  getLlmOAuthApiKey,
-  getLlmOAuthProvider,
-  type OAuthCredentials,
-} from "./llm-oauth-providers.js";
+import type { OAuthCredentials } from "./llm-oauth-providers.js";
 import {
   deleteProtectedValue,
   protectValue,
@@ -207,13 +203,14 @@ export const saveLocalLlmOAuthCredential = (
     credentials: OAuthCredentials;
   },
 ): LocalLlmOAuthCredentialSummary => {
+  // Callers save what a provider sign-in or refresh returned, so the
+  // provider is one the sign-in registry knows.
   const provider = normalizeProvider(payload.provider);
-  const oauthProvider = getLlmOAuthProvider(provider);
-  if (!provider || !oauthProvider) {
+  if (!provider) {
     throw new Error("Unsupported OAuth provider.");
   }
 
-  const label = payload.label.trim() || oauthProvider.name;
+  const label = payload.label.trim() || provider;
   const file = readCredentialFile(stellaAppDir);
   const now = Date.now();
   const existing = file.credentials[provider];
@@ -287,6 +284,11 @@ export const getLocalLlmOAuthApiKey = async (
   );
   if (!credentials) return null;
 
+  // The sign-in flows load pi-ai's providers; only a request for a stored
+  // key pays for them (the cloud tool host reaches this module too).
+  const { getLlmOAuthApiKey, getLlmOAuthProvider } = await import(
+    "./llm-oauth-providers.js"
+  );
   const oauthProvider = getLlmOAuthProvider(normalizedProvider);
   if (!oauthProvider) {
     throw new Error(`Unknown OAuth provider: ${normalizedProvider}`);

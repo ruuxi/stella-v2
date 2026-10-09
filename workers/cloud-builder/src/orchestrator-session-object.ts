@@ -115,6 +115,7 @@ import {
   GATEWAY_SUBSCRIPTION_LIMIT_HEADER,
   nativeSubscriptionLimitNotice,
 } from "@stella/contracts/gateway/api";
+import type { AgentActivityEntry } from "@stella/contracts/conversation-agent-activity";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 
@@ -646,8 +647,25 @@ const PI_JOURNAL_IMPORT_BATCH = 200;
 const PI_MIRRORED_KEY = "piMirroredEntry";
 /** Set while pi has work in flight here, so a wake after eviction resumes it. */
 const PI_LIVE_KEY = "piLive";
-/** A connect checks the journal's running agents against their owners at most this often. */
+/** A connect checks the running agents against their owners at most this often. */
 const AGENT_RECONCILE_INTERVAL_MS = 60_000;
+/**
+ * Durable key: the running agents of a conversation pi has run in, as their
+ * owners record them (`refreshAgents`). Absent where pi never ran: there
+ * they are folded from the journal's agent cards.
+ */
+const AGENTS_VIEW_KEY = "runningAgentsView";
+
+/** The running agents pi has here, and those the owner's agent threads have. */
+type AgentsView = { pi: AgentActivityEntry[]; owner: AgentActivityEntry[] };
+
+/** One list, pi's own first where both name an agent, oldest start first. */
+const listedAgents = (view: AgentsView, limit: number): AgentActivityEntry[] => {
+  const pi = new Set(view.pi.map((agent) => agent.agentId));
+  return [...view.pi, ...view.owner.filter((agent) => !pi.has(agent.agentId))]
+    .sort((a, b) => a.createdAtMs - b.createdAtMs)
+    .slice(0, limit);
+};
 /**
  * Durable key: when this conversation first settled the running agents no
  * owner keeps a record of (`reconcileRunningAgents`).
@@ -1250,6 +1268,13 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       if (this.journal.meta().conversation_id === "" && this.ctx.id.name) {
         this.journal.setConversationId(this.ctx.id.name);
       }
+      // A conversation on pi lists its running agents from their owners from
+      // the first connect on, even before it has read them.
+      const agentsView = await this.ctx.storage.get<AgentsView>(AGENTS_VIEW_KEY);
+      this.agentsViewStored = agentsView !== undefined;
+      this.agentsView =
+        agentsView ??
+        ((await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi" ? { pi: [], owner: [] } : null);
       const localLease =
         await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
       if (localLease) {
@@ -2091,7 +2116,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       newest: (limit): JournalRecord[] =>
         this.journal.newest(Math.min(limit, INITIAL_WINDOW_RECORDS)),
       liveTurn: () => this.live,
-      runningAgents: (limit) => this.journal.runningAgents(limit),
+      runningAgents: (limit) =>
+        this.agentsView ? listedAgents(this.agentsView, limit) : this.journal.runningAgents(limit),
     };
   }
 
@@ -5553,8 +5579,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             });
           },
           deliverThreadReport: (report) => this.deliverPiThreadReport(report),
-          // Every client lists the agents a conversation runs from these
-          // cards, as it does the loop's.
+          // Every client draws the agents' rows from these cards, as it does
+          // the loop's; which of them run is pi's to say (`runningAgents`).
           agentStarted: (event) =>
             this.publishAgentLifecycleCard(event.turnId, Date.now(), {
               type: "agent-lifecycle",
@@ -5571,8 +5597,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               },
             }),
           // A pause reports nothing to the orchestrator, which is not woken
-          // for it; the agent's cards still end, or every client would count
-          // it as running for good.
+          // for it; the agent's cards still end, or its row would read as
+          // running for good.
           agentPaused: (event) =>
             this.publishPiAgentTerminal(
               event.threadId,
@@ -5580,6 +5606,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               { kind: "canceled", body: "Paused." },
               event.turnId,
             ),
+          agentsChanged: () => this.refreshAgentsSoon(),
           agentTools: (authority, browser) =>
             this.createPiAgentTools(authority, browser),
           browserHandoff: (handoff, signal) =>
@@ -5605,6 +5632,11 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     );
     const runtime = await this.piRuntime;
     await runtime.open();
+    // From now on pi says which of its agents run here.
+    if (!this.agentsView) {
+      this.agentsView = { pi: [], owner: [] };
+      this.refreshAgentsSoon();
+    }
     // Sockets that watched the pi view through an eviction get a new stream
     // and a fresh snapshot.
     if (
@@ -10047,6 +10079,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       const lifecycle = parseCloudAgentLifecycleCard(card);
       if (!lifecycle) return json({ error: "Malformed request." }, 400);
       writerKey = `card:${lifecycle.eventId}`;
+      // The owner's agent threads changed: theirs is the list, the card its receipt.
+      this.refreshAgentsSoon();
     }
     const payloadJson = JSON.stringify(card);
     const now = Date.now();
@@ -10428,10 +10462,25 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   /** When this object last checked its running agents against their owners. */
   private agentsReconciledAt = 0;
 
+  /** What `agentsView` read last is in storage. */
+  private agentsViewStored = false;
+  /**
+   * The running agents of a conversation pi has run in (`refreshAgents`),
+   * which `ready` and `agents` frames list; null where they are folded
+   * from the journal's agent cards.
+   */
+  private agentsView: AgentsView | null = null;
+  private agentsRefresh: Promise<void> | null = null;
+  private agentsRefreshAgain = false;
+
   private reconcileRunningAgentsSoon(): void {
     const now = Date.now();
     if (now - this.agentsReconciledAt < AGENT_RECONCILE_INTERVAL_MS) return;
     this.agentsReconciledAt = now;
+    if (this.agentsView) {
+      this.refreshAgentsSoon();
+      return;
+    }
     this.ctx.waitUntil(
       this.reconcileRunningAgents().catch((error: unknown) => {
         log("error", "conversation_agent_reconcile_failed", {
@@ -10442,19 +10491,113 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     );
   }
 
+  /** Read the running agents again: one read at a time, and one more for what changed during it. */
+  private refreshAgentsSoon(): void {
+    if (!this.agentsView || this.purged()) return;
+    if (this.agentsRefresh) {
+      this.agentsRefreshAgain = true;
+      return;
+    }
+    const refresh = (async () => {
+      do {
+        this.agentsRefreshAgain = false;
+        await this.refreshAgents();
+      } while (this.agentsRefreshAgain);
+    })()
+      .catch((error: unknown) => {
+        log("error", "conversation_agents_refresh_failed", {
+          conversationId: this.conversationId(),
+          message: errorMessage(error),
+        });
+      })
+      .finally(() => {
+        this.agentsRefresh = null;
+      });
+    this.agentsRefresh = refresh;
+    this.ctx.waitUntil(refresh);
+  }
+
   /**
-   * Settle what the journal still shows as running and has in fact ended.
+   * The running agents of a conversation pi has run in, from the records of
+   * whoever runs them: Stella's own from pi's state here, everything else (a
+   * computer's agents, agents on a device, agent threads) from the owner's
+   * agent threads. Neither is folded from cards, so a card that was never
+   * written leaves nothing running; an agent that started before pi listed
+   * them and never ended is simply not listed. Clients hear the new list.
+   */
+  private async refreshAgents(): Promise<void> {
+    // pi's agents start and stop only while pi is open here: one it has not
+    // opened for, with none listed, has none running.
+    const pi =
+      this.piRuntime || this.agentsView?.pi.length
+        ? await (async () => {
+            const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+            const { contextFor } = await import("./pi-runtime.js");
+            return await runtime.runningAgents(contextFor());
+          })()
+        : [];
+    const owner = await this.ownerRunningAgents().catch((error: unknown) => {
+      log("error", "conversation_owner_agents_failed", {
+        conversationId: this.conversationId(),
+        message: errorMessage(error),
+      });
+      return this.agentsView?.owner ?? [];
+    });
+    if (this.purged()) return;
+    const next: AgentsView = { pi, owner };
+    const changed = JSON.stringify(next) !== JSON.stringify(this.agentsView);
+    this.agentsView = next;
+    if (changed || !this.agentsViewStored) {
+      await this.ctx.storage.put(AGENTS_VIEW_KEY, next);
+      this.agentsViewStored = true;
+    }
+    this.hub.agentsChanged();
+  }
+
+  /** The owner's agent threads this conversation lists as running. */
+  private async ownerRunningAgents(): Promise<AgentActivityEntry[]> {
+    const ownerId = this.journal.ownerId();
+    if (!ownerId) return [];
+    const owner = await this.resolveOwnerForCaller({ ownerId });
+    if (!owner) return [];
+    const threads = unwrapRpc(
+      await this.ownerGate(ownerId).ownerInternal({
+        name: "agentThreads.runningIn",
+        args: { ownerGeneration: owner.ownerGeneration, conversationId: this.conversationId() },
+        ownerGeneration: owner.ownerGeneration,
+      }),
+    ) as Array<{
+      threadId: string;
+      description: string;
+      agentType: string;
+      attemptGeneration: number;
+      createdAt: number;
+      updatedAt: number;
+    }>;
+    return threads.map((thread) => ({
+      agentId: thread.threadId,
+      title: thread.description,
+      agentType: thread.agentType,
+      status: "running" as const,
+      createdAtMs: thread.createdAt,
+      updatedAtMs: thread.updatedAt,
+      attemptGeneration: thread.attemptGeneration,
+    }));
+  }
+
+  /**
+   * Settle what the journal of a conversation pi never ran in still shows
+   * as running and has in fact ended: there its cards are what lists them.
    *
    * Whoever owns an agent's record writes the card that ends it: its report,
-   * this object's pause, the owner's agent threads for a computer's agents.
-   * But the owner's post is best effort, and an agent that ended before those
-   * cards existed has none, so it read as running for good (the phantom
-   * "N agents running" a phone showed). When a client connects, each agent
-   * the journal lists as running is checked against its owner: this object's
-   * own pi agents and theirs, and the owner's agent threads for everything else (a
-   * computer's agents, cloud agents, agents on a device). One that ended is
-   * settled with how it ended; one still running there is left alone, and a
-   * computer settles its own on its next start (`computer-agent-reconcile`).
+   * the owner's agent threads for a computer's agents. But the owner's post
+   * is best effort, and an agent that ended before those cards existed has
+   * none, so it read as running for good (the phantom "N agents running" a
+   * phone showed). When a client connects, each agent the journal lists as
+   * running is checked against the owner's agent threads (a computer's
+   * agents, cloud agents, agents on a device). One that ended is settled
+   * with how it ended; one still running there is left alone, and a computer
+   * settles its own on its next start (`computer-agent-reconcile`).
    *
    * The first pass in a conversation also settles what no owner knows at all:
    * an agent its journal has carried since before any owner recorded agents.
@@ -10467,46 +10610,24 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     const owner = await this.resolveOwnerForCaller({ ownerId });
     if (!owner) return;
     const startedAt = Date.now();
-    const hostsPi =
-      Boolean(this.piRuntime) ||
-      (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi" ||
-      Boolean(await this.ctx.storage.get<boolean>(PI_LIVE_KEY));
-    const own = hostsPi
-      ? await (async () => {
-          const runtime = await this.openPiRuntime(this.piGatewayOrigin());
-          const { contextFor } = await import("./pi-runtime.js");
-          return await runtime.agentStandings(contextFor());
-        })()
-      : new Map<string, import("@stella/agent/stella/agents").StellaAgentStanding>();
-    const elsewhere = running.filter((entry) => !own.has(entry.agentId)).map((entry) => entry.agentId);
     const threads = new Map(
-      (elsewhere.length === 0
-        ? []
-        : (unwrapRpc(
-            await this.ownerGate(ownerId).ownerInternal({
-              name: "agentThreads.statuses",
-              args: { ownerGeneration: owner.ownerGeneration, threadIds: elsewhere },
-              ownerGeneration: owner.ownerGeneration,
-            }),
-          ) as Array<{ threadId: string; status: string; attemptGeneration: number; errorMessage?: string }>)
+      (
+        unwrapRpc(
+          await this.ownerGate(ownerId).ownerInternal({
+            name: "agentThreads.statuses",
+            args: { ownerGeneration: owner.ownerGeneration, threadIds: running.map((entry) => entry.agentId) },
+            ownerGeneration: owner.ownerGeneration,
+          }),
+        ) as Array<{ threadId: string; status: string; attemptGeneration: number; errorMessage?: string }>
       ).map((thread) => [thread.threadId, thread]),
     );
     const unownedSettled = Boolean(await this.ctx.storage.get<number>(AGENTS_UNOWNED_SETTLED_KEY));
     // Cards are rows: none lands inside a turn that started meanwhile.
     if (this.purged() || (await this.turnRunning())) return;
     for (const entry of running) {
-      const mine = own.get(entry.agentId);
       const thread = threads.get(entry.agentId);
       let ended: { kind: "completed" | "failed" | "canceled"; attempt: number; body: string } | null = null;
-      if (mine) {
-        if (mine.status !== "running") {
-          ended = {
-            kind: mine.status === "error" ? "failed" : mine.status,
-            attempt: entry.attemptGeneration ?? mine.attempt,
-            body: mine.status === "canceled" ? "Paused." : "",
-          };
-        }
-      } else if (thread) {
+      if (thread) {
         // An owner record behind the journal's newest start is not about that start.
         if (
           (thread.status === "completed" || thread.status === "failed" || thread.status === "canceled") &&
@@ -10542,7 +10663,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         conversationId: this.conversationId(),
         agentId: entry.agentId,
         status: ended.kind,
-        by: mine ? "pi" : thread ? "owner" : "unowned",
+        by: thread ? "owner" : "unowned",
       });
     }
     if (!unownedSettled) await this.ctx.storage.put(AGENTS_UNOWNED_SETTLED_KEY, startedAt);

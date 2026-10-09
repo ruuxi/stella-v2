@@ -57,11 +57,13 @@ export type ConversationState = {
    */
   activity: "idle" | "running";
   /**
-   * Agents the journal still shows as working, named by the server over the
-   * whole journal. The retained records can only confirm this list, never
-   * shorten it: an agent started below the window leaves no trace in it.
+   * The agents the conversation has running, as the server lists them on
+   * connect and whenever they change: these and no others are running. The
+   * retained records only draw their rows.
    */
   runningAgents: readonly AgentActivityEntry[];
+  /** When the server read `runningAgents` (its clock). */
+  runningAgentsAtMs: number;
   title: string;
   /** Lowest seq that still exists. Nothing below it is ever fetchable. */
   floorSeq: number;
@@ -98,6 +100,7 @@ const initialState = (conversationId: string): ConversationState => ({
   live: null,
   activity: "idle",
   runningAgents: EMPTY_AGENTS,
+  runningAgentsAtMs: 0,
   title: "",
   floorSeq: 0,
   hasOlder: false,
@@ -422,6 +425,7 @@ class ConversationStore {
           activity: event.ready.activity === "running" ? "running" : "idle",
           runningAgents:
             event.ready.agents.length > 0 ? event.ready.agents : EMPTY_AGENTS,
+          runningAgentsAtMs: event.ready.serverTimeMs,
           hasOlder: oldest > event.ready.floorSeq,
           ...(epochChanged
             ? {
@@ -440,6 +444,12 @@ class ConversationStore {
         });
         return;
       }
+      case "agents":
+        this.patch({
+          runningAgents: event.agents.length > 0 ? event.agents : EMPTY_AGENTS,
+          runningAgentsAtMs: event.atMs,
+        });
+        return;
       case "records":
         this.appendRecords(event.records);
         return;

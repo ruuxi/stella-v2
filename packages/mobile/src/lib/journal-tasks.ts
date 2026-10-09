@@ -132,11 +132,33 @@ export const markAuthoritativeRunning = (
   );
 };
 
+/**
+ * The server's running-agent list is what runs. A row the record fold left
+ * running and the list does not name has ended, or never ran at all (a start
+ * card whose end was never written): it reads as done. Except a row started
+ * after the list was read (`listedAtMs`, the server's clock as records'
+ * times are), which the next list has yet to name.
+ */
+export const settleUnlistedTasks = (
+  tasks: readonly MobileTask[],
+  agents: readonly AgentActivityEntry[],
+  listedAtMs: number,
+): MobileTask[] => {
+  const listed = new Set(agents.map((agent) => agent.agentId));
+  return tasks.map((task) => {
+    if (task.status !== "running" || listed.has(task.id) || task.createdAt > listedAtMs) {
+      return task;
+    }
+    const { statusText: _statusText, ...rest } = task;
+    return { ...rest, status: "completed" as const, completedAt: rest.updatedAt ?? rest.createdAt };
+  });
+};
+
 export const collectJournalTasks = (
   records: readonly JournalRecord[],
   /**
-   * Agents the journal's owner reports as running, folded over the whole
-   * journal rather than these records.
+   * Agents the server lists as running, over the whole conversation rather
+   * than these records.
    *
    * They are seeded as running rows before the fold so that a terminal row
    * inside the window can settle them. Without the seed, an agent whose

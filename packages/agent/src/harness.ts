@@ -23,7 +23,6 @@ import {
   type PlacedAgentResult,
   type PlacedAgentRun,
   type StellaAgentRecord,
-  type StellaAgentStanding,
   type StellaAgentsHost,
 } from "./stella/agents.ts";
 import { STELLA_CODING_EXTENSION, StellaCoding } from "./stella/coding.ts";
@@ -102,8 +101,6 @@ export type OpenStellaHarness = {
   pauseAgent(threadId: string, context: Context): Promise<void>;
   /** The orchestrator's agents, as the app lists them. */
   agentRecords(context: Context): Promise<StellaAgentRecord[]>;
-  /** Where every agent under the orchestrator that runs here stands, its agents' agents included. */
-  agentStandings(context: Context): Promise<StellaAgentStanding[]>;
   /** A message from the user to one of the orchestrator's agents. */
   messageAgent(
     args: { key: string; threadId: string; message: string; fromOrchestrator?: boolean },
@@ -143,7 +140,6 @@ export async function openStellaHarness(options: StellaHarnessOptions, context: 
     refreshTools,
     startAgent: (args, startContext) => agents.startAgent(harness, args, startContext),
     agentRecords: (recordsContext) => agents.agentRecords(harness, recordsContext),
-    agentStandings: (standingsContext) => agents.agentStandings(harness, standingsContext),
     messageAgent: (args, messageContext) => agents.messageAgent(harness, args, messageContext),
     pauseAgent: (threadId, pauseContext) => agents.pauseAgentByThread(harness, threadId, pauseContext),
     runPlacedAgent: (args, runContext) => agents.runPlacedAgent(harness, args, runContext),

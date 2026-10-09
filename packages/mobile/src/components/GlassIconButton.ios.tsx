@@ -32,62 +32,72 @@ export function GlassIconButton({
   const colors = useColors();
   const { isDark } = useTheme();
   return (
-    <Host
-      colorScheme={isDark ? "dark" : "light"}
-      ignoreSafeArea="all"
+    <View
+      accessible={!accessibilityHidden}
+      accessibilityElementsHidden={accessibilityHidden}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      onAccessibilityTap={isDisabled ? undefined : onPress}
       style={[{ width: size, height: size }, style]}
     >
-      <Button
-        onPress={onPress}
-        modifiers={[
-          buttonStyle(liquidGlassSupported ? "glass" : "bordered"),
-          buttonBorderShape("circle"),
-          frame({ width: size, height: size }),
-          accessibilityLabel(label),
-          disabled(isDisabled),
-          ...(accessibilityHidden ? [hideFromAccessibility(true)] : []),
-        ]}
+      <Host
+        colorScheme={isDark ? "dark" : "light"}
+        ignoreSafeArea="all"
+        style={{ width: size, height: size }}
       >
-        <RNHostView matchContents>
-          <View
-            pointerEvents="none"
-            accessibilityElementsHidden={accessibilityHidden}
-            style={{
-              width: size - 16,
-              height: size - 16,
-              justifyContent: "center",
-              alignItems: "center",
-            }}
-          >
-            {loading ? (
-              <ActivityIndicator size="small" color={colors.textMuted} />
-            ) : (
-              <Animated.View style={iconStyle}>
-                <Icon
-                  name={icon}
-                  size={iconSize}
-                  color={muted ? colors.textMuted : colors.text}
+        <Button
+          onPress={onPress}
+          modifiers={[
+            buttonStyle(liquidGlassSupported ? "glass" : "bordered"),
+            buttonBorderShape("circle"),
+            frame({ width: size, height: size }),
+            accessibilityLabel(label),
+            disabled(isDisabled),
+            hideFromAccessibility(true),
+          ]}
+        >
+          <RNHostView matchContents>
+            <View
+              pointerEvents="none"
+              accessibilityElementsHidden
+              style={{
+                width: size - 16,
+                height: size - 16,
+                justifyContent: "center",
+                alignItems: "center",
+              }}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color={colors.textMuted} />
+              ) : (
+                <Animated.View style={iconStyle}>
+                  <Icon
+                    name={icon}
+                    size={iconSize}
+                    color={muted ? colors.textMuted : colors.text}
+                  />
+                </Animated.View>
+              )}
+              {dot ? (
+                <View
+                  style={{
+                    position: "absolute",
+                    right: 1,
+                    bottom: 2,
+                    width: 7,
+                    height: 7,
+                    borderRadius: 4,
+                    backgroundColor: dot,
+                    borderColor: colors.surface,
+                    borderWidth: 1,
+                  }}
                 />
-              </Animated.View>
-            )}
-            {dot ? (
-              <View
-                style={{
-                  position: "absolute",
-                  right: 1,
-                  bottom: 2,
-                  width: 7,
-                  height: 7,
-                  borderRadius: 4,
-                  backgroundColor: dot,
-                  borderColor: colors.surface,
-                  borderWidth: 1,
-                }}
-              />
-            ) : null}
-          </View>
-        </RNHostView>
-      </Button>
-    </Host>
+              ) : null}
+            </View>
+          </RNHostView>
+        </Button>
+      </Host>
+    </View>
   );
 }

@@ -6,21 +6,8 @@ import {
 import type { DevicesResponse } from "@stella/contracts/turn-plane/placement";
 import type { OwnerHomeContext } from "./owner-home-context.js";
 import {
-  CONTEXT_CHECKPOINT_KEY,
-  compactCloudHistory,
-  type ContextCheckpoint,
-} from "./context-compaction.js";
-import {
   PROMPT_CONTEXT_KEY,
-  materializeProviderContext,
-  preparePromptContext,
-  promptContextBoundary,
-  promptContextCheckpointChanged,
-  promptContextHistoryStartAfterSeq,
-  providerHistory,
-  resumePromptContext,
   reusablePromptContext,
-  sentResidentPrompts,
   sessionResidentPrompts,
   attachedFilesText,
   type PromptContext,
@@ -94,11 +81,6 @@ import type {
 } from "@stella/runtime/kernel/agent-core/types.js";
 import type { ImageContent } from "@stella/runtime/ai/types.js";
 import {
-  AGENT_RUN_MAX_ATTEMPTS,
-  executeAgentRunWithRetry,
-  prepareTransientResumeTail,
-} from "@stella/runtime/kernel/agent-runtime/run-retry.js";
-import {
   assertTurnExecutionActive,
   startTurnExecution,
   type TurnExecution,
@@ -106,8 +88,6 @@ import {
 } from "./turn-cancellation.js";
 import {
   assistantMessageHasUsableOutput,
-  buildDefaultTransformContext,
-  getAgentCompletion,
 } from "@stella/runtime/kernel/agent-runtime/run-shared.js";
 import {
   AGENT_STATUS_TOOL_DESCRIPTOR,
@@ -137,15 +117,9 @@ import {
   GATEWAY_SUBSCRIPTION_LIMIT_HEADER,
   nativeSubscriptionLimitNotice,
 } from "@stella/contracts/gateway/api";
-import { createCloudRelaySession } from "@stella/executor-cloud/relay-model";
-import {
-  withOrchestratorCacheRetention,
-  withoutPromptCache,
-} from "./orchestrator-cache-retention.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 
-import { loadRuntimeAgent } from "./runtime-agent.js";
 import { verifyUserToken } from "./auth-jwt.js";
 import type {
   OwnerModelGrant,
@@ -422,30 +396,6 @@ const WAKE_REPORT_INLINE_MAX_BYTES = 512 * 1024;
 
 type WakeReport = { prompt: string; lifecycleReport?: string };
 
-/** A hidden agent wake admitted while a resident loop runs, to join it. */
-type SteeredWake = {
-  turn: ChatTurnRequest;
-  report: WakeReport;
-  message: AgentMessage;
-};
-
-/**
- * The resident loop running in this isolate that hidden agent wakes join
- * before its next model call. Each wake stays durable under `queued:` until
- * the loop consumes it, so one the loop never takes runs as its own turn.
- */
-type SteerableTurn = {
-  turn: ChatTurnRequest;
-  watchdogAt: number;
-  /** Admitted, not yet handed to the loop. */
-  waiting: SteeredWake[];
-  /** Handed to the loop, keyed by the exact message its `message_end` carries. */
-  injected: Map<AgentMessage, SteeredWake>;
-};
-
-/** A wake joins a running turn only while this much of its watchdog is left. */
-const WAKE_STEER_DEADLINE_MARGIN_MS = 60_000;
-
 type Env = Pick<
   Cloudflare.Env,
   | "BUILD_SESSIONS"
@@ -466,7 +416,6 @@ type Env = Pick<
       | "MODEL_GATEWAY_CONTROL"
       | "MODEL_GATEWAY_OWNERS"
       | "MODEL_GATEWAY_URL"
-      | "AGENT_RUNTIME_DEFAULT"
       | "Sandbox"
       | "SANDBOX_IDLE_TIMEOUT_MS"
       | "CLOUD_BUILDER_PUBLIC_URL"
@@ -2168,10 +2117,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           ),
         ),
       onInterrupt: () => {
-        // Agent.abort() is idempotent. Once prompt() has synchronously entered
-        // its loop this reaches the provider/tool AbortController; before that
-        // point the turn latch and the admission checks below are authoritative.
-        if (this.activeTurnId === turn.turnId) this.currentAgent?.abort();
+        // Before the run starts, the turn latch and the admission checks below
+        // are authoritative.
         if (this.activeTurnId === turn.turnId) this.currentPiRun?.abort();
       },
     });
@@ -3025,7 +2972,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     } catch (error) {
       if (error instanceof OwnerPurgeFenceError) {
         this.currentTurnCancellation?.abort();
-        this.currentAgent?.abort();
         this.currentPiRun?.abort();
         return;
       }
@@ -3063,7 +3009,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // Marking the turn terminal is not enough — the loop would keep burning
       // metered relay calls for output runTurn will discard.
       this.currentTurnCancellation?.abort();
-      this.currentAgent?.abort();
       this.currentPiRun?.abort();
       if (!this.currentPiRun) {
         await this.abortPiConversation().catch((error: unknown) => {
@@ -3421,7 +3366,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       if (currentMatches) {
         await this.ctx.storage.put("terminal", true);
         this.currentTurnCancellation?.abort();
-        this.currentAgent?.abort();
         this.currentPiRun?.abort();
       }
       const execution = currentMatches
@@ -3865,15 +3809,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         // has none yet, and an explicit hint never overwrites a chosen one.
         this.journal.setTitle(conversationTitleFor(start));
       }
-      // A conversation runs on pi-durable when the turn that creates it asks
-      // for it, or once this deployment makes pi the default: then one the
-      // loop started moves to pi at its next turn, whose first pi turn
-      // imports its journal whole. Nothing moves a conversation back.
-      if (
-        (createdConversation && start.agentRuntime === "pi") ||
-        (this.env.AGENT_RUNTIME_DEFAULT === "pi" &&
-          (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) !== "pi")
-      ) {
+      // Every conversation runs on pi-durable: one the loop started moves to
+      // pi at its next turn, whose first pi turn imports its journal whole.
+      if ((await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) !== "pi") {
         await this.ctx.storage.put(AGENT_RUNTIME_KEY, "pi");
         if (!createdConversation) {
           log("info", "pi_conversation_migrated", { conversationId });
@@ -4164,7 +4102,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
 
       if (!heldForLocalTurn) {
         this.enqueue(turn, freshAdmission);
-        void this.steerWakeIntoRunningTurn(turn);
       } else this.cloudHomePreparations.delete(turnId);
       log("info", "chat_turn_admitted", {
         turnId,
@@ -4194,13 +4131,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     });
   }
 
-  // The in-flight loop, exposed so /cancel and the alarm can actually stop
-  // token burn instead of only marking the turn terminal.
-  private currentAgent?: RuntimeAgent;
-  // The resident loop hidden agent wakes can join. Kept apart from
-  // `currentAgent`, which the compaction summarizer borrows.
-  private steerableTurn?: SteerableTurn;
-  // Aborts the live turn's retry ladder alongside `currentAgent.abort()`:
+  // Aborts the live turn's retry ladder:
   // classification reads it to refuse retries after a cancel/timeout, and an
   // abort during retry backoff wakes the sleep instead of waiting it out.
   private currentTurnCancellation?: TurnRetryCancellation;
@@ -4506,8 +4437,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     const startupTimings: Record<string, number> = {
       queueWaitMs: Math.round(enteredAt - enqueuedAt),
     };
-    // A hidden wake the running turn already took in (`absorbSteeredWake`),
-    // which also retired its lease and gate slot.
+    // A turn already terminal in the journal.
     if (this.journal.turnState(turn.turnId)?.state === "terminal") {
       log("info", "chat_turn_duplicate_ignored", { turnId: turn.turnId });
       await this.ctx.storage.delete(`queued:${turn.turnId}`);
@@ -4741,34 +4671,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       await assertExactTurnActive();
       this.activeTurnId = turn.turnId;
       // An `anthropic` turn runs on the Claude Code CLI in the orchestrator
-      // container (`runCliTurn`); only the other engines run this loop.
+      // container (`runCliTurn`); Stella-model and ChatGPT-plan turns run on
+      // pi-durable (`runPiTurn`).
       const harnessExecution =
         turn.execution.engine === "anthropic" ? undefined : turn.execution;
-      // The durable turn is claimed before the heavy loop implementation is
-      // evaluated. Load it alongside read-only preparation on actual turns;
-      // object wake, admission, status, and cancellation stay on the lean path.
-      // Stella-model and ChatGPT-plan turns of a conversation created on
-      // pi-durable run there (`runPiTurn`); other engines keep their own paths.
-      // A computer's cloud agent runs on pi-durable in any conversation.
-      const piExecution =
-        harnessExecution?.engine === "stella"
-          ? turn.piAgent ||
-            (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi"
-            ? harnessExecution
-            : undefined
-          : harnessExecution?.engine === "chatgpt" &&
-              !turn.piAgent &&
-              (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi"
-            ? harnessExecution
-            : undefined;
-      if (turn.piAgent && !piExecution) {
+      if (turn.piAgent && harnessExecution?.engine !== "stella") {
         throw new Error(
           "A computer's cloud agents run on Stella's models; this conversation's cloud turns use another engine.",
         );
       }
-      const agentRuntimeWork =
-        harnessExecution && !piExecution ? loadRuntimeAgent() : undefined;
-      void agentRuntimeWork?.catch(() => undefined);
       // Admission already bound the owner; this only re-asserts it and sets
       // the title on a turn that carried one.
       this.bindConversation(turn);
@@ -5111,723 +5022,23 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         };
         return execute(request);
       };
-      if (piExecution) {
-        return await this.runPiTurn({
-          turn,
-          turnCancellation,
-          executionSignal,
-          resumeTurn,
-          started,
-          execution: piExecution,
-          capability: turnCapability.token,
-          relayFetch,
-          gatewayOrigin: modelGatewayOrigin,
-          homeWork: measuredHomePreparation,
-          canonicalPromptsWork,
-          destinationsWork,
-          measurePreparation,
-          preparationTimings,
-          assertExactTurnActive,
-        });
-      }
-      // Only memory reads depend on memory policy. Model resolution and other
-      // context can run alongside that chain; no provider call starts here.
-      const preparationWork = Promise.all([
-        measuredHomePreparation,
-        canonicalPromptsWork,
-        measurePreparation("localeMs", () =>
-          this.resolveTurnLocale(turn, () =>
-            assertTurnExecutionActive(turnCancellation, executionSignal),
-          ),
-        ),
-        measurePreparation("attachmentsMs", () =>
-          this.loadChatAttachmentImages(turn, executionSignal),
-        ),
-        measuredHomePreparation.then((context) => context.skillCatalog),
-        measurePreparation("modelResolutionMs", () =>
-          createCloudRelaySession({
-            audience: turn.audience,
-            gatewayOrigin: modelGatewayOrigin,
-            capability: turnCapability.token,
-            agentType: "orchestrator",
-            execution: executionSelection,
-            signal: executionSignal,
-            fetch: relayFetch,
-          }),
-        ),
-      ]);
-      void preparationWork.catch(() => undefined);
-      const destinations = await destinationsWork;
-      await assertExactTurnActive();
-
-      // Filled by exactly one of the two branches below: a fresh turn
-      // prepares its window and journals its prompt; a resumed turn rebuilds
-      // both from what its lost isolate already made durable.
-      let turnContext!: { state: PromptContext; tools: AgentTool[] };
-      let turnRelaySession!: Awaited<typeof preparationWork>[5];
-      let turnHistory!: AgentMessage[];
-      let turnCurrentPrompt!: AgentMessage[];
-      let turnProduced: AgentMessage[] = [];
-      let producedIndexBase = 0;
-      if (!resumeTurn) {
-        // Repair BEFORE the prompt row exists. An eviction, a cancel or a
-        // watchdog abort can leave the tail as an assistant message with
-        // unanswered tool calls, which the provider rejects on the next
-        // request — a permanently bricked conversation. Closing it after the
-        // prompt row would put a user message between the call and its result,
-        // which is exactly as poisonous.
-        const now = Date.now();
-        for (const repaired of this.journal.repairTail(now)) {
-          this.publish(repaired.record);
-        }
-        // Foreign rows that arrived while the previous turn was running land at
-        // this clean boundary rather than splicing into a tool-call pair.
-        this.drainInbox();
-
-        // The window is chosen from resident rows only, and rollover guarantees
-        // the resident floor sits below the last turn's context start — so a
-        // normal turn never touches R2.
-        const storedContext =
-          await this.getTurnState<PromptContext>(PROMPT_CONTEXT_KEY);
-        const journalEpoch = this.journal.meta().epoch;
-        const previousContext = reusablePromptContext({
-          storedContext,
-          journalEpoch,
-          ownerGeneration: turn.ownerGeneration,
-        });
-        const storedCheckpoint =
-          previousContext || storedContext
-            ? await this.getTurnState<ContextCheckpoint>(CONTEXT_CHECKPOINT_KEY)
-            : undefined;
-        const previousCheckpoint = previousContext ? storedCheckpoint : undefined;
-        const selection = this.journal.selectWindow(
-          turn.turnId,
-          previousContext ? Number.MAX_SAFE_INTEGER : CLOUD_HISTORY_TOKEN_BUDGET,
-          promptContextHistoryStartAfterSeq({
-            previousContext,
-            previousCheckpoint,
-          }),
-        );
-        this.journal.setTurnContext(
-          turn.turnId,
-          selection.startSeq,
-          selection.endSeq,
-        );
-        let journalHistory = stampUserMessageSequences(
-          await this.hydrateWindow(selection),
-          selection.rows,
-        );
-        const [
-          { memoryPreference, memoryDocuments, personalityOverride },
-          canonicalPrompts,
-          locale,
-          attachmentImages,
-          skillCatalog,
-          relaySession,
-        ] = await preparationWork;
-        turnRelaySession = relaySession;
-        const memoryEnabled = memoryPreference.memoryEnabled;
-        log("info", "cloud_memory_preference_loaded", {
-          turnId: turn.turnId,
-          ownerGeneration: memoryPreference.ownerGeneration,
-          memoryEnabled,
-          revision: memoryPreference.revision,
-        });
-        const turnTools = await this.createTools(
-          turn,
-          agentHome,
-          skillCatalog,
-          memoryEnabled,
-        );
-        const sections = buildCloudSystemPromptSections({
-          canonicalBody: canonicalPrompts.orchestratorBody,
-          tools: turnTools.promptTools,
-          locale,
-          threadId: turn.conversationId,
-        });
-        const compaction = await compactCloudHistory({
-          messages: journalHistory,
-          rows: selection.rows,
-          checkpoint: previousCheckpoint,
-          contextWindow: relaySession.model.contextWindow,
-          modelMaxTokens: relaySession.model.maxTokens,
-          systemPrompt: canonicalPrompts.compactionSystemPrompt,
-          profile: memoryDocuments.find(
-            (document) =>
-              document.displayPath === LIFE_USER_PROFILE_DISPLAY_PATH,
-          )?.content,
-          beforeRetry: async (attempt, error) => {
-            log("info", "chat_compaction_summary_failed", {
-              turnId: turn.turnId,
-              attempt,
-              error: error instanceof Error ? error.message : String(error),
-            });
-            await assertExactTurnActive();
-            assertTurnExecutionActive(turnCancellation, executionSignal);
-          },
-          summarize: async ({ systemPrompt, prompt, maxTokens }) => {
-            await assertExactTurnActive();
-            const Agent = await agentRuntimeWork!;
-            const summaryStream = withoutPromptCache(
-              relaySession.createStreamFn({ reasoningEffort: "none" }),
-            );
-            const summarizer = new Agent({
-              initialState: {
-                model: relaySession.model,
-                systemPrompt,
-                tools: [],
-                thinkingLevel: "off",
-              },
-              getApiKey: () => turnCapability.token,
-              sessionId: turn.conversationId,
-              degenerateResponseRetries: 0,
-              providerRequestLimit: 1,
-              streamFn: (model, context, options) =>
-                summaryStream(model, context, { ...options, maxTokens }),
-            });
-            this.currentAgent = summarizer;
-            try {
-              assertTurnExecutionActive(turnCancellation, executionSignal);
-              await summarizer.prompt(prompt);
-              const result = getAgentCompletion(summarizer);
-              if (result.errorMessage) throw new Error(result.errorMessage);
-              // As on the desktop, a summary cut off at the output cap is
-              // not a summary.
-              const last = summarizer.state.messages.at(-1);
-              if (last?.role === "assistant" && last.stopReason !== "stop")
-                throw new Error(`summary ended with ${last.stopReason}`);
-              return result.finalText;
-            } finally {
-              this.currentAgent = undefined;
-            }
-          },
-        });
-        await assertExactTurnActive();
-        journalHistory = compaction.messages;
-        const contextStartSeq =
-          compaction.rows[0]?.seq ?? this.journal.meta().next_seq;
-        const executionContext = cloudExecutionContext(turn, destinations);
-        const agentRoster = promptContextBoundary({
-          previous: previousContext,
-          policy: memoryPreference,
-          startSeq: contextStartSeq,
-          journalEpoch,
-        })
-          ? await this.agentRoster(turn)
-          : undefined;
-        const context = preparePromptContext({
-          previous: previousContext,
-          policy: memoryPreference,
-          sections,
-          tools: turnTools.tools,
-          resident: cloudResidentContext({
-            personality:
-              personalityOverride ?? canonicalPrompts.personalityBody,
-            memoryDocuments,
-            skillCatalog,
-            executionContext,
-            agentRoster,
-          }),
-          sent: previousContext
-            ? sentResidentPrompts(journalHistory, previousContext.epoch)
-            : [],
-          startSeq: contextStartSeq,
-          journalEpoch,
-        });
-        turnContext = context;
-        const prepend = context.prepend;
-        const report = await this.wakeReport(turn);
-        await assertExactTurnActive();
-        const durablePrompt = {
-          role: "user",
-          content: [{ type: "text", text: report.prompt }],
-          timestamp: now,
-          executionContext,
-          ...(turn.originUserMessageId
-            ? { originUserMessageId: turn.originUserMessageId }
-            : {}),
-          providerContext: {
-            version: 2,
-            epoch: context.state.epoch,
-            prepend,
-            clock: new Date(now).toISOString(),
-            ...(turn.attachments?.length
-              ? { attachments: [...turn.attachments] }
-              : {}),
-          },
-          ...(turn.source ? { source: turn.source } : {}),
-        } as AgentMessage;
-        const promptPayload = await this.spillOversizePrompt(
-          turn.turnId,
-          durablePrompt,
-        );
-        if (promptPayload.spillKey) await assertExactTurnActive();
-        // The prompt, its hidden updates, and the adopted checkpoint commit
-        // together. A restart cannot remember an update that was never appended.
-        const contextStateChanged = context.state !== previousContext;
-        const checkpointChanged = promptContextCheckpointChanged({
-          storedContext,
-          previousContext,
-          storedCheckpoint,
-          nextCheckpoint: compaction.checkpoint,
-        });
-        const promptRow = this.ctx.storage.transactionSync(() => {
-          const row = this.journal.appendMessage({
-            turnId: turn.turnId,
-            writer: "orchestrator",
-            writerKey: `turn:${turn.turnId}:prompt`,
-            role: "user",
-            hidden: turn.hiddenMessage === true,
-            clientMsgId: turn.clientMsgId,
-            createdAt: now,
-            message: durablePrompt,
-            ...promptPayload,
-          });
-          if (contextStateChanged)
-            this.ctx.storage.kv.put(PROMPT_CONTEXT_KEY, context.state);
-          if (checkpointChanged) {
-            if (compaction.checkpoint)
-              this.ctx.storage.kv.put(
-                CONTEXT_CHECKPOINT_KEY,
-                compaction.checkpoint,
-              );
-            else this.ctx.storage.kv.delete(CONTEXT_CHECKPOINT_KEY);
-          }
-          return row;
-        });
-        this.journal.setTurnSpan(turn.turnId, promptRow.seq);
-        this.publish(promptRow.record);
-        this.publishAgentTerminal(turn, report);
-
-        const startedRow = this.journal.appendTurn({
-          turnId: turn.turnId,
-          writer: "orchestrator",
-          writerKey: `turn:${turn.turnId}:phase:started`,
-          phase: "started",
-          lane: turn.lane ?? "chat",
-          source: turn.source,
-          promptSeq: promptRow.seq,
-          createdAt: now,
-        });
-        this.journal.setTurnSpan(turn.turnId, startedRow.seq);
-        this.publish(startedRow.record);
-        this.live = {
-          turnId: turn.turnId,
-          streamId: null,
-          partialText: "",
-          tools: [],
-        };
-
-        const currentMessage = stampUserMessageSequences(
-          [durablePrompt],
-          [
-            {
-              seq: promptRow.seq,
-              role: "user",
-              hidden: turn.hiddenMessage === true,
-            },
-          ],
-        )[0]!;
-        turnHistory = providerHistory({
-          context: context.state,
-          checkpoint: compaction.checkpoint,
-          messages: journalHistory,
-        });
-        const currentPrompt = materializeProviderContext(
-          [currentMessage],
-          context.state.epoch,
-        );
-        if (attachmentImages.length > 0) {
-          const user = currentPrompt.at(-1);
-          if (user?.role === "user" && Array.isArray(user.content))
-            user.content.push(...attachmentImages);
-        }
-        turnCurrentPrompt = currentPrompt;
-        this.journal.setTurnContext(
-          turn.turnId,
-          contextStartSeq,
-          selection.endSeq,
-        );
-        void this.index
-          .flush({ activity: "running", updatedAt: now })
-          .catch(() => undefined);
-        log("info", "chat_prompt_context", {
-          turnId: turn.turnId,
-          boundary: context.boundary,
-          updates: prepend.length,
-          compacted: compaction.compacted,
-          startSeq: contextStartSeq,
-        });
-      } else {
-        // Resume: the prompt row, the prompt context it adopted and the
-        // history window it recorded are all durable, so rebuild exactly the
-        // request the lost isolate was sending instead of preparing a new one.
-        // Nothing is appended before the open calls are answered: an inbox
-        // row or a repair landing between a tool call and its result would
-        // poison the provider request.
-        const [
-          { memoryPreference, memoryDocuments, personalityOverride },
-          canonicalPrompts,
-          locale,
-          attachmentImages,
-          skillCatalog,
-          relaySession,
-        ] = await preparationWork;
-        turnRelaySession = relaySession;
-        const journalEpoch = this.journal.meta().epoch;
-        const previousContext = reusablePromptContext({
-          storedContext:
-            await this.getTurnState<PromptContext>(PROMPT_CONTEXT_KEY),
-          journalEpoch,
-          ownerGeneration: turn.ownerGeneration,
-        });
-        const range = this.journal.turnContextRange(turn.turnId);
-        if (!previousContext) {
-          throw new ChatTurnNotResumableError("prompt_context");
-        }
-        if (!range || previousContext.startSeq !== range.startSeq) {
-          throw new ChatTurnNotResumableError("context_range");
-        }
-        const turnTools = await this.createTools(
-          turn,
-          agentHome,
-          skillCatalog,
-          memoryPreference.memoryEnabled,
-        );
-        const context = resumePromptContext({
-          previous: previousContext,
-          policy: memoryPreference,
-          tools: turnTools.tools,
-          startSeq: range.startSeq,
-          journalEpoch,
-        });
-        // A boundary (memory disabled or erased, an owner reset) means the
-        // frozen context the lost isolate sent may carry context that must
-        // not be sent again. Fail rather than resume across it.
-        if (!context) {
-          throw new ChatTurnNotResumableError("context_boundary");
-        }
-        turnContext = context;
-        const checkpoint = await this.getTurnState<ContextCheckpoint>(
-          CONTEXT_CHECKPOINT_KEY,
-        );
-        const selection = this.journal.selectRange(
-          turn.turnId,
-          range.startSeq,
-          range.endSeq,
-        );
-        const journalHistory = stampUserMessageSequences(
-          await this.hydrateWindow(selection),
-          selection.rows,
-        );
-        turnHistory = providerHistory({
-          context: context.state,
-          checkpoint,
-          messages: journalHistory,
-        });
-        const own = this.journal.selectTurnMessages(turn.turnId);
-        const ownMessages = await this.hydrateWindow(own);
-        if (own.rows[0]?.role !== "user" || !ownMessages[0]) {
-          throw new ChatTurnNotResumableError("prompt_row");
-        }
-        const promptMessage = stampUserMessageSequences(
-          [ownMessages[0]],
-          [own.rows[0]],
-        )[0]!;
-        const currentPrompt = materializeProviderContext(
-          [promptMessage],
-          context.state.epoch,
-        );
-        if (attachmentImages.length > 0) {
-          const user = currentPrompt.at(-1);
-          if (user?.role === "user" && Array.isArray(user.content))
-            user.content.push(...attachmentImages);
-        }
-        turnCurrentPrompt = currentPrompt;
-        const produced = ownMessages.slice(1);
-        const counts = { rerun: 0, interrupted: 0, notStarted: 0 };
-        const open = this.journal
-          .openTailCalls()
-          .filter((call) => call.turnId === turn.turnId);
-        for (let index = 0; index < open.length; index += 1) {
-          await assertExactTurnActive();
-          const call = open[index]!;
-          const resolved = await resolveOpenToolCall({
-            tools: context.tools,
-            call,
-            started: index === 0,
-            signal: executionSignal,
-            now: () => Date.now(),
-          });
-          await assertExactTurnActive();
-          const appended = this.journal.appendRepairedResult(
-            turn.turnId,
-            resolved.message,
-            Date.now(),
-          );
-          this.journal.setTurnSpan(turn.turnId, appended.seq);
-          this.publish(appended.record);
-          produced.push(resolved.message);
-          if (resolved.disposition === "rerun") counts.rerun += 1;
-          else if (resolved.disposition === "interrupted")
-            counts.interrupted += 1;
-          else counts.notStarted += 1;
-        }
-        turnProduced = produced;
-        producedIndexBase = this.journal.maxProducedIndex(turn.turnId) + 1;
-        this.live = {
-          turnId: turn.turnId,
-          streamId: null,
-          partialText: "",
-          tools: [],
-        };
-        void this.index
-          .flush({ activity: "running", updatedAt: Date.now() })
-          .catch(() => undefined);
-        log("info", "chat_turn_resume_context", {
-          turnId: turn.turnId,
-          conversationId: turn.conversationId,
-          historyRows: selection.rows.length,
-          producedRows: produced.length,
-          summarized: Boolean(checkpoint),
-          finishedBeforeLoss: produced.at(-1)?.role === "assistant",
-          ...counts,
-        });
-      }
-      // Revalidate at the provider boundary below, including retries. Agent
-      // construction does not send context, so a second check here only adds
-      // a control-plane round trip before the same mandatory validation.
-
-      // The watchdog (or /cancel) may have fired during the setup awaits
-      // above, before currentAgent exists for abort() to reach — re-check so
-      // an already-terminal turn never starts the loop at all.
-      try {
-        await assertExactTurnActive();
-      } catch (error) {
-        if (
-          turnCancellation.aborted ||
-          (await this.getTurnState<boolean>("terminal"))
-        ) {
-          // The prompt row is already committed, so this turn has content
-          // worth indexing even though the loop never ran. Returning without
-          // this is how a canceled turn used to vanish from the search index permanently.
-          await this.afterTerminal(turn);
-          return json({ ok: false, canceled: true });
-        }
-        throw error;
-      }
-
-      await assertExactTurnActive();
-      const Agent = await agentRuntimeWork!;
-      // No await is allowed between this local latch and constructing the
-      // Agent. The next async admission boundary repeats the same check.
-      assertTurnExecutionActive(turnCancellation, executionSignal);
-      const steerable: SteerableTurn = {
+      return await this.runPiTurn({
         turn,
-        watchdogAt,
-        waiting: [],
-        injected: new Map(),
-      };
-      const agent: RuntimeAgent = new Agent({
-        initialState: {
-          systemPrompt: turnContext.state.frozen.systemPrompt,
-          model: turnRelaySession.model,
-          tools: turnContext.tools,
-          messages: resumeTurn
-            ? [...turnHistory, ...turnCurrentPrompt, ...turnProduced]
-            : turnHistory,
-        },
-        sessionId: turn.conversationId,
-        getApiKey: () => turnCapability.token,
-        toolExecution: "sequential",
-        toolInactivityTimeoutMs: 60_000,
-        // Re-prune and strip stale images before EVERY provider call, exactly
-        // as the desktop loop does. The journal window selected above is the
-        // turn's base; without this per-call guard a tool-heavy turn (web
-        // results at ~20KB each) grows unchecked toward the model's declared
-        // window with only the pre-turn budget as slack. First-party
-        // Anthropic routes use the 1h cache tier so an agent completion
-        // wakes this conversation on a warm prefix; resumed turns derive the
-        // same tier from the same route (orchestrator-cache-retention.ts).
-        streamFn: withOrchestratorCacheRetention(
-          turnRelaySession.createStreamFn({
-            reasoningEffort: executionSelection.reasoningEffort,
-            transformContext: async (resolvedModel, rawContext, signal) => {
-              const messages = await buildDefaultTransformContext({
-                model: resolvedModel,
-              })(rawContext.messages, signal);
-              return {
-                ...rawContext,
-                messages: messages.filter(
-                  (message) =>
-                    message.role === "user" ||
-                    message.role === "assistant" ||
-                    message.role === "toolResult",
-                ),
-              };
-            },
-          }),
-          () => turnRelaySession.model,
-        ),
-        // The outer ladder below owns empty completions and physical request
-        // attempts — the same division of labor as the desktop runtime
-        // (`createRuntimeAgent`), which disables the loop's built-in
-        // double-call for the same reason.
-        degenerateResponseRetries: 0,
-        providerRequestLimit: AGENT_RUN_MAX_ATTEMPTS,
-        getSteeringMessages: () => this.takeSteeredWakes(steerable),
+        turnCancellation,
+        executionSignal,
+        resumeTurn,
+        started,
+        execution: harnessExecution,
+        capability: turnCapability.token,
+        relayFetch,
+        gatewayOrigin: modelGatewayOrigin,
+        homeWork: measuredHomePreparation,
+        canonicalPromptsWork,
+        destinationsWork,
+        measurePreparation,
+        preparationTimings,
+        assertExactTurnActive,
       });
-
-      // Incremental persistence: every produced message is committed as it is
-      // produced. A DO eviction at minute four of a five-minute turn used to
-      // discard everything the turn had done; now it loses at most the message
-      // still streaming. This is only safe because repairTail() above closes
-      // whatever tool calls such an eviction leaves open.
-      //
-      // The handler is synchronous on purpose. The Agent's event sink is
-      // fire-and-forget — a returned promise is dropped — so an `await` here
-      // would silently lose rows. SQLite in a DO is synchronous, which is what
-      // makes that constraint costless.
-      let producedIndex = producedIndexBase;
-      let streamId: string | null = null;
-      let persistError: string | undefined;
-      const unsubscribe = agent.subscribe((event: AgentEvent) => {
-        // Agent.abort() can race one last provider callback. The subscriber is
-        // synchronous, so this in-memory latch is the only check that can sit
-        // directly in front of every journal append/broadcast without opening
-        // another await-sized TOCTOU window.
-        if (turnCancellation.aborted || executionSignal.aborted) return;
-        try {
-          if (event.type === "message_end" && event.message.role === "user") {
-            // Submitted user blocks already exist as durable prompt metadata.
-            if (turnCurrentPrompt.includes(event.message)) return;
-            const steered = steerable.injected.get(event.message);
-            if (steered) {
-              steerable.injected.delete(event.message);
-              this.absorbSteeredWake(turn, steered);
-              return;
-            }
-          }
-          this.onAgentEvent(turn, event, {
-            nextIndex: () => producedIndex++,
-            streamId: () => streamId,
-            setStreamId: (value) => {
-              streamId = value;
-            },
-          });
-        } catch (error) {
-          // A failed transcript write must fail the turn: the model's
-          // in-memory history would otherwise diverge from what the user is
-          // shown, and the next turn would read a history the user never saw.
-          persistError ??= errorMessage(error);
-          agent.abort();
-        }
-      });
-
-      // The desktop runtime's transient ladder, verbatim: resume the same
-      // in-memory context after a retryable provider/transport failure
-      // instead of failing the whole turn on one blip. The Effect cancellation
-      // latch is wired to the cancel/watchdog paths so an aborted turn classifies as
-      // canceled (never retried) and a cancel during backoff wakes the sleep.
-      const retryState = { attemptsUsed: 0, retriesUsed: 0 };
-      this.currentAgent = agent;
-      this.steerableTurn = steerable;
-      let execution: { finalText: string; errorMessage?: string };
-      try {
-        execution = await executeAgentRunWithRetry({
-          state: retryState,
-          isCanceled: () => turnCancellation.aborted,
-          sleep: (milliseconds) => turnCancellation.sleep(milliseconds),
-          execute: async (resume) => {
-            await assertExactTurnActive();
-            // The model transport checks memory policy and the exact lease
-            // before every physical request, including tools and compaction.
-            log("info", "chat_turn_prepared", {
-              turnId: turn.turnId,
-              conversationId: turn.conversationId,
-              admissionMs: turn.queuedAt
-                ? Math.round(
-                    Date.now() - turn.queuedAt - (performance.now() - started),
-                  )
-                : undefined,
-              totalPreparationMs: Math.round(performance.now() - started),
-              ...preparationTimings,
-            });
-
-            // Stop cannot interleave between this synchronous latch and
-            // Agent.prompt/continue entering _runLoop and creating its own
-            // provider/tool controller.
-            assertTurnExecutionActive(turnCancellation, executionSignal);
-            if (resume) {
-              await agent.continue();
-            } else if (resumeTurn) {
-              // A reply journaled before the loss only lacks its terminal;
-              // asking the model again would bill and possibly change it.
-              if (agent.state.messages.at(-1)?.role !== "assistant") {
-                await agent.continue();
-              }
-            } else {
-              await agent.prompt(turnCurrentPrompt);
-            }
-            const completion = getAgentCompletion(agent);
-            return { ...completion, finalText: completion.finalText.trim() };
-          },
-          prepareResume: (reason, classification) => {
-            // A subscription reset is minutes or hours away; retrying this
-            // turn hides the actionable notice behind minute-long backoffs.
-            if (subscriptionLimitNotice) return false;
-            const prepared = prepareTransientResumeTail(
-              agent.state.messages,
-              classification,
-            );
-            if (prepared) {
-              log("info", "chat_turn_transient_retry", {
-                turnId: turn.turnId,
-                conversationId: turn.conversationId,
-                category: classification.category,
-                message: reason,
-              });
-            }
-            return prepared;
-          },
-          onRetry: (info) => {
-            log("info", "chat_turn_retry_scheduled", {
-              turnId: turn.turnId,
-              conversationId: turn.conversationId,
-              category: info.category,
-              retryNumber: info.retryNumber,
-              nextAttempt: info.nextAttempt,
-              delayMs: info.delayMs,
-            });
-          },
-        });
-      } finally {
-        this.currentAgent = undefined;
-        if (this.steerableTurn === steerable) this.steerableTurn = undefined;
-      }
-      unsubscribe();
-      // Oversize-row promotion, the only work the sync handler defers.
-      await this.background.catch(() => undefined);
-      if (persistError) {
-        throw new Error(`Persisting the reply failed: ${persistError}`);
-      }
-
-      if (await this.getTurnState<boolean>("terminal")) {
-        // Canceled or timed out mid-loop; the terminal event and its journal
-        // record are already written by whichever path marked it terminal.
-        // The post-terminal work is not: that path deliberately leaves it to
-        // the loop, which is the only caller that knows the loop has stopped
-        // and that a drain or a rollover is therefore safe.
-        await this.afterTerminal(turn);
-        return json({ ok: false, canceled: true });
-      }
-
-      // Everything the loop produced is already committed, row by row, above.
-      const finalText = execution.finalText;
-      if (execution.errorMessage) {
-        throw new Error(execution.errorMessage);
-      }
-      return await this.completeChatTurn(turn, finalText, started);
     } catch (error) {
       const message = errorMessage(error);
       const contextFailure = cloudContextFailure(error);
@@ -7812,91 +7023,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     if (turn.title) this.journal.setTitle(turn.title);
   }
 
-  private onAgentEvent(
-    turn: ChatTurnRequest,
-    event: AgentEvent,
-    cursor: {
-      nextIndex: () => number;
-      streamId: () => string | null;
-      setStreamId: (value: string | null) => void;
-    },
-  ): void {
-    switch (event.type) {
-      // Assistant text is delivered whole: the model's deltas are never
-      // broadcast, and the committed `message` record is the only thing that
-      // carries reply text to a client. The stream id is still allocated
-      // because it is a durable field of that record — it identifies which
-      // generation produced the row.
-      case "message_start": {
-        if ((event.message as { role?: string }).role !== "assistant") break;
-        const id = newStreamId();
-        cursor.setStreamId(id);
-        if (this.live) this.live.streamId = id;
-        break;
-      }
-      case "message_end": {
-        const index = cursor.nextIndex();
-        this.persistProduced(turn, event.message, index, cursor.streamId());
-        if ((event.message as { role?: string }).role === "assistant") {
-          cursor.setStreamId(null);
-          if (this.live) this.live.streamId = null;
-        }
-        break;
-      }
-      case "tool_execution_start": {
-        if (this.live) {
-          this.live.tools.push({
-            toolCallId: event.toolCallId,
-            name: event.toolName,
-            phase: "start",
-          });
-          if (this.live.tools.length > LIVE_TOOL_LIMIT) this.live.tools.shift();
-        }
-        this.hub.broadcastTool({
-          turnId: turn.turnId,
-          toolCallId: event.toolCallId,
-          name: event.toolName,
-          phase: "start",
-          argsPreview: previewArgs(event.args),
-        });
-        break;
-      }
-      case "tool_execution_end": {
-        const entry = this.live?.tools.find(
-          (tool) => tool.toolCallId === event.toolCallId,
-        );
-        if (entry) {
-          entry.phase = "end";
-          entry.isError = event.isError;
-        }
-        this.hub.broadcastTool({
-          turnId: turn.turnId,
-          toolCallId: event.toolCallId,
-          name: event.toolName,
-          phase: "end",
-          isError: event.isError,
-        });
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  private persistProduced(
-    turn: ChatTurnRequest,
-    message: AgentMessage,
-    index: number,
-    streamId: string | null,
-  ): void {
-    const appended = this.appendProduced(turn, message, {
-      writer: "orchestrator",
-      writerKey: `turn:${turn.turnId}:msg:${index}`,
-      streamId,
-    });
-    if (appended) this.publish(appended.record);
-  }
-
   /**
    * Journal one produced message without publishing it, so a caller can
    * commit several rows (and its own cursor) in one transaction first. Null
@@ -8303,7 +7429,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         queued.size > 0 ||
         this.live ||
         this.activeTurnId ||
-        this.currentAgent ||
         this.currentPiRun ||
         this.currentTurnCancellation ||
         this.journal.inboxSize().rows > 0,
@@ -11687,49 +10812,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     }
   }
 
-  /**
-   * Let a hidden agent wake (an agent's message or its completion report)
-   * join the resident loop running here instead of waiting behind it. The
-   * wake is already durable under `queued:`; this only offers it to the loop,
-   * which takes it at its next steering poll (`takeSteeredWakes`). Anything
-   * the loop does not take stays queued and runs as its own turn.
-   */
-  private async steerWakeIntoRunningTurn(wake: ChatTurnRequest): Promise<void> {
-    if (wake.lane !== "wake" || wake.source !== "agent-thread") return;
-    const target = this.steerableTurn;
-    if (
-      !target ||
-      !this.ctx.storage.kv ||
-      target.turn.turnId === wake.turnId ||
-      target.turn.ownerId !== wake.ownerId ||
-      target.turn.ownerGeneration !== wake.ownerGeneration ||
-      Date.now() >= target.watchdogAt - WAKE_STEER_DEADLINE_MARGIN_MS
-    ) {
-      return;
-    }
-    try {
-      if (await this.wakeCanceled(wake)) return;
-      const report = await this.wakeReport(wake);
-      const message = {
-        role: "user",
-        content: [{ type: "text", text: report.prompt }],
-        timestamp: Date.now(),
-        source: wake.source,
-      } as AgentMessage;
-      // The loop's event sink is synchronous, so a row that would need the
-      // R2 spill runs as its own turn.
-      if (utf8Length(JSON.stringify(message)) > MAX_ROW_BYTES) return;
-      if (this.steerableTurn !== target) return;
-      target.waiting.push({ turn: wake, report, message });
-    } catch (error) {
-      log("error", "chat_wake_steer_skipped", {
-        turnId: wake.turnId,
-        intoTurnId: target.turn.turnId,
-        message: errorMessage(error),
-      });
-    }
-  }
-
   private async wakeCanceled(wake: ChatTurnRequest): Promise<boolean> {
     return (
       (await this.exactTurnCancellations.matching({
@@ -11737,140 +10819,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         ownerId: wake.ownerId,
         ownerGeneration: wake.ownerGeneration,
       })) !== null
-    );
-  }
-
-  /** The loop's steering poll: the waiting wakes still queued and not stopped. */
-  private async takeSteeredWakes(target: SteerableTurn): Promise<AgentMessage[]> {
-    if (this.steerableTurn !== target || target.waiting.length === 0) return [];
-    if (Date.now() >= target.watchdogAt - WAKE_STEER_DEADLINE_MARGIN_MS) {
-      return [];
-    }
-    const candidates = target.waiting.splice(0);
-    const canceled = await Promise.all(
-      candidates.map((wake) => this.wakeCanceled(wake.turn)),
-    );
-    const kv = this.ctx.storage.kv;
-    const taken = candidates.filter(
-      (wake, index) =>
-        !canceled[index] && kv.get(`queued:${wake.turn.turnId}`) !== undefined,
-    );
-    for (const wake of taken) target.injected.set(wake.message, wake);
-    if (taken.length > 0) {
-      log("info", "chat_wake_steered", {
-        turnId: target.turn.turnId,
-        wakeTurnIds: taken.map((wake) => wake.turn.turnId),
-      });
-    }
-    return taken.map((wake) => wake.message);
-  }
-
-  /**
-   * A steered wake the running loop just read. Synchronous, from the loop's
-   * event sink: the wake's prompt row (hidden, keyed to the wake so a replay
-   * is a no-op) and its lifecycle card land in the running turn, and the
-   * wake turn itself ends — dequeued, terminal in the journal so its own
-   * queued run is skipped, its owner terminal owed and its lease retirement
-   * recorded — in the same transaction.
-   */
-  private absorbSteeredWake(running: ChatTurnRequest, steered: SteeredWake): void {
-    const { turn: wake, report, message } = steered;
-    const kv = this.ctx.storage.kv;
-    const now = Date.now();
-    const card = this.agentTerminalCard(wake, report);
-    const batchKey = `${OWNER_EVENT_BATCH_PREFIX}${crypto.randomUUID()}`;
-    const written = this.ctx.storage.transactionSync(() => {
-      const prompt = this.journal.appendMessage({
-        turnId: running.turnId,
-        writer: "orchestrator",
-        writerKey: `turn:${wake.turnId}:prompt`,
-        role: "user",
-        hidden: true,
-        createdAt: now,
-        message,
-      });
-      this.journal.setTurnSpan(running.turnId, prompt.seq);
-      const cardRow = card
-        ? this.journal.appendCard({
-            turnId: running.turnId,
-            createdAt: wake.agentThreadControl!.threadUpdatedAt,
-            card,
-            writer: "orchestrator",
-            writerKey: card.eventId,
-          })
-        : null;
-      if (cardRow) this.journal.setTurnSpan(running.turnId, cardRow.seq);
-      if (kv.get(`queued:${wake.turnId}`) === undefined) {
-        return { prompt, cardRow, event: null };
-      }
-      this.journal.upsertTurn({
-        turnId: wake.turnId,
-        sessionId: wake.sessionId,
-        ownerId: wake.ownerId,
-        lane: wake.lane,
-        source: wake.source,
-        clientMsgId: wake.clientMsgId,
-        state: "running",
-        now,
-      });
-      const range = this.journal.turnContextRange(running.turnId);
-      if (range) {
-        this.journal.setTurnContext(wake.turnId, range.startSeq, range.endSeq);
-      }
-      this.journal.setTurnSpan(wake.turnId, prompt.seq);
-      this.journal.setTurnTerminal(wake.turnId, "completed", now);
-      kv.delete(`queued:${wake.turnId}`);
-      const seqKey = turnEventSeqKey(wake.turnId);
-      const eventSeq = (kv.get<number>(seqKey) ?? 0) + 1;
-      kv.put(seqKey, eventSeq);
-      const event = this.turnEvent(
-        wake,
-        "completed",
-        { text: "", wallClockMs: 0, steeredInto: running.turnId },
-        eventSeq,
-        { terminal: true, resultJson: JSON.stringify({ finalText: "" }) },
-      );
-      kv.put(batchKey, [event]);
-      const leaseId = wake.ownerPurgeLeaseId;
-      const receiptKey = leaseId
-        ? orchestratorFenceLeaseReceiptKey(leaseId)
-        : undefined;
-      const receipt = receiptKey
-        ? kv.get<OwnerFenceLeaseReceipt>(receiptKey)
-        : undefined;
-      if (
-        receiptKey &&
-        receipt &&
-        this.ownerFenceReceiptMatches(receipt, wake, leaseId!)
-      ) {
-        kv.put(receiptKey, {
-          ...receipt,
-          phase: "unregister_pending",
-          updatedAt: now,
-        } satisfies OwnerFenceLeaseReceipt);
-      }
-      return { prompt, cardRow, event };
-    });
-    if (written.prompt.inserted) this.publish(written.prompt.record);
-    if (written.cardRow?.inserted) this.publish(written.cardRow.record);
-    if (!written.event) return;
-    const event = written.event;
-    log("info", "chat_wake_absorbed", {
-      turnId: wake.turnId,
-      intoTurnId: running.turnId,
-      promptSeq: written.prompt.seq,
-    });
-    this.ctx.waitUntil(
-      (async () => {
-        await this.deliverDeferredOwnerEvents(batchKey, [event]);
-        await this.unregisterOwnerTurn(wake);
-        await this.releaseOwnerGate(wake);
-      })().catch((error: unknown) => {
-        log("error", "chat_wake_absorb_release_failed", {
-          turnId: wake.turnId,
-          message: errorMessage(error),
-        });
-      }),
     );
   }
 

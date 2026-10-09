@@ -251,6 +251,7 @@ import { createCloudWebTool } from "./cloud-web-tool.js";
 import { createCloudHtmlTool } from "./cloud-html-tool.js";
 import { unwrapRpc } from "./owner-store/errors.js";
 import { createCloudDriveTool } from "./cloud-drive-tool.js";
+import { createCloudSwitchDestinationTool } from "./cloud-switch-destination-tool.js";
 import { createCloudReadTool } from "./cloud-read-tool.js";
 import {
   createDriveFileSession,
@@ -656,6 +657,19 @@ const PI_MIRRORED_KEY = "piMirroredEntry";
 const PI_LIVE_KEY = "piLive";
 /** Where this pi conversation's brain runs (`@stella/contracts/turn-plane/pi-brain`). */
 const PI_BRAIN_KEY = "piBrain";
+/**
+ * Durable key: the brief a Claude Code turn's `switch_destination` left for
+ * the computer Stella moved to, placed there once that turn ends.
+ */
+const CLI_BRAIN_HANDOFF_KEY = "orchestratorCliBrainHandoff";
+type CliBrainHandoff = {
+  turnId: string;
+  ownerId: string;
+  ownerGeneration: string;
+  deviceId: string;
+  clientMsgId: string;
+  prompt: string;
+};
 /** A connect checks the running agents against their owners at most this often. */
 const AGENT_RECONCILE_INTERVAL_MS = 60_000;
 /**
@@ -6744,7 +6758,65 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           },
         );
       }
+      await this.placeCliBrainHandoff(
+        turn.turnId,
+        turnCancellation.aborted || executionSignal.aborted,
+      );
     }
+  }
+
+  /**
+   * Stella moved to one of the owner's computers during this Claude Code
+   * turn (`switch_destination`): now that the turn has ended, her brief
+   * continues there, as pi's hand-off does. A turn the user stopped leaves
+   * her there with nothing to carry on.
+   */
+  private async placeCliBrainHandoff(
+    turnId: string,
+    stopped: boolean,
+  ): Promise<void> {
+    const handoff = await this.getTurnState<CliBrainHandoff>(
+      CLI_BRAIN_HANDOFF_KEY,
+    );
+    if (!handoff) return;
+    if (this.ctx.storage.kv) this.ctx.storage.kv.delete(CLI_BRAIN_HANDOFF_KEY);
+    else await this.ctx.storage.delete(CLI_BRAIN_HANDOFF_KEY);
+    if (handoff.turnId !== turnId || stopped) return;
+    try {
+      const dispatchId = await this.placeOnPiBrain({
+        ownerId: handoff.ownerId,
+        ownerGeneration: handoff.ownerGeneration,
+        deviceId: handoff.deviceId,
+        clientMsgId: handoff.clientMsgId,
+        prompt: handoff.prompt,
+        handoff: true,
+      });
+      log("info", "pi_brain_handoff_placed", {
+        turnId,
+        deviceId: handoff.deviceId,
+        dispatchId,
+      });
+    } catch (error) {
+      log("error", "pi_brain_handoff_failed", {
+        turnId,
+        deviceId: handoff.deviceId,
+        message: errorMessage(error),
+      });
+    }
+  }
+
+  /**
+   * The agents still working whose reports would wake Stella here, by
+   * description: the owner's agent threads running in this conversation,
+   * and pi's own where pi ran here.
+   */
+  private async workingAgentDescriptions(): Promise<string[]> {
+    const owner = await this.ownerRunningAgents();
+    const pi = this.agentsView?.pi ?? [];
+    const listed = new Set(pi.map((agent) => agent.agentId));
+    return [...pi, ...owner.filter((agent) => !listed.has(agent.agentId))].map(
+      (agent) => agent.title,
+    );
   }
 
   /**
@@ -11676,8 +11748,35 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     const direct = tools.filter(
       (tool) => !tool.demoted || toolRequiresExplicitApproval(tool.approval),
     );
+    // Claude Code's Stella moves herself to one of the owner's computers
+    // with this; pi's has it in her own harness. Direct only, never inside
+    // code, and left out of the prompt's tools: the cloud prompt's
+    // `switch_destination` text is pi's, which moves tools too.
+    const switchDestination =
+      harness === "pi"
+        ? []
+        : [
+            createCloudSwitchDestinationTool({
+              devices: async () =>
+                (await this.ownerGate(turn.ownerId).devices()).devices,
+              workingAgents: () => this.workingAgentDescriptions(),
+              move: async (host, brief, toolCallId) => {
+                await this.putTurnState({
+                  [CLI_BRAIN_HANDOFF_KEY]: {
+                    turnId: turn.turnId,
+                    ownerId: turn.ownerId,
+                    ownerGeneration: turn.ownerGeneration,
+                    deviceId: host.deviceId,
+                    clientMsgId: await toolScopedId("message", toolCallId),
+                    prompt: piBrainHandoffPrompt("the cloud", brief),
+                  } satisfies CliBrainHandoff,
+                });
+                await this.setPiBrain({ host: "device", ...host });
+              },
+            }),
+          ];
     return {
-      tools: [codeTool, ...direct],
+      tools: [codeTool, ...direct, ...switchDestination],
       catalog: [codeTool, ...tools],
       // The prompt renders against everything this turn can call, demoted
       // tools inside code included, and `history` and `memory` only when

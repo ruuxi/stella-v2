@@ -1112,6 +1112,13 @@ app.get("/conversations/:id/history", userAuth(), (c) =>
 app.post("/conversations/:id/history/query", userAuth(), jsonBody(tinyControl), (c) =>
   forwardToConversation(c.req.raw, c.env, c.req.param("id"), "/history/query", c.var.caller),
 );
+// Where the conversation's Stella runs, read and moved by the owner's devices.
+app.get("/conversations/:id/pi-brain", userAuth(), (c) =>
+  forwardToConversation(c.req.raw, c.env, c.req.param("id"), "/pi-brain", c.var.caller),
+);
+app.post("/conversations/:id/pi-brain", userAuth(), jsonBody(tinyControl), (c) =>
+  forwardToConversation(c.req.raw, c.env, c.req.param("id"), "/pi-brain", c.var.caller),
+);
 // A computer's own conversation whose tools it moved to the cloud: a call in
 // the container the conversation's object holds for it, or its release.
 app.post(

@@ -6,6 +6,7 @@
  * the app (`@stella/contracts/pi-chat`).
  */
 import { createHash, randomUUID } from "node:crypto";
+import { hostname } from "node:os";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -45,6 +46,7 @@ import {
   type PiChatEvent,
   type PiChatEventsPayload,
   type PiChatAgentsResult,
+  type PiChatBrainResult,
   type PiChatOlderResult,
   type PiChatRequest,
   type PiChatWatchResult,
@@ -80,7 +82,14 @@ import { openBunSqliteStorage } from "../storage/bun-sqlite.ts";
 import { isDeviceToolName } from "@stella/contracts/turn-plane/device-tools";
 import { placementOf, StellaPlacementDoc } from "../stella/placement.ts";
 import { desktopAgentsHost, desktopEnvironments } from "./desktop-agents.ts";
-import { desktopCoding, desktopExecution, type DesktopExecution, type DesktopExecutionRemote } from "./desktop-execution.ts";
+import {
+  desktopCoding,
+  desktopExecution,
+  type DesktopBrain,
+  type DesktopExecution,
+  type DesktopExecutionRemote,
+} from "./desktop-execution.ts";
+import type { PiBrainRecord } from "@stella/contracts/turn-plane/pi-brain";
 import { journalMirror, type DesktopJournal, type JournalMirror } from "./desktop-journal.ts";
 import { localLogMirror, writtenReply, type DesktopLocalLog, type LocalLogMirror } from "./desktop-local-log.ts";
 import { desktopGatewayAccess, resolveStellaModels } from "./desktop-gateway.ts";
@@ -102,6 +111,10 @@ const IDLE_CHECK_MS = 30_000;
 const FOLLOW_MS = 2_000;
 /** How long after a turn is placed elsewhere the journal is read that often, until the turn shows. */
 const FOLLOW_WINDOW_MS = 60_000;
+/** How long where a conversation's brain runs is trusted before it is read again. */
+const BRAIN_TTL_MS = 5_000;
+/** How long a moved brain's brief waits for Stella's turn here to end. */
+const BRAIN_HANDOFF_WAIT_MS = 5 * 60_000;
 /** Until signed in, recovered work retries the provider this often. */
 const PROVIDER_RETRY_MS = 5_000;
 /** How long the agents' directory waits for the cloud; a message waits out the cloud's own device wait. */
@@ -135,6 +148,12 @@ export type DesktopChatsOptions = {
    * other computers and a cloud container, once they are moved there.
    */
   execution?(conversationId: string): DesktopExecutionRemote | undefined;
+  /**
+   * For a conversation stored in the cloud: where its brain runs, as its
+   * object records it. Once that names another host, this computer takes
+   * none of its turns.
+   */
+  brain?(conversationId: string): DesktopBrain | undefined;
   /** The chats on this computer, newest first, which agents list and message as sessions. */
   localSessions?(): Array<{ conversationId: string; title: string; updatedAt: number }>;
   /**
@@ -296,6 +315,34 @@ export function desktopChats(options: DesktopChatsOptions) {
     await saving;
   };
   const environments = desktopEnvironments(options.workspace);
+  /** Where each conversation stored in the cloud has its brain, as last read. */
+  const brains = new Map<string, { record: PiBrainRecord | null; at: number }>();
+  const brainRecord = async (conversationId: string): Promise<PiBrainRecord | null> => {
+    const known = brains.get(conversationId);
+    if (known && Date.now() - known.at < BRAIN_TTL_MS) return known.record;
+    const brain = options.brain?.(conversationId);
+    if (!brain) return null;
+    try {
+      const record = await brain.read();
+      brains.set(conversationId, { record, at: Date.now() });
+      return record;
+    } catch {
+      // Unreachable (offline, signed out), the record stays as last read: with none, this computer answers.
+      const record = known?.record ?? null;
+      brains.set(conversationId, { record, at: Date.now() });
+      return record;
+    }
+  };
+  /** Whether this computer takes the conversation's turns, or where a send goes instead. */
+  const brainPlacement = async (conversationId: string): Promise<PiChatBrainResult> => {
+    const record = await brainRecord(conversationId);
+    if (!record || (record.host === "device" && record.deviceId === options.deviceId)) return { here: true };
+    return record.host === "cloud"
+      ? { here: false, target: { mode: "cloud" } }
+      : { here: false, target: { mode: "device", deviceId: record.deviceId }, ...(record.label ? { label: record.label } : {}) };
+  };
+  const elsewhere = (placement: Extract<PiChatBrainResult, { here: false }>) =>
+    `Stella for this chat runs ${placement.target.mode === "cloud" ? "in the cloud" : `on ${placement.label ?? placement.target.deviceId}`} now, so this computer does not answer it.`;
   // A model on another provider runs with the key the user stored for it,
   // never one found in this process's environment.
   const models = createModels(
@@ -484,11 +531,22 @@ export function desktopChats(options: DesktopChatsOptions) {
         const file = path.join(directory, fileName(conversationId));
         const storage = await openBunSqliteStorage(file);
         const remote = options.execution?.(conversationId);
+        const brain = options.brain?.(conversationId);
         const execution = desktopExecution({
           conversationId,
           ...(options.deviceId ? { deviceId: options.deviceId } : {}),
           localOnly: conversationId.startsWith("local_"),
           ...(remote ? { remote } : {}),
+          ...(brain ? { brain } : {}),
+          // Stella's brief continues elsewhere once her turn here has ended.
+          turnEnded: async () => {
+            const deadline = Date.now() + BRAIN_HANDOFF_WAIT_MS;
+            while (Date.now() < deadline) {
+              await new Promise((resolve) => setTimeout(resolve, 1_000));
+              if (opened && (await opened.harness.snapshot(LiveDoc, opened.root.id, context))?.run === undefined) return;
+            }
+          },
+          brainMoved: (record) => brains.set(conversationId, { record, at: Date.now() }),
           report: options.report,
         });
         const destination: ExecutionDestination = {
@@ -804,6 +862,9 @@ export function desktopChats(options: DesktopChatsOptions) {
     content: UserInput,
     sent: { locale?: string } = {},
   ) => {
+    // Stella answers where her brain is; the app places a send there instead.
+    const placement = await brainPlacement(conversationId);
+    if (!placement.here) throw new Error(elsewhere(placement));
     // The model the user picked: one of Stella's, or one on their own key.
     const model = await pickedModel();
     const chat = await open(conversationId);
@@ -878,6 +939,11 @@ export function desktopChats(options: DesktopChatsOptions) {
     },
   ): Promise<{ status: "ok"; finalText: string } | { status: "busy" | "error"; finalText: ""; error: string }> => {
     const { observe, placementRunId } = turn;
+    // A chat placed here is for this computer; anything else waits for where Stella is.
+    if (!placementRunId) {
+      const where = await brainPlacement(conversationId);
+      if (!where.here) return { status: "error", finalText: "", error: elsewhere(where) };
+    }
     // Before anything awaits, so a cancel that lands while the conversation opens still holds.
     const placement: Placement = {};
     if (placementRunId) placements.set(placementRunId, placement);
@@ -1083,6 +1149,27 @@ export function desktopChats(options: DesktopChatsOptions) {
     return true;
   };
 
+  /**
+   * The user moves Stella herself: the conversation's object records the new
+   * host, and from the next message that host answers. Not while her agents
+   * still work, whose reports would wake her where she was.
+   */
+  const moveBrain = async (conversationId: string, to: "cloud" | "here"): Promise<PiChatBrainResult> => {
+    const brain = options.brain?.(conversationId);
+    if (!brain) throw new Error("This chat is stored only on this computer, so it can only run here.");
+    if ((await brainPlacement(conversationId)).here) {
+      const working = (await (await open(conversationId)).agentRecords(context)).filter((agent) => agent.status === "running");
+      if (to === "cloud" && working.length > 0) {
+        throw new Error(`Stella's agents here are still working (${working.map((agent) => agent.description).join("; ")}). Move her once they finish, or pause them first.`);
+      }
+    }
+    const record = await brain.set(
+      to === "cloud" ? { host: "cloud" } : { host: "device", deviceId: options.deviceId ?? "this-computer", label: hostname() },
+    );
+    brains.set(conversationId, { record, at: Date.now() });
+    return await brainPlacement(conversationId);
+  };
+
   const older = async (conversationId: string, beforeEntryId: number): Promise<PiChatOlderResult> =>
     history(await open(conversationId), beforeEntryId);
 
@@ -1183,6 +1270,10 @@ export function desktopChats(options: DesktopChatsOptions) {
           return { ok: true };
         case "files":
           return linkedFiles(request.conversationId);
+        case "brain":
+          return brainPlacement(request.conversationId);
+        case "moveBrain":
+          return moveBrain(request.conversationId, request.to);
       }
     },
     async close(): Promise<void> {

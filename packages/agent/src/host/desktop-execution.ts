@@ -12,6 +12,11 @@
  * in their shape: pi's own tools translate their arguments, and Stella's
  * Read goes as it is. Only a conversation stored in the cloud can move its
  * tools; one kept on this computer refuses every switch.
+ *
+ * In a conversation stored in the cloud Stella can move her brain as well
+ * (`switch_destination` with `move: "brain"`): the conversation's object
+ * records the new host (`@stella/contracts/turn-plane/pi-brain`), and once
+ * her turn here ends her brief continues there as a placed chat.
  */
 import { createHash } from "node:crypto";
 import type { Context, JsonValue } from "@earendil-works/chord";
@@ -19,6 +24,7 @@ import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { defineExtension, type Extension, type ToolExecutionApi, type ToolRegistration } from "@earendil-works/pi-durable";
 import { createBashTool, createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-durable/tools";
 import type { DeviceDestination } from "@stella/contracts/turn-plane/placement";
+import type { PiBrainHost, PiBrainRecord } from "@stella/contracts/turn-plane/pi-brain";
 import type {
   DeviceToolCall,
   DeviceToolName,
@@ -59,6 +65,14 @@ export type DesktopExecutionRemote = {
   ): Promise<DeviceToolResult>;
   /** Save the container's work into the world and let it go. */
   releaseCloud(scope: string): Promise<void>;
+};
+
+/** Where a conversation stored in the cloud has its brain, as its object records it. */
+export type DesktopBrain = {
+  read(): Promise<PiBrainRecord | null>;
+  set(host: PiBrainHost): Promise<PiBrainRecord>;
+  /** Carry on at `host` with Stella's brief, as a chat placed there. */
+  handOff(host: PiBrainHost, brief: string): Promise<void>;
 };
 
 export type ToolResultContent = (TextContent | ImageContent)[];
@@ -162,6 +176,12 @@ export function desktopExecution(options: {
   /** Kept on this computer only: every switch is refused. */
   localOnly: boolean;
   remote?: DesktopExecutionRemote;
+  /** Where the conversation's brain runs, for a conversation stored in the cloud. */
+  brain?: DesktopBrain;
+  /** Settles once Stella's turn here has ended, so her brief continues after it. */
+  turnEnded?(): Promise<void>;
+  /** The record the conversation's object took for a move. */
+  brainMoved?(record: PiBrainRecord): void;
   report(error: unknown): void;
 }) {
   const { conversationId, remote } = options;
@@ -296,6 +316,31 @@ export function desktopExecution(options: {
     moved: async (piConversationId, from) => {
       if (from.kind === "cloud") await release(scopeOf(piConversationId)).catch((error: unknown) => options.report(error));
     },
+    ...(options.brain && !options.localOnly
+      ? {
+          moveBrain: async (target, brief, context) => {
+            const brain = options.brain!;
+            if (target.kind === "local" || (target.kind === "device" && target.deviceId === options.deviceId)) {
+              return { error: "You already run on this computer." };
+            }
+            // A computer must be able to take work now, as for its tools.
+            const prepared = await host.prepare(target, context);
+            if ("error" in prepared) return prepared;
+            const placement = prepared.placement;
+            const next: PiBrainHost =
+              placement.kind === "device"
+                ? { host: "device", deviceId: placement.deviceId, ...(placement.label ? { label: placement.label } : {}) }
+                : { host: "cloud" };
+            const record = await brain.set(next);
+            options.brainMoved?.(record);
+            void (async () => {
+              await options.turnEnded?.();
+              await brain.handOff(next, brief);
+            })().catch((error: unknown) => options.report(error));
+            return { moved: placement };
+          },
+        }
+      : {}),
   };
 
   return {

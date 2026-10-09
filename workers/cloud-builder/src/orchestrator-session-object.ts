@@ -3,7 +3,14 @@ import {
   type AdmittedCloudChat,
   type CloudChatPreparation,
 } from "./cloud-chat-admission.js";
-import type { DevicesResponse } from "@stella/contracts/turn-plane/placement";
+import { PLACEMENT_PROTOCOL, type DevicesResponse } from "@stella/contracts/turn-plane/placement";
+import {
+  parsePiBrainHost,
+  piBrainHandoffPrompt,
+  type PiBrainHost,
+  type PiBrainRecord,
+  type PiBrainResponse,
+} from "@stella/contracts/turn-plane/pi-brain";
 import type { OwnerHomeContext } from "./owner-home-context.js";
 import {
   PROMPT_CONTEXT_KEY,
@@ -647,6 +654,8 @@ const PI_JOURNAL_IMPORT_BATCH = 200;
 const PI_MIRRORED_KEY = "piMirroredEntry";
 /** Set while pi has work in flight here, so a wake after eviction resumes it. */
 const PI_LIVE_KEY = "piLive";
+/** Where this pi conversation's brain runs (`@stella/contracts/turn-plane/pi-brain`). */
+const PI_BRAIN_KEY = "piBrain";
 /** A connect checks the running agents against their owners at most this often. */
 const AGENT_RECONCILE_INTERVAL_MS = 60_000;
 /**
@@ -3178,6 +3187,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         return this.handleCanonicalHistory(request);
       }
       if (url.pathname === "/journal") return this.handleJournalProbe(url);
+      if (url.pathname === "/pi-brain") return this.handlePiBrain(request);
       return json({ error: "Not found." }, 404);
     }
     if (request.method !== "POST") {
@@ -3188,6 +3198,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     }
     if (url.pathname === "/pi-workspace") {
       return this.handlePiWorkspace(request);
+    }
+    if (url.pathname === "/pi-brain") {
+      return this.handlePiBrain(request);
     }
     // A pi agent's container daemon (its drive and its delivered files),
     // under its lease's own credential.
@@ -3634,6 +3647,42 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           "That conversation belongs to another account.",
           false,
         );
+      }
+      // Stella runs on one of the owner's computers: a message the user
+      // sent from elsewhere is placed there, and this object answers none.
+      const brain =
+        authKind === "user" && lane === "chat" && !start.piAgent
+          ? await this.ctx.storage.get<PiBrainRecord>(PI_BRAIN_KEY)
+          : undefined;
+      if (brain?.host === "device") {
+        try {
+          const dispatchId = await this.placeOnPiBrain({
+            ownerId,
+            deviceId: brain.deviceId,
+            clientMsgId: start.clientMsgId,
+            prompt: start.prompt,
+            ...(start.attachments?.length ? { attachments: start.attachments } : {}),
+            ...(start.locale ? { locale: start.locale } : {}),
+          });
+          log("info", "pi_brain_turn_placed", { deviceId: brain.deviceId, dispatchId });
+          return json(
+            {
+              protocol: TURN_PLANE_PROTOCOL,
+              conversationId,
+              turnId: `placed:${dispatchId}`,
+              accepted: true,
+              replayed: false,
+              createdConversation: false,
+            } satisfies CloudTurnStartResponse,
+            202,
+          );
+        } catch (error) {
+          return turnStartErrorResponse(
+            "execution_unavailable",
+            `Stella for this chat runs on ${brain.label ?? brain.deviceId}, which could not take the message: ${errorMessage(error)}`,
+            true,
+          );
+        }
       }
       const receiptKey = chatTurnAdmissionKey(start.clientMsgId);
       const stored =
@@ -5617,6 +5666,17 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           agentGuard: (authority, turnId) =>
             this.piAgentGuard(authority, turnId),
           deviceAgents: this.piDeviceAgents(),
+          moveBrain: async (authority, host, brief) => {
+            await this.setPiBrain(host);
+            await this.placeOnPiBrain({
+              ownerId: authority.ownerId,
+              ownerGeneration: authority.ownerGeneration,
+              deviceId: host.deviceId,
+              clientMsgId: `handoff-${crypto.randomUUID()}`,
+              prompt: piBrainHandoffPrompt("the cloud", brief),
+              handoff: true,
+            });
+          },
           // What the agents reach beyond this conversation's harness: the
           // owner's agent threads and other sessions, as the loop's do.
           agentDirectory: {
@@ -8380,6 +8440,79 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       log("info", "pi_workspace_failed", { message: errorMessage(error) });
       return json({ error: errorMessage(error) }, 400);
     }
+  }
+
+  /**
+   * Where this conversation's Stella runs: `GET` reads the record, `POST`
+   * moves her (a computer's user flipping it, or her own `switch_destination`
+   * there). From then on exactly that host takes the conversation's turns.
+   */
+  private async handlePiBrain(request: Request): Promise<Response> {
+    const owner = await this.localTurnOwner(request);
+    if (owner instanceof Response) return owner;
+    if (request.method === "GET") {
+      return json({ record: (await this.ctx.storage.get<PiBrainRecord>(PI_BRAIN_KEY)) ?? null } satisfies PiBrainResponse);
+    }
+    const host = parsePiBrainHost(await request.json().catch(() => null));
+    if (!host) return json({ error: "Name the cloud or a device." }, 400);
+    const record = await this.setPiBrain(host);
+    return json({ record } satisfies PiBrainResponse);
+  }
+
+  private async setPiBrain(host: PiBrainHost): Promise<PiBrainRecord> {
+    const prior = await this.ctx.storage.get<PiBrainRecord>(PI_BRAIN_KEY);
+    const record: PiBrainRecord = { ...host, epoch: (prior?.epoch ?? 0) + 1, updatedAt: Date.now() };
+    await this.ctx.storage.put(PI_BRAIN_KEY, record);
+    log("info", "pi_brain_moved", {
+      host: record.host,
+      ...(record.host === "device" ? { deviceId: record.deviceId } : {}),
+      epoch: record.epoch,
+    });
+    return record;
+  }
+
+  /**
+   * A chat for this conversation placed on the computer its Stella runs on,
+   * which answers it from the shared journal: a message the user sent from
+   * elsewhere, or Stella's own brief when she moved there.
+   */
+  private async placeOnPiBrain(args: {
+    ownerId: string;
+    ownerGeneration?: string;
+    deviceId: string;
+    clientMsgId: string;
+    prompt: string;
+    attachments?: string[];
+    locale?: string;
+    handoff?: true;
+  }): Promise<string> {
+    const conversationId = this.conversationId();
+    const placed = await this.ownerGate(args.ownerId).submit({
+      request: {
+        protocol: PLACEMENT_PROTOCOL,
+        idempotencyKey: `pi-brain:${args.clientMsgId}`.slice(0, 128),
+        kind: "chat",
+        ingress: "cloud",
+        subject: "portable",
+        targetMode: "device",
+        targetDeviceId: args.deviceId,
+        conversationId,
+        requiredCapabilities: ["chat", ...(args.attachments?.length ? (["attachments"] as const) : [])],
+        payload: {
+          schemaVersion: 1,
+          prompt: args.prompt,
+          conversationId,
+          clientMsgId: args.clientMsgId,
+          userMessageEventId: args.clientMsgId,
+          ...(args.locale ? { locale: args.locale } : {}),
+          ...(args.attachments?.length ? { attachments: args.attachments } : {}),
+          ...(args.handoff ? { handoff: true as const } : {}),
+        },
+      },
+      ...(args.ownerGeneration ? { expectedGeneration: args.ownerGeneration } : {}),
+    });
+    if (!placed.ok) throw new Error(placed.error.message);
+    return placed.response.dispatch.dispatchId;
   }
 
   private async handleHistoryQuery(request: Request): Promise<Response> {

@@ -1352,6 +1352,8 @@ export class StellaRuntimeHost {
      * The orchestrator's `switch_destination`: the same target change the
      * user makes in the picker, then the rest of the request continues there
      * as a placed chat once this computer's turn for the conversation ends.
+     * A pi chat moving Stella herself (`brain`) moves that conversation only:
+     * its object records where she runs, and the picker stays as it is.
      */
     async switchExecutionDestination(params) {
         const conversationId = typeof params?.conversationId === "string" ? params.conversationId.trim() : "";
@@ -1378,11 +1380,13 @@ export class StellaRuntimeHost {
                 };
             }
         }
-        try {
-            await this.options.hostHandlers.setExecutionTarget?.({ target });
-        }
-        catch (error) {
-            console.warn("[execution-destination] the app's destination picker could not be updated.", error);
+        if (params.brain !== true) {
+            try {
+                await this.options.hostHandlers.setExecutionTarget?.({ target });
+            }
+            catch (error) {
+                console.warn("[execution-destination] the app's destination picker could not be updated.", error);
+            }
         }
         if (target.mode === "automatic") return { ok: true };
         const handoffId = crypto.randomUUID();
@@ -1435,7 +1439,16 @@ export class StellaRuntimeHost {
         // A send the user pointed elsewhere runs there as a placed chat. Its
         // turn reaches this computer's transcript through the journal, which
         // the worker reads closely until it shows.
-        const target = request?.op === "submit" ? placedChatTarget(request.send, this.deviceIdentity?.deviceId) : null;
+        let target = request?.op === "submit" ? placedChatTarget(request.send, this.deviceIdentity?.deviceId) : null;
+        // A conversation whose Stella runs elsewhere (the cloud, another
+        // computer) answers there: this computer takes none of its turns.
+        if (request?.op === "submit" && !target && request.send?.storageMode !== "local") {
+            const brain = await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_PI_CHAT, { op: "brain", conversationId: request.conversationId }, {
+                ensureWorker: true,
+                recordActivity: false,
+            }).catch(() => null);
+            if (brain && brain.here === false && brain.target) target = brain.target;
+        }
         if (target) {
             const send = request.send ?? {};
             const placed = await this.startPlacedChat({

@@ -95,6 +95,8 @@ import { handleStellaModelsRoute } from "../catalog/models.js";
 import { handleDevicesRoute } from "../devices/routes.js";
 import { handleUserAsksRoute } from "../user-asks/routes.js";
 import { handleDeviceRequestRoute } from "../devices/device-request-route.js";
+import { handleDeviceToolRoute } from "../devices/device-tool-route.js";
+import { DEVICE_TOOL_LIMITS } from "@stella/contracts/turn-plane/device-tools";
 import { DEVICE_REQUEST_LIMITS } from "@stella/contracts/turn-plane/device-requests";
 import { validateTurnBrokerTarget } from "../turn-credential-broker.js";
 import type { TurnAuthKind } from "../turn-start-request.js";
@@ -1045,6 +1047,20 @@ app.post(
   (c) =>
     handleDeviceRequestRoute(c.req.raw, c.env, c.req.param("deviceId"), c.var.caller),
 );
+// One of the owner's computers runs a tool call on another, for its own
+// conversation's tools (`@stella/contracts/turn-plane/device-tools`).
+app.post(
+  "/owners/me/devices/:deviceId{[A-Za-z0-9._~-]{1,256}}/tool-calls",
+  userAuth(),
+  jsonBody(DEVICE_TOOL_LIMITS.callBytes + 4096),
+  (c) => handleDeviceToolRoute(c.req.raw, c.env, c.req.param("deviceId"), c.var.caller, "call"),
+);
+app.post(
+  "/owners/me/devices/:deviceId{[A-Za-z0-9._~-]{1,256}}/tool-calls/cancel",
+  userAuth(),
+  jsonBody(tinyControl),
+  (c) => handleDeviceToolRoute(c.req.raw, c.env, c.req.param("deviceId"), c.var.caller, "cancel"),
+);
 app.get(DEVICES_PATH, userAuth(), async (c) => {
   try {
     return Response.json(
@@ -1095,6 +1111,14 @@ app.get("/conversations/:id/history", userAuth(), (c) =>
 );
 app.post("/conversations/:id/history/query", userAuth(), jsonBody(tinyControl), (c) =>
   forwardToConversation(c.req.raw, c.env, c.req.param("id"), "/history/query", c.var.caller),
+);
+// A computer's own conversation whose tools it moved to the cloud: a call in
+// the container the conversation's object holds for it, or its release.
+app.post(
+  "/conversations/:id/pi-workspace",
+  userAuth(),
+  jsonBody(DEVICE_TOOL_LIMITS.callBytes + 4096),
+  (c) => forwardToConversation(c.req.raw, c.env, c.req.param("id"), "/pi-workspace", c.var.caller),
 );
 app.post(
   "/conversations/:id/journal",

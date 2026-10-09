@@ -26,7 +26,7 @@ import { responseLanguageSection } from "@stella/runtime/kernel/runner/locale-pr
 import { StellaAgentDoc, type StellaAgentRole } from "./agent-doc.ts";
 import { processableImagesHook } from "./processable-images.ts";
 import type { StellaAgentPromptId, StellaContextSources } from "./context.ts";
-import { renderDeviceDestination, SWITCH_DESTINATION_TOOL_NAME } from "./execution.ts";
+import { renderCloudDestination, renderDeviceDestination, SWITCH_DESTINATION_TOOL_NAME } from "./execution.ts";
 import { placementOf, StellaPlacementDoc } from "./placement.ts";
 
 export const STELLA_PROMPT_EXTENSION = "stella-prompt";
@@ -132,6 +132,10 @@ export function stellaPromptExtension(sources: StellaContextSources) {
           return renderDeviceDestination(placement, (await role(input, context)).agentType === "orchestrator");
         }
         const snapshot = await sources.executionContext(input.conversationId, context);
+        // On a computer, a conversation whose tools moved to the cloud says so.
+        if (placement?.kind === "cloud" && snapshot?.destination.kind === "device") {
+          return renderCloudDestination((await role(input, context)).agentType === "orchestrator");
+        }
         return snapshot && renderExecutionDestination(snapshot);
       }),
       section("media-access", async (input, context) => {

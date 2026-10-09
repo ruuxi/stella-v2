@@ -70,6 +70,7 @@ import {
   isDeviceToolName,
   type DeviceToolCall,
   type DeviceToolOutcome,
+  type DeviceToolResult,
 } from "@stella/contracts/turn-plane/device-tools";
 import {
   StellaAgentsDoc,
@@ -140,6 +141,7 @@ import {
   piBrokerSessionId,
   releasePiCompute,
   type PiComputeHost,
+  type PiComputeKey,
   type PiComputeLease,
   type PiComputeOwner,
   type PiComputeRecord,
@@ -475,6 +477,8 @@ const sha256Hex = async (value: string): Promise<string> =>
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
 
+/** How long a computer's container is kept here with no call on it. */
+const WORKSPACE_IDLE_MS = 10 * 60_000;
 /** A lease is renewed before its credentials run out, when no call is on it. */
 const LEASE_RENEW_MS = 3 * 60_000;
 /** How long a released lease's container is given to stop coming up. */
@@ -552,6 +556,13 @@ export class PiConversationRuntime {
   readonly #runs = new Map<string, ActiveRun[]>();
   /** Agents' containers by their conversation. */
   readonly #leases = new Map<number, Promise<AgentLease>>();
+  /**
+   * Containers the owner's computers hold here for their own conversations'
+   * tools (a desktop chat's agent switched to "cloud"), by scope: the
+   * computer and its conversation. Each is let go when its computer says so,
+   * or when it sits idle.
+   */
+  readonly #workspaces = new Map<string, { held: Promise<AgentLease>; lastUsed: number }>();
   /** Leases whose daemon may call the broker, by `turnId:attemptGeneration` (until released). */
   readonly #live = new Map<string, AgentLease>();
   /** Broker claims, one at a time. */
@@ -1350,6 +1361,126 @@ export class PiConversationRuntime {
   }
 
   /**
+   * One file or shell call from one of the owner's computers, for its own
+   * conversation's tools, in the container this object holds for `scope`
+   * (`POST /conversations/:id/pi-workspace`). The container comes up on the
+   * first call, as an agent's here does, with the owner's world on its disk
+   * and the drive kept in step; `release` saves its work into the world and
+   * lets it go.
+   */
+  async workspace(owner: PiComputeOwner, request: unknown): Promise<{ result: DeviceToolResult } | { ok: true }> {
+    const body = (request && typeof request === "object" ? request : {}) as Record<string, unknown>;
+    const scope = typeof body.scope === "string" ? body.scope.trim() : "";
+    if (!scope || scope.length > 200 || !/^[A-Za-z0-9._:-]+$/u.test(scope)) throw new Error("A workspace scope is required.");
+    if (body.op === "release") {
+      await this.#endWorkspace(scope, {});
+      return { ok: true };
+    }
+    if (body.op !== "call") throw new Error("Unknown workspace operation.");
+    const threadId = typeof body.threadId === "string" && body.threadId.trim() ? body.threadId.trim().slice(0, 200) : "stella";
+    const callId = typeof body.callId === "string" ? body.callId.trim() : "";
+    const toolName = typeof body.toolName === "string" ? body.toolName : "";
+    const params = body.params;
+    if (!callId || callId.length > 200 || !isDeviceToolName(toolName) || !params || typeof params !== "object" || Array.isArray(params)) {
+      throw new Error("Malformed workspace call.");
+    }
+    // A computer's container is this conversation's pi work: its broker is served, its heartbeat kept.
+    this.#options.heartbeat();
+    const entry = await this.#workspaceLease(owner, scope, threadId);
+    const held = await entry.held;
+    held.inFlight += 1;
+    entry.lastUsed = Date.now();
+    let outcome: SerializedAgentToolResult;
+    try {
+      held.used = true;
+      outcome = await held.lease.call({
+        toolCallId: callId,
+        toolName: toolName === "exec_command" ? "Bash" : toolName,
+        params: params as Record<string, unknown>,
+      });
+    } catch (error) {
+      // A container that did not come up, or went down, is let go: the next call starts a fresh one.
+      if (this.#workspaces.get(scope) === entry) {
+        this.#workspaces.delete(scope);
+        void this.#releaseLease(`ws:${scope}`, held, { aborted: true }).catch((dropError: unknown) => this.#options.report(dropError));
+      }
+      throw error;
+    } finally {
+      held.inFlight -= 1;
+      entry.lastUsed = Date.now();
+    }
+    const text = outcome.outcome.kind === "ok" ? outcome.outcome.text : outcome.outcome.message;
+    return {
+      result: {
+        text,
+        ...(outcome.outcome.kind === "error" ? { isError: true } : {}),
+        ...(outcome.authorizedImages.length > 0
+          ? { images: outcome.authorizedImages.map((image) => ({ data: image.data, mimeType: image.mimeType })) }
+          : {}),
+      },
+    };
+  }
+
+  /** The container a computer's scope holds here: the one it has, renewed near its credentials' end, or a new one. */
+  async #workspaceLease(
+    owner: PiComputeOwner,
+    scope: string,
+    threadId: string,
+  ): Promise<{ held: Promise<AgentLease>; lastUsed: number }> {
+    const current = this.#workspaces.get(scope);
+    if (current) {
+      const held = await current.held.catch(() => undefined);
+      if (held && (held.inFlight > 0 || held.lease.expiresAt - Date.now() > LEASE_RENEW_MS)) return current;
+      if (this.#workspaces.get(scope) === current) {
+        this.#workspaces.delete(scope);
+        if (held) await this.#releaseLease(`ws:${scope}`, held, {});
+      }
+      return await this.#workspaceLease(owner, scope, threadId);
+    }
+    const generation = Date.now().toString(36);
+    const opening = (async (): Promise<AgentLease> => {
+      const lease = await openPiComputeLease(this.#computeHost(), {
+        owner,
+        agentConversationId: `ws:${scope}`,
+        // One container per computer's agent, as a cloud agent's thread has.
+        threadId: `${scope}:${threadId}`,
+        turnId: `pi:${owner.conversationId}:ws:${await sha256Hex(scope)}:${generation}`,
+      });
+      const held: AgentLease = { lease, threadId, inFlight: 0, used: false };
+      this.#live.set(`${lease.record.turnId}:${lease.record.attemptGeneration}`, held);
+      this.#options.log("pi_workspace_leased", { scope, threadId });
+      return held;
+    })();
+    const entry = { held: opening, lastUsed: Date.now() };
+    this.#workspaces.set(scope, entry);
+    opening.catch(() => {
+      if (this.#workspaces.get(scope) === entry) this.#workspaces.delete(scope);
+    });
+    return entry;
+  }
+
+  /** Let a computer's container go, its work saved into the world unless `end` says it was stopped. */
+  async #endWorkspace(scope: string, end: AgentRunEnd): Promise<void> {
+    const current = this.#workspaces.get(scope);
+    if (!current) return;
+    this.#workspaces.delete(scope);
+    const held = await current.held.catch(() => undefined);
+    if (held) await this.#releaseLease(`ws:${scope}`, held, end);
+    this.#options.log("pi_workspace_released", { scope });
+  }
+
+  /** Containers no call has used for a while: their computer went quiet, so they are let go. */
+  async #releaseIdleWorkspaces(): Promise<void> {
+    const now = Date.now();
+    for (const [scope, entry] of [...this.#workspaces]) {
+      const held = await entry.held.catch(() => undefined);
+      if (held && held.inFlight === 0 && now - entry.lastUsed > WORKSPACE_IDLE_MS) {
+        await this.#endWorkspace(scope, {}).catch((error: unknown) => this.#options.report(error));
+      }
+    }
+  }
+
+  /**
    * The agent's lease: the one it holds, or a new one when it holds none or
    * its credentials are near their end with nothing running on it.
    */
@@ -1409,7 +1540,7 @@ export class PiConversationRuntime {
    * back, the files the answer links delivered), then release it. A stopped
    * run's lease, or one never used, is only released.
    */
-  async #releaseLease(agentConversationId: number, held: AgentLease, end: AgentRunEnd): Promise<void> {
+  async #releaseLease(agentConversationId: PiComputeKey, held: AgentLease, end: AgentRunEnd): Promise<void> {
     const { lease } = held;
     const { record } = lease;
     const up = held.used && (await lease.ready.then(() => true, () => false));
@@ -1439,8 +1570,13 @@ export class PiConversationRuntime {
   async #sweepLeases(): Promise<void> {
     const left = await this.#options.storage.list<PiComputeRecord>({ prefix: "piCompute:" });
     for (const [key, record] of left) {
-      const agentConversationId = Number(key.slice("piCompute:".length));
-      if (this.#leases.has(agentConversationId) || record?.version !== 1) continue;
+      const id = key.slice("piCompute:".length);
+      const agentConversationId: PiComputeKey = id.startsWith("ws:") ? (id as `ws:${string}`) : Number(id);
+      const holding =
+        typeof agentConversationId === "number"
+          ? this.#leases.has(agentConversationId)
+          : this.#workspaces.has(agentConversationId.slice("ws:".length));
+      if (holding || record?.version !== 1) continue;
       const released = releasePiCompute(this.#computeHost(), record).catch((error: unknown) => this.#options.report(error));
       await Promise.race([released, scheduler.wait(20_000)]);
       await forgetPiCompute(this.#computeHost(), agentConversationId, record).catch(() => undefined);
@@ -1467,7 +1603,8 @@ export class PiConversationRuntime {
     if (request.method !== target.method) return brokerFailure(403);
     const held = this.#live.get(`${turnId}:${attemptGeneration}`);
     if (!held) return brokerFailure(410);
-    const engine = (await this.#agentState()).authority.execution.engine;
+    // A computer's container may call before any turn ran here; its targets match every engine.
+    const engine = this.#state?.authority.execution.engine ?? "stella";
     if ((target.kind !== "drive" && target.kind !== "turn-event") || !turnBrokerTargetMatchesEngine(target, engine)) {
       return brokerFailure(403);
     }
@@ -1651,8 +1788,9 @@ export class PiConversationRuntime {
   /** Whether pi has work in flight here: agents running, reports on their way. */
   async busy(context: Context): Promise<boolean> {
     const { harness } = await this.open();
+    await this.#releaseIdleWorkspaces();
     const inspection = await harness.inspect(context);
-    return inspection.tasks.length > 0 || inspection.submissions.length > 0;
+    return inspection.tasks.length > 0 || inspection.submissions.length > 0 || this.#workspaces.size > 0;
   }
 
   /**
@@ -2034,7 +2172,11 @@ export class PiConversationRuntime {
     const runs = [...this.#runs.values()].flat();
     this.#runs.clear();
     const leases = [...this.#leases.keys()];
+    const workspaces = [...this.#workspaces.keys()];
     await this.close();
+    await Promise.all(
+      workspaces.map((scope) => this.#endWorkspace(scope, { aborted: true }).catch((error: unknown) => this.#options.report(error))),
+    );
     const authority = this.#state?.authority;
     // Nothing a purged conversation's agents did is saved anywhere.
     await Promise.all(

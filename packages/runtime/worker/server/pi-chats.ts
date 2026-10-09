@@ -30,6 +30,7 @@ import { prepareStoredLocalChatPayload } from "../../kernel/storage/local-chat-p
 import { prepareChatInput } from "./chat-input.js";
 import { piUserContent } from "./pi-chat-input.js";
 import { cloudAgentsFor } from "./pi-cloud-agents.js";
+import { executionRemoteFor } from "./pi-execution.js";
 import { cloudJournalFor } from "./pi-journal.js";
 import { piModelUsage } from "./pi-usage.js";
 import {
@@ -205,6 +206,7 @@ export const piChatsFor = (
       },
       journal: (conversationId) => cloudJournalFor(session, conversationId),
       cloudAgents: (conversationId) => cloudAgentsFor(session, conversationId),
+      execution: (conversationId) => executionRemoteFor(session, conversationId),
       // A conversation stored in the cloud lists this computer's agents in
       // the owner's agent threads, where a paired phone shows and messages them.
       agentStarted: (agent) => {

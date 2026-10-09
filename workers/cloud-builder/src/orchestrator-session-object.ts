@@ -3186,6 +3186,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     if (url.pathname === "/history/query") {
       return this.handleHistoryQuery(request);
     }
+    if (url.pathname === "/pi-workspace") {
+      return this.handlePiWorkspace(request);
+    }
     // A pi agent's container daemon (its drive and its delivered files),
     // under its lease's own credential.
     if (url.pathname === "/pi-turn-broker") {
@@ -8356,6 +8359,29 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    * The desktop code tool's `history.sql` / `history.read`, answered with
    * exactly what the cloud code tool's history client runs.
    */
+  /**
+   * A call from one of the owner's computers for its own copy of this
+   * conversation, whose tools it moved to the cloud: run in a container this
+   * object holds for it, as its cloud agents' are (`PiConversationRuntime.workspace`).
+   */
+  private async handlePiWorkspace(request: Request): Promise<Response> {
+    const owner = await this.localTurnOwner(request);
+    if (owner instanceof Response) return owner;
+    const body = await request.json().catch(() => null);
+    try {
+      const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+      return json(
+        await runtime.workspace(
+          { ownerId: owner.ownerId, ownerGeneration: owner.ownerGeneration, conversationId: this.conversationId() },
+          body,
+        ),
+      );
+    } catch (error) {
+      log("info", "pi_workspace_failed", { message: errorMessage(error) });
+      return json({ error: errorMessage(error) }, 400);
+    }
+  }
+
   private async handleHistoryQuery(request: Request): Promise<Response> {
     const owner = await this.localTurnOwner(request);
     if (owner instanceof Response) return owner;

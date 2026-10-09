@@ -77,7 +77,10 @@ import {
   type StellaCredentialAccess,
 } from "../provider/byok.ts";
 import { openBunSqliteStorage } from "../storage/bun-sqlite.ts";
+import { isDeviceToolName } from "@stella/contracts/turn-plane/device-tools";
+import { placementOf, StellaPlacementDoc } from "../stella/placement.ts";
 import { desktopAgentsHost, desktopEnvironments } from "./desktop-agents.ts";
+import { desktopCoding, desktopExecution, type DesktopExecution, type DesktopExecutionRemote } from "./desktop-execution.ts";
 import { journalMirror, type DesktopJournal, type JournalMirror } from "./desktop-journal.ts";
 import { localLogMirror, writtenReply, type DesktopLocalLog, type LocalLogMirror } from "./desktop-local-log.ts";
 import { desktopGatewayAccess, resolveStellaModels } from "./desktop-gateway.ts";
@@ -127,6 +130,11 @@ export type DesktopChatsOptions = {
   journal?(conversationId: string): DesktopJournal | undefined;
   /** For a conversation stored in the cloud: its cloud agents, run in its object. */
   cloudAgents?(conversationId: string): RemoteAgentHost | undefined;
+  /**
+   * For a conversation stored in the cloud: how its tools reach the owner's
+   * other computers and a cloud container, once they are moved there.
+   */
+  execution?(conversationId: string): DesktopExecutionRemote | undefined;
   /** The chats on this computer, newest first, which agents list and message as sessions. */
   localSessions?(): Array<{ conversationId: string; title: string; updatedAt: number }>;
   /**
@@ -180,6 +188,8 @@ type Chat = {
   mirror?: JournalMirror;
   /** For a conversation kept on this computer: its chat log mirror. */
   localLog?: LocalLogMirror;
+  /** Where its tools run when they are not on this computer. */
+  execution: DesktopExecution;
   stream?: AgentEventStream;
   watchers: number;
   idleCheck: ReturnType<typeof setInterval>;
@@ -198,6 +208,28 @@ const LocaleDoc = defineDoc<{ locale?: string }>({
   history: "latest",
   fork: "current",
   initial: () => ({}),
+});
+
+/**
+ * Stella's own tools for one conversation: her Read reads where her tools
+ * run, this computer or wherever `switch_destination` moved them.
+ */
+const placedTools = (tools: StellaToolHost, execution: DesktopExecution, chat: () => Chat | undefined): StellaToolHost => ({
+  specs: (role) => tools.specs(role),
+  run: async (call, context) => {
+    const opened = chat();
+    if (call.role === "orchestrator" && isDeviceToolName(call.name) && opened) {
+      const placement = placementOf(await opened.harness.snapshot(StellaPlacementDoc, opened.root.id, context));
+      if (placement && placement.kind !== "local") {
+        return await execution.run(
+          placement,
+          { piConversationId: opened.root.id, callId: call.callId, toolName: call.name, params: call.args },
+          context,
+        );
+      }
+    }
+    return await tools.run(call, context);
+  },
 });
 
 /** A conversation id as a file name. */
@@ -451,6 +483,14 @@ export function desktopChats(options: DesktopChatsOptions) {
         await mkdir(directory, { recursive: true });
         const file = path.join(directory, fileName(conversationId));
         const storage = await openBunSqliteStorage(file);
+        const remote = options.execution?.(conversationId);
+        const execution = desktopExecution({
+          conversationId,
+          ...(options.deviceId ? { deviceId: options.deviceId } : {}),
+          localOnly: conversationId.startsWith("local_"),
+          ...(remote ? { remote } : {}),
+          report: options.report,
+        });
         const destination: ExecutionDestination = {
           kind: "device",
           deviceId: options.deviceId ?? "this-computer",
@@ -483,6 +523,7 @@ export function desktopChats(options: DesktopChatsOptions) {
                 ...(options.deviceId ? { deviceId: options.deviceId } : {}),
                 ...(cloud ? { cloud } : {}),
                 directory: directoryFor(conversationId),
+                execution: execution.host,
                 beginAgentRun: async (run) => {
                   // Stella's own agents, not their subagents.
                   if (!opened || run.parentConversationId !== opened.root.id) return;
@@ -521,7 +562,9 @@ export function desktopChats(options: DesktopChatsOptions) {
                   : {}),
               });
             })(),
-            ...(options.tools ? { tools: options.tools(conversationId) } : {}),
+            ...(options.tools ? { tools: placedTools(options.tools(conversationId), execution, () => opened) } : {}),
+            // An agent's file and shell tools run here, or wherever its tools were moved.
+            extensions: [desktopCoding(execution.run)],
             env: environments.env,
             onReport: options.report,
           },
@@ -609,6 +652,7 @@ export function desktopChats(options: DesktopChatsOptions) {
           steerPlacedAgent,
           ...(mirror ? { mirror } : {}),
           ...(localLog ? { localLog } : {}),
+          execution,
           watchers: 0,
           idleCheck,
           followCheck,
@@ -1150,6 +1194,7 @@ export function desktopChats(options: DesktopChatsOptions) {
         clearInterval(chat.followCheck);
         await chat.mirror?.stop();
         await chat.localLog?.stop();
+        await chat.execution.close();
         await chat.stream?.stop().catch(() => undefined);
         await chat.harness.close(context).catch(() => undefined);
       }

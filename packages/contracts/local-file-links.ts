@@ -32,22 +32,34 @@ const withoutMarkdownCode = (markdown: string): string =>
     )
     .replace(/(`+)[\s\S]*?\1/g, "");
 
-export const stripLocalFileLinks = (
+const MARKDOWN_LINK_PARTS_RE =
+  /(!?)\[([^\]]*?)\]\(\s*(?:<([^>\r\n]+)>|([^()<>\s]+))\s*(?:["'][^"'\r\n]*["'])?\s*\)/g;
+
+const basenameOfPath = (filePath: string): string =>
+  filePath.slice(Math.max(filePath.lastIndexOf("/"), filePath.lastIndexOf("\\")) + 1);
+
+/**
+ * Keep a reply's words when its linked files render as attachments: a link to
+ * one of `filePaths` becomes its own label as plain text (the file name when
+ * the label is empty or just the path), and an image embed of one is dropped
+ * because the image itself shows beside the message. Nothing else changes.
+ */
+export const unlinkLocalFileLinks = (
   markdown: string,
   filePaths: readonly string[],
 ): string => {
   if (!markdown || filePaths.length === 0) return markdown;
-  const hidden = new Set(filePaths);
-  const stripped = markdown.replace(MARKDOWN_LINK_RE, (match, angled, bare) => {
-    const filePath = parseLocalFileLinkTarget(angled ?? bare ?? "");
-    return filePath && hidden.has(filePath) ? "" : match;
-  });
-  return stripped
-    .split("\n")
-    .map((line) => (line.trim().length === 0 ? "" : line.replace(/[ \t]+$/, "")))
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  const attached = new Set(filePaths);
+  return markdown.replace(
+    MARKDOWN_LINK_PARTS_RE,
+    (match, bang: string, label: string, angled?: string, bare?: string) => {
+      const filePath = parseLocalFileLinkTarget(angled ?? bare ?? "");
+      if (!filePath || !attached.has(filePath)) return match;
+      if (bang) return "";
+      const text = label.trim();
+      return text && text !== filePath ? label : basenameOfPath(filePath);
+    },
+  );
 };
 
 export const extractLocalFileLinkPaths = (markdown: string): string[] => {

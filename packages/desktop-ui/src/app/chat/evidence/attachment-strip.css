@@ -6,6 +6,25 @@
   min-width: 0;
 }
 
+/* Pictures and video sit in their own rounded block directly under the reply
+   bubble, the way Messages shows them; file pills stay inside the bubble. */
+.assistant-media {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 85%;
+  min-width: 0;
+}
+
+.assistant-media:empty {
+  display: none;
+}
+
+.assistant-media > .attachment-strip--media,
+.assistant-media > .inline-generated-image-cards {
+  margin-top: 6px;
+}
+
 .attachment-strip__media {
   display: flex;
   flex-direction: row;

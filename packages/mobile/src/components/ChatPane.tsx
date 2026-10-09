@@ -2,7 +2,7 @@ import { AssistantBubble, SENT_BUBBLE_POP, useBubblePop } from "./BubblePop";
 import type { ReplyRef } from "@stella/contracts/reply-refs";
 import { cloudWorldDrivePath } from "@stella/contracts/cloud-world-paths";
 import { AgentReportSheet, ReplyFocus, type AgentReplyRef } from "./ReplyFocus";
-import { ReplyPreview, type ReplyAgentStatus } from "./ReplyPreview";
+import { ReplyPreview, replyTitle, type ReplyAgentStatus } from "./ReplyPreview";
 import { ReplyFilePills } from "./ReplyFilePills";
 import { mobileReplyContexts, type MobileReplyContexts } from "../lib/mobile-reply-context";
 import {
@@ -101,7 +101,7 @@ import { extractStellaAppLinkSlugs } from "@stella/contracts/workspace-apps";
 import { stellaFileChatArtifact } from "../lib/stella-file-links";
 import {
   extractLocalFileLinkPaths,
-  stripLocalFileLinks,
+  unlinkLocalFileLinks,
 } from "@stella/contracts/local-file-links";
 import {
   resolveCloudDriveFileUri,
@@ -1432,6 +1432,89 @@ const generatedImageStyles = StyleSheet.create({
   tile: { borderRadius: 14, maxWidth: 320, overflow: "hidden", width: "100%" },
 });
 
+type CompletionQuote = {
+  key: string;
+  artifactId: string;
+  ref: AgentReplyRef;
+  files: ChatArtifact[];
+};
+
+/**
+ * The tasks a row relays the results of: one quote per agent of each settled
+ * completion card on the row (a follow-up keeps its spawn row instead).
+ */
+const rowCompletionQuotes = (
+  agentWork: ReturnType<typeof consolidateRowArtifacts>["agentWork"],
+): CompletionQuote[] =>
+  agentWork.flatMap((artifact) => {
+    if (
+      artifact.payload.state !== "done" ||
+      artifact.payload.followUp === true ||
+      artifact.payload.completion !== true
+    ) {
+      return [];
+    }
+    const sections = inlineAgentWorkCardSections(artifact) ?? [];
+    const filesByAgent = new Map(
+      sections.flatMap((section) => (section.agentId ? [[section.agentId, section.files] as const] : [])),
+    );
+    const agents =
+      artifact.payload.agents && artifact.payload.agents.length > 0
+        ? artifact.payload.agents.map((agent) => ({
+            agentId: agent.agentId,
+            title: agent.title,
+            files: filesByAgent.get(agent.agentId) ?? [],
+          }))
+        : (artifact.payload.agentIds ?? []).slice(0, 1).map((agentId) => ({
+            agentId,
+            title: artifact.payload.title,
+            files: [] as ChatArtifact[],
+          }));
+    return agents.flatMap((agent) => {
+      if (!agent.agentId) return [];
+      return [{
+        key: `${artifact.id}:${agent.agentId}`,
+        artifactId: artifact.id,
+        ref: { kind: "agent" as const, threadId: agent.agentId, title: agent.title || artifact.payload.title },
+        files: agent.files,
+      }];
+    });
+  });
+
+/**
+ * A cloud completion lands on its own textless row just above the reply that
+ * relays it. That row keeps the task quote; the reply below takes the task's
+ * report link and files, so they ride in its bubble like on desktop.
+ */
+const carryCompletionQuotes = (
+  messages: readonly ChatMessage[],
+): { carried: ReadonlyMap<string, CompletionQuote[]>; forwarded: ReadonlySet<string> } => {
+  const carried = new Map<string, CompletionQuote[]>();
+  const forwarded = new Set<string>();
+  let pending: { ids: string[]; quotes: CompletionQuote[] } = { ids: [], quotes: [] };
+  for (const message of messages) {
+    if (message.role !== "assistant") {
+      pending = { ids: [], quotes: [] };
+      continue;
+    }
+    if ((message.text ?? "").trim().length > 0) {
+      if (pending.quotes.length > 0) {
+        carried.set(message.id, pending.quotes);
+        for (const id of pending.ids) forwarded.add(id);
+      }
+      pending = { ids: [], quotes: [] };
+      continue;
+    }
+    const quotes = rowCompletionQuotes(
+      consolidateRowArtifacts(message.artifacts ?? [], message.tasks ?? []).agentWork,
+    );
+    if (quotes.length > 0) {
+      pending = { ids: [...pending.ids, message.id], quotes: [...pending.quotes, ...quotes] };
+    }
+  }
+  return { carried, forwarded };
+};
+
 const ChatMessageRow = memo(function ChatMessageRow({
   item,
   conversationId,
@@ -1454,6 +1537,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
   desktopAccess,
   menuClone = false,
   receiptLabel,
+  carriedQuotes,
+  quotesForwarded = false,
 }: {
   item: ChatMessage;
   /** Scopes this row's file reads, the way a tapped file link is scoped. */
@@ -1490,6 +1575,11 @@ const ChatMessageRow = memo(function ChatMessageRow({
   menuClone?: boolean;
   /** "Delivered" / "Read" under the latest user message. */
   receiptLabel?: string | null;
+  /** Tasks quoted on the textless row just above, whose report link and
+   *  files this reply's bubble carries. */
+  carriedQuotes?: CompletionQuote[];
+  /** This row's tasks are carried by the reply below it. */
+  quotesForwarded?: boolean;
 }) {
   // iOS press feedback: the held bubble eases down while the long-press
   // builds, then the menu lifts a copy of it (see MessageContextMenu).
@@ -1579,15 +1669,16 @@ const ChatMessageRow = memo(function ChatMessageRow({
     return paths;
   }, [consolidated.looseFiles, item.role, item.text]);
   // A cloud turn names one drive file twice: drive-relative as an artifact,
-  // world-absolute as a link. The strip shows each file once.
+  // world-absolute as a link. The strip shows each file once, by the
+  // world-absolute path, which is the one that opens from the drive.
   const evidenceStripPaths = useMemo(() => {
-    const seen = new Set<string>();
-    return evidencePaths.filter((filePath) => {
-      const key = cloudWorldDrivePath(filePath) ?? filePath;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+    const byKey = new Map<string, string>();
+    for (const filePath of evidencePaths) {
+      const drivePath = cloudWorldDrivePath(filePath);
+      const key = drivePath ?? filePath;
+      if (!byKey.has(key) || drivePath) byKey.set(key, filePath);
+    }
+    return [...byKey.values()];
   }, [evidencePaths]);
   // Schedule tool results render their human-readable summaries as plain
   // text lines in the flow (desktop parity — no chip/card). Every settled
@@ -1606,7 +1697,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   const bodyText = useMemo(
     () =>
       evidencePaths.length > 0
-        ? stripLocalFileLinks(item.text, evidencePaths)
+        ? unlinkLocalFileLinks(item.text, evidencePaths)
         : item.text,
     [item.text, evidencePaths],
   );
@@ -1839,46 +1930,19 @@ const ChatMessageRow = memo(function ChatMessageRow({
   // the bubble the iMessage way; the files it produced ride as pills at the
   // bottom of the reply bubble itself. A settled follow-up keeps its spawn
   // row.
-  const completionQuotes = groupAgentWorkArtifacts.flatMap((artifact) => {
-    if (
-      artifact.payload.state !== "done" ||
-      artifact.payload.followUp === true ||
-      artifact.payload.completion !== true
-    ) {
-      return [];
-    }
-    const sections = inlineAgentWorkCardSections(artifact) ?? [];
-    const filesByAgent = new Map(
-      sections.flatMap((section) => (section.agentId ? [[section.agentId, section.files] as const] : [])),
-    );
-    const agents =
-      artifact.payload.agents && artifact.payload.agents.length > 0
-        ? artifact.payload.agents.map((agent) => ({
-            agentId: agent.agentId,
-            title: agent.title,
-            files: filesByAgent.get(agent.agentId) ?? [],
-          }))
-        : (artifact.payload.agentIds ?? []).slice(0, 1).map((agentId) => ({
-            agentId,
-            title: artifact.payload.title,
-            files: [] as ChatArtifact[],
-          }));
-    return agents.flatMap((agent) => {
-      if (!agent.agentId) return [];
-      return [{
-        key: `${artifact.id}:${agent.agentId}`,
-        artifactId: artifact.id,
-        ref: { kind: "agent" as const, threadId: agent.agentId, title: agent.title || artifact.payload.title },
-        files: agent.files,
-      }];
-    });
-  });
-  const quotedThreadIds = new Set(completionQuotes.map((quote) => quote.ref.threadId));
+  const completionQuotes = rowCompletionQuotes(groupAgentWorkArtifacts);
+  const relayedQuotes = [
+    ...(quotesForwarded ? [] : completionQuotes),
+    ...(carriedQuotes ?? []),
+  ];
+  const quotedThreadIds = new Set(
+    [...completionQuotes, ...relayedQuotes].map((quote) => quote.ref.threadId),
+  );
   // Files a relayed task produced, minus any the evidence strip already shows
   // because the reply links them.
   const evidencePathSet = new Set(evidencePaths);
   const replyFiles = onOpenArtifact
-    ? completionQuotes
+    ? relayedQuotes
         .flatMap((quote) => quote.files)
         .filter((file, index, all) => {
           const filePath = artifactPrimaryFilePath(file.payload);
@@ -1902,16 +1966,31 @@ const ChatMessageRow = memo(function ChatMessageRow({
         />
       ))
     : null;
-  const evidenceStrip = showEvidence ? (
+  // With text, pictures and video sit in their own block under the bubble
+  // and file pills at the bottom of it; without text, the strip stands alone.
+  const evidenceMedia = showEvidence ? (
     <MessageEvidenceStrip
       filePaths={evidenceStripPaths}
       conversationId={conversationId}
       access={desktopAccess ?? null}
       colors={colors}
       onOpen={onOpenStellaFile}
-      style={hasText ? styles.bubbleEvidence : undefined}
+      part={hasText ? "media" : undefined}
+      style={hasText ? styles.mediaBelowBubble : undefined}
     />
   ) : null;
+  const evidenceDocuments =
+    showEvidence && hasText ? (
+      <MessageEvidenceStrip
+        filePaths={evidenceStripPaths}
+        conversationId={conversationId}
+        access={desktopAccess ?? null}
+        colors={colors}
+        onOpen={onOpenStellaFile}
+        part="documents"
+        style={styles.bubbleEvidence}
+      />
+    ) : null;
   const replyFilePills =
     showReplyFiles && onOpenArtifact ? (
       <ReplyFilePills
@@ -1921,9 +2000,26 @@ const ChatMessageRow = memo(function ChatMessageRow({
         style={styles.bubbleFilePills}
       />
     ) : null;
-  const bubbleHasAttachments = showGeneratedImages || showEvidence || showReplyFiles;
-  const bubbleHasMedia = showGeneratedImages || showEvidence;
-  const fillAssistantBubble = boundedAssistantBubble || bubbleHasMedia;
+  // The full report of each task this reply relays (or cites, unless it is
+  // still running) opens from a quiet "more" after the reply's text, not from
+  // the quote.
+  const reportRefs: AgentReplyRef[] = [
+    ...relayedQuotes.map((quote) => quote.ref),
+    ...(contextRef?.kind === "agent" &&
+    !quotedThreadIds.has(contextRef.threadId) &&
+    contextStatus !== "running"
+      ? [contextRef]
+      : []),
+  ];
+  const moreLinks =
+    onOpenReport && reportRefs.length > 0
+      ? reportRefs.map((ref) => ({
+          key: ref.threadId,
+          label: `Full report: ${replyTitle(ref)}`,
+          onPress: () => onOpenReport(ref),
+        }))
+      : undefined;
+  const fillAssistantBubble = boundedAssistantBubble;
   const assistantBubble = (
     <AssistantBubble
       style={[styles.assistantBubble, fillAssistantBubble && styles.assistantBlockBubble]}
@@ -1934,16 +2030,10 @@ const ChatMessageRow = memo(function ChatMessageRow({
         colors={colors}
         fill={boundedAssistantBubble}
         onStellaFileLink={onOpenStellaFile}
+        moreLinks={moreLinks}
       />
-      {bubbleHasAttachments ? (
-        <View style={styles.bubbleAttachments}>
-          {showGeneratedImages ? (
-            <View style={styles.artifactGroup}>{generatedImageCards}</View>
-          ) : null}
-          {evidenceStrip}
-          {replyFilePills}
-        </View>
-      ) : null}
+      {evidenceDocuments}
+      {replyFilePills}
     </AssistantBubble>
   );
   if (menuClone) return assistantBubble;
@@ -1961,7 +2051,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
               }
               colors={colors}
               onOpen={() => onOpenReply(quote.ref)}
-              onOpenReport={onOpenReport ? () => onOpenReport(quote.ref) : undefined}
             />
           ))
         : null}
@@ -1973,11 +2062,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
           status={contextStatus}
           colors={colors}
           onOpen={() => onOpenReply(contextRef)}
-          onOpenReport={
-            onOpenReport && contextRef.kind === "agent"
-              ? () => onOpenReport(contextRef)
-              : undefined
-          }
         />
       ) : null}
       {hasText && isSelecting ? (
@@ -2014,6 +2098,16 @@ const ChatMessageRow = memo(function ChatMessageRow({
           </Animated.View>
         </View>
       ) : null}
+      {hasText && (showGeneratedImages || showEvidence) ? (
+        <View>
+          {showGeneratedImages ? (
+            <View style={[styles.artifactGroup, styles.mediaBelowBubble]}>
+              {generatedImageCards}
+            </View>
+          ) : null}
+          {evidenceMedia}
+        </View>
+      ) : null}
       {scheduleReceipts.map((receipt) => (
         <Text
           key={receipt.id}
@@ -2044,7 +2138,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
           {hasText ? null : generatedImageCards}
         </View>
       ) : null}
-      {hasText ? null : evidenceStrip}
+      {hasText ? null : evidenceMedia}
       {hasText || !replyFilePills ? null : (
         <View style={styles.artifactGroupSpaced}>{replyFilePills}</View>
       )}
@@ -3308,6 +3402,7 @@ export function ChatPane({
     }),
     [messages, replyContexts, onOpenArtifact],
   );
+  const quoteCarry = useMemo(() => carryCompletionQuotes(visibleMessages), [visibleMessages]);
   // A conversation first observed empty mounts its list on the optimistic
   // send. Our post-send owner already places that row; starting Legend's
   // footer-preserving end bootstrap as well would move it a second time.
@@ -4225,6 +4320,8 @@ export function ChatPane({
             contextStatus={contextStatusFor(replyContexts, replyContexts.contexts.get(item.id))}
             desktopAccess={desktopAccess}
             receiptLabel={receipt?.id === item.id ? receipt.label : null}
+            carriedQuotes={quoteCarry.carried.get(item.id)}
+            quotesForwarded={quoteCarry.forwarded.has(item.id)}
           />
         </MessageEntry>
       );
@@ -4233,6 +4330,7 @@ export function ChatPane({
       timeHeaders,
       receipt,
       replyContexts,
+      quoteCarry,
       contextStatusFor,
       lastMessage?.id,
       historyLoading,
@@ -4623,6 +4721,8 @@ export function ChatPane({
             onOpenMessageMenu={setMessageMenu} onEndSelecting={stopSelectingMessage}
             onAskStella={quoteMessage}
             onOpenReply={setReplyFocus} onOpenReport={setReportRef}
+            carriedQuotes={quoteCarry.carried.get(item.id)}
+            quotesForwarded={quoteCarry.forwarded.has(item.id)}
             contextRef={contexts.contexts.get(item.id)}
             contextStatus={contextStatusFor(contexts, contexts.contexts.get(item.id))}
             desktopAccess={desktopAccess} />}
@@ -5460,9 +5560,9 @@ const makeStyles = (colors: Colors) =>
       marginTop: 6,
     },
     artifactGroup: { gap: 10 },
-    bubbleAttachments: { gap: 10, paddingBottom: 12 },
-    bubbleFilePills: { marginTop: 2 },
-    bubbleEvidence: { marginTop: 0 },
+    bubbleFilePills: { marginTop: 2, marginBottom: 12 },
+    bubbleEvidence: { marginTop: 0, marginBottom: 12 },
+    mediaBelowBubble: { marginTop: 6 },
     artifactGroupSpaced: { marginTop: 10 },
     assistantText: {
       color: colors.assistantBubbleText,

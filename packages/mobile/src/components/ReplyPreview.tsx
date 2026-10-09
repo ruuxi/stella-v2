@@ -3,6 +3,7 @@
  * bubble quotes what Stella is replying to (the cited message, or the task
  * with its live status), joined
  * to the reply by a thin connector; tapping it opens focus on that target.
+ * A task's full report is offered by the reply itself ("more").
  *
  * Whether a bubble appears at all is decided upstream by the shared
  * reply-context rule (`@stella/contracts/reply-context`).
@@ -33,14 +34,11 @@ export function ReplyPreview({
   status,
   colors,
   onOpen,
-  onOpenReport,
 }: {
   reference: ReplyRef;
   status?: ReplyAgentStatus;
   colors: Colors;
   onOpen: () => void;
-  /** Agent references only: opens the task's full report. */
-  onOpenReport?: () => void;
 }) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const title = replyTitle(reference);
@@ -68,8 +66,8 @@ export function ReplyPreview({
           <View style={styles.agentMain}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Open task report: ${title}, ${statusLabel(status)}`}
-            onPress={onOpenReport ?? onOpen}
+            accessibilityLabel={`Show this task and its updates: ${title}, ${statusLabel(status)}`}
+            onPress={onOpen}
             style={({ pressed }) => [styles.agentHead, pressed && styles.bubblePressed]}
           >
             {/* The glyph alone carries the task's state (desktop parity). */}
@@ -88,17 +86,6 @@ export function ReplyPreview({
               {title}
             </Text>
           </Pressable>
-          {onOpenReport ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Replies: show this task and its updates"
-              onPress={onOpen}
-              hitSlop={6}
-              style={({ pressed }) => [styles.reportToggle, pressed && styles.bubblePressed]}
-            >
-              <Text style={styles.reportToggleText}>Replies</Text>
-            </Pressable>
-          ) : null}
           </View>
         </View>
       )}
@@ -187,15 +174,5 @@ const makeStyles = (colors: Colors) =>
       color: colors.text,
       fontFamily: fonts.sans.medium,
       fontSize: 12.5,
-    },
-    reportToggle: {
-      paddingVertical: 7,
-      paddingHorizontal: 10,
-      borderRadius: 999,
-    },
-    reportToggleText: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 11,
     },
   });

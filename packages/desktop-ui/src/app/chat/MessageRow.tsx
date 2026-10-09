@@ -57,6 +57,7 @@ import { AppPreviewCard } from "@/features/cloud/AppPreviewCard";
 import { extractStellaAppLinkSlugs } from "@stella/contracts/workspace-apps";
 import { VoiceSessionCard } from "@/app/chat/VoiceSessionCard";
 import { ReplyPreview } from "@/app/chat/ReplyPreview";
+import { ReplyReportLinks } from "@/app/chat/ReplyReportLinks";
 import { AgentUpdateCard } from "@/features/app-source/AppSourceCards";
 import { sanitizeAttachmentImageUrl } from "@/shared/lib/url-safety";
 import { UserMessageBody } from "@/app/chat/UserMessageBody";
@@ -707,9 +708,16 @@ export const AssistantMessageRow = memo(
                     .map(fileKey)
                     .concat(evidencePaths.map((filePath) => `local:${filePath}`))}
                 />
-                {inlineImageStrip}
+                {conversationId &&
+                ((row.replyRefs && row.replyRefs.length > 0) || hasAgentCompletion) ? (
+                  <ReplyReportLinks
+                    refs={row.replyRefs ?? []}
+                    completions={row.agentCompletion?.sections}
+                    conversationId={conversationId}
+                  />
+                ) : null}
                 {evidencePaths.length > 0 ? (
-                  <MessageAttachments filePaths={evidencePaths} />
+                  <MessageAttachments filePaths={evidencePaths} part="documents" />
                 ) : null}
                 {replyFiles.length > 0 ? (
                   <FilePills files={replyFiles} variant="bubble" />
@@ -727,6 +735,14 @@ export const AssistantMessageRow = memo(
               )}
             </div>
           )}
+          {hasText && (inlineImageStrip || evidencePaths.length > 0) ? (
+            <div className="assistant-media">
+              {inlineImageStrip}
+              {evidencePaths.length > 0 ? (
+                <MessageAttachments filePaths={evidencePaths} part="media" />
+              ) : null}
+            </div>
+          ) : null}
           {!hasText && replyFiles.length > 0 ? (
             <FilePills files={replyFiles} />
           ) : null}

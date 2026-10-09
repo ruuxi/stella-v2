@@ -4,8 +4,8 @@
  * For each reply reference the row carries, a small muted bubble quotes
  * what Stella is replying to — the cited message, or the task (title and
  * live status) for an agent — joined to the reply by a thin connector.
- * Clicking a preview opens focus on that target; an agent preview also
- * offers the task's full report.
+ * Clicking a preview opens focus on that target. A task's full report is
+ * offered by the reply itself, as a quiet "more" link after its text.
  *
  * A task whose result this reply relays is quoted the same way. Its
  * produced files ride inside the reply bubble itself (see MessageRow), so
@@ -22,7 +22,6 @@ import { useT } from "@/shared/i18n";
 import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
 import { useThreadActivityRecords } from "@/features/chat/hooks/use-thread-activity-records";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
-import { TaskReportButton } from "./TaskReportButton";
 import "./reply-preview.css";
 
 const MAX_STACKED_PREVIEWS = 3;
@@ -191,11 +190,11 @@ function AgentReplyPreview({
       data-completion-event-id={completionEventId}
     >
       <div className="reply-preview__agent-main">
-        <TaskReportButton
-          reference={reference}
-          conversationId={conversationId}
-          status={status}
-          liveTitle={title}
+        <button
+          type="button"
+          className="reply-preview__agent-head"
+          onClick={open}
+          title={t("app.chat.replyPreview.openTask")}
         >
           <span
             className="reply-preview__agent-icon"
@@ -207,14 +206,6 @@ function AgentReplyPreview({
             <AgentLifecycleStatusIcon status={status ?? "completed"} />
           </span>
           <span className="reply-preview__agent-title">{title}</span>
-        </TaskReportButton>
-        <button
-          type="button"
-          className="reply-preview__report-toggle"
-          onClick={open}
-          title={t("app.chat.replyPreview.openTask")}
-        >
-          Replies
         </button>
       </div>
     </div>

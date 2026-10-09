@@ -31,6 +31,13 @@ const ROW_GAP = 8;
 /** Keep one card's worth of row on each side of the viewport mounted. */
 const MOUNT_MARGIN = 220;
 
+const VISUAL_KINDS: ReadonlySet<EvidenceCard["kind"]> = new Set([
+  "image",
+  "image-pair",
+  "stack",
+  "video",
+]);
+
 const pillIcon = (card: EvidenceCard): IconName => {
   if (card.kind === "bundle") return "box";
   const label = (card.extensionLabel ?? "").toLowerCase();
@@ -104,7 +111,8 @@ const PendingThumb = ({
 /**
  * One reply's attached files: a scrolling row of real media, then everything
  * without a preview as pills. No tray, no card container, no grid — either row
- * can stand alone, and media always comes first.
+ * can stand alone, and media always comes first. `part` renders just one row:
+ * a reply with text shows its media under the bubble and its pills inside it.
  */
 export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
   filePaths,
@@ -113,6 +121,7 @@ export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
   colors,
   onOpen,
   style,
+  part,
 }: {
   filePaths: readonly string[];
   conversationId: string;
@@ -120,6 +129,7 @@ export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
   colors: Colors;
   onOpen?: (filePath: string) => void;
   style?: StyleProp<ViewStyle>;
+  part?: "media" | "documents";
 }) {
   const { media, pills, overflowCount } = useChatEvidence({
     filePaths,
@@ -155,11 +165,14 @@ export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
     [],
   );
 
-  if (media.length === 0 && pills.length === 0) return null;
+  const showMedia = part !== "documents" && media.length > 0;
+  const showPills = part !== "media" && pills.length > 0;
+  const showOverflow = part !== "media" && overflowCount > 0;
+  if (!showMedia && !showPills && !showOverflow) return null;
 
   return (
     <View style={[styles.strip, style]}>
-      {media.length > 0 ? (
+      {showMedia ? (
         <ScrollView
           ref={rowRef}
           horizontal
@@ -253,20 +266,22 @@ export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
             return (
               <View key={card.id} style={{ width }}>
                 {framed}
-                <Text
-                  style={[styles.cardTitle, { color: colors.textMuted }]}
-                  numberOfLines={1}
-                  maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-                >
-                  {card.title}
-                </Text>
+                {VISUAL_KINDS.has(card.kind) ? null : (
+                  <Text
+                    style={[styles.cardTitle, { color: colors.textMuted }]}
+                    numberOfLines={1}
+                    maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                  >
+                    {card.title}
+                  </Text>
+                )}
               </View>
             );
           })}
         </ScrollView>
       ) : null}
-      {pills.length > 0 ? (
-        <View style={styles.pills}>
+      {showPills ? (
+        <View style={[styles.pills, !showMedia && styles.pillsFirst]}>
           {pills.map((card) => {
             const primary = card.sourcePaths[0] ?? "";
             return (
@@ -301,7 +316,7 @@ export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
           })}
         </View>
       ) : null}
-      {overflowCount > 0 ? (
+      {showOverflow ? (
         <Text
           style={[styles.overflow, { color: colors.textMuted }]}
           maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
@@ -335,6 +350,7 @@ const styles = StyleSheet.create({
   },
   pillTitle: { flexShrink: 1, fontFamily: fonts.sans.regular, fontSize: 12.5 },
   pills: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
+  pillsFirst: { marginTop: 0 },
   playBadge: {
     alignItems: "center",
     borderRadius: 13,

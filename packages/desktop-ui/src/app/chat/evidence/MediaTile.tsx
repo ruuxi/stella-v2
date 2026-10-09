@@ -10,6 +10,13 @@ import { CompareFrame } from "./CompareFrame";
 import { VideoFrame } from "./VideoFrame";
 import { WaveformTile } from "./WaveformTile";
 
+const VISUAL_KINDS: ReadonlySet<EvidenceCard["kind"]> = new Set([
+  "image",
+  "image-pair",
+  "stack",
+  "video",
+]);
+
 const openSource = (filePath: string) => {
   const payload = buildPayloadFromBarePath(filePath, Date.now());
   if (payload) openDisplayPayloadTab(payload);
@@ -117,8 +124,10 @@ export const MediaTile = ({
         <Maximize2 size={11} />
       </button>
     </div>
-    <figcaption className="media-tile__caption" title={card.sourcePaths.join(", ")}>
-      {card.title}
-    </figcaption>
+    {VISUAL_KINDS.has(card.kind) ? null : (
+      <figcaption className="media-tile__caption" title={card.sourcePaths.join(", ")}>
+        {card.title}
+      </figcaption>
+    )}
   </figure>
 );

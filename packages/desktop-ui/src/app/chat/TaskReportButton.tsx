@@ -50,12 +50,15 @@ export function TaskReportButton({
   conversationId,
   status,
   liveTitle,
+  inline = false,
   children,
 }: {
   reference: Extract<ReplyRef, { kind: "agent" }>;
   conversationId: string;
   status?: "running" | "completed" | "error" | "canceled";
   liveTitle?: string;
+  /** A quiet text link that flows at the end of the reply's last paragraph. */
+  inline?: boolean;
   children?: ReactNode;
 }) {
   const t = useT();
@@ -117,9 +120,10 @@ export function TaskReportButton({
           resolvedReport.error?.trim() ||
           t("app.chat.replyPreview.reportEmpty");
 
+  const Wrapper = inline ? "span" : "div";
   return (
-    <div
-      className="task-report"
+    <Wrapper
+      className={inline ? "task-report task-report--inline" : "task-report"}
       data-reply-ref-thread-id={reference.threadId}
       onMouseEnter={prefetch}
       onFocus={prefetch}
@@ -129,9 +133,14 @@ export function TaskReportButton({
           <button
             type="button"
             className={
-              children
-                ? "reply-preview__agent-head"
-                : "reply-preview__report-toggle"
+              inline
+                ? "reply-report-more"
+                : children
+                  ? "reply-preview__agent-head"
+                  : "reply-preview__report-toggle"
+            }
+            aria-label={
+              inline ? `${t("app.chat.replyPreview.showReport")}: ${title}` : undefined
             }
           >
             {children ?? t("app.chat.replyPreview.showReport")}
@@ -175,6 +184,6 @@ export function TaskReportButton({
           </div>
         </Popover.Content>
       </Popover>
-    </div>
+    </Wrapper>
   );
 }

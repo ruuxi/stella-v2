@@ -21,7 +21,6 @@ import type {
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { headersToRecord } from "../utils/headers.js";
 import { anomalousStreamStopError } from "../utils/provider-stop.js";
-import { hashProviderRequestIdentity } from "../utils/provider-request-proof.js";
 import { readRetryAfterMs } from "../utils/retry.js";
 import {
   buildCopilotDynamicHeaders,
@@ -136,29 +135,6 @@ export const streamOpenAIResponses: StreamFunction<
 
   // Start async processing
   (async () => {
-    let requestIdSha256: string | undefined;
-    let physicalAttempt = 0;
-    const notifyRequestLifecycle = async (
-      phase:
-        | "request-admitted"
-        | "request-dispatched"
-        | "stream-open"
-        | "transport-closed",
-      outcome?: "completed" | "canceled" | "error",
-    ): Promise<void> => {
-      if (!requestIdSha256) return;
-      try {
-        await options?.onProviderRequestLifecycle?.({
-          phase,
-          requestIdSha256,
-          physicalAttempt: Math.max(physicalAttempt, 1),
-          ...(outcome ? { outcome } : {}),
-        });
-      } catch {
-        // Acceptance diagnostics are observation-only and cannot alter a
-        // production provider request.
-      }
-    };
     const output: AssistantMessage = {
       role: "assistant",
       content: [],
@@ -204,10 +180,6 @@ export const streamOpenAIResponses: StreamFunction<
       // nonce; an auth-refresh retry below retains it.
       const requestNonce = newRequestNonce();
       const idempotencyKey = `stella-response-${requestNonce}`;
-      // The adapter owns the raw transport id. Only its digest crosses the
-      // callback boundary, and it is bound before the first POST dispatch.
-      requestIdSha256 = await hashProviderRequestIdentity(idempotencyKey);
-      await notifyRequestLifecycle("request-admitted");
       const requestOptions = (perAttemptHeaders?: Record<string, string>) => {
         const timeout = options?.timeoutMs;
         return {
@@ -231,8 +203,6 @@ export const streamOpenAIResponses: StreamFunction<
           refreshApiKey: options?.refreshApiKey,
           request: async (requestApiKey) => {
             activeApiKey = requestApiKey;
-            physicalAttempt += 1;
-            await notifyRequestLifecycle("request-dispatched");
             return await request(requestApiKey);
           },
         });
@@ -283,7 +253,6 @@ export const streamOpenAIResponses: StreamFunction<
         { status: response.status, headers: headersToRecord(response.headers) },
         model,
       );
-      await notifyRequestLifecycle("stream-open");
       stream.push({ type: "start", partial: output });
 
       await processResponsesStream(events, output, stream, model, {
@@ -300,7 +269,6 @@ export const streamOpenAIResponses: StreamFunction<
         throw anomalousStreamStopError(output);
       }
 
-      await notifyRequestLifecycle("transport-closed", "completed");
       stream.push({ type: "done", reason: output.stopReason, message: output });
       stream.end();
     } catch (error) {
@@ -318,10 +286,6 @@ export const streamOpenAIResponses: StreamFunction<
       // below this layer has already honored it.
       const retryAfterMs = readRetryAfterMs(error);
       if (retryAfterMs !== undefined) output.retryAfterMs = retryAfterMs;
-      await notifyRequestLifecycle(
-        "transport-closed",
-        options?.signal?.aborted ? "canceled" : "error",
-      );
       stream.push({ type: "error", reason: output.stopReason, error: output });
       stream.end();
     }

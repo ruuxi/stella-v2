@@ -87,7 +87,15 @@ import {
 import { gatewayRelayBaseUrl } from "@stella/contracts/gateway/api";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 import { toolRequiresExplicitApproval } from "@stella/runtime/kernel/tools/code-tool.js";
+import { isAgentToolSuspendedError } from "@stella/runtime/kernel/agent-core/suspension.js";
+import type { CloudBrowserResumeReceipt, CloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import { mintTurnCapability } from "./capability-signer.js";
+import {
+  createCloudBrowserClient,
+  gatewayBrowserTransport,
+  type CloudBrowserAuthority,
+  type CloudBrowserClient,
+} from "./cloud-browser.js";
 import type { CloudCodeSourceAgentTool } from "./cloud-code-tool.js";
 import {
   fetchWithManagedCancellation,
@@ -245,8 +253,22 @@ export type PiRuntimeEnv = Pick<
       | "CAPABILITY_SIGNING_KID"
       | "SANDBOX_IDLE_TIMEOUT_MS"
       | "CLOUD_BUILDER_PUBLIC_URL"
+      | "BROWSER_GATEWAY"
     >
   >;
+
+/** A login handoff an agent's `code` asked for, held open until the user finishes it. */
+export type PiBrowserHandoff = {
+  authority: PiAuthority;
+  /** The authority the handoff's command ran under, which the gateway bound it to. */
+  browser: CloudBrowserAuthority;
+  /** The agent's `code` call the handoff answers. */
+  toolCallId: string;
+  suspension: CloudBrowserSuspension;
+};
+
+/** How a handoff ended, as the gateway's resume receipt says. */
+export type PiBrowserHandoffEnd = Pick<CloudBrowserResumeReceipt, "result" | "safeMessage">;
 
 export type PiRuntimeOptions = {
   storage: DurableObjectStorage;
@@ -277,8 +299,17 @@ export type PiRuntimeOptions = {
   deviceAgents?: PiDeviceAgents;
   /** Keep this object waking while agents run. */
   heartbeat(): void;
-  /** An agent's own tools (web, code with connectors), on the agents' authority. */
-  agentTools(authority: PiAuthority): Promise<readonly CloudCodeSourceAgentTool[]>;
+  /**
+   * An agent's own tools (web, code with connectors), on the agents'
+   * authority; `browser` is the calling run's cloud browser, which its code
+   * drives.
+   */
+  agentTools(authority: PiAuthority, browser?: CloudBrowserClient): Promise<readonly CloudCodeSourceAgentTool[]>;
+  /**
+   * Show a login handoff to the user and wait until it ends: the user
+   * finished, canceled, or it expired. An abort of `signal` withdraws it.
+   */
+  browserHandoff?(handoff: PiBrowserHandoff, signal: AbortSignal | undefined): Promise<PiBrowserHandoffEnd>;
   /**
    * Holds one agent run to the owner's purge fence, as a chat turn is held:
    * a lease while it runs, and a model grant (under the owner's memory
@@ -361,6 +392,8 @@ type ActiveRun = {
   sessionId: string;
   capability: { token: string; expiresAt: number };
   guard?: PiAgentGuard;
+  /** The run's cloud browser, from its first use; its profile is saved when the run ends. */
+  browser?: CloudBrowserClient;
 };
 
 /** An agent's container, from the start of its run until its last run ends. */
@@ -372,6 +405,9 @@ type AgentLease = {
   /** Whether any call reached it, so its work is saved when the run ends. */
   used: boolean;
 };
+
+/** How long saving a run's browser profile may take when the run ends. */
+const BROWSER_CHECKPOINT_MS = 30_000;
 
 /** A lease is renewed before its credentials run out, when no call is on it. */
 const LEASE_RENEW_MS = 3 * 60_000;
@@ -639,11 +675,13 @@ export class PiConversationRuntime {
       specs: (role) => (role === "orchestrator" ? this.#state?.tools : this.#state?.agentTools) ?? [],
       run: async (call, context) => {
         const signal = context.abortSignal;
+        // An agent's code drives its run's cloud browser.
+        const active = call.role === "orchestrator" ? undefined : this.#runOf(call.threadId);
         // The orchestrator's tools are its turn's: recovered work waits for the turn to bind again.
         const tools =
           call.role === "orchestrator"
             ? await this.#turnToolsFor(await this.#turn(signal))
-            : await this.#options.agentTools((await this.#agentState()).authority);
+            : await this.#options.agentTools((await this.#agentState()).authority, this.#browser(active));
         const tool = tools.find((candidate) => candidate.name === call.name);
         if (!tool) throw new Error(`${call.name} is not available here.`);
         const started = Date.now();
@@ -656,6 +694,9 @@ export class PiConversationRuntime {
             details: result.details,
           };
         } catch (error) {
+          if (isAgentToolSuspendedError(error) && active) {
+            return await this.#handBrowserToUser(active, call.callId, error.suspension, signal);
+          }
           this.#options.log("pi_tool_failed", {
             ...fields,
             ms: Date.now() - started,
@@ -665,6 +706,93 @@ export class PiConversationRuntime {
         }
       },
     };
+  }
+
+  // ---- the cloud browser -----------------------------------------------------
+
+  /** The run an agent is working in, if it is working. */
+  #runOf(threadId: string | undefined): ActiveRun | undefined {
+    if (!threadId) return undefined;
+    for (const runs of this.#runs.values()) {
+      const active = runs.find((candidate) => candidate.run.threadId === threadId);
+      if (active) return active;
+    }
+    return undefined;
+  }
+
+  /**
+   * A run's cloud browser: the private Browser Gateway under the run's own
+   * authority, the way a chat turn holds the model gateway. Without a run
+   * (the tools as offered, or a call recovered before its run binds) every
+   * command says why it cannot run.
+   */
+  #browser(active: ActiveRun | undefined): CloudBrowserClient | undefined {
+    const gateway = this.#options.env.BROWSER_GATEWAY;
+    if (!gateway || !this.#options.browserHandoff) return undefined;
+    if (!active) {
+      return createCloudBrowserClient(async () => {
+        throw new Error("The cloud browser is only available while this agent is running.");
+      });
+    }
+    if (active.browser) return active.browser;
+    const transport = gatewayBrowserTransport(gateway, this.#browserAuthority(active));
+    active.browser = createCloudBrowserClient(async (command, signal) => {
+      const started = Date.now();
+      const forwarded = await transport(command, signal);
+      this.#options.log("pi_browser_command", {
+        threadId: active.run.threadId,
+        action: command.action,
+        status: forwarded.status,
+        ms: Date.now() - started,
+      });
+      return forwarded;
+    });
+    return active.browser;
+  }
+
+  /** Whose a run's browser commands are: its own turn, one attempt per run. */
+  #browserAuthority(active: ActiveRun): CloudBrowserAuthority {
+    return {
+      ownerId: active.authority.ownerId,
+      ownerGeneration: active.authority.ownerGeneration,
+      conversationId: active.authority.conversationId,
+      threadId: active.run.threadId,
+      turnId: active.turnId,
+      attemptGeneration: 1,
+    };
+  }
+
+  /**
+   * The agent's code handed the browser to the user. Its `code` call stays
+   * open while they sign in on their device, and answers with how the
+   * handoff ended; the run then carries on, signed in or not.
+   */
+  async #handBrowserToUser(
+    active: ActiveRun,
+    toolCallId: string,
+    suspension: CloudBrowserSuspension,
+    signal: AbortSignal | undefined,
+  ): Promise<StellaToolOutcome> {
+    const fields = {
+      threadId: active.run.threadId,
+      interactionId: suspension.interactionId,
+      kind: suspension.interactionKind,
+    };
+    this.#options.log("pi_browser_handoff_started", fields);
+    try {
+      const end = await this.#options.browserHandoff!(
+        { authority: active.authority, browser: this.#browserAuthority(active), toolCallId, suspension },
+        signal,
+      );
+      this.#options.log("pi_browser_handoff_ended", { ...fields, result: end.result });
+      return {
+        content: [{ type: "text", text: end.safeMessage }],
+        details: { browserHandoff: { interactionId: suspension.interactionId, result: end.result } },
+        ...(end.result === "approved" ? {} : { isError: true }),
+      };
+    } finally {
+      active.browser?.resumed();
+    }
   }
 
   // ---- agents ---------------------------------------------------------------
@@ -744,6 +872,12 @@ export class PiConversationRuntime {
           [ended] = runs.splice(index, 1);
           if (runs.length === 0) this.#runs.delete(sessionId);
           break;
+        }
+        // A run that used the cloud browser saves its profile (its sign-ins) for the agent's next runs.
+        if (ended?.browser?.used()) {
+          await ended.browser
+            .checkpoint(AbortSignal.timeout(BROWSER_CHECKPOINT_MS))
+            .catch((error: unknown) => this.#options.report(error));
         }
         // The agent's last run: its container's work is saved and delivered
         // while the run still holds its admission, then the container goes.
@@ -1163,7 +1297,7 @@ export class PiConversationRuntime {
     const offered = (tools: readonly CloudCodeSourceAgentTool[]) =>
       tools.filter((tool) => !STELLA_HARNESS_TOOL_NAMES.has(tool.name)).map(toolSpec);
     const tools = offered(await this.#turnToolsFor(binding));
-    const agentTools = offered(await this.#options.agentTools(binding.authority));
+    const agentTools = offered(await this.#options.agentTools(binding.authority, this.#browser(undefined)));
     const state: PiAgentState = {
       version: 1,
       authority: binding.authority,
@@ -1283,7 +1417,7 @@ export class PiConversationRuntime {
     }
     this.#state ??= await this.#options.storage.get<PiAgentState>(PI_AGENT_STATE_KEY);
     if (!this.#state) {
-      const offered = await this.#options.agentTools(attempt.authority);
+      const offered = await this.#options.agentTools(attempt.authority, this.#browser(undefined));
       const state: PiAgentState = {
         version: 1,
         authority: attempt.authority,

@@ -1,33 +1,81 @@
 /**
- * The cloud browser as a resident turn's `code` sees it.
+ * The cloud browser as a pi agent's `code` sees it.
  *
  * Browser Run lives behind the private Browser Gateway, and every command is
- * a bounded JSON request, so nothing about it needs a container: the Durable
- * Object forwards each command under the turn's own authority, exactly as the
- * turn broker does for the container executor. The model-facing surface
- * mirrors the desktop agent's: Playwright selectors, page scripts, cookies,
- * the network log, and screenshots.
+ * a bounded JSON request, so nothing about it needs a container: the
+ * conversation's Durable Object forwards each command under the agent run's
+ * own authority. The model-facing surface mirrors the desktop agent's:
+ * Playwright selectors, page scripts, cookies, the network log, and
+ * screenshots.
  *
  * A login handoff is the one command that does not complete. The gateway puts
  * the profile under human control and answers with a secret-free suspension;
- * the caller records it, the `code` call ends as `AgentToolSuspendedError`,
- * and the turn parks until the user finishes on their device.
+ * the `code` call ends as `AgentToolSuspendedError`, and the agent's run holds
+ * that call open until the user finishes on their device
+ * (`PiConversationRuntime`), then answers it with how the handoff ended.
  */
 import {
   isCloudBrowserSuspension,
   type CloudBrowserCommandRequest,
   type CloudBrowserSuspension,
 } from "@stella/contracts/cloud-browser";
-import type { ForwardedBrowserGatewayCommand } from "./build-session/turn-broker.js";
-import { sha256Hex } from "./hash.js";
+import { readBoundedResponseBytes } from "./bounded-body.js";
 
-/** Forward one command; the caller owns authority and suspension observation. */
-export type ResidentBrowserTransport = (
+/** A screenshot or a response body can be large; anything past this is refused. */
+const GATEWAY_RESPONSE_MAX_BYTES = 16 * 1024 * 1024;
+
+/** Whose command it is: the gateway binds a handoff to exactly this. */
+export type CloudBrowserAuthority = Readonly<{
+  ownerId: string;
+  ownerGeneration: string;
+  conversationId: string;
+  threadId: string;
+  turnId: string;
+  attemptGeneration: number;
+}>;
+
+export type ForwardedBrowserGatewayCommand =
+  | Readonly<{ kind: "failure"; status: number }>
+  | Readonly<{ kind: "forwarded"; status: number; body: Uint8Array }>;
+
+/** Forward one command under the caller's authority. */
+export type CloudBrowserTransport = (
   command: CloudBrowserCommandRequest,
-  input: Readonly<{ requestFingerprint: string; signal: AbortSignal }>,
+  signal: AbortSignal,
 ) => Promise<ForwardedBrowserGatewayCommand>;
 
-export type ResidentBrowserMethod =
+/** Commands to the private Browser Gateway over its service binding. */
+export const gatewayBrowserTransport =
+  (gateway: Fetcher, authority: CloudBrowserAuthority): CloudBrowserTransport =>
+  async (command, signal) => {
+    let response: Response;
+    try {
+      response = await gateway.fetch("https://browser-gateway/internal/turn/command", {
+        method: "POST",
+        headers: { "content-type": "application/json", "cache-control": "no-store" },
+        body: JSON.stringify({ schemaVersion: 1, authority, command }),
+        signal,
+        redirect: "manual",
+      });
+    } catch {
+      return { kind: "failure", status: signal.aborted ? 410 : 502 };
+    }
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel().catch(() => undefined);
+      return { kind: "failure", status: 502 };
+    }
+    try {
+      return {
+        kind: "forwarded",
+        status: response.status,
+        body: await readBoundedResponseBytes(response, GATEWAY_RESPONSE_MAX_BYTES),
+      };
+    } catch {
+      return { kind: "failure", status: 502 };
+    }
+  };
+
+export type CloudBrowserMethod =
   | "open"
   | "navigate"
   | "observe"
@@ -57,8 +105,8 @@ export type ResidentBrowserMethod =
   | "requestLoginTakeover"
   | "requestDeviceCodeFixture";
 
-export const RESIDENT_BROWSER_METHODS: ReadonlySet<string> =
-  new Set<ResidentBrowserMethod>([
+export const CLOUD_BROWSER_METHODS: ReadonlySet<string> =
+  new Set<CloudBrowserMethod>([
     "open",
     "navigate",
     "observe",
@@ -94,12 +142,12 @@ export const RESIDENT_BROWSER_METHODS: ReadonlySet<string> =
  * `code` tool reads the recorded suspension, not this error, so a cell that
  * catches it still ends the turn as a handoff.
  */
-export class ResidentBrowserSuspendedError extends Error {
+export class CloudBrowserSuspendedError extends Error {
   constructor() {
     super(
       "The browser is waiting for the user to finish signing in. Stop here; this step resumes once they are done.",
     );
-    this.name = "ResidentBrowserSuspendedError";
+    this.name = "CloudBrowserSuspendedError";
   }
 }
 
@@ -107,7 +155,7 @@ export class ResidentBrowserSuspendedError extends Error {
  * What `screenshot` resolves to on the host. The code tool lifts the image
  * into the call's result for the model; the sandbox only learns it was taken.
  */
-export type ResidentBrowserScreenshot = Readonly<{
+export type CloudBrowserScreenshot = Readonly<{
   image: Readonly<{
     mimeType: "image/jpeg";
     data: string;
@@ -116,20 +164,19 @@ export type ResidentBrowserScreenshot = Readonly<{
   }>;
 }>;
 
-export type ResidentBrowserClient = Readonly<{
+export type CloudBrowserClient = Readonly<{
   call(
     method: string,
     args: readonly unknown[],
     signal: AbortSignal,
   ): Promise<unknown>;
-  /** The handoff this turn is waiting on, if a takeover suspended it. */
+  /** The handoff this run is waiting on, if a takeover suspended it. */
   suspension(): CloudBrowserSuspension | undefined;
+  /** The handoff ended (the user finished, canceled, or it expired): commands may run again. */
+  resumed(): void;
   /** Whether any command reached the gateway and so may need a checkpoint. */
   used(): boolean;
-  /**
-   * Persist the profile at the end of a turn that is not handing off, the
-   * way the container path's `finalize_tabs` does before teardown.
-   */
+  /** Persist the profile at the end of a run that is not handing off. */
   checkpoint(signal: AbortSignal): Promise<void>;
 }>;
 
@@ -268,7 +315,7 @@ type Plan = Readonly<{
   params: Record<string, unknown>;
 }>;
 
-const planFor = (method: ResidentBrowserMethod, args: readonly unknown[]): Plan => {
+const planFor = (method: CloudBrowserMethod, args: readonly unknown[]): Plan => {
   switch (method) {
     case "open": {
       const url = requireString(args[0], "url");
@@ -451,9 +498,9 @@ const planFor = (method: ResidentBrowserMethod, args: readonly unknown[]): Plan 
   }
 };
 
-export const createResidentBrowserClient = (
-  transport: ResidentBrowserTransport,
-): ResidentBrowserClient => {
+export const createCloudBrowserClient = (
+  transport: CloudBrowserTransport,
+): CloudBrowserClient => {
   let suspension: CloudBrowserSuspension | undefined;
   let used = false;
 
@@ -464,9 +511,8 @@ export const createResidentBrowserClient = (
       action: plan.action,
       params: plan.params,
     };
-    const requestFingerprint = await sha256Hex(JSON.stringify(command));
     used = true;
-    const forwarded = await transport(command, { requestFingerprint, signal });
+    const forwarded = await transport(command, signal);
     if (forwarded.kind === "failure") {
       throw new Error(
         forwarded.status === 503
@@ -482,21 +528,21 @@ export const createResidentBrowserClient = (
     }
     if (outcome.outcome === "suspended") {
       suspension = outcome.suspension;
-      throw new ResidentBrowserSuspendedError();
+      throw new CloudBrowserSuspendedError();
     }
     return outcome.data;
   };
 
   return {
     call: async (method, args, signal) => {
-      if (!RESIDENT_BROWSER_METHODS.has(method)) {
+      if (!CLOUD_BROWSER_METHODS.has(method)) {
         throw new Error(`browser.${method || "?"} is not a browser method.`);
       }
       // Browser Run is fenced while the human owns it; nothing else may touch
-      // the profile until the turn that resumes it.
-      if (suspension) throw new ResidentBrowserSuspendedError();
+      // the profile until the handoff ends.
+      if (suspension) throw new CloudBrowserSuspendedError();
       const data = await send(
-        planFor(method as ResidentBrowserMethod, args),
+        planFor(method as CloudBrowserMethod, args),
         signal,
       );
       const observation =
@@ -544,13 +590,16 @@ export const createResidentBrowserClient = (
               width: Number(shot.width) || 0,
               height: Number(shot.height) || 0,
             },
-          } satisfies ResidentBrowserScreenshot;
+          } satisfies CloudBrowserScreenshot;
         }
         default:
           return data;
       }
     },
     suspension: () => suspension,
+    resumed: () => {
+      suspension = undefined;
+    },
     used: () => used,
     checkpoint: async (signal) => {
       if (!used || suspension) return;

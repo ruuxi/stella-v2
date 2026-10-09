@@ -236,6 +236,7 @@ import {
   createCloudCodeAgentTool,
   type CloudCodeSourceAgentTool,
 } from "./cloud-code-tool.js";
+import type { CloudBrowserClient } from "./cloud-browser.js";
 import { createCloudImageGenTool } from "./cloud-image-gen-tool.js";
 import { createCloudWebTool } from "./cloud-web-tool.js";
 import { createCloudHtmlTool } from "./cloud-html-tool.js";
@@ -377,6 +378,9 @@ import {
 /** Desktop keeps a connect card up about this long before giving up. */
 const CONNECT_CARD_WAIT_MS = 5 * 60_000;
 const CONNECT_CARD_POLL_MS = 2_000;
+/** How often a waiting agent checks whether its browser handoff ended, and how long past its deadline it waits. */
+const BROWSER_HANDOFF_POLL_MS = 2_000;
+const BROWSER_HANDOFF_GRACE_MS = 60_000;
 const WAKE_REPORT_INLINE_MAX_BYTES = 512 * 1024;
 
 type WakeReport = { prompt: string; lifecycleReport?: string };
@@ -5540,7 +5544,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                 },
               },
             }),
-          agentTools: (authority) => this.createPiAgentTools(authority),
+          agentTools: (authority, browser) =>
+            this.createPiAgentTools(authority, browser),
+          browserHandoff: (handoff, signal) =>
+            this.awaitPiBrowserHandoff(handoff, signal),
           agentGuard: (authority, turnId) =>
             this.piAgentGuard(authority, turnId),
           deviceAgents: this.piDeviceAgents(),
@@ -11163,14 +11170,18 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
 
   /**
    * A pi-durable cloud agent's own tools: web, and code with the owner's
-   * connectors (its files and shell are its container's). Built on the
-   * authority the agents keep, since they run between turns.
+   * connectors and the run's cloud browser (its files and shell are its
+   * container's). Built on the authority the agents keep, since they run
+   * between turns.
    */
-  private async createPiAgentTools(authority: {
-    ownerId: string;
-    ownerGeneration: string;
-    conversationId: string;
-  }): Promise<CloudCodeSourceAgentTool[]> {
+  private async createPiAgentTools(
+    authority: {
+      ownerId: string;
+      ownerGeneration: string;
+      conversationId: string;
+    },
+    browser: CloudBrowserClient | undefined,
+  ): Promise<CloudCodeSourceAgentTool[]> {
     const ownerInternal = async (name: string, args: unknown) =>
       unwrapRpc(
         await this.ownerGate(authority.ownerId).ownerInternal({
@@ -11197,8 +11208,74 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       tools: [web],
       executionScope: `${authority.ownerGeneration}:${authority.conversationId}:pi-agents`,
       connect: createCloudConnectClient(connectors),
+      ...(browser ? { browser } : {}),
     });
     return [code, web];
+  }
+
+  /**
+   * A pi agent's login handoff, shown to the user as the owner's browser
+   * interaction (every signed-in client lists `browser.pending`) and waited
+   * on until it ends. Polling is the wait, as for the connect card: the
+   * owner object closes the interaction when the user finishes or cancels
+   * it, or at its deadline. A stopped agent withdraws it.
+   */
+  private async awaitPiBrowserHandoff(
+    handoff: import("./pi-runtime.js").PiBrowserHandoff,
+    signal: AbortSignal | undefined,
+  ): Promise<import("./pi-runtime.js").PiBrowserHandoffEnd> {
+    const { authority, browser, suspension } = handoff;
+    const ownerInternal = async (name: string, args: unknown) =>
+      unwrapRpc(
+        await this.ownerGate(authority.ownerId).ownerInternal({
+          name,
+          args,
+          ownerGeneration: authority.ownerGeneration,
+        }),
+      );
+    const interaction = { interactionId: suspension.interactionId };
+    await ownerInternal("browser.handoffOpen", {
+      conversationId: browser.conversationId,
+      threadId: browser.threadId,
+      turnId: browser.turnId,
+      attemptGeneration: browser.attemptGeneration,
+      toolCallId: handoff.toolCallId,
+      suspension,
+    });
+    // The owner's expiry job closes it at its deadline; this one is a backstop.
+    const deadline = suspension.expiresAt + BROWSER_HANDOFF_GRACE_MS;
+    while (true) {
+      if (signal?.aborted || Date.now() >= deadline) {
+        await ownerInternal("browser.handoffCancel", interaction).catch(
+          () => undefined,
+        );
+        if (signal?.aborted) throw new Error("Browser handoff withdrawn.");
+        return { result: "expired", safeMessage: "Browser access expired." };
+      }
+      const state = (await ownerInternal(
+        "browser.handoffState",
+        interaction,
+      ).catch(() => undefined)) as
+        | { state: string; result?: string; safeMessage?: string }
+        | undefined;
+      if (
+        state &&
+        state.state !== "pending" &&
+        state.state !== "human_control" &&
+        state.result
+      ) {
+        return {
+          result: state.result as import("./pi-runtime.js").PiBrowserHandoffEnd["result"],
+          safeMessage: state.safeMessage ?? "Browser access ended.",
+        };
+      }
+      // An abort just ends the wait; the loop's next check withdraws it.
+      await sleepWithAbort(
+        BROWSER_HANDOFF_POLL_MS,
+        signal,
+        () => new Error("Browser handoff wait aborted."),
+      ).catch(() => undefined);
+    }
   }
 
   /**

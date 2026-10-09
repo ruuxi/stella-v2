@@ -18,7 +18,7 @@ export const CLOUD_CODE_SEARCH_INTRINSIC = "$search";
 export const CLOUD_CODE_DESCRIBE_INTRINSIC = "$describe";
 export const CLOUD_CODE_CONNECT_INTRINSIC = "$connect";
 export const CLOUD_CODE_HISTORY_INTRINSIC = "$history";
-/** Present only for a turn that holds a cloud browser (resident agents). */
+/** Present only for an agent's code, which holds the cloud browser. */
 export const CLOUD_CODE_BROWSER_INTRINSIC = "$browser";
 /**
  * Present only for an agent's code, which reaches the owner world: the

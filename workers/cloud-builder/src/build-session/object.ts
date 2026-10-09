@@ -36,6 +36,7 @@ import {
   quiesceCurrentAgentSession,
   runAgentAttempt,
   runContainerAgentTurn,
+  steerContainerAgent,
 } from "../build-session/container-turn.js";
 import {
   armOwnerFenceLeaseReconciliationAlarm,
@@ -860,6 +861,9 @@ export class BuildSessionObject extends DurableObject<Env> {
     }
     if (url.pathname === "/orchestrator-turn/prewarm") {
       return await prewarmOrchestratorContainer(this.self, request);
+    }
+    if (url.pathname === "/steer") {
+      return await steerContainerAgent(this.self, request);
     }
     if (url.pathname === "/cancel") {
       const raw = await request.json().catch(() => null);

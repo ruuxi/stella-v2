@@ -174,11 +174,11 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
       messageId: input.messageId.slice(0, 256),
       text: input.text,
     });
-    if (!steered.accepted && steered.reason === "unknown") {
+    if (!steered.accepted && steered.reason === "busy") {
       throw new RpcError(
         "CONFLICT",
-        `${input.threadId} works in its own container and takes no messages until it finishes. Wait for its report, or pause it.`,
-        { reason: "thread_busy" },
+        `${input.threadId} is starting up or just finishing in its container. Send the message again in a moment.`,
+        { retryable: true, reason: "thread_busy" },
       );
     }
     return steered.accepted;

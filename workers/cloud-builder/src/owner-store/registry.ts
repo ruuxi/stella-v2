@@ -74,8 +74,8 @@ export type OwnerHost = {
   dispatchDeviceAgentTurn(input: DeviceAgentTurnDispatch): Promise<{ dispatchId: string }>;
   /**
    * New input, or a framed message from another agent, for a cloud agent's
-   * running attempt; false when none is running. Refused for an agent in a
-   * container, which takes no input while it works.
+   * running attempt; false when none is running. Refused, retryably, while
+   * a container agent is starting up or finishing.
    */
   steerAgentTurn(input: {
     threadId: string;

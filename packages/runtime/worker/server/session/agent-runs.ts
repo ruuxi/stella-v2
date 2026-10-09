@@ -500,15 +500,6 @@ export const layer = Layer.effect(
             ...(requestId ? { requestId } : {}),
           });
         },
-        onProviderLifecycle: (ev) => {
-          if (hiddenSystemRunIds.has(ev.runId)) return;
-          emitRunEvent({
-            ...ev,
-            type: AGENT_STREAM_EVENT_TYPES.PROVIDER_LIFECYCLE,
-            conversationId,
-            ...(requestId ? { requestId } : {}),
-          });
-        },
         onToolStart: (ev) => {
           if (hiddenSystemRunIds.has(ev.runId)) {
             return;

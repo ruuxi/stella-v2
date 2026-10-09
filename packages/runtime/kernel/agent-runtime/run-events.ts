@@ -17,7 +17,6 @@ import type {
   RuntimeReasoningEvent,
   RuntimeRunStartedEvent,
   RuntimeStatusEvent,
-  RuntimeProviderLifecycleEvent,
   RuntimeToolEndEvent,
   RuntimeToolStartEvent,
 } from "./types.js";
@@ -184,26 +183,6 @@ export const createRunEventRecorder = ({
         seq,
         statusState,
         statusText: redactSensitiveText(statusText),
-        ...(currentUiVisibility ? { uiVisibility: currentUiVisibility } : {}),
-      };
-    },
-
-    recordProviderLifecycle(
-      event:
-        | import("./provider-stream-lifecycle.js").ProviderStreamLifecycleEvent
-        | import("./provider-stream-lifecycle.js").ProviderStreamSettlementEvent,
-    ): RuntimeProviderLifecycleEvent {
-      return {
-        runId,
-        agentType,
-        seq: nextSeq(),
-        providerLifecyclePhase: event.phase,
-        providerRequestIdSha256: event.requestIdSha256,
-        providerPhysicalAttempt: event.physicalAttempt,
-        providerStreamOrdinal: event.streamOrdinal,
-        providerName: event.provider,
-        providerModelId: event.modelId,
-        ...(event.outcome ? { providerOutcome: event.outcome } : {}),
         ...(currentUiVisibility ? { uiVisibility: currentUiVisibility } : {}),
       };
     },

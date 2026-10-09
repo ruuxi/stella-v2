@@ -12,7 +12,6 @@ import type {
   RuntimeErrorEvent,
   RuntimeExecutionSessionHandle,
   RuntimeReasoningEvent,
-  RuntimeProviderLifecycleEvent,
   RuntimeRunStartedEvent,
   RuntimeStatusEvent,
   RuntimeToolEndEvent,
@@ -210,7 +209,6 @@ export type AgentCallbacks = {
     },
   ) => void;
   onStatus?: (event: RuntimeStatusEvent) => void;
-  onProviderLifecycle?: (event: RuntimeProviderLifecycleEvent) => void;
   onToolStart: (event: RuntimeToolStartEvent) => void;
   onToolEnd: (event: RuntimeToolEndEvent) => void;
   onError: (event: RuntimeErrorEvent) => void;

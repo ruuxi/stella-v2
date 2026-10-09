@@ -22,10 +22,6 @@ import type {
   RuntimePromptMessage,
   RuntimeAgentEventPayload,
 } from "@stella/contracts/protocol";
-import type {
-  ProviderStreamLifecycleEvent,
-  ProviderStreamSettlementEvent,
-} from "./provider-stream-lifecycle.js";
 
 /**
  * One delta of a chunk-shaped runtime stream. Assistant text no longer travels
@@ -104,22 +100,6 @@ export type RuntimeStatusEvent = {
     | "provider-retry"
     | "model-fallback";
   statusText: string;
-  uiVisibility?: "visible" | "hidden";
-};
-
-export type RuntimeProviderLifecycleEvent = {
-  runId: string;
-  agentType: string;
-  seq: number;
-  providerLifecyclePhase:
-    | ProviderStreamLifecycleEvent["phase"]
-    | ProviderStreamSettlementEvent["phase"];
-  providerRequestIdSha256: string;
-  providerPhysicalAttempt: number;
-  providerStreamOrdinal: number;
-  providerName: string;
-  providerModelId: string;
-  providerOutcome?: "completed" | "canceled" | "error";
   uiVisibility?: "visible" | "hidden";
 };
 
@@ -206,7 +186,6 @@ export type RuntimeRunCallbacks = {
   onAssistantMessage?: (event: RuntimeAssistantMessageEvent) => void;
   onReasoning?: (event: RuntimeReasoningEvent) => void;
   onStatus?: (event: RuntimeStatusEvent) => void;
-  onProviderLifecycle?: (event: RuntimeProviderLifecycleEvent) => void;
   onToolStart: (event: RuntimeToolStartEvent) => void;
   onToolEnd: (event: RuntimeToolEndEvent) => void;
   onError: (event: RuntimeErrorEvent) => void;

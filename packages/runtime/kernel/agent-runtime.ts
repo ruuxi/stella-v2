@@ -14,7 +14,6 @@ export type {
   RuntimeToolEndEvent,
   RuntimeErrorEvent,
   RuntimeStatusEvent,
-  RuntimeProviderLifecycleEvent,
   RuntimeEndEvent,
   RuntimeAssistantMessageEvent,
   RuntimeUserMessageEvent,

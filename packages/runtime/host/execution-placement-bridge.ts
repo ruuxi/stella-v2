@@ -32,6 +32,7 @@ import {
   DeviceRequestServer,
   type ServeDeviceRequest,
 } from "./device-request-server.js";
+import { DeviceToolServer, type RunDeviceTool } from "./device-tool-server.js";
 import type { SqliteDatabase } from "../kernel/storage/shared.js";
 import {
   forkDelayed,
@@ -184,6 +185,13 @@ type PlacementBridgeOptions = {
    * own access policy; absent, every request is refused.
    */
   serveDeviceRequest?: ServeDeviceRequest;
+  /**
+   * Run a cloud agent's tool call (or describe this computer) that the owner
+   * gate relayed over the presence socket, with this computer's own tool
+   * host. The gate only relays to a computer enabled for remote work;
+   * absent, every call is refused.
+   */
+  runDeviceTool?: RunDeviceTool;
   log?: (level: "warn" | "error", message: string, error?: unknown) => void;
   now?: () => number;
   /** Test seam; production uses the accepted execution lease duration. */
@@ -888,6 +896,7 @@ export class ExecutionPlacementBridge {
   >();
 
   private readonly deviceRequests: DeviceRequestServer;
+  private readonly deviceTools: DeviceToolServer;
 
   constructor(private readonly options: PlacementBridgeOptions) {
     this.client = options.client;
@@ -895,6 +904,11 @@ export class ExecutionPlacementBridge {
     this.fetchImpl = options.fetch ?? globalThis.fetch;
     this.deviceRequests = new DeviceRequestServer({
       serve: options.serveDeviceRequest,
+      send: (frame) => this.send(frame),
+      log: (message, error) => this.log("warn", message, error),
+    });
+    this.deviceTools = new DeviceToolServer({
+      run: options.runDeviceTool,
       send: (frame) => this.send(frame),
       log: (message, error) => this.log("warn", message, error),
     });
@@ -1410,6 +1424,14 @@ export class ExecutionPlacementBridge {
         this.deviceRequests.cancel(frame.requestId);
         return;
       }
+      case "tool.call": {
+        this.deviceTools.handle(frame);
+        return;
+      }
+      case "tool.cancel": {
+        this.deviceTools.cancel(frame.requestId);
+        return;
+      }
       case "error": {
         this.log(
           "warn",
@@ -1687,6 +1709,8 @@ export class ExecutionPlacementBridge {
 
   async stop(): Promise<void> {
     if (this.stopTask) return await this.stopTask;
+    // A call nobody can answer any more stops here too.
+    this.deviceTools.stopAll();
     const task = this.stopAndQuiesce();
     this.stopTask = task;
     try {

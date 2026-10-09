@@ -763,6 +763,27 @@ export class StellaRuntimeHost {
                 }
                 return await serve(request);
             },
+            // A cloud agent's tool call runs in the worker, on this computer's
+            // tool host; a stop from the cloud stops it there.
+            runDeviceTool: async (call, signal) => {
+                const requestId = crypto.randomUUID();
+                const stop = () => {
+                    void this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_CANCEL_DEVICE_TOOL, { requestId }, {
+                        ensureWorker: false,
+                        recordActivity: false,
+                    }).catch(() => undefined);
+                };
+                signal.addEventListener("abort", stop, { once: true });
+                try {
+                    return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_DEVICE_TOOL, { requestId, call }, {
+                        ensureWorker: true,
+                        recordActivity: true,
+                    });
+                }
+                finally {
+                    signal.removeEventListener("abort", stop);
+                }
+            },
             getAvailability: async () => {
                 const platformCapabilities = process.platform === "darwin" || process.platform === "win32"
                     ? ["computer-use"]

@@ -1,6 +1,7 @@
 import { useEffect, type ReactNode } from "react";
 import {
   BackHandler,
+  Platform,
   StyleSheet,
   View,
   useWindowDimensions,
@@ -10,6 +11,7 @@ import Animated, {
   Extrapolation,
   interpolate,
   runOnJS,
+  useAnimatedProps,
   useAnimatedReaction,
   useAnimatedStyle,
   useReducedMotion,
@@ -27,11 +29,15 @@ import {
   useDrawerPan,
 } from "../../lib/drawer";
 import { tapLight } from "../../lib/haptics";
-import { useColors } from "../../theme/theme-context";
+import { BlurView } from "expo-blur";
+import { useColors, useTheme } from "../../theme/theme-context";
 import { GlassIconButton } from "../GlassIconButton";
-import { DrawerMaterial } from "./DrawerMaterial";
 
 const CLAMP = Extrapolation.CLAMP;
+const AnimatedBlur = Animated.createAnimatedComponent(BlurView);
+const BLUR = Platform.OS === "ios";
+const PAGE_BLUR = 30;
+const PANEL_BLUR = 34;
 
 export const DRAWER_CHEVRON_SIZE = 44;
 
@@ -52,6 +58,8 @@ export function DrawerStage({
   };
 }) {
   const colors = useColors();
+  const { isDark } = useTheme();
+  const tint = isDark ? "dark" : "light";
   const { travel, scale, radius } = useDrawerMetrics();
   const reduce = useReducedMotion();
   const live = useDrawerLive();
@@ -96,20 +104,8 @@ export function DrawerStage({
   const fade = useAnimatedStyle(() => ({
     opacity: drawerVeil(p.value),
   }));
-  const haze = useAnimatedStyle(() => ({
-    opacity: reduce
-      ? 0
-      : interpolate(drawerBlur(p.value), [0, 0.3], [0, 1], CLAMP),
-  }));
-  const mist = useAnimatedStyle(() => ({
-    opacity: reduce
-      ? 0
-      : interpolate(drawerBlur(p.value), [0.3, 0.7], [0, 1], CLAMP),
-  }));
-  const frost = useAnimatedStyle(() => ({
-    opacity: reduce
-      ? 0
-      : interpolate(drawerBlur(p.value), [0.6, 1], [0, 1], CLAMP),
+  const pageBlur = useAnimatedProps(() => ({
+    intensity: reduce ? 0 : drawerBlur(p.value) * PAGE_BLUR,
   }));
 
   const panelStyle = useAnimatedStyle(() => {
@@ -126,11 +122,13 @@ export function DrawerStage({
           ],
     };
   });
-  const panelFocus = useAnimatedStyle(() => ({
-    opacity:
-      reduce || p.value > 0.97
-        ? 0
-        : interpolate(p.value, [0, 0.9], [1, 0], CLAMP),
+  const panelFocus = useAnimatedProps(() => ({
+    intensity: reduce
+      ? 0
+      : interpolate(p.value, [0, 0.9], [PANEL_BLUR, 0], CLAMP),
+  }));
+  const panelFocusStyle = useAnimatedStyle(() => ({
+    opacity: p.value > 0.97 ? 0 : 1,
   }));
 
   const openPan = useDrawerPan("open", enabled && !open);
@@ -152,8 +150,13 @@ export function DrawerStage({
           onAccessibilityEscape={closeDrawer}
         >
           {panel}
-          {live ? (
-            <DrawerMaterial material="regular" style={panelFocus} />
+          {live && BLUR ? (
+            <AnimatedBlur
+              pointerEvents="none"
+              tint={tint}
+              animatedProps={panelFocus}
+              style={[StyleSheet.absoluteFill, panelFocusStyle]}
+            />
           ) : null}
         </Animated.View>
       </GestureDetector>
@@ -168,9 +171,14 @@ export function DrawerStage({
             {children}
             {live ? (
               <>
-                <DrawerMaterial material="ultraThin" style={haze} />
-                <DrawerMaterial material="thin" style={mist} />
-                <DrawerMaterial material="regular" style={frost} />
+                {BLUR ? (
+                  <AnimatedBlur
+                    pointerEvents="none"
+                    tint={tint}
+                    animatedProps={pageBlur}
+                    style={StyleSheet.absoluteFill}
+                  />
+                ) : null}
                 <Animated.View
                   pointerEvents="none"
                   style={[

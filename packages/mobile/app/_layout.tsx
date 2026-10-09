@@ -9,6 +9,7 @@ import {
 } from "expo-router";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import { loadAsync, useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
@@ -463,13 +464,15 @@ export default function RootLayout() {
     <ShareIntentProvider>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
-          <I18nProvider>
-            <ThemeProvider>
-              <ChatSearchProvider>
-                <AppLayout />
-              </ChatSearchProvider>
-            </ThemeProvider>
-          </I18nProvider>
+          <KeyboardProvider>
+            <I18nProvider>
+              <ThemeProvider>
+                <ChatSearchProvider>
+                  <AppLayout />
+                </ChatSearchProvider>
+              </ThemeProvider>
+            </I18nProvider>
+          </KeyboardProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </ShareIntentProvider>

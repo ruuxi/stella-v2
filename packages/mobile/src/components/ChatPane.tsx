@@ -67,9 +67,6 @@ import {
   type ChatDraftStore,
 } from "../lib/chat-draft-store";
 import Reanimated, {
-  KeyboardState,
-  useAnimatedKeyboard,
-  useAnimatedReaction,
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
@@ -94,6 +91,7 @@ import {
 } from "./MessageContextMenu";
 import { AppBackdrop } from "./AppBackdrop";
 import { useShellTopInset } from "./MainScreenSurface";
+import { useKeyboardHandler } from "react-native-keyboard-controller";
 import { MessageEvidenceStrip } from "./evidence/MessageEvidenceStrip";
 import { artifactPrimaryFilePath } from "../lib/mobile-artifacts";
 import { AppPreviewCard } from "./AppPreviewCard";
@@ -359,27 +357,21 @@ const MESSAGE_LONG_PRESS_MS = 420;
 // Keyboard inset — keeps the composer and message list above the OS keyboard.
 //
 // The *motion* of the composer and the message list is driven on the UI thread
-// from one value, reanimated's `useAnimatedKeyboard` (see `keyboardLift`), so
-// both move with the keyboard frame for frame and together. Nothing here may
-// re-render or re-lay-out the chat while the keyboard animates: the keyboard
-// moves in the render server regardless, and any main-thread layout work left
-// the composer frozen behind it while the list jumped ahead. So this hook
-// records the height the keyboard is heading to as a shared value at once,
-// and only publishes the settled height as JS state after the animation ends.
+// from one value, the keyboard's height as react-native-keyboard-controller
+// reads it from the keyboard's own animation every frame (see `keyboardLift`),
+// so both move with the keyboard frame for frame and together. Nothing here
+// may re-render or re-lay-out the chat while the keyboard animates: the
+// keyboard moves in the render server regardless, and any main-thread layout
+// work left the composer frozen behind it while the list jumped ahead. So this
+// hook only publishes the settled height as JS state after the animation ends.
 // ---------------------------------------------------------------------------
 
 function useKeyboardInset() {
   const bottomInset = useSafeAreaInsets().bottom;
   const [height, setHeight] = useState(0);
-  // The height the keyboard is heading to, for the composer's UI-thread lift.
-  const targetHeight = useSharedValue(0);
 
   useEffect(() => {
-    const onWillShow = (e: { endCoordinates: { height: number } }) => {
-      targetHeight.value = e.endCoordinates.height;
-    };
     const onDidShow = (e: { endCoordinates: { height: number } }) => {
-      targetHeight.value = e.endCoordinates.height;
       setHeight(e.endCoordinates.height);
     };
     const onDidHide = () => setHeight(0);
@@ -388,14 +380,11 @@ function useKeyboardInset() {
       Keyboard.addListener("keyboardDidShow", onDidShow),
       Keyboard.addListener("keyboardDidHide", onDidHide),
     ];
-    if (Platform.OS === "ios") {
-      subs.push(Keyboard.addListener("keyboardWillShow", onWillShow));
-    }
 
     return () => {
       for (const sub of subs) sub.remove();
     };
-  }, [targetHeight]);
+  }, []);
 
   const open = height > 0;
   // The composer's bottom pad is keyboard-independent: it always reserves the
@@ -406,7 +395,7 @@ function useKeyboardInset() {
   // animate.
   const composerBottomPad = 6 + bottomInset;
 
-  return { height, open, composerBottomPad, targetHeight };
+  return { height, open, composerBottomPad };
 }
 
 // ---------------------------------------------------------------------------
@@ -3299,41 +3288,36 @@ export function ChatPane({
   const { height: screenHeight } = useWindowDimensions();
 
   const inputRef = useRef<TextInput>(null);
-  const {
-    height: keyboardHeight,
-    composerBottomPad,
-    targetHeight: keyboardTargetHeight,
-  } = useKeyboardInset();
-  // UI-thread keyboard frame. Drives the composer's lift directly so it tracks
-  // the keyboard exactly — both rising and falling — instead of chasing it via
-  // a JS-scheduled layout animation that the OS curve always out-runs.
-  const keyboard = useAnimatedKeyboard();
-  // Once the keyboard settles, its height is the travel for the next close
-  // and open, including a height change while it's up (QuickType, emoji).
-  useAnimatedReaction(
-    () =>
-      keyboard.state.value === KeyboardState.OPEN ? keyboard.height.value : -1,
-    (settled) => {
-      if (settled > 0) keyboardTargetHeight.value = settled;
-    },
-  );
+  const { height: keyboardHeight, composerBottomPad } = useKeyboardInset();
   // The composer rests at `composerBottomPad` (the home-indicator band) above
-  // the screen bottom, and must end a constant gap above the keyboard, so it
-  // travels the keyboard height *minus* that band. Spread that travel over
-  // the keyboard's whole motion rather than waiting for the keyboard to climb
-  // past the band: the composer starts moving on the keyboard's first frame
-  // and the two land together, in both directions.
-  const keyboardTravelEstimate = Math.round(screenHeight * 0.38);
-  const keyboardLift = useDerivedValue(() => {
-    const height = keyboard.height.value;
-    const travel = Math.max(
-      keyboardTargetHeight.value || keyboardTravelEstimate,
-      height,
-    );
-    return travel > 0
-      ? (height / travel) * Math.max(0, travel - bottomInset)
-      : 0;
-  });
+  // the screen bottom and rides the keyboard's top edge, a constant gap above
+  // it, once the keyboard reaches it: it is lifted by the keyboard height
+  // minus that band.
+  const keyboardHeightNow = useSharedValue(0);
+  useKeyboardHandler(
+    {
+      onStart: (e) => {
+        "worklet";
+        if (e.duration === 0) keyboardHeightNow.value = e.height;
+      },
+      onMove: (e) => {
+        "worklet";
+        keyboardHeightNow.value = e.height;
+      },
+      onInteractive: (e) => {
+        "worklet";
+        keyboardHeightNow.value = e.height;
+      },
+      onEnd: (e) => {
+        "worklet";
+        keyboardHeightNow.value = e.height;
+      },
+    },
+    [],
+  );
+  const keyboardLift = useDerivedValue(() =>
+    Math.max(0, keyboardHeightNow.value - bottomInset),
+  );
   const composerKeyboardStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: -keyboardLift.value }],
   }));

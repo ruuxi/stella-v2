@@ -5,7 +5,6 @@ import { chatTurnFingerprintSource, cloudChatHandoffKey, cloudChatTurnKey, type 
 import { turnStartErrorResponse } from "./turn-start-request.js";
 import {
   cancelCloudAgentAttempt,
-  piThreadAttemptRequest,
   runsAsPiAgent,
 } from "./cloud-agent-dispatch.js";
 import type { ModelGatewayControl } from "./managed-request-cancellation.js";
@@ -47,6 +46,7 @@ import {
   GATEWAY_CAPABILITY_ISSUERS,
   GATEWAY_SESSION_CAPABILITY_TTL_MS,
   isManagedModelAudience,
+  type ManagedModelAudience,
 } from "@stella/contracts/gateway/capability";
 import { signCapability } from "@stella/contracts/gateway/jwt";
 import type { GatewaySessionCapabilityResponse } from "@stella/contracts/gateway/api";
@@ -3325,7 +3325,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       ...(row.parent_turn_id ? { parentTurnId: row.parent_turn_id } : {}),
     };
     if (runsAsPiAgent(request.execution)) {
-      return await this.startPiPlacedAgent(row, request, now);
+      return await this.startPiPlacedAgent(row, {
+        ...request,
+        execution: request.execution,
+      }, now);
     }
     const response = await sessions
       .getByName(threadId)
@@ -3361,34 +3364,34 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
 
   /**
    * A placed agent on Stella's models runs in its conversation as a pi
-   * agent, which admits each of its runs itself, so this dispatch's own hold
-   * goes back once the conversation has it. Its report settles the dispatch
-   * by its id, as a BuildSession agent's terminal does.
+   * agent, started at once; pi admits each of its runs itself, so this
+   * dispatch's own hold goes back once the conversation has it. Its report
+   * settles the dispatch by its id, as a BuildSession agent's terminal does.
    */
   private async startPiPlacedAgent(
     row: DispatchRow,
-    request: CloudAgentTurnStartRequest,
+    request: CloudAgentTurnStartRequest & {
+      execution: Extract<CloudAgentTurnStartRequest["execution"], { engine: "stella" }>;
+    },
     now: number,
   ): Promise<DispatchRow> {
     const sessions = this.env.ORCHESTRATOR_SESSIONS;
     if (!sessions) throw new Error("Orchestrator sessions unavailable.");
-    const response = await sessions.getByName(row.conversation_id).fetch(
-      await piThreadAttemptRequest({
-        ownerId: request.ownerId,
-        ownerGeneration: request.ownerGeneration,
-        conversationId: row.conversation_id,
-        prompt: request.prompt,
-        execution: request.execution,
-        attempt: {
-          threadId: request.threadId,
-          description: request.description,
-          turnId: row.dispatch_id,
-          attemptGeneration: 1,
-        },
-      }),
-    );
-    if (!response.ok) return await this.cloudRefusal(row, response, now);
-    await response.body?.cancel().catch(() => undefined);
+    await sessions.getByName(row.conversation_id).startPiThread({
+      ownerId: request.ownerId,
+      ownerGeneration: request.ownerGeneration,
+      conversationId: row.conversation_id,
+      audience: request.audience as ManagedModelAudience,
+      budgetMicroCents: request.budgetMicroCents,
+      execution: request.execution,
+      prompt: request.prompt,
+      attempt: {
+        threadId: request.threadId,
+        description: request.description,
+        turnId: row.dispatch_id,
+        attemptGeneration: 1,
+      },
+    });
     await this.releaseGate(row);
     return await this.patchDispatch(
       row,

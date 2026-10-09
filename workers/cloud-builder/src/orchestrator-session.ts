@@ -7,6 +7,7 @@ import type {
 import type {
   PiThreadPause,
   PiThreadPauseResult,
+  PiThreadStart,
   PiThreadSteer,
   PiThreadSteerResult,
 } from "./cloud-agent-dispatch.js";
@@ -71,6 +72,10 @@ export class OrchestratorSession extends DurableObject<Env> {
     args: OwnerModelGrantFreezeRequest,
   ): Promise<{ frozen: true }> {
     return await (await this.loadImplementation()).freezeOwnerModelGrants(args);
+  }
+
+  async startPiThread(input: PiThreadStart): Promise<void> {
+    await (await this.loadImplementation()).startPiThread(input);
   }
 
   async steerPiThread(input: PiThreadSteer): Promise<PiThreadSteerResult> {

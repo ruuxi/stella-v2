@@ -210,6 +210,7 @@ import {
   type CloudAgentToolOutcome,
   type PiThreadPause,
   type PiThreadPauseResult,
+  type PiThreadStart,
   type PiThreadSteer,
   type PiThreadSteerResult,
 } from "./cloud-agent-dispatch.js";
@@ -456,8 +457,6 @@ export type ChatTurnRequest = {
   agentThreadControl?: CloudAgentControlReceipt;
   /** A computer's orchestrator controlling its cloud agent; the turn does that instead of answering. */
   piAgent?: import("@stella/contracts/turn-plane/turn-start").CloudPiAgentRequest;
-  /** An agent thread's attempt, run as a pi agent here; the turn starts it instead of answering. */
-  piThread?: import("@stella/contracts/turn-plane/turn-start").CloudPiThreadAttempt;
   wakeReportSpillKey?: string;
   watchdogMs?: number;
   /** Worker-issued owner purge lease generation. */
@@ -618,7 +617,7 @@ type PiThreadAttemptRecord = {
   terminal?: PiThreadOutcome & { completedAt: number };
 };
 
-/** An agent thread whose attempts run as a pi agent here (`piThread` turns). */
+/** An agent thread whose attempts run as a pi agent here (`startPiThread`). */
 type PiThreadRecord = {
   ownerId: string;
   ownerGeneration: string;
@@ -745,6 +744,32 @@ const cloudExecutionContext = (
     destination: { kind: "cloud" },
     media: { stella: mediaAccessForAudience(turn.audience) },
   });
+
+/** A Stella model as pi's `stella` provider serves it, for one agent type and audience. */
+const piModelSpec = (
+  agentType: "orchestrator" | "general",
+  execution: Extract<CloudExecutionSelection, { engine: "stella" }>,
+  audience: ManagedModelAudience,
+): import("@stella/agent/provider/stella").StellaModelSpec => {
+  const descriptor = resolveManagedModelDescriptor({
+    agentType,
+    requestedModel: execution.model,
+    audience,
+  });
+  return {
+    agentType,
+    alias: execution.model,
+    protocol: descriptor.protocol,
+    reasoning: descriptor.reasoning,
+    supportsImages: descriptor.supportsImages,
+    ...(descriptor.contextWindow !== undefined
+      ? { contextWindow: descriptor.contextWindow }
+      : {}),
+    ...(descriptor.maxOutputTokens !== undefined
+      ? { maxOutputTokens: descriptor.maxOutputTokens }
+      : {}),
+  };
+};
 
 const CLI_TURN_POLL_MS = 20_000;
 /** A tool forward waits this long for a resumed turn to rebuild its tools. */
@@ -3836,12 +3861,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           : {}),
         ...(start.source ? { source: start.source } : {}),
         ...(start.title ? { title: start.title } : {}),
-        // An agent's brief is context for the agent, not a message.
-        ...(start.hiddenMessage || start.piAgent || start.piThread
-          ? { hiddenMessage: true }
-          : {}),
+        // A computer's agent brief is context for the agent, not a message.
+        ...(start.hiddenMessage || start.piAgent ? { hiddenMessage: true } : {}),
         ...(start.piAgent ? { piAgent: start.piAgent } : {}),
-        ...(start.piThread ? { piThread: start.piThread } : {}),
         ...(start.locale ? { locale: start.locale } : {}),
         ...(start.attachments ? { attachments: start.attachments } : {}),
         ...(start.agentThreadControl
@@ -4651,12 +4673,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // pi-durable (`runPiTurn`).
       const harnessExecution =
         turn.execution.engine === "anthropic" ? undefined : turn.execution;
-      if (
-        (turn.piAgent || turn.piThread) &&
-        harnessExecution?.engine !== "stella"
-      ) {
+      if (turn.piAgent && harnessExecution?.engine !== "stella") {
         throw new Error(
-          "A cloud agent that runs here runs on Stella's models; this turn uses another engine.",
+          "A computer's cloud agents run on Stella's models; this conversation's cloud turns use another engine.",
         );
       }
       // Admission already bound the owner; this only re-asserts it and sets
@@ -5197,26 +5216,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     const modelSpec = (
       agentType: "orchestrator" | "general",
       execution: Extract<CloudExecutionSelection, { engine: "stella" }>,
-    ) => {
-      const descriptor = resolveManagedModelDescriptor({
-        agentType,
-        requestedModel: execution.model,
-        audience: turn.audience,
-      });
-      return {
-        agentType,
-        alias: execution.model,
-        protocol: descriptor.protocol,
-        reasoning: descriptor.reasoning,
-        supportsImages: descriptor.supportsImages,
-        ...(descriptor.contextWindow !== undefined
-          ? { contextWindow: descriptor.contextWindow }
-          : {}),
-        ...(descriptor.maxOutputTokens !== undefined
-          ? { maxOutputTokens: descriptor.maxOutputTokens }
-          : {}),
-      };
-    };
+    ) => piModelSpec(agentType, execution, turn.audience);
     const binding: import("./pi-runtime.js").PiTurnBinding = {
       turnId: turn.turnId,
       capability: args.capability,
@@ -5344,10 +5344,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           op: turn.piAgent.op,
           threadId: turn.piAgent.threadId,
         });
-        return await this.completeChatTurn(turn, "", args.started);
-      }
-      if (turn.piThread) {
-        await this.startPiThreadAttempt(runtime, turn, turn.piThread, context);
         return await this.completeChatTurn(turn, "", args.started);
       }
       // What other writers journaled since (a computer's turns, another
@@ -5726,22 +5722,39 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   // ---------------------------------------------------------------------------
-  // Agent threads on Stella's models (`piThread` turns)
+  // Agent threads on Stella's models
   // ---------------------------------------------------------------------------
 
   /**
-   * Hand one attempt of an agent thread to pi, as its agent here. The attempt
-   * is kept before pi has it, so a turn that ends first still settles it
-   * (`settleStrandedPiThreadAttempt`); the owner's agent threads learn it
-   * started once pi has it.
+   * Start one attempt of an agent thread as a pi agent here, right away: pi
+   * runs it in the background whatever turn this conversation is running,
+   * on the authority its dispatcher admitted. The attempt is recorded before
+   * pi has it, so a pause that arrives first stops it, and a retried
+   * dispatch hands it over once. The owner's agent threads learn it started
+   * once pi has it.
    */
-  private async startPiThreadAttempt(
-    runtime: import("./pi-runtime.js").PiConversationRuntime,
-    turn: ChatTurnRequest,
-    attempt: import("@stella/contracts/turn-plane/turn-start").CloudPiThreadAttempt,
-    context: import("@earendil-works/chord").Context,
-  ): Promise<void> {
-    let record = await this.piThreadRecord(turn, attempt);
+  async startPiThread(input: PiThreadStart): Promise<void> {
+    const { attempt } = input;
+    if (this.purged()) throw new Error("This conversation was deleted.");
+    const owner = this.journal.meta().owner_id;
+    if (owner && owner !== input.ownerId) {
+      throw new Error("This conversation belongs to another account.");
+    }
+    let record =
+      (await this.ctx.storage.get<PiThreadRecord>(
+        piThreadKey(attempt.threadId),
+      )) ??
+      ({
+        ownerId: input.ownerId,
+        ownerGeneration: input.ownerGeneration,
+        threadId: attempt.threadId,
+        description: attempt.description,
+        ...(attempt.originDeviceId
+          ? { originDeviceId: attempt.originDeviceId }
+          : {}),
+        attempts: [],
+        settledThrough: 0,
+      } satisfies PiThreadRecord);
     if (attempt.attemptGeneration <= record.settledThrough) return;
     let open = record.attempts.find(
       (entry) => entry.attemptGeneration === attempt.attemptGeneration,
@@ -5762,78 +5775,79 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       });
       return;
     }
-    if (!open.handedOff) {
-      await runtime.threadAttempt(
-        {
-          threadId: attempt.threadId,
-          description: attempt.description,
-          attemptGeneration: attempt.attemptGeneration,
+    if (open.handedOff) return;
+    const [runtime, { contextFor }, destinations] = await Promise.all([
+      this.openPiRuntime(this.piGatewayOrigin()),
+      import("./pi-runtime.js"),
+      this.ownerGate(input.ownerId)
+        .devices()
+        .catch(() => null),
+    ]);
+    await runtime.threadAttempt(
+      {
+        threadId: attempt.threadId,
+        description: attempt.description,
+        attemptGeneration: attempt.attemptGeneration,
+        authority: {
+          ownerId: input.ownerId,
+          ownerGeneration: input.ownerGeneration,
+          conversationId: input.conversationId,
+          audience: input.audience,
+          budgetMicroCents: input.budgetMicroCents,
+          execution: input.execution,
         },
-        turn.prompt,
-        turn.turnId,
-        context,
-      );
-      const now = Date.now();
-      await this.updatePiThreadRecord(attempt.threadId, (current) => ({
-        ...current,
-        attempts: current.attempts.map((entry) =>
-          entry.attemptGeneration === attempt.attemptGeneration
-            ? { ...entry, handedOff: true }
-            : entry,
-        ),
-      }));
-      await this.deferOwnerEvents([
-        {
-          v: OWNER_EVENT_VERSION,
-          key: attempt.turnId,
-          ownerId: turn.ownerId,
-          ownerGeneration: turn.ownerGeneration,
-          emittedAt: now,
-          kind: "turn.started",
-          turnId: attempt.turnId,
-          turnKind: "agent",
-          conversationId: turn.conversationId,
-          sessionId: attempt.threadId,
-          lane: "agent",
-          source: "agent-thread",
-          clientMsgId: turn.clientMsgId,
-          threadId: attempt.threadId,
-          attemptGeneration: attempt.attemptGeneration,
-          agentType: "general",
-          execution: turn.execution,
-          prompt: turn.prompt,
-          createdAt: now,
-        },
-      ]);
+        model: piModelSpec("general", input.execution, input.audience),
+        executionContext: cloudExecutionContext(input, destinations),
+      },
+      input.prompt,
+      contextFor(),
+    );
+    const now = Date.now();
+    const handed = await this.updatePiThreadRecord(attempt.threadId, (current) => ({
+      ...current,
+      attempts: current.attempts.map((entry) =>
+        entry.attemptGeneration === attempt.attemptGeneration
+          ? { ...entry, handedOff: true }
+          : entry,
+      ),
+    }));
+    await this.deferOwnerEvents([
+      {
+        v: OWNER_EVENT_VERSION,
+        key: attempt.turnId,
+        ownerId: input.ownerId,
+        ownerGeneration: input.ownerGeneration,
+        emittedAt: now,
+        kind: "turn.started",
+        turnId: attempt.turnId,
+        turnKind: "agent",
+        conversationId: input.conversationId,
+        sessionId: attempt.threadId,
+        lane: "agent",
+        source: "agent-thread",
+        threadId: attempt.threadId,
+        attemptGeneration: attempt.attemptGeneration,
+        agentType: "general",
+        execution: input.execution,
+        prompt: input.prompt,
+        createdAt: now,
+      },
+    ]);
+    // Paused while pi took it: it stops now, and settles as canceled.
+    if (
+      handed?.attempts.find(
+        (entry) => entry.attemptGeneration === attempt.attemptGeneration,
+      )?.pausing
+    ) {
+      await runtime.pauseThreadAgent(attempt.threadId, contextFor());
     }
+    // Agents keep this object waking while they run.
+    await this.piHeartbeat().catch(() => undefined);
     log("info", "pi_thread_attempt_started", {
-      turnId: turn.turnId,
       threadId: attempt.threadId,
       attemptTurnId: attempt.turnId,
       attemptGeneration: attempt.attemptGeneration,
     });
-  }
-
-  /** The thread's record here, made on its first attempt. */
-  private async piThreadRecord(
-    turn: Pick<ChatTurnRequest, "ownerId" | "ownerGeneration">,
-    attempt: import("@stella/contracts/turn-plane/turn-start").CloudPiThreadAttempt,
-  ): Promise<PiThreadRecord> {
-    const stored = await this.ctx.storage.get<PiThreadRecord>(
-      piThreadKey(attempt.threadId),
-    );
-    if (stored) return stored;
-    return {
-      ownerId: turn.ownerId,
-      ownerGeneration: turn.ownerGeneration,
-      threadId: attempt.threadId,
-      description: attempt.description,
-      ...(attempt.originDeviceId
-        ? { originDeviceId: attempt.originDeviceId }
-        : {}),
-      attempts: [],
-      settledThrough: 0,
-    };
   }
 
   private async updatePiThreadRecord(
@@ -5901,40 +5915,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       ...outcome,
       ...(report.files?.length ? { files: report.files } : {}),
     });
-  }
-
-  /**
-   * The attempt this turn carried, when it ends without pi having it: a
-   * turn that failed, was stopped, or was refused before it started it.
-   */
-  private async settleStrandedPiThreadAttempt(
-    turn: ChatTurnRequest,
-    attempt: import("@stella/contracts/turn-plane/turn-start").CloudPiThreadAttempt,
-  ): Promise<void> {
-    const record = await this.piThreadRecord(turn, attempt);
-    if (attempt.attemptGeneration <= record.settledThrough) return;
-    const open = record.attempts.find(
-      (entry) => entry.attemptGeneration === attempt.attemptGeneration,
-    );
-    if (open?.handedOff) return;
-    await this.settlePiThreadAttempts(
-      open
-        ? record
-        : {
-            ...record,
-            attempts: [
-              ...record.attempts,
-              {
-                turnId: attempt.turnId,
-                attemptGeneration: attempt.attemptGeneration,
-              },
-            ],
-          },
-      attempt.attemptGeneration,
-      open?.pausing
-        ? { status: "canceled", errorMessage: "Paused by orchestrator." }
-        : { status: "failed", errorMessage: "The agent could not start." },
-    );
   }
 
   /**
@@ -6150,7 +6130,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
 
   /**
    * Pause one exact attempt of an agent thread whose agent runs here. Its
-   * attempt settles as canceled once its run stops, or when its turn comes
+   * attempt settles as canceled once its run stops, or as it is handed over
    * if pi does not have it yet.
    */
   async pausePiThread(input: PiThreadPause): Promise<PiThreadPauseResult> {
@@ -6599,9 +6579,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       writerKey: `turn:${turn.turnId}:prompt`,
       role: "user",
       hidden: turn.hiddenMessage === true,
-      // An agent thread's brief is its agent's context, not this
-      // conversation's.
-      ...(turn.piThread ? { modelSkip: true } : {}),
       clientMsgId: turn.clientMsgId,
       createdAt: now,
       message: durablePrompt,
@@ -7617,17 +7594,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    */
   private async afterTerminal(turn: ChatTurnRequest): Promise<void> {
     this.finalizedTurnId = turn.turnId;
-    // An agent thread's attempt this turn never handed to pi still settles.
-    if (turn.piThread) {
-      await this.settleStrandedPiThreadAttempt(turn, turn.piThread).catch(
-        (error: unknown) => {
-          log("error", "pi_thread_attempt_settle_failed", {
-            threadId: turn.piThread?.threadId,
-            message: errorMessage(error),
-          });
-        },
-      );
-    }
     const now = Date.now();
     const indexAt = performance.now();
     await this.index
@@ -10617,10 +10583,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             }),
           releaseOwnerGate: async (input) => await this.releaseOwnerGate(input),
           deliverOwnerEvents: async (events) => await this.deferOwnerEvents([...events]),
-          // An agent on Stella's models runs in this conversation, after
-          // the turn that spawned it.
-          startConversationTurn: async (_conversationId, request) =>
-            await this.handleTurnStart(request),
+          // An agent on Stella's models runs in this conversation, at once.
+          startPiThread: async (input) => await this.startPiThread(input),
         },
         caller: {
           ownerId: turn.ownerId,

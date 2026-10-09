@@ -1,34 +1,22 @@
 import type { AgentToolResult } from "@stella/runtime/kernel/agent-core/types.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { CloudBrowserResumeReceipt } from "@stella/contracts/cloud-browser";
+import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 import {
   OWNER_EVENT_VERSION,
   type ThreadSpawnedEvent,
 } from "@stella/contracts/turn-plane/owner-events";
 import {
-  TURN_OWNER_GENERATION_HEADER,
   TURN_PLANE_PROTOCOL,
   TURN_PROMPT_MAX_CHARS,
-  TURN_TITLE_MAX_CHARS,
   type CloudAgentTurnSource,
   type CloudAgentTurnStartRequest,
   type CloudAgentTurnStartResponse,
-  type CloudPiThreadAttempt,
-  type CloudTurnStartError,
-  type CloudTurnStartRequest,
 } from "@stella/contracts/turn-plane/turn-start";
-import {
-  HEADER_CONVERSATION_ID,
-  ORCHESTRATOR_INTERNAL_ORIGIN,
-} from "./build-session/shared/keys.js";
-import { HEADER_OWNER } from "./conversation-types.js";
 import type { OwnerGateAdmission } from "./owner-gate.js";
 import { snapshotAllowsExecutionEngine } from "./owner-gate.js";
-import {
-  HEADER_GATE_ADMITTED,
-  HEADER_TURN_AUTH_KIND,
-  parseCloudExecutionSelection,
-} from "./turn-start-request.js";
+import { HEADER_GATE_ADMITTED } from "./turn-start-request.js";
+import { parseCloudExecutionSelection } from "./turn-start-request.js";
 import { sha256Hex } from "./hash.js";
 
 export const MAX_CLOUD_AGENT_DEPTH = 2;
@@ -367,14 +355,10 @@ type CloudAgentDispatchEnv = Pick<
 export type CloudAgentDispatchDependencies = Readonly<{
   env: CloudAgentDispatchEnv;
   /**
-   * A service turn start on the thread's conversation, for an attempt that
-   * runs there as a pi agent. Defaults to the conversation's object; the
-   * conversation itself passes its own turn start.
+   * Start an attempt that runs as its conversation's pi agent. Defaults to
+   * the conversation's object; the conversation itself starts it in place.
    */
-  startConversationTurn?: (
-    conversationId: string,
-    request: Request,
-  ) => Promise<Response>;
+  startPiThread?: (input: PiThreadStart) => Promise<void>;
   ownerGateAdmit: (input: {
     ownerId: string;
     turnId: string;
@@ -458,21 +442,16 @@ export const dispatchCloudAgentTurn = async (args: {
   }
   if (runsAsPiAgent(attempt.execution)) {
     // Admitted above only so a refusal (the plan, the owner's limits)
-    // reaches the caller now: its conversation admits the turn that hands it
-    // over, and pi admits each of its runs on the agent lane.
+    // reaches the caller now: pi admits each of its runs on the agent lane.
     await release();
-    await startPiThreadAttempt({
-      start:
-        dependencies.startConversationTurn ??
-        ((conversationId, request) =>
-          dependencies.env.ORCHESTRATOR_SESSIONS.getByName(
-            conversationId,
-          ).fetch(request)),
+    const start: PiThreadStart = {
       ownerId: caller.ownerId,
       ownerGeneration: caller.ownerGeneration,
       conversationId: caller.conversationId,
-      prompt: attempt.prompt,
+      audience: ownerSnapshot.allowance.audience,
+      budgetMicroCents: ownerSnapshot.allowance.budgetMicroCents,
       execution: attempt.execution,
+      prompt: attempt.prompt,
       attempt: {
         threadId: attempt.threadId,
         description: attempt.description,
@@ -482,7 +461,18 @@ export const dispatchCloudAgentTurn = async (args: {
           ? { originDeviceId: attempt.originDeviceId }
           : {}),
       },
-    });
+    };
+    try {
+      await (dependencies.startPiThread
+        ? dependencies.startPiThread(start)
+        : dependencies.env.ORCHESTRATOR_SESSIONS.getByName(
+            caller.conversationId,
+          ).startPiThread(start));
+    } catch (error) {
+      throw new Error(
+        `Starting the agent failed: ${errorMessage(error)}`.slice(0, 400),
+      );
+    }
     return await projectSpawnedAttempt(dependencies, caller, attempt, agentDepth);
   }
   const publicOrigin = (dependencies.env.CLOUD_BUILDER_PUBLIC_URL ?? "")
@@ -621,80 +611,41 @@ const projectSpawnedAttempt = async (
 };
 
 /** Whether an attempt on this execution runs as its conversation's pi agent rather than in a container. */
-export const runsAsPiAgent = (execution: CloudExecutionSelection): boolean =>
+export const runsAsPiAgent = (
+  execution: CloudExecutionSelection,
+): execution is Extract<CloudExecutionSelection, { engine: "stella" }> =>
   execution.engine === "stella";
 
-type PiThreadAttemptStart = {
+/**
+ * One attempt of an agent thread the owner's agent threads track (a Claude
+ * Code orchestrator's spawn, a computer's cloud dispatch, a placed agent)
+ * that runs on Stella's models, as its conversation's pi agent.
+ */
+export type PiThreadAttempt = Readonly<{
+  threadId: string;
+  description: string;
+  /** The attempt's turn id in the agent threads (a placed agent's dispatch id). */
+  turnId: string;
+  attemptGeneration: number;
+  /** A computer's dispatch: its report reaches that computer through the agent threads, not a wake here. */
+  originDeviceId?: string;
+}>;
+
+/**
+ * Start one attempt in its conversation (`OrchestratorSession.startPiThread`)
+ * on the authority its dispatcher admitted: the owner's plan audience and
+ * budget, and the attempt's Stella execution.
+ */
+export type PiThreadStart = Readonly<{
   ownerId: string;
   ownerGeneration: string;
   conversationId: string;
+  audience: ManagedModelAudience;
+  budgetMicroCents: number;
+  execution: Extract<CloudExecutionSelection, { engine: "stella" }>;
   prompt: string;
-  execution: CloudExecutionSelection;
-  attempt: CloudPiThreadAttempt;
-};
-
-/**
- * The service turn that hands one attempt to its conversation, which runs
- * it as a pi agent (a `piThread` turn). Its client id is the attempt's, so
- * a retried dispatch is a replay.
- */
-export const piThreadAttemptRequest = async (
-  args: PiThreadAttemptStart,
-): Promise<Request> => {
-  const body: CloudTurnStartRequest = {
-    protocol: TURN_PLANE_PROTOCOL,
-    clientMsgId: `pit:${(
-      await sha256Hex(
-        `${args.attempt.threadId}\0${args.attempt.attemptGeneration}\0${args.attempt.turnId}`,
-      )
-    ).slice(0, 48)}`,
-    prompt: args.prompt,
-    execution: args.execution,
-    lane: "wake",
-    source: "agent-thread",
-    // Names a conversation this attempt creates.
-    title: args.attempt.description.slice(0, TURN_TITLE_MAX_CHARS),
-    piThread: {
-      ...args.attempt,
-      description: args.attempt.description.slice(0, 1_000),
-    },
-  };
-  return new Request(`${ORCHESTRATOR_INTERNAL_ORIGIN}/turn`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      [HEADER_OWNER]: args.ownerId,
-      [HEADER_TURN_AUTH_KIND]: "service",
-      [HEADER_CONVERSATION_ID]: args.conversationId,
-      [TURN_OWNER_GENERATION_HEADER]: args.ownerGeneration,
-    },
-    body: JSON.stringify(body),
-  });
-};
-
-/** Hand one attempt to its conversation's pi agent; a refusal throws. */
-export const startPiThreadAttempt = async (
-  args: PiThreadAttemptStart & {
-    start: (conversationId: string, request: Request) => Promise<Response>;
-  },
-): Promise<void> => {
-  const response = await args.start(
-    args.conversationId,
-    await piThreadAttemptRequest(args),
-  );
-  if (response.ok) {
-    await response.body?.cancel().catch(() => undefined);
-    return;
-  }
-  const refusal = (await response
-    .json()
-    .catch(() => null)) as Partial<CloudTurnStartError> | null;
-  const message =
-    refusal?.error?.message ?? `Starting the agent failed (${response.status}).`;
-  throw refusal?.error?.retryable === false
-    ? new CloudAgentDispatchRefused(message)
-    : new Error(message);
-};
+  attempt: PiThreadAttempt;
+}>;
 
 /** New input for a running pi agent of an agent thread (`OrchestratorSession.steerPiThread`). */
 export type PiThreadSteer = Readonly<{

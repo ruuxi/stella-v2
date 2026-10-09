@@ -758,11 +758,13 @@ export function stellaAgents(host: StellaAgentsHost) {
       threadId?: string;
       /** Started for another host's orchestrator, which gets its reports. */
       origin?: AgentOrigin;
+      /** The model it runs on, when that host chose it rather than this orchestrator's own. */
+      model?: ModelRef;
     },
     context: Context,
   ): Promise<{ threadId: string; existing: boolean }> => {
     const root = await harness.root(context);
-    const runsOn = childRun(await root.agent(context));
+    const runsOn = args.model ? { model: args.model } : childRun(await root.agent(context));
     return await harness.commit(
       (tx) =>
         createAgent(tx, {

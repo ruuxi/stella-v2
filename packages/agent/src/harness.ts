@@ -86,7 +86,14 @@ export type OpenStellaHarness = {
   refreshTools(): void;
   /** Start an agent the host asked for (see `stellaAgents`). */
   startAgent(
-    args: { key: string; description: string; prompt: string; threadId?: string; origin?: AgentOrigin },
+    args: {
+      key: string;
+      description: string;
+      prompt: string;
+      threadId?: string;
+      origin?: AgentOrigin;
+      model?: ModelRef;
+    },
     context: Context,
   ): Promise<{ threadId: string; existing: boolean }>;
   /** Pause one of the orchestrator's agents by thread id. */

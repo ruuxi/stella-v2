@@ -1754,26 +1754,6 @@ export class SessionStore {
     );
   }
 
-  truncateConversationAtEvent(
-    conversationIdInput: unknown,
-    eventIdInput: string,
-  ): { removed: number } {
-    return this.chat.truncateConversationAtEvent(
-      this.sanitizeConversationId(conversationIdInput),
-      eventIdInput,
-    );
-  }
-
-  forkConversationBeforeEvent(
-    conversationIdInput: unknown,
-    eventIdInput: string,
-  ): { conversationId: string } | null {
-    return this.chat.forkConversationBeforeEvent(
-      this.sanitizeConversationId(conversationIdInput),
-      eventIdInput,
-    );
-  }
-
   openEventWindow(conversationIdInput: unknown, maxItems: number) {
     return this.chat.openEventWindow(
       this.sanitizeConversationId(conversationIdInput),

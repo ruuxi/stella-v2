@@ -182,13 +182,10 @@
       "messageActions": {
         "copied": "कॉपी हुआ",
         "copy": "कॉपी करें",
-        "fork": "Fork to new chat",
         "more": "अधिक क्रियाएँ",
         "quote": "Quote",
         "readAloud": "ज़ोर से पढ़ें",
         "reply": "जवाब दें",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "पढ़ना रोकें"

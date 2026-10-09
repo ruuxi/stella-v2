@@ -188,13 +188,10 @@
       "messageActions": {
         "copied": "Copiado",
         "copy": "Copiar",
-        "fork": "Fork to new chat",
         "more": "Más acciones",
         "quote": "Quote",
         "readAloud": "Leer en voz alta",
         "reply": "Responder",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Dejar de leer"

@@ -182,13 +182,10 @@
       "messageActions": {
         "copied": "Gekopieerd",
         "copy": "Kopiëren",
-        "fork": "Fork to new chat",
         "more": "Meer acties",
         "quote": "Quote",
         "readAloud": "Voorlezen",
         "reply": "Beantwoorden",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Voorlezen stoppen"

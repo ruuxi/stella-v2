@@ -176,13 +176,10 @@
       "messageActions": {
         "copied": "복사됨",
         "copy": "복사",
-        "fork": "Fork to new chat",
         "more": "추가 작업",
         "quote": "Quote",
         "readAloud": "소리 내어 읽기",
         "reply": "답장",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "읽기 중지"

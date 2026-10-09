@@ -384,7 +384,8 @@ export const orchestratorCliTerminal = (
  * recorded first, so `/orchestrator-turn/status` can answer for it after the
  * turn record is gone. Thrown means "retry": `deliverTerminal` keeps the
  * decision and re-arms its alarm. A refusal that names this frame as one
- * the conversation will never take (any 4xx but an edit lock) is final.
+ * the conversation will never take (any 4xx but a timeout or rate limit) is
+ * final.
  */
 export const deliverOrchestratorCliTerminal = async (
   host: TerminalDeliveryHost,
@@ -403,15 +404,11 @@ export const deliverOrchestratorCliTerminal = async (
     CLOUD_CLI_TURN_DO_PATHS.terminal,
     terminal,
   );
-  const body = (await response.json().catch(() => null)) as {
-    code?: unknown;
-  } | null;
   if (response.ok) return;
   const transient =
     response.status >= 500 ||
     response.status === 408 ||
-    response.status === 429 ||
-    body?.code === "conversation_edit_in_progress";
+    response.status === 429;
   if (transient) {
     throw new Error(
       `Orchestrator CLI terminal was not taken (${response.status}).`,

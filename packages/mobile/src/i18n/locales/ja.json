@@ -176,13 +176,10 @@
       "messageActions": {
         "copied": "コピーしました",
         "copy": "コピー",
-        "fork": "Fork to new chat",
         "more": "その他の操作",
         "quote": "Quote",
         "readAloud": "読み上げ",
         "reply": "返信",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "読み上げを停止"

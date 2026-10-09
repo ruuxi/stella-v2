@@ -20,7 +20,6 @@
 import {
   Fragment,
   memo,
-  useCallback,
   useMemo,
   useLayoutEffect,
   useRef,
@@ -63,8 +62,7 @@ import { UserMessageBody } from "@/app/chat/UserMessageBody";
 import { MessageActions } from "@/app/chat/MessageActions";
 import { useMessageReply } from "@/app/chat/message-reply-context";
 import { truncateChipLabel } from "@/features/chat/composer-context";
-import { useUserMessageActions, useUserMessageActionsBusy, } from "@/app/chat/user-message-actions-context";
-import { primaryCopyAttachment } from "@/app/chat/message-composer-restore";
+import { primaryCopyAttachment } from "@/app/chat/message-copy-attachment";
 import {
   ContextPill,
   FileAttachmentChip,
@@ -451,22 +449,11 @@ type UserRowProps = {
 export const UserMessageRow = memo(
   function UserMessageRow({ row }: UserRowProps) {
     const t = useT();
-    const messageActions = useUserMessageActions();
-    const actionsBusy = useUserMessageActionsBusy();
     const reply = useMessageReply();
-    const forkAction = messageActions?.fork;
-    const handleRewind = useCallback(
-      () => messageActions?.rewind(row),
-      [messageActions, row],
-    );
-    const handleFork = useCallback(
-      () => forkAction?.(row),
-      [forkAction, row],
-    );
     const { text, windowLabel, attachments, channelEnvelope } = row;
     // Attachment the Copy action falls back to when the message has no text
     // (image → clipboard image; other file → path as text). Memoized so the
-    // memoized action row isn't re-rendered by busy-state toggles.
+    // memoized action row keeps a stable prop.
     const copyAttachment = useMemo(
       () => primaryCopyAttachment(attachments),
       [attachments],
@@ -591,9 +578,8 @@ export const UserMessageRow = memo(
             sits to the LEFT of the right-aligned bubble and costs no vertical
             space. It mounts for any user message that has visible content —
             text OR attachment/context chips — so attachment-only messages keep
-            the same actions. Copy no-ops gracefully when there is no text to
-            copy; Rewind/Fork use the attachment-restore path to bring the
-            attachments back. */}
+            the same actions. Copy falls back to the attachment when there is
+            no text to copy. */}
         {(text.trim() || chips.length > 0) && (
           <div className="message-line message-line--user">
             <MessageActions
@@ -601,9 +587,6 @@ export const UserMessageRow = memo(
               messageKey={row.id}
               align="end"
               timestampMs={row.timestampMs}
-              onRewind={messageActions ? handleRewind : undefined}
-              onFork={forkAction ? handleFork : undefined}
-              actionsDisabled={actionsBusy}
               copyAttachment={copyAttachment ?? undefined}
               onReply={reply ?? undefined}
             />

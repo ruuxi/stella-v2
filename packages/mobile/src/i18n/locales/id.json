@@ -176,13 +176,10 @@
       "messageActions": {
         "copied": "Disalin",
         "copy": "Salin",
-        "fork": "Fork to new chat",
         "more": "Tindakan lainnya",
         "quote": "Quote",
         "readAloud": "Bacakan",
         "reply": "Balas",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Hentikan pembacaan"

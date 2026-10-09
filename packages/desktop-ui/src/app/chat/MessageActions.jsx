@@ -9,8 +9,7 @@
  * bubble: it costs nothing vertically, so the gap between messages is purely
  * the timeline's own rhythm (see the ROW_GAP family in ChatTimeline.tsx).
  *
- * - User messages: Copy, Fork, Rewind (the two-step confirm now lives in the
- *   menu item).
+ * - User messages: Copy.
  * - Assistant messages: Copy + Read aloud (on-demand TTS) — but only a turn's
  *   FINAL assistant message. Intra-turn segments (preambles that ended in a
  *   tool call) never mount this control at all (see the `isIntraTurn` gate in
@@ -25,14 +24,11 @@
  */
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
-  AlertCircle,
   Check,
   Copy,
-  GitBranch,
   LoaderCircle,
   MoreVertical,
   Reply,
-  RotateCcw,
   Square,
   Volume2,
 } from "@/ui/icons";
@@ -41,7 +37,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/ui/dropdown-menu";
 import {
@@ -57,11 +52,6 @@ const COPIED_RESET_MS = 1600;
 /** How long "Copied" stays on screen before the menu dismisses itself. */
 const COPIED_MENU_CLOSE_MS = 700;
 
-// Rewind is destructive (drops the message + everything after it), so it
-// takes two clicks: the first arms a "Click again to rewind" state, the
-// second within this window performs it.
-const REWIND_CONFIRM_TIMEOUT_MS = 3000;
-
 /**
  * @typedef {Object} MessageActionsProps
  * @property {string} text
@@ -70,9 +60,6 @@ const REWIND_CONFIRM_TIMEOUT_MS = 3000;
  * @property {"start" | "end"} [align] Which side of the bubble the button sits
  *   on: `start` (assistant, button right of the bubble) or `end` (user, button
  *   left of the right-aligned bubble).
- * @property {(() => void)} [onRewind] Rewind action (user rows only).
- * @property {(() => void)} [onFork] Fork action (user rows only).
- * @property {boolean} [actionsDisabled] Greys out Rewind/Fork while a turn is busy.
  * @property {number} [timestampMs] Message created time (epoch ms); shown as the
  *   menu's header in local "h:mm AM/PM" form.
  * @property {{ path?: string, url?: string, mimeType?: string, kind?: string, name?: string }} [copyAttachment]
@@ -87,9 +74,6 @@ function MessageActionsImpl({
   messageKey,
   showReadAloud = false,
   align = "start",
-  onRewind,
-  onFork,
-  actionsDisabled = false,
   timestampMs = undefined,
   copyAttachment = undefined,
   onReply = undefined,
@@ -101,79 +85,21 @@ function MessageActionsImpl({
   const closeTimerRef = useRef(null);
   const readAloudStatus = useManualReadAloudStatus(messageKey);
 
-  // Two-step confirm state for the destructive Rewind action.
-  const [rewindArmed, setRewindArmed] = useState(false);
-  const rewindTimerRef = useRef(null);
-
   useEffect(
     () => () => {
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
-      if (rewindTimerRef.current) clearTimeout(rewindTimerRef.current);
     },
     [],
   );
 
-  const disarmRewind = useCallback(() => {
-    if (rewindTimerRef.current) {
-      clearTimeout(rewindTimerRef.current);
-      rewindTimerRef.current = null;
+  const handleOpenChange = useCallback((next) => {
+    setOpen(next);
+    if (!next && closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
     }
-    setRewindArmed(false);
   }, []);
-
-  // The armed confirm never outlives the menu it was armed in.
-  const handleOpenChange = useCallback(
-    (next) => {
-      setOpen(next);
-      if (!next) {
-        disarmRewind();
-        if (closeTimerRef.current) {
-          clearTimeout(closeTimerRef.current);
-          closeTimerRef.current = null;
-        }
-      }
-    },
-    [disarmRewind],
-  );
-
-  // First select arms + holds the menu open (auto-resets after the timeout);
-  // the second select within the window performs the rewind and closes.
-  const handleRewindSelect = useCallback(
-    (event) => {
-      if (!onRewind) return;
-      if (rewindTimerRef.current) {
-        clearTimeout(rewindTimerRef.current);
-        rewindTimerRef.current = null;
-      }
-      if (rewindArmed) {
-        setRewindArmed(false);
-        onRewind();
-        return;
-      }
-      event.preventDefault();
-      setRewindArmed(true);
-      rewindTimerRef.current = setTimeout(() => {
-        rewindTimerRef.current = null;
-        setRewindArmed(false);
-      }, REWIND_CONFIRM_TIMEOUT_MS);
-    },
-    [onRewind, rewindArmed],
-  );
-
-  // Reset the armed state when the turn becomes busy (the item also disables)
-  // or the window loses focus, matching "click away / lose focus / timeout"
-  // resets on the existing confirm controls.
-  useEffect(() => {
-    if (actionsDisabled) disarmRewind();
-  }, [actionsDisabled, disarmRewind]);
-
-  useEffect(() => {
-    if (!rewindArmed) return;
-    const onWindowBlur = () => disarmRewind();
-    window.addEventListener("blur", onWindowBlur);
-    return () => window.removeEventListener("blur", onWindowBlur);
-  }, [rewindArmed, disarmRewind]);
 
   const handleCopySelect = useCallback(
     async (event) => {
@@ -316,38 +242,6 @@ function MessageActionsImpl({
                 {isPlaying
                   ? t("app.chat.messageActions.stopReading")
                   : t("app.chat.messageActions.readAloud")}
-              </DropdownMenuItem>
-            )}
-            {(onFork || onRewind) && <DropdownMenuSeparator />}
-            {onFork && (
-              <DropdownMenuItem
-                disabled={actionsDisabled}
-                onSelect={() => onFork()}
-              >
-                <span data-slot="dropdown-menu-item-icon">
-                  <GitBranch size={16} strokeWidth={2} aria-hidden="true" />
-                </span>
-                {t("app.chat.messageActions.fork")}
-              </DropdownMenuItem>
-            )}
-            {onRewind && (
-              <DropdownMenuItem
-                data-action="rewind"
-                data-variant="destructive"
-                data-armed={rewindArmed ? "true" : undefined}
-                disabled={actionsDisabled}
-                onSelect={handleRewindSelect}
-              >
-                <span data-slot="dropdown-menu-item-icon">
-                  {rewindArmed ? (
-                    <AlertCircle size={16} strokeWidth={2} aria-hidden="true" />
-                  ) : (
-                    <RotateCcw size={16} strokeWidth={2} aria-hidden="true" />
-                  )}
-                </span>
-                {rewindArmed
-                  ? t("app.chat.messageActions.rewindConfirm")
-                  : t("app.chat.messageActions.rewind")}
               </DropdownMenuItem>
             )}
           </DropdownMenuContent>

@@ -220,7 +220,6 @@ const sessionHarness = (
       },
       setTurnSpan: () => undefined,
     },
-    activeConversationEditLock: async () => null,
     purged: () => false,
     bindConversation: () => undefined,
     publish: () => undefined,

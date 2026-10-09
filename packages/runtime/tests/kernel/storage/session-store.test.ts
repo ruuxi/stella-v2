@@ -57,7 +57,7 @@ afterEach(async () => {
 });
 
 describe("session-store", () => {
-  it("keeps private history and forks local and excludes both from cloud migration", () => {
+  it("keeps private history local and excludes it from cloud migration", () => {
     const { store } = createTestContext();
     const id = "local_private-history";
     store.setActiveDefaultConversationId(id);
@@ -81,12 +81,6 @@ describe("session-store", () => {
         .listConversationSummaries({})
         .conversations.some((item) => item.conversationId === id),
     ).toBe(true);
-    const fork = store.forkConversationBeforeEvent(id, "second");
-    expect(fork?.conversationId).toMatch(/^local_/);
-    expect(store.listMessages(fork!.conversationId, {}).messages).toHaveLength(
-      1,
-    );
-    expect(store.listMessages(id, {}).messages).toHaveLength(2);
     expect(store.listLegacyChatCloudImportCandidates()).toEqual([]);
   });
 

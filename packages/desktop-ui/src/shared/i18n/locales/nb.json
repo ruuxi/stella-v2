@@ -182,13 +182,10 @@
       "messageActions": {
         "copied": "Kopiert",
         "copy": "Kopier",
-        "fork": "Fork to new chat",
         "more": "Flere handlinger",
         "quote": "Quote",
         "readAloud": "Les opp",
         "reply": "Svar",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Stopp opplesing"

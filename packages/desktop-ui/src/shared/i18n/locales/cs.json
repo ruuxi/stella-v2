@@ -194,13 +194,10 @@
       "messageActions": {
         "copied": "Zkopírováno",
         "copy": "Kopírovat",
-        "fork": "Fork to new chat",
         "more": "Další akce",
         "quote": "Quote",
         "readAloud": "Číst nahlas",
         "reply": "Odpovědět",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Zastavit čtení"

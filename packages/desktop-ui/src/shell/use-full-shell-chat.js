@@ -1,4 +1,3 @@
-import { truncateLocalConversation, forkLocalConversation } from "@/features/chat/services/local-chat-store";
 import {
   useCallback,
   useEffect,
@@ -31,19 +30,13 @@ import { useChatHomeSurface } from "./use-chat-home-surface";
 import { useAgentInputRouting } from "./use-agent-input-routing";
 import { useConversationModelSelection } from "./use-conversation-model-selection";
 import { useStellaSendMessageBridge } from "./use-stella-send-message-bridge";
-import { composerDraftFromUserRow } from "@/app/chat/message-composer-restore";
 import { useChatStore } from "@/context/chat-store-context";
 import { useCloudChatBridge } from "@/features/cloud/use-cloud-chat-bridge";
 import { usePiChat } from "@/features/chat/pi/use-pi-chat";
 import { piAgentActivityEvents } from "@/features/chat/pi/pi-chat-records";
 import { cloudAttachmentsStore } from "@/features/cloud/cloud-composer-store";
 import { useOwnDeviceRemoteCancel } from "@/features/cloud/use-own-device-remote-cancel";
-import { backendClient } from "@/platform/backend/backend-client";
-import { cloudPrefixBoundaryForUserMessage } from "@/features/cloud/use-cloud-chat-bridge";
-import { conversationStore } from "@/features/cloud/conversation-store";
-import { markCloudConversationCreated } from "@/features/cloud/cloud-conversation-selection";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
-import { showToast } from "@/ui/toast";
 const MAX_RETAINED_TAB_STATE = 20;
 /**
  * How long, after opening/switching into a conversation that lands at the
@@ -97,31 +90,13 @@ export const createConversationScrollMemoryCleanup = ({
     });
   };
 };
-const newConversationEditRequestId = () =>
-  typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `edit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-export const cloudConversationEditFailureMessage = (error, fallback) => {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message.trim();
-  }
-  return fallback;
-};
-const forkCloudConversation = (args) =>
-  backendClient.call("conversations.fork", args);
-const rewindCloudConversation = (args) =>
-  backendClient.call("conversations.rewind", args);
-
 export function useFullShellChat({
   activeConversationId,
   isOnChatRoute,
   traceEnabled,
-  navigateToConversation,
 }) {
   const { cloudFeaturesEnabled, isLocalStorage, storageMode } = useChatStore();
   const { accountScope } = useCloudConversationSession();
-  const activeAccountScopeRef = useRef(accountScope);
-  activeAccountScopeRef.current = accountScope;
   // Message state + always-current mirror ref, synced at WRITE time. The
   // dictate-and-submit commit is rAF-deferred and can fire before React
   // flushes the render that carries the appended transcript — a ref synced in
@@ -810,282 +785,6 @@ export function useFullShellChat({
     activeConversationId,
     enabled: true,
   });
-  // Per-user-message quick actions (Fork / Rewind) exposed to the deeply
-  // nested action row. The callbacks are stable and read live state
-  // through this ref, so every user row can consume them without
-  // re-rendering as conversation state churns.
-  const messageActionsStateRef = useRef(null);
-  const conversationEditInFlightRef = useRef(false);
-  const conversationEditOperationRef = useRef(null);
-  const forkRequestRef = useRef(null);
-  const rewindRequestRef = useRef(null);
-  useEffect(() => {
-    conversationEditInFlightRef.current = false;
-    conversationEditOperationRef.current = null;
-    forkRequestRef.current = null;
-    rewindRequestRef.current = null;
-  }, [accountScope]);
-  messageActionsStateRef.current = {
-    activeConversationId,
-    accountScope,
-    storageMode,
-    isStreaming,
-    cloudRecords: cloudChat.records,
-    cloudState: cloudChat.conversation.state,
-    forkCloudConversation,
-    rewindCloudConversation,
-    setMessage,
-    setChatContext,
-    setSelectedText,
-    navigateToConversation,
-    requestFocus: () => setComposerFocusRequestId((id) => id + 1),
-  };
-  // Rewind changes the canonical DO epoch at the sequence immediately before
-  // the target prompt, then seeds that prompt back into the same composer.
-  // SQLite is neither read nor written as mutation authority.
-  const rewindToUserMessage = useCallback((row) => {
-    const state = messageActionsStateRef.current;
-    if (!state) return;
-    if (state.isStreaming || conversationEditInFlightRef.current) return;
-    const conversationId = state.activeConversationId;
-    if (!conversationId || !row?.id) return;
-    if (state.storageMode === "local") {
-      conversationEditInFlightRef.current = true;
-      const draft = composerDraftFromUserRow(row);
-      void truncateLocalConversation(conversationId, row.id).then(() => {
-        if (activeConversationIdRef.current !== conversationId) return;
-        state.setMessage(draft.message);
-        state.setChatContext(draft.chatContext);
-        state.setSelectedText(null);
-        state.requestFocus();
-      }).catch((error) => showToast({ title: "Couldn’t rewind this message", description: String(error), variant: "error" }))
-        .finally(() => { conversationEditInFlightRef.current = false; });
-      return;
-    }
-    const boundary = cloudPrefixBoundaryForUserMessage(
-      state.cloudRecords,
-      row.id,
-    );
-    const head = state.cloudState;
-    if (!boundary) {
-      showToast({
-        title: "Couldn’t rewind this message",
-        description:
-          "This prompt has not reached the canonical cloud history yet. Reconnect and try again.",
-        variant: "error",
-      });
-      return;
-    }
-    if (
-      head.status !== "live" ||
-      head.conversationId !== conversationId ||
-      !Number.isSafeInteger(head.epoch) ||
-      !Number.isSafeInteger(head.headSeq) ||
-      head.headSeq < boundary.targetSeq
-    ) {
-      showToast({
-        title: "Cloud history is reconnecting",
-        description:
-          "Wait for the conversation to finish reconnecting, then try Rewind again.",
-        variant: "error",
-      });
-      return;
-    }
-    const draft = composerDraftFromUserRow(row);
-    const requestKey = `${conversationId}:${head.epoch}:${head.headSeq}:${boundary.throughSeq}`;
-    const requestId =
-      rewindRequestRef.current?.key === requestKey
-        ? rewindRequestRef.current.requestId
-        : newConversationEditRequestId();
-    rewindRequestRef.current = { key: requestKey, requestId };
-    const operation = { accountScope: state.accountScope, requestId };
-    conversationEditOperationRef.current = operation;
-    conversationEditInFlightRef.current = true;
-    void (async () => {
-      try {
-        await state.rewindCloudConversation({
-          conversationId,
-          throughSeq: boundary.throughSeq,
-          expectedEpoch: head.epoch,
-          expectedLastSeq: head.headSeq,
-          requestId,
-          activeTurnPolicy: "conflict",
-        });
-        if (
-          conversationEditOperationRef.current !== operation ||
-          activeAccountScopeRef.current !== operation.accountScope
-        ) {
-          return;
-        }
-        rewindRequestRef.current = null;
-        scrollMemoryByConversationRef.current.delete(conversationId);
-        conversationStore(
-          conversationId,
-          operation.accountScope,
-        ).refreshAfterCanonicalMutation();
-        if (activeConversationIdRef.current !== conversationId) {
-          setBoundedTabMemory(
-            composerMemoryByConversationRef.current,
-            conversationId,
-            {
-              message: draft.message,
-              chatContext: draft.chatContext,
-              selectedText: null,
-            },
-          );
-          return;
-        }
-        state.setMessage(draft.message);
-        state.setChatContext(draft.chatContext);
-        state.setSelectedText(null);
-        state.requestFocus();
-      } catch (error) {
-        if (
-          conversationEditOperationRef.current !== operation ||
-          activeAccountScopeRef.current !== operation.accountScope
-        ) {
-          return;
-        }
-        showToast({
-          title: "Couldn’t rewind this conversation",
-          description: cloudConversationEditFailureMessage(
-            error,
-            "Cloud history changed before Rewind completed. Reconnect and try again.",
-          ),
-          variant: "error",
-        });
-      } finally {
-        if (conversationEditOperationRef.current === operation) {
-          conversationEditOperationRef.current = null;
-          conversationEditInFlightRef.current = false;
-        }
-      }
-    })();
-  }, []);
-  // Fork copies the canonical prefix into a fresh DO-backed conversation,
-  // then drops the selected prompt into the new tab's composer. The source
-  // remains untouched and no SQLite branch is minted.
-  const forkToNewConversation = useCallback((row) => {
-    const state = messageActionsStateRef.current;
-    if (!state) return;
-    if (state.isStreaming || conversationEditInFlightRef.current) return;
-    const conversationId = state.activeConversationId;
-    if (!conversationId || !row?.id) return;
-    // Never mint a branch we can't navigate to — that would strand the
-    // user on the original chat with an orphan conversation in the store.
-    if (!state.navigateToConversation) return;
-    if (state.storageMode === "local") {
-      conversationEditInFlightRef.current = true;
-      const draft = composerDraftFromUserRow(row);
-      void forkLocalConversation(conversationId, row.id).then((id) => {
-        if (!id || activeConversationIdRef.current !== conversationId) return;
-        state.navigateToConversation(id);
-        setBoundedTabMemory(composerMemoryByConversationRef.current, id, {
-          message: draft.message, chatContext: draft.chatContext, selectedText: null,
-        });
-      }).catch((error) => showToast({ title: "Couldn’t fork this message", description: String(error), variant: "error" }))
-        .finally(() => { conversationEditInFlightRef.current = false; });
-      return;
-    }
-    const boundary = cloudPrefixBoundaryForUserMessage(
-      state.cloudRecords,
-      row.id,
-    );
-    const head = state.cloudState;
-    if (!boundary) {
-      showToast({
-        title: "Couldn’t fork this message",
-        description:
-          "This prompt has not reached the canonical cloud history yet. Reconnect and try again.",
-        variant: "error",
-      });
-      return;
-    }
-    if (
-      head.status !== "live" ||
-      head.conversationId !== conversationId ||
-      !Number.isSafeInteger(head.epoch) ||
-      !Number.isSafeInteger(head.headSeq) ||
-      head.headSeq < boundary.targetSeq
-    ) {
-      showToast({
-        title: "Cloud history is reconnecting",
-        description:
-          "Wait for the conversation to finish reconnecting, then try Fork again.",
-        variant: "error",
-      });
-      return;
-    }
-    const draft = composerDraftFromUserRow(row);
-    const requestKey = `${conversationId}:${head.epoch}:${head.headSeq}:${boundary.throughSeq}`;
-    const requestId =
-      forkRequestRef.current?.key === requestKey
-        ? forkRequestRef.current.requestId
-        : newConversationEditRequestId();
-    forkRequestRef.current = { key: requestKey, requestId };
-    const operation = { accountScope: state.accountScope, requestId };
-    conversationEditOperationRef.current = operation;
-    conversationEditInFlightRef.current = true;
-    void (async () => {
-      try {
-        const result = await state.forkCloudConversation({
-          sourceConversationId: conversationId,
-          throughSeq: boundary.throughSeq,
-          expectedEpoch: head.epoch,
-          expectedLastSeq: head.headSeq,
-          requestId,
-        });
-        if (
-          conversationEditOperationRef.current !== operation ||
-          activeAccountScopeRef.current !== operation.accountScope
-        ) {
-          return;
-        }
-        forkRequestRef.current = null;
-        markCloudConversationCreated(result.conversationId, state.accountScope);
-        // Open + navigate first so the destination tab exists, THEN seed
-        // its composer memory. The restore effect consumes the seed when
-        // the active id changes on the next render.
-        state.navigateToConversation(result.conversationId);
-        setBoundedTabMemory(
-          composerMemoryByConversationRef.current,
-          result.conversationId,
-          {
-            message: draft.message,
-            chatContext: draft.chatContext,
-            selectedText: null,
-          },
-        );
-      } catch (error) {
-        if (
-          conversationEditOperationRef.current !== operation ||
-          activeAccountScopeRef.current !== operation.accountScope
-        ) {
-          return;
-        }
-        showToast({
-          title: "Couldn’t fork this conversation",
-          description: cloudConversationEditFailureMessage(
-            error,
-            "Cloud history changed before Fork completed. Reconnect and try again.",
-          ),
-          variant: "error",
-        });
-      } finally {
-        if (conversationEditOperationRef.current === operation) {
-          conversationEditOperationRef.current = null;
-          conversationEditInFlightRef.current = false;
-        }
-      }
-    })();
-  }, []);
-  // Rewind and fork aren't offered for conversations on pi-durable.
-  const messageActions = useMemo(
-    () => piChat.enabled
-      ? null
-      : { rewind: rewindToUserMessage, fork: forkToNewConversation },
-    [piChat.enabled, rewindToUserMessage, forkToNewConversation],
-  );
   const chatColumnConversation = useMemo(
     () => ({
       conversationId: activeConversationId,
@@ -1275,7 +974,6 @@ export function useFullShellChat({
       conversation,
       composer,
       scroll: chatColumnScroll,
-      messageActions,
       showHomeContent,
       dismissHome,
       showHome,
@@ -1284,7 +982,6 @@ export function useFullShellChat({
       conversation,
       composer,
       chatColumnScroll,
-      messageActions,
       showHomeContent,
       dismissHome,
       showHome,

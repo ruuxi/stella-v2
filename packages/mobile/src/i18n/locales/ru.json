@@ -194,13 +194,10 @@
       "messageActions": {
         "copied": "Скопировано",
         "copy": "Копировать",
-        "fork": "Fork to new chat",
         "more": "Другие действия",
         "quote": "Quote",
         "readAloud": "Читать вслух",
         "reply": "Ответить",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Остановить чтение"

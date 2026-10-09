@@ -24,12 +24,6 @@ import {
 } from "../build-session/terminal-delivery.js";
 import { HEADER_OWNER } from "../conversation-types.js";
 import { HEADER_TURN_AUTH_KIND } from "../turn-start-request.js";
-import { OwnerPurgeFenceError } from "../build-session/shared/errors.js";
-import {
-  ConversationEditHttpError,
-  runConversationEdit,
-} from "../conversation-edit-runner.js";
-import { withOwnerActivityLease, type OwnerFenceCaller } from "../owner-activity-lease.js";
 import type { OwnerEvent } from "@stella/contracts/turn-plane/owner-events";
 import type {
   OwnerGateAdmission,
@@ -86,8 +80,6 @@ export type GateHostDependencies = {
   homeChanged: (ownerGeneration: string, revision: number) => Promise<void>;
   /** The gate's memory policy change, refusals as `RpcError`. */
   changeMemoryPolicy: OwnerHost["changeMemoryPolicy"];
-  /** This object's owner fence, called in-process. */
-  fence: OwnerFenceCaller;
   /** The gate's own `applyOwnerEvents`, called in-process. */
   applyOwnerEvents: (events: OwnerEvent[]) => Promise<void>;
   /** One reset or deletion pass across every store. */
@@ -369,28 +361,6 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
         conversationId: input.conversationId,
         message: error instanceof Error ? error.message : String(error),
       });
-    }
-  },
-
-  async runConversationEdit(request) {
-    try {
-      return await withOwnerActivityLease(
-        (path, body) => deps.fence(path, { ...body, ownerId: deps.ownerId() }),
-        request.ownerGeneration,
-        `conversation-edit:${request.operationId}`,
-        async () => await runConversationEdit(deps.env, request),
-      );
-    } catch (error) {
-      if (error instanceof ConversationEditHttpError) {
-        throw new RpcError(
-          error.status === 409 ? "CONFLICT" : error.status === 404 ? "NOT_FOUND" : "UNAVAILABLE",
-          error.message,
-        );
-      }
-      if (error instanceof OwnerPurgeFenceError) {
-        throw new RpcError("CONFLICT", "Your cloud data is being reset. Try again in a moment.");
-      }
-      throw error;
     }
   },
 

@@ -66,6 +66,7 @@ import {
 import { StellaAgentDoc } from "@stella/agent/stella/agent-doc";
 import { deviceRefusal, type StellaExecutionHost } from "@stella/agent/stella/execution";
 import { placementOf, StellaPlacementDoc, type StellaPlacement } from "@stella/agent/stella/placement";
+import type { PiBrainHost } from "@stella/contracts/turn-plane/pi-brain";
 import {
   isDeviceToolName,
   type DeviceToolCall,
@@ -349,6 +350,11 @@ export type PiRuntimeOptions = {
       args: { messageId: string; to: string; text: string; from: AgentMessageSender },
     ): Promise<AgentMessageDelivery>;
   };
+  /**
+   * Stella moves herself to one of the owner's computers: the conversation's
+   * record names it, and her brief continues there as a chat placed on it.
+   */
+  moveBrain?(authority: PiAuthority, host: Extract<PiBrainHost, { host: "device" }>, brief: string): Promise<void>;
   /** Keep this object waking while agents run. */
   heartbeat(): void;
   /**
@@ -1357,6 +1363,25 @@ export class PiConversationRuntime {
       moved: async (conversationId, from) => {
         if (from.kind === "cloud") await this.#endLease(conversationId, {});
       },
+      // Stella here moves to one of the owner's computers, which must be able to take work now.
+      ...(this.#options.moveBrain
+        ? {
+            moveBrain: async (target, brief, context) => {
+              if (target.kind !== "device") return { error: "You already run in the cloud." };
+              const prepared = await this.#execution().prepare(target, context);
+              if ("error" in prepared) return prepared;
+              const placement = prepared.placement;
+              if (placement.kind !== "device") return { error: "You already run in the cloud." };
+              const turn = await this.#turn(context.abortSignal);
+              await this.#options.moveBrain!(
+                turn.authority,
+                { host: "device", deviceId: placement.deviceId, ...(placement.label ? { label: placement.label } : {}) },
+                brief,
+              );
+              return { moved: placement };
+            },
+          }
+        : {}),
     };
   }
 

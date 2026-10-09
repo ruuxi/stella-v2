@@ -203,7 +203,22 @@ export type PiChatRequest =
   /** Stella's greeting after onboarding, as a reply in the conversation; kept on this computer. */
   | { op: "welcome"; conversationId: string; message: string }
   /** The local files Stella's replies and its agents linked (`{ paths }`): what a paired phone may open. */
-  | { op: "files"; conversationId: string };
+  | { op: "files"; conversationId: string }
+  /**
+   * Where the conversation's brain runs (`PiChatBrainResult`): a send for a
+   * conversation whose Stella runs elsewhere is placed there.
+   */
+  | { op: "brain"; conversationId: string }
+  /** The user moves Stella herself: to the cloud, or to this computer (`PiChatBrainResult`). */
+  | { op: "moveBrain"; conversationId: string; to: "cloud" | "here" };
+
+/**
+ * Where a conversation's Stella runs (`@stella/contracts/turn-plane/pi-brain`):
+ * here, or where a send is placed instead.
+ */
+export type PiChatBrainResult =
+  | { here: true }
+  | { here: false; target: { mode: "cloud" } | { mode: "device"; deviceId: string }; label?: string };
 
 /**
  * The model calls of the conversations on pi, as the usage dashboard lists

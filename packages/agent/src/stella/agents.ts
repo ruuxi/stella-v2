@@ -880,6 +880,27 @@ export function stellaAgents(host: StellaAgentsHost) {
       state.calls[callKey] ??= { threadId, reporter: -1 };
     }, context);
 
+  /**
+   * The conversation's agents still working whose reports come back to it,
+   * by description: those here with a run open, and those elsewhere with a
+   * message they have not answered.
+   */
+  const workingAgents = async (api: ToolExecutionApi, context: Context): Promise<string[]> => {
+    const state = await api.snapshot(StellaAgentsDoc, api.conversationId, context);
+    const working: string[] = [];
+    for (const [threadId, agent] of Object.entries(state?.agents ?? {})) {
+      if (agent.origin) continue;
+      if (agent.remote) {
+        const given = Object.values(state?.calls ?? {}).filter((call) => call.threadId === threadId).length;
+        if ((agent.answered?.length ?? 0) < given) working.push(agent.description);
+        continue;
+      }
+      const live = await api.snapshot(LiveDoc, agent.conversationId as ConversationId, context);
+      if (live?.run !== undefined) working.push(agent.description);
+    }
+    return working;
+  };
+
   /** The host a remote agent runs on as a whole: on a device, that device's own Stella. */
   const remoteHostOf = (agent: AgentRecord): RemoteAgentHost | undefined => {
     const placement = placementOf(agent.placement);
@@ -1412,7 +1433,7 @@ export function stellaAgents(host: StellaAgentsHost) {
       sendMessage,
       agentStatus,
       pauseAgent,
-      ...(host.execution ? [switchDestinationTool(host.execution, host.rootPlacement)] : []),
+      ...(host.execution ? [switchDestinationTool(host.execution, host.rootPlacement, workingAgents)] : []),
     ],
   });
   return {

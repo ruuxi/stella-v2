@@ -103,9 +103,9 @@ export function useDrawerMetrics() {
 }
 
 export const DRAWER_VEIL = {
-  start: 0.18,
-  end: 0.98,
-  curve: [0.4, 0, 0.8, 0.45] as const,
+  start: 0.05,
+  end: 0.96,
+  curve: [0.25, 0, 0.6, 0.7] as const,
 };
 
 const veilCurve = Easing.bezierFn(...DRAWER_VEIL.curve);

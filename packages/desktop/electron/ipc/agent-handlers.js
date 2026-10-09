@@ -348,12 +348,6 @@ export const registerAgentHandlers = (options) => {
                     conversationId,
                     requestId,
                 }, senderWebContentsId),
-                onProviderLifecycle: (ev) => emitAgentEvent({
-                    ...ev,
-                    type: AGENT_STREAM_EVENT_TYPES.PROVIDER_LIFECYCLE,
-                    conversationId,
-                    requestId,
-                }, senderWebContentsId),
                 onToolStart: (ev) => emitAgentEvent({
                     ...ev,
                     type: AGENT_STREAM_EVENT_TYPES.TOOL_START,
@@ -598,12 +592,6 @@ export const registerAgentHandlers = (options) => {
             onStatus: (ev) => emitAgentEvent({
                 ...ev,
                 type: AGENT_STREAM_EVENT_TYPES.STATUS,
-                conversationId,
-                requestId,
-            }, senderWebContentsId),
-            onProviderLifecycle: (ev) => emitAgentEvent({
-                ...ev,
-                type: AGENT_STREAM_EVENT_TYPES.PROVIDER_LIFECYCLE,
                 conversationId,
                 requestId,
             }, senderWebContentsId),

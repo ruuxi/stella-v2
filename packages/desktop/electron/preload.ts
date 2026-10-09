@@ -1029,7 +1029,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
             | "run-started"
             | "run-finished"
             | "status"
-            | "provider-lifecycle"
             | "stream"
             | "tool-start"
             | "tool-end"
@@ -1050,20 +1049,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
           chunk?: string;
           statusState?:
             "running" | "compacting" | "provider-retry" | "model-fallback";
-          providerLifecyclePhase?:
-            | "request-admitted"
-            | "request-dispatched"
-            | "stream-open"
-            | "transport-closed"
-            | "transport-joined"
-            | "abandoned"
-            | "outcome-unknown";
-          providerRequestIdSha256?: string;
-          providerPhysicalAttempt?: number;
-          providerStreamOrdinal?: number;
-          providerName?: string;
-          providerModelId?: string;
-          providerOutcome?: "completed" | "canceled" | "error";
           toolCallId?: string;
           toolName?: string;
           args?: Record<string, unknown>;
@@ -1088,7 +1073,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
         | "run-started"
         | "run-finished"
         | "status"
-        | "provider-lifecycle"
         | "stream"
         | "tool-start"
         | "tool-end"
@@ -1109,20 +1093,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       chunk?: string;
       statusState?:
         "running" | "compacting" | "provider-retry" | "model-fallback";
-      providerLifecyclePhase?:
-        | "request-admitted"
-        | "request-dispatched"
-        | "stream-open"
-        | "transport-closed"
-        | "transport-joined"
-        | "abandoned"
-        | "outcome-unknown";
-      providerRequestIdSha256?: string;
-      providerPhysicalAttempt?: number;
-      providerStreamOrdinal?: number;
-      providerName?: string;
-      providerModelId?: string;
-      providerOutcome?: "completed" | "canceled" | "error";
       toolCallId?: string;
       toolName?: string;
       args?: Record<string, unknown>;

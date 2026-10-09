@@ -65,7 +65,7 @@ export function SidebarPanel({
             accessibilityState={{ selected: onAccount }}
             accessibilityLabel={name ? `${name}, ${accountLabel}` : accountLabel}
             onPress={() => onSelectTab("settings")}
-            style={({ pressed }) => pressed && styles.pressed}
+            style={({ pressed }) => [styles.account, pressed && styles.pressed]}
             testID="mobile-sidebar-nav-settings"
           >
             <View style={styles.avatar}>
@@ -83,26 +83,29 @@ export function SidebarPanel({
                 <Icon name="user" size={22} color={colors.accentForeground} />
               )}
             </View>
-            <Text
-              style={styles.name}
-              numberOfLines={1}
-              maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-            >
-              {name || accountLabel}
-            </Text>
-            {name || onAccount ? (
-              <View style={styles.accountLine}>
-                {name ? (
+            <View style={styles.identity}>
+              <View style={styles.titleLine}>
+                <Text
+                  style={styles.name}
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                >
+                  {name || accountLabel}
+                </Text>
+                {!name && onAccount ? <View style={styles.current} /> : null}
+              </View>
+              {name ? (
+                <View style={styles.accountLine}>
                   <Text
                     style={styles.accountLink}
                     maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
                   >
                     {accountLabel}
                   </Text>
-                ) : null}
-                {onAccount ? <View style={styles.current} /> : null}
-              </View>
-            ) : null}
+                  {onAccount ? <View style={styles.current} /> : null}
+                </View>
+              ) : null}
+            </View>
           </Pressable>
         </Rise>
 
@@ -169,20 +172,32 @@ const makeStyles = (colors: Colors) =>
       fontFamily: fonts.sans.bold,
       fontSize: 22,
     },
+    account: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 14,
+    },
+    identity: {
+      flex: 1,
+      minWidth: 0,
+    },
+    titleLine: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 10,
+    },
     name: {
       color: colors.text,
+      flexShrink: 1,
       fontFamily: fonts.sans.bold,
-      fontSize: 32,
-      letterSpacing: -1.1,
-      lineHeight: 40,
-      marginTop: 14,
+      fontSize: 28,
+      letterSpacing: -1,
+      lineHeight: 34,
     },
     accountLine: {
       alignItems: "center",
       flexDirection: "row",
       gap: 8,
-      marginTop: 2,
-      minHeight: 20,
     },
     accountLink: {
       color: colors.textInteractive,

@@ -11,8 +11,6 @@
  * `stella-office`, poppler and `mediainfo` as shell commands, so they arrive
  * through `Bash`. `Read` is the one catalog addition they need: a
  * plain-text read of extracted document text that does not cost a PTY turn.
- * File mutation and search are advertised here too, although resident turns
- * execute them in the world Durable Object rather than this container host.
  */
 
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";

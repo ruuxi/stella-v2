@@ -191,11 +191,6 @@ export const isBuildOwnerFenceDurabilityKey = (key: string): boolean =>
   key.startsWith(BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX) ||
   key.startsWith(BUILD_OWNER_FENCE_LEASE_SLOT_PREFIX);
 
-export const agentComputeRecoveryClaimKey = (
-  turnId: string,
-  attemptGeneration: number,
-): string => `agentComputeRecovery:${turnId}:${attemptGeneration}`;
-
 export const APP_TURN_ADMISSION_CLAIM_KEY = "appTurnAdmissionClaim";
 
 export const PENDING_BROWSER_SUSPENSION_KEY = "pendingBrowserSuspension";
@@ -368,10 +363,9 @@ export const builderFallbackRetryKey = (
  * How often a live agent turn re-arms its alarm when nothing else (a world
  * lease renewal) would. The alarm is the only thing that notices a turn whose
  * isolate was replaced under it — a deploy, an eviction — so without this a
- * resident turn lost that way sat as "running" until its full watchdog
- * deadline, holding the owner's agent lane for the whole wait. Short because
- * a lost resident turn now resumes on this alarm: the beat is the stall a
- * deploy costs the user. A beat on a live turn is a few storage reads.
+ * turn lost that way sat as "running" until its full watchdog deadline,
+ * holding the owner's agent lane for the whole wait. A beat on a live turn is
+ * a few storage reads.
  */
 export const AGENT_TURN_HEARTBEAT_MS = 15_000;
 
@@ -507,7 +501,7 @@ export const sweepR2Prefix = async (
 /**
  * Where the broker credential is handed to the executor: a one-shot file in
  * `directory` (a container attempt's root-only directory, or `/workspace` for
- * a resident turn's tool host), above the checkpointed world, with a random
+ * an attached tool host), above the checkpointed world, with a random
  * name so nothing can be waiting on a known path.
  *
  * Deliberately not an env var on the exec session: the executor's own
@@ -520,7 +514,7 @@ export const turnBrokerCredentialsPath = (directory: string): string =>
 
 /**
  * Mint the model-gateway capability for one admitted agent turn. It is the
- * only credential the sandbox or resident loop presents for model calls:
+ * only credential the sandbox presents for model calls:
  * turn-scoped, pinned to the admitted execution, budgeted, expiring, and
  * meaningless anywhere but the gateway. The old reusable turn token never
  * accompanies model traffic.

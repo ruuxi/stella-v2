@@ -65,9 +65,7 @@ import type {
   ResidentBrowserScreenshot,
 } from "./resident-browser.js";
 import type { ToolReplayPolicy } from "./tool-replay.js";
-import type { WorldShellFsRpc } from "./worker-shell/protocol.js";
-import type { WorkerShellWorldCommit } from "./worker-shell-runner.js";
-import type { WorldListingEntry } from "./world/types.js";
+import type { WorldEntry, WorldListingEntry } from "./world/types.js";
 import {
   GENERAL_AGENT_EGRESS_BUDGET_BYTES,
   GENERAL_AGENT_EGRESS_REQUESTS_PER_MINUTE,
@@ -210,14 +208,40 @@ export type CloudHistoryClient = Readonly<{
 }>;
 
 /**
+ * What an agent's `fs` may ask of the world, bound by the host to one owner
+ * world. Paths are world-relative and never follow symlinks.
+ */
+export interface CloudCodeWorldReader {
+  stat(paths: readonly string[]): Promise<(WorldEntry | null)[]>;
+  children(path: string): Promise<WorldEntry[]>;
+  read(
+    path: string,
+    options: { offset: number; length: number },
+  ): Promise<Uint8Array<ArrayBufferLike> | null>;
+  /** Store content as an unreferenced, pinned blob; nothing becomes visible. */
+  putBlob(
+    bytes: Uint8Array<ArrayBufferLike>,
+  ): Promise<{ sha256: string; size: number }>;
+}
+
+/**
  * The owner world as an agent's `fs` sees it: the read-only loopback bound
  * into the Worker, and the revision and commit calls only the Durable Object
- * makes. `commitShell` is the worker shell's own check-and-apply.
+ * makes. `commitShell` is the world's own check-and-apply of a change set.
  */
 export type CloudCodeWorld = Readonly<{
-  loopback: () => WorldShellFsRpc;
-  head: WorkerShellWorldCommit["head"];
-  commitShell: WorkerShellWorldCommit["commitShell"];
+  loopback: () => CloudCodeWorldReader;
+  head(): Promise<{ revision: number }>;
+  commitShell(input: {
+    baseRevision: number;
+    reads: { paths: readonly string[]; children: readonly string[] };
+    entries: WorldListingEntry[];
+    deleted: string[];
+  }): Promise<
+    | { status: "committed"; revision: number }
+    | { status: "conflict"; paths: string[] }
+    | { status: "missing_blobs"; missingBlobs: string[] }
+  >;
 }>;
 
 /**

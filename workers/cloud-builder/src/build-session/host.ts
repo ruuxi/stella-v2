@@ -21,13 +21,6 @@ import type { OwnerEvent } from "@stella/contracts/turn-plane/owner-events";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 import type {
-  PersistedAgentCompute,
-  createAgentComputeLadder,
-} from "../agent-compute-ladder.js";
-import type { createAgentControlPlane } from "../agent-control-plane.js";
-import type { SealedTurnTranscript } from "../agent-turn-journal.js";
-import type { CloudAgentDispatchDependencies } from "../cloud-agent-dispatch.js";
-import type {
   CloudHomeStore,
   CloudSkillCatalogSnapshot,
 } from "../cloud-home-store.js";
@@ -36,12 +29,6 @@ import type {
   ExactTurnCancellationLedger,
   ExactTurnCancellationRequest,
 } from "../execution-placement-turn-cancellation.js";
-import type {
-  GeneralAgentTurnPlan,
-  GeneralAgentTurnResult,
-  TurnComputePlan,
-  TurnDurability,
-} from "../general-agent-turn.js";
 import type { SandboxHandle } from "../sandbox-client.js";
 import type { InstanceSize } from "../instance-size.js";
 import type { OwnerGate } from "../owner-gate.js";
@@ -61,7 +48,6 @@ import type { Env } from "./shared/env.js";
 import type {
   AgentExecutionMarker,
   AgentExecutorResult,
-  AgentTurnRunOptions,
   BuildOwnerFenceLeaseReceipt,
   BuilderFallbackInput,
   BuilderFallbackTranscript,
@@ -79,7 +65,6 @@ export interface BuildSessionInternals {
   readonly agentTurnExecutions: Map<string, TurnExecution<void>>;
 
   readonly builderFallbackRecoveries: Set<string>;
-  readonly residentAgentAborts: Map<string, () => void>;
   readonly turnStateCheckpointRuns: Map<
     string,
     Promise<TurnBrokerTurnStateCheckpointReceipt>
@@ -91,14 +76,8 @@ export interface BuildSessionInternals {
     deleteAlarm?: boolean,
   ): Promise<boolean>;
   ownerGateFor(ownerId: string): DurableObjectStub<OwnerGate>;
-  childAgentDispatchDependencies(): CloudAgentDispatchDependencies;
   releaseOwnerGate(turn: TurnRequest): Promise<void>;
 
-  agentControlPlane(
-    turn: TurnRequest,
-    attemptGeneration: number,
-    sessionId: string,
-  ): ReturnType<typeof createAgentControlPlane>;
   ownerEventBase(
     turn: TurnRequest,
     key: string,
@@ -128,12 +107,7 @@ export interface BuildSessionInternals {
     messages: readonly ThreadMessageInput[],
   ): Promise<void>;
   trackTurn<T>(turnId: string, work: Promise<T>): Promise<T>;
-  startAgentTurn(
-    turn: TurnRequest,
-    sandboxId: string | undefined,
-    options?: AgentTurnRunOptions,
-  ): Promise<void>;
-  abortResidentAgent(turn: TurnRequest): void;
+  startAgentTurn(turn: TurnRequest, sandboxId: string | undefined): Promise<void>;
   callOwnerFence(
     ownerId: string,
     path: string,
@@ -171,17 +145,10 @@ export interface BuildSessionInternals {
   exactAgentExecutionMarker(
     turn: TurnRequest,
   ): Promise<AgentExecutionMarker | undefined>;
-  claimOrphanedAgentComputeRecovery(
-    turn: TurnRequest,
-  ): Promise<PersistedAgentCompute | undefined>;
-  recoverOrphanedAgentCompute(
-    turn: TurnRequest,
-  ): Promise<"none" | "recovered" | "retry">;
   persistAgentExecutionMarker(
     turn: TurnRequest,
     marker: AgentExecutionMarker,
   ): Promise<void>;
-  clearUnattachedAgentSandboxTuple(turn: TurnRequest): Promise<void>;
   interruptAgentForBuilderFallback(turn: TurnRequest): Promise<void>;
   exactTurnStateCheckpointOperations(
     turn: TurnRequest,
@@ -204,18 +171,10 @@ export interface BuildSessionInternals {
     turn: TurnRequest,
     operations: TurnStateCheckpointOperation[],
   ): Promise<BuilderFallbackTranscript | null>;
-  admittedResidentPlacement(turn: TurnRequest): Promise<boolean>;
-  repairedResidentJournal(
-    turn: TurnRequest,
-    message: string,
-  ): Promise<SealedTurnTranscript>;
-  recoverResidentAgentTurn(turn: TurnRequest): Promise<void>;
-  resumeResidentAgentTurn(turn: TurnRequest): Promise<boolean>;
   recoverAgentTurnAfterExecutorLoss(
     turn: TurnRequest,
     marker: AgentExecutionMarker,
     error: string,
-    resolveInput?: () => Promise<BuilderFallbackInput>,
   ): Promise<TurnBrokerTurnStateCheckpointReceipt>;
   reconcileAgentCheckpointAfterQuiescence(
     turn: TurnRequest,
@@ -354,15 +313,6 @@ export interface BuildSessionInternals {
       errorMessage?: string;
     },
   ): Promise<string>;
-  wakeParentAgentOrConversation(
-    turn: TurnRequest,
-    completion: {
-      status: "completed" | "failed" | "canceled";
-      threadUpdatedAt: number;
-      resultJson?: string;
-      errorMessage?: string;
-    },
-  ): Promise<void>;
   wakeParentConversation(
     turn: TurnRequest,
     completion: {
@@ -417,9 +367,7 @@ export interface BuildSessionInternals {
     signal: AbortSignal,
   ): Promise<Response>;
   handleTurnBroker(request: Request): Promise<Response>;
-  handleSteer(request: Request): Promise<Response>;
   fetch(request: Request): Promise<Response>;
-  admittedComputePlan(turn: TurnRequest): TurnComputePlan | undefined;
   admitAgentTurnThroughOwnerGate(
     turn: TurnRequest,
   ): Promise<
@@ -436,7 +384,6 @@ export interface BuildSessionInternals {
     turn: TurnRequest,
     sandboxId: string | undefined,
     execution: TurnExecutionContext,
-    options?: AgentTurnRunOptions,
   ): Promise<void>;
   resolveAgentWorldRestore(
     turn: TurnRequest,
@@ -466,50 +413,6 @@ export interface BuildSessionInternals {
       fork?: string;
     };
   }>;
-  runResidentAgentTurn(
-    turn: TurnRequest,
-    plan: Extract<GeneralAgentTurnPlan, { kind: "resident_stella" }>,
-    execution: TurnExecutionContext,
-    options?: AgentTurnRunOptions,
-  ): Promise<GeneralAgentTurnResult>;
-  finishResidentAgentTurn(
-    turn: TurnRequest,
-    ladder: Pick<ReturnType<typeof createAgentComputeLadder>, "teardown">,
-    result: GeneralAgentTurnResult,
-    requestStarted: number,
-  ): Promise<void>;
-  releaseResidentCompute(
-    turn: TurnRequest,
-    ladder: Pick<ReturnType<typeof createAgentComputeLadder>, "teardown">,
-  ): Promise<void>;
-  commitResidentTurnDurability(args: {
-    turn: TurnRequest;
-    execution: TurnExecutionContext;
-    ladder: ReturnType<typeof createAgentComputeLadder>;
-    sealed: SealedTurnTranscript;
-    /** The turn's final assistant text; delivered files derive from its links. */
-    finalText: string;
-    control: ReturnType<typeof createAgentControlPlane>;
-    commandTimeoutMs: number;
-  }): Promise<Exclude<TurnDurability, { kind: "none" }>>;
-  residentAttachHistory(
-    turn: TurnRequest,
-    execution: TurnExecutionContext,
-  ): AgentHistoryRow[];
-  publishResidentTurnWorkspace(
-    turn: TurnRequest,
-    execution: TurnExecutionContext,
-    checkpoint: TurnBrokerTurnStateCheckpointReceipt,
-  ): Promise<void>;
-  runResidentTurnStateCheckpoint(args: {
-    turn: TurnRequest;
-    historyCursor: string;
-  }): Promise<TurnBrokerTurnStateCheckpointReceipt>;
-  deliverResidentTerminal(
-    turn: TurnRequest,
-    result: GeneralAgentTurnResult,
-    requestStarted: number,
-  ): Promise<void>;
   runContainerAgentTurn(
     turn: TurnRequest,
     sandboxId: string,

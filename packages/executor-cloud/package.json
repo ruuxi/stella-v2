@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
     "./relay-model": "./src/relay-model.ts",
     "./prune-history": "./src/prune-history.ts",
     "./agent-history": "./src/agent-history.ts",
@@ -14,7 +13,6 @@
     "./cloud-browser-resume": "./src/cloud-browser-resume.ts"
   },
   "scripts": {
-    "stub": "bun src/cli.ts --stub",
     "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit",
     "test": "bun test src"
   },

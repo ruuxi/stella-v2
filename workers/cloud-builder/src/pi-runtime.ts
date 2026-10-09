@@ -59,6 +59,7 @@ import {
 import { StellaAgentDoc } from "@stella/agent/stella/agent-doc";
 import {
   StellaAgentsDoc,
+  type AgentOrigin,
   type AgentReport,
   type AgentRun,
   type AgentRunEnd,
@@ -185,14 +186,27 @@ export type PiAgentInfo = {
   description: string;
   /** How many messages it has been given: 1 for the spawn, then one more per follow-up. */
   attempt: number;
-  /** Started for a computer's orchestrator, whose own turns show it. */
-  origin?: { deviceId: string };
+  /** Started for another host's orchestrator (a computer's, or an agent thread's), whose own turns show it. */
+  origin?: AgentOrigin;
   /** What its latest run saved to the owner's drive and linked in its answer. */
   files?: PiDeliveredFile[];
 };
 
 /** A file an agent delivered: in the owner's drive, for the conversation's files card. */
 export type PiDeliveredFile = { path: string; name: string; sizeBytes: number; contentType: string };
+
+/** A report of an agent thread's agent (`PiConversationRuntime.threadAttempt`). */
+export type PiThreadReport = {
+  threadId: string;
+  requestId: string;
+  text: string;
+  /** One of its messages was answered within another report, or its run was paused. */
+  settled?: true;
+  /** The attempt whose message it answers, when known. */
+  attemptGeneration?: number;
+  /** What the run saved to the owner's drive and linked in its answer. */
+  files?: PiDeliveredFile[];
+};
 
 export type PiTurnSources = {
   orchestratorPrompt: string;
@@ -249,6 +263,11 @@ export type PiRuntimeOptions = {
    * this conversation's orchestrator. `turnId` is the latest turn.
    */
   deliverOriginReport?(report: AgentReport & { origin: { deviceId: string } }, turnId: string): Promise<void>;
+  /**
+   * A report of an agent thread's agent: it settles the thread's attempt in
+   * the owner's agent threads, which hand it to whoever started the thread.
+   */
+  deliverThreadReport?(report: PiThreadReport): Promise<void>;
   /** An agent started work (a spawn or a follow-up), during or just after `turnId`. */
   agentStarted?(event: PiAgentInfo & { threadId: string; turnId: string }): void;
   /**
@@ -358,6 +377,8 @@ const LEASE_RENEW_MS = 3 * 60_000;
 const LEASE_STOP_WAIT_MS = 30_000;
 /** The files an agent's latest run delivered, until its report carries them. */
 const deliveredFilesKey = (threadId: string) => `piAgentFiles:${threadId}`;
+/** The key an agent thread's attempt is given to its agent under. */
+const threadCallKey = (threadId: string, attemptGeneration: number) => `thread:${threadId}:${attemptGeneration}`;
 
 const brokerFailure = (status: number): Response =>
   Response.json({ error: "Turn broker request failed." }, { status, headers: { "cache-control": "no-store" } });
@@ -723,6 +744,22 @@ export class PiConversationRuntime {
       },
       deliverReport: async (report, context) => {
         const { authority } = await this.#agentState();
+        if (report.origin && "agentThread" in report.origin) {
+          // What the run delivered goes with the report that settles its attempt.
+          const filesKey = deliveredFilesKey(report.threadId);
+          const files = report.settled ? undefined : await this.#options.storage.get<PiDeliveredFile[]>(filesKey);
+          const attemptGeneration = await this.#threadAttemptOf(report.requestId, context);
+          await this.#options.deliverThreadReport?.({
+            threadId: report.threadId,
+            requestId: report.requestId,
+            text: report.text,
+            ...(report.settled ? { settled: true as const } : {}),
+            ...(attemptGeneration !== undefined ? { attemptGeneration } : {}),
+            ...(files?.length ? { files } : {}),
+          });
+          if (files) await this.#options.storage.delete(filesKey);
+          return;
+        }
         if (report.origin && this.#options.deliverOriginReport) {
           await this.#options.deliverOriginReport(
             { ...report, origin: report.origin },
@@ -1195,6 +1232,91 @@ export class PiConversationRuntime {
       paused.catch((error: unknown) => this.#options.report(error));
       await Promise.race([paused, waitFor(ORIGIN_PAUSE_HOLD_MS)]);
     }
+  }
+
+  /**
+   * An attempt of one of the owner's agent threads (a `piThread` turn), run
+   * here as an agent whose reports go to the agent threads: the first
+   * attempt starts it under the thread's id, a later one messages it. Once
+   * per attempt. The call key names the attempt, so each report is matched
+   * to the attempt whose message it answers (`#threadAttemptOf`). The turn
+   * is marked this conversation's own, as a computer's agent turn is.
+   */
+  async threadAttempt(
+    attempt: { threadId: string; description: string; attemptGeneration: number },
+    prompt: string,
+    turnId: string,
+    context: Context,
+  ): Promise<void> {
+    const { harness, root, agents } = await this.open();
+    const key = threadCallKey(attempt.threadId, attempt.attemptGeneration);
+    const state = await harness.snapshot(StellaAgentsDoc, root.id, context);
+    const known = state?.agents[attempt.threadId];
+    await root.submit(
+      {
+        type: "write",
+        requestId: `turn:${turnId}`,
+        entry: { kind: "stella.agent-op", data: { op: known ? "message" : "start", threadId: attempt.threadId } },
+      },
+      context,
+    );
+    if (state?.calls[`host:${key}`] || state?.calls[`user:${key}`]) return;
+    if (known) {
+      await agents.messageAgent(
+        { key, threadId: attempt.threadId, message: prompt, fromOrchestrator: true },
+        context,
+      );
+      return;
+    }
+    await agents.startAgent(
+      {
+        key,
+        description: attempt.description,
+        prompt,
+        threadId: attempt.threadId,
+        origin: { agentThread: true },
+      },
+      context,
+    );
+  }
+
+  /** New input for an agent thread's running attempt, read before its next step. Once per `messageId`. */
+  async steerThreadAgent(
+    args: { threadId: string; attemptGeneration: number; messageId: string; text: string },
+    context: Context,
+  ): Promise<void> {
+    const { agents } = await this.open();
+    await agents.messageAgent(
+      {
+        key: `${threadCallKey(args.threadId, args.attemptGeneration)}:steer:${args.messageId}`,
+        threadId: args.threadId,
+        message: args.text,
+        fromOrchestrator: true,
+      },
+      context,
+    );
+  }
+
+  /** Pause an agent thread's agent: its run is marked at once, then winds down on its own. */
+  async pauseThreadAgent(threadId: string, context: Context): Promise<void> {
+    const { agents } = await this.open();
+    const paused = agents.pauseAgent(threadId, context);
+    paused.catch((error: unknown) => this.#options.report(error));
+    await Promise.race([paused, waitFor(ORIGIN_PAUSE_HOLD_MS)]);
+  }
+
+  /** The attempt an agent thread's report answers, from the call key its message was given under. */
+  async #threadAttemptOf(requestId: string, context: Context): Promise<number | undefined> {
+    const reporter = Number(/^agent-report:(\d+)$/.exec(requestId)?.[1]);
+    if (!Number.isSafeInteger(reporter)) return undefined;
+    const { harness, root } = await this.open();
+    const calls = (await harness.snapshot(StellaAgentsDoc, root.id, context))?.calls ?? {};
+    for (const [key, call] of Object.entries(calls)) {
+      if (Number(call.reporter) !== reporter) continue;
+      const attempt = /^(?:host|user):thread:[^:]+:(\d+)(?::|$)/.exec(key)?.[1];
+      return attempt === undefined ? undefined : Number(attempt);
+    }
+    return undefined;
   }
 
   /**

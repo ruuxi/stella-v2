@@ -3,6 +3,11 @@ import { builtinCloudAppSkill } from "./builtin-cloud-app-skill.js";
 import { OwnerHomeContextCache, type OwnerHomeContext } from "./owner-home-context.js";
 import { chatTurnFingerprintSource, cloudChatHandoffKey, cloudChatTurnKey, type CloudChatHandoff, type CloudChatPreparation, type AdmittedCloudChat } from "./cloud-chat-admission.js";
 import { turnStartErrorResponse } from "./turn-start-request.js";
+import {
+  cancelCloudAgentAttempt,
+  piThreadAttemptRequest,
+  runsAsPiAgent,
+} from "./cloud-agent-dispatch.js";
 import type { ModelGatewayControl } from "./managed-request-cancellation.js";
 import { verifyUserToken } from "./auth-jwt.js";
 import { OwnerStore } from "./owner-store/store.js";
@@ -3319,6 +3324,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       clientMsgId: row.dispatch_id,
       ...(row.parent_turn_id ? { parentTurnId: row.parent_turn_id } : {}),
     };
+    if (runsAsPiAgent(request.execution)) {
+      return await this.startPiPlacedAgent(row, request, now);
+    }
     const response = await sessions
       .getByName(threadId)
       .fetch("https://build-session/turn", {
@@ -3342,6 +3350,56 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         error_code: null,
         error_message: null,
         cloud_thread_id: started.threadId ?? threadId,
+        payload_json: null,
+        payload_expires_at: null,
+        lease_expires_at: null,
+        started_at: now,
+      },
+      now,
+    );
+  }
+
+  /**
+   * A placed agent on Stella's models runs in its conversation as a pi
+   * agent, which admits each of its runs itself, so this dispatch's own hold
+   * goes back once the conversation has it. Its report settles the dispatch
+   * by its id, as a BuildSession agent's terminal does.
+   */
+  private async startPiPlacedAgent(
+    row: DispatchRow,
+    request: CloudAgentTurnStartRequest,
+    now: number,
+  ): Promise<DispatchRow> {
+    const sessions = this.env.ORCHESTRATOR_SESSIONS;
+    if (!sessions) throw new Error("Orchestrator sessions unavailable.");
+    const response = await sessions.getByName(row.conversation_id).fetch(
+      await piThreadAttemptRequest({
+        ownerId: request.ownerId,
+        ownerGeneration: request.ownerGeneration,
+        conversationId: row.conversation_id,
+        prompt: request.prompt,
+        execution: request.execution,
+        attempt: {
+          threadId: request.threadId,
+          description: request.description,
+          turnId: row.dispatch_id,
+          attemptGeneration: 1,
+        },
+      }),
+    );
+    if (!response.ok) return await this.cloudRefusal(row, response, now);
+    await response.body?.cancel().catch(() => undefined);
+    await this.releaseGate(row);
+    return await this.patchDispatch(
+      row,
+      {
+        state: "cloud_running",
+        placement: "cloud",
+        cloud_turn_id: row.dispatch_id,
+        cloud_retry_at: null,
+        error_code: null,
+        error_message: null,
+        cloud_thread_id: request.threadId,
         payload_json: null,
         payload_expires_at: null,
         lease_expires_at: null,
@@ -4017,15 +4075,18 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
         });
-      } else if (row.cloud_thread_id) {
-        await this.env.BUILD_SESSIONS?.getByName(row.cloud_thread_id).fetch(
-          "https://build-session/cancel",
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(body),
-          },
-        );
+      } else if (row.cloud_thread_id && row.cloud_turn_id) {
+        await cancelCloudAgentAttempt({
+          env: this.env as unknown as Cloudflare.Env,
+          conversationId: row.conversation_id,
+          threadId: row.cloud_thread_id,
+          ownerId: this.ownerId(),
+          ownerGeneration: row.owner_generation,
+          turnId: row.cloud_turn_id,
+          attemptGeneration: 1,
+          cancelRequestId,
+          reason,
+        });
       }
     } catch (error) {
       // The dispatch stays `cancel_pending`; the executing side's terminal

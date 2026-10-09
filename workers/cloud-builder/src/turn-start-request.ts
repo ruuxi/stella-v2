@@ -40,6 +40,10 @@ export type TurnAuthKind = "user" | "service";
 const MAX_EXECUTION_FIELD_LENGTH = 2048;
 const MAX_ATTACHMENT_PATH_CHARS = 1024;
 const MAX_THREAD_ID_CHARS = 256;
+/** An agent-thread attempt's turn id: a UUID, a tool-scoped id or a dispatch id. */
+const PI_THREAD_TURN_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+/** An agent thread's brief: an orchestrator's spawn prompt is not a chat message. */
+const PI_THREAD_PROMPT_MAX_CHARS = 64_000;
 const LOCALE_PATTERN = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/;
 
 const LANES: readonly CloudTurnLane[] = ["chat", "wake", "schedule"];
@@ -253,13 +257,46 @@ export const parseCloudTurnStartRequest = (
         : {}),
     };
   }
+  if (value.piThread !== undefined) {
+    const attempt = value.piThread as Record<string, unknown> | null;
+    if (
+      request.piAgent ||
+      !attempt ||
+      typeof attempt !== "object" ||
+      typeof attempt.threadId !== "string" ||
+      !PI_AGENT_THREAD_ID_PATTERN.test(attempt.threadId) ||
+      typeof attempt.description !== "string" ||
+      attempt.description.length > 1_000 ||
+      typeof attempt.turnId !== "string" ||
+      !PI_THREAD_TURN_ID_PATTERN.test(attempt.turnId) ||
+      !Number.isSafeInteger(attempt.attemptGeneration) ||
+      (attempt.attemptGeneration as number) < 1 ||
+      (attempt.originDeviceId !== undefined &&
+        (typeof attempt.originDeviceId !== "string" ||
+          !attempt.originDeviceId.trim() ||
+          attempt.originDeviceId.length > 256))
+    ) {
+      return fail("piThread is malformed.");
+    }
+    request.piThread = {
+      threadId: attempt.threadId,
+      description: attempt.description.trim() || attempt.threadId,
+      turnId: attempt.turnId,
+      attemptGeneration: attempt.attemptGeneration as number,
+      ...(typeof attempt.originDeviceId === "string"
+        ? { originDeviceId: attempt.originDeviceId.trim() }
+        : {}),
+    };
+  }
   const agentWake =
     request.lane === "wake" && request.source === "agent-thread";
-  const promptMax = !agentWake
-    ? TURN_PROMPT_MAX_CHARS
-    : request.agentThreadControl
-      ? Number.POSITIVE_INFINITY
-      : AGENT_MESSAGE_FRAMED_MAX_CHARS;
+  const promptMax = request.piThread
+    ? PI_THREAD_PROMPT_MAX_CHARS
+    : !agentWake
+      ? TURN_PROMPT_MAX_CHARS
+      : request.agentThreadControl
+        ? Number.POSITIVE_INFINITY
+        : AGENT_MESSAGE_FRAMED_MAX_CHARS;
   if (prompt.length > promptMax) {
     return fail(`prompt must be at most ${promptMax} characters.`);
   }
@@ -287,6 +324,7 @@ export const serviceOnlyTurnFields = (
   if (request.agentThreadControl !== undefined) {
     fields.push("agentThreadControl");
   }
+  if (request.piThread !== undefined) fields.push("piThread");
   return fields;
 };
 
@@ -344,17 +382,16 @@ export const turnStartErrorResponse = (
 };
 
 // ---------------------------------------------------------------------------
-// Agent turns (`POST /sessions/:threadId/turns` and the orchestrator's direct
-// `BuildSession` dispatch).
+// Agent turns (a `BuildSession` dispatch from the conversation, the owner's
+// agent threads or a placed agent).
 // ---------------------------------------------------------------------------
 
 /**
- * Set by the OrchestratorSession on the spawn/continuation it dispatches
- * straight to a `BuildSession`. It means "this owner gate admission already
- * happened, and the caller releases it if the dispatch fails" — so the session
- * must not admit a second time for the same turn. It is an internal Durable
- * Object-to-Durable Object header: the public `/sessions/:id/turns` route
- * builds its forwarded headers from scratch and never copies it.
+ * Set by the dispatcher on the spawn/continuation it sends straight to a
+ * `BuildSession`. It means "this owner gate admission already happened, and
+ * the caller releases it if the dispatch fails" — so the session must not
+ * admit a second time for the same turn. It is an internal Durable
+ * Object-to-Durable Object header no public route forwards.
  */
 export const HEADER_GATE_ADMITTED = "x-stella-gate-admitted";
 

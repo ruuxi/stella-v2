@@ -121,14 +121,6 @@ export type BuildOwnerFenceLeaseSlot = {
   kind: "run" | "aux";
 };
 
-export type AgentComputeRecoveryClaim = {
-  schemaVersion: 1;
-  turnId: string;
-  attemptGeneration: number;
-  sandboxId: string;
-  createdAt: number;
-};
-
 export type AppTurnAdmissionClaim = {
   schemaVersion: 1;
   claimId: string;
@@ -203,13 +195,6 @@ export type BuilderFallbackTranscript = {
   transcriptCommitted: boolean;
   workspacePublished: boolean;
 };
-
-/**
- * How an agent attempt is entered. `resume` continues the journaled attempt a
- * replaced isolate left behind (`resumeResidentAgentTurn`) instead of
- * starting it.
- */
-export type AgentTurnRunOptions = Readonly<{ resume?: boolean }>;
 
 export type AgentExecutionMarker = {
   schemaVersion: 1;

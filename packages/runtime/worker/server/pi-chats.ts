@@ -213,7 +213,8 @@ export const piChatsFor = (
             sound: "Glass",
           })
           .catch((error) => console.debug("[pi-chat] agent notification failed", error));
-        if (agent.conversationId.startsWith("local_")) return;
+        // A message since has it working again: that run's record stays open.
+        if (agent.conversationId.startsWith("local_") || agent.running) return;
         const body = /\n(?:result|error): ([\s\S]*?)(?=\n(?:agent_state|routing|presentation): |$)/.exec(agent.report)?.[1]?.trim();
         void (async () => {
           const runner = session.runnerCell.get();
@@ -226,6 +227,22 @@ export const piChatsFor = (
             ...(body ? (agent.failed ? { error: body } : { result: body }) : {}),
           });
         })().catch((error) => console.warn("[pi-chat] computer thread completion failed", error));
+      },
+      // Paused before it answered: Stella is not woken, but the agent stopped,
+      // and the phone counts what the owner's records say is running.
+      agentPaused: (agent) => {
+        if (agent.conversationId.startsWith("local_")) return;
+        void (async () => {
+          const runner = session.runnerCell.get();
+          if (!runner) return;
+          await runner.computerAgents.complete({
+            agentId: agent.threadId,
+            attemptGeneration: agent.attempt,
+            status: "canceled",
+            ownerGeneration: await runner.cloudJournal.ownerGeneration(),
+            error: "Paused.",
+          });
+        })().catch((error) => console.warn("[pi-chat] computer thread pause failed", error));
       },
       // A conversation kept on this computer shares the agent loops' chat
       // log; a cloud one shares the journal.
@@ -263,6 +280,55 @@ export const resumePiChats = async (
     return;
   }
   await (await piChatsFor(session, hostBus)).resumeActive();
+};
+
+/**
+ * How one of pi's agents on this computer stands, for the owner's records of
+ * it: undefined when no pi conversation here started it. Loads the pi chat
+ * only for an agent it knows (`<data dir>/agent/threads.json`).
+ */
+const piAgentStanding = async (
+  session: OpenSession,
+  hostBus: HostBus.Interface,
+  threadId: string,
+): Promise<import("../../kernel/runner/computer-agent-reconcile.js").ComputerAgentStanding | undefined> => {
+  const file = path.join(session.config.get().stellaDataDirPath, "agent", "threads.json");
+  if (!existsSync(file)) return undefined;
+  try {
+    const index = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    if (typeof index[threadId] !== "string") return undefined;
+  } catch {
+    return undefined;
+  }
+  const status = await (await piChatsFor(session, hostBus)).agentStatus(threadId);
+  return status && { status: status.status, attempt: status.attempt, ...(status.status === "canceled" ? { error: "Paused." } : {}) };
+};
+
+const reconciling = new WeakMap<OpenSession, Promise<void>>();
+
+/**
+ * Settle the owner's record of every agent it says runs on this computer and
+ * no longer does (`computer-agent-reconcile`), on start and on reconnect. A
+ * pi agent whose run resumes after a restart is still running.
+ */
+export const reconcileComputerAgents = (
+  session: OpenSession,
+  hostBus: HostBus.Interface,
+): Promise<void> => {
+  const pending = reconciling.get(session);
+  if (pending) return pending;
+  const run = (async () => {
+    const runner = session.runnerCell.get();
+    if (!runner) return;
+    const { settled } = await runner.computerAgents.reconcile((threadId) =>
+      piAgentStanding(session, hostBus, threadId),
+    );
+    if (settled.length > 0) {
+      console.info("[runtime-worker] settled agents no longer running here:", settled.join(", "));
+    }
+  })().finally(() => reconciling.delete(session));
+  reconciling.set(session, run);
+  return run;
 };
 
 /**

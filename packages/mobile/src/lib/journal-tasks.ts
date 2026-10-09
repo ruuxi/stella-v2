@@ -146,9 +146,16 @@ export const collectJournalTasks = (
    */
   runningAgents: readonly AgentActivityEntry[] = [],
 ): MobileTask[] => {
+  // An agent with a start card is told by its cards alone. A terminal card
+  // without one settles a mirrored agent: the owner of its record writes it
+  // when the agent ended without a wake prompt (`foldAgentActivity`).
   const carded = new Set<string>();
   for (const record of records) {
-    if (record.kind === "card" && record.card.type === "agent-lifecycle") {
+    if (
+      record.kind === "card" &&
+      record.card.type === "agent-lifecycle" &&
+      record.card.event.type === "agent-started"
+    ) {
       carded.add(record.card.event.payload.agentId);
     }
   }
@@ -156,6 +163,7 @@ export const collectJournalTasks = (
   const tasks = new Map<string, MobileTask>();
   for (const task of agentSnapshotTasks(runningAgents)) tasks.set(task.id, task);
   const generations = new Map<string, number>();
+  const settledGenerations = new Map<string, number>();
 
   const start = (
     id: string,
@@ -193,6 +201,7 @@ export const collectJournalTasks = (
       const current = generations.get(id) ?? 0;
       if (event.type === "agent-started") {
         if (generation < current) continue;
+        if (generation <= (settledGenerations.get(id) ?? 0)) continue;
         generations.set(id, generation);
         start(id, event.payload.description, record.createdAtMs, {
           ...(event.payload.agentType ? { agentType: event.payload.agentType } : {}),
@@ -202,8 +211,12 @@ export const collectJournalTasks = (
         });
         continue;
       }
-      if (generation !== current) continue;
+      if (event.type !== "agent-progress") {
+        settledGenerations.set(id, Math.max(generation, settledGenerations.get(id) ?? 0));
+      }
+      if (generation !== current && generations.has(id)) continue;
       if (event.type === "agent-progress") {
+        if (!generations.has(id)) continue;
         const existing = tasks.get(id);
         const statusText = event.payload.statusText.trim();
         if (existing?.status === "running" && statusText) {

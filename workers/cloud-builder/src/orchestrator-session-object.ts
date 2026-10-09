@@ -20,6 +20,7 @@ import {
   cloudAgentActivationCard,
   cloudAgentTerminalCard,
 } from "./cloud-agent-lifecycle.js";
+import { parseCloudAgentLifecycleCard } from "@stella/contracts/cloud-agent-lifecycle";
 import {
   createExecutionContextSnapshot,
   mediaAccessForAudience,
@@ -644,6 +645,19 @@ const PI_JOURNAL_IMPORT_BATCH = 200;
 const PI_MIRRORED_KEY = "piMirroredEntry";
 /** Set while pi has work in flight here, so a wake after eviction resumes it. */
 const PI_LIVE_KEY = "piLive";
+/** A connect checks the journal's running agents against their owners at most this often. */
+const AGENT_RECONCILE_INTERVAL_MS = 60_000;
+/**
+ * Durable key: when this conversation first settled the running agents no
+ * owner keeps a record of (`reconcileRunningAgents`).
+ */
+const AGENTS_UNOWNED_SETTLED_KEY = "agentsUnownedSettledAt";
+/**
+ * An agent started this recently may not have reached its owner's records
+ * yet (a computer's start is queued like its turn), so that first pass
+ * leaves it alone.
+ */
+const AGENT_OWNER_RECORD_LAG_MS = 10 * 60_000;
 const PI_HEARTBEAT_MS = 30_000;
 /** The agent tools a pi-durable conversation's harness has itself. */
 const PI_HARNESS_AGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
@@ -1190,6 +1204,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       cancelTurn: (turnId) => this.cancelTurn(turnId),
       onConnect: () => {
         this.flushIndexIfLagging();
+        this.reconcileRunningAgentsSoon();
       },
       conversationId: () => this.conversationId(),
       log,
@@ -5507,7 +5522,13 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             this.deliverPiAgentNote(note, authority),
           // A computer's cloud agent reports to that computer: its journal
           // import takes the card and gives it to its orchestrator.
-          deliverOriginReport: async (report, turnId) => {
+          deliverOriginReport: async (report, turnId, agent) => {
+            // The computer reads the report from its card; the journal's
+            // count of what runs learns it ended now, whether or not the
+            // computer is awake to read it.
+            if (!report.settled && !agent.running) {
+              this.publishPiAgentTerminal(report.threadId, agent, piReportOutcome(report.text));
+            }
             const appended = this.journal.appendCard({
               turnId,
               createdAt: Date.now(),
@@ -5548,6 +5569,16 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                 },
               },
             }),
+          // A pause reports nothing to the orchestrator, which is not woken
+          // for it; the agent's cards still end, or every client would count
+          // it as running for good.
+          agentPaused: (event) =>
+            this.publishPiAgentTerminal(
+              event.threadId,
+              event,
+              { kind: "canceled", body: "Paused." },
+              event.turnId,
+            ),
           agentTools: (authority, browser) =>
             this.createPiAgentTools(authority, browser),
           browserHandoff: (handoff, signal) =>
@@ -5756,11 +5787,22 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     if (agent.files?.length) {
       this.publishTurnFilesCard(wakeTurnId, `pi-files:${report.requestId}`, agent.files);
     }
-    const outcome = piReportOutcome(report.text);
-    const identity = { agentId: report.threadId, attemptGeneration: agent.attempt };
-    this.publishAgentLifecycleCard(wakeTurnId, Date.now(), {
+    // A message since has it working again: this report does not end it.
+    if (agent.running) return;
+    this.publishPiAgentTerminal(report.threadId, agent, piReportOutcome(report.text), wakeTurnId);
+  }
+
+  /** The card that ends one of pi's agents' attempts, under `turnId` (its own, by default). */
+  private publishPiAgentTerminal(
+    threadId: string,
+    agent: import("./pi-runtime.js").PiAgentInfo,
+    outcome: { kind: "completed" | "failed" | "canceled"; body: string },
+    turnId = `pi-agent:${threadId}`,
+  ): void {
+    const identity = { agentId: threadId, attemptGeneration: agent.attempt };
+    this.publishAgentLifecycleCard(turnId, Date.now(), {
       type: "agent-lifecycle",
-      eventId: `pi-agent:${report.threadId}:${agent.attempt}:${outcome.kind}`,
+      eventId: `pi-agent:${threadId}:${agent.attempt}:${outcome.kind}`,
       event:
         outcome.kind === "completed"
           ? { type: "agent-completed", payload: { ...identity, result: outcome.body } }
@@ -9974,7 +10016,14 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       });
       return json({ error: "Conversation owner is unavailable." }, 409);
     }
-    const writerKey = `card:${sourceTurnId}:${card.type}`;
+    // One files card per source turn; an agent's lifecycle cards are one per
+    // event (its start and its end share the attempt they describe).
+    let writerKey = `card:${sourceTurnId}:${card.type}`;
+    if (card.type === "agent-lifecycle") {
+      const lifecycle = parseCloudAgentLifecycleCard(card);
+      if (!lifecycle) return json({ error: "Malformed request." }, 400);
+      writerKey = `card:${lifecycle.eventId}`;
+    }
     const payloadJson = JSON.stringify(card);
     const now = Date.now();
     if (utf8Length(payloadJson) > MAX_ROW_BYTES) {
@@ -10350,6 +10399,129 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         ownerGeneration: wake.ownerGeneration,
       })) !== null
     );
+  }
+
+  /** When this object last checked its running agents against their owners. */
+  private agentsReconciledAt = 0;
+
+  private reconcileRunningAgentsSoon(): void {
+    const now = Date.now();
+    if (now - this.agentsReconciledAt < AGENT_RECONCILE_INTERVAL_MS) return;
+    this.agentsReconciledAt = now;
+    this.ctx.waitUntil(
+      this.reconcileRunningAgents().catch((error: unknown) => {
+        log("error", "conversation_agent_reconcile_failed", {
+          conversationId: this.conversationId(),
+          message: errorMessage(error),
+        });
+      }),
+    );
+  }
+
+  /**
+   * Settle what the journal still shows as running and has in fact ended.
+   *
+   * Whoever owns an agent's record writes the card that ends it: its report,
+   * this object's pause, the owner's agent threads for a computer's agents.
+   * But the owner's post is best effort, and an agent that ended before those
+   * cards existed has none, so it read as running for good (the phantom
+   * "N agents running" a phone showed). When a client connects, each agent
+   * the journal lists as running is checked against its owner: this object's
+   * own pi agents, and the owner's agent threads for everything else (a
+   * computer's agents, cloud agents, agents on a device). One that ended is
+   * settled with how it ended; one still running there is left alone, and a
+   * computer settles its own on its next start (`computer-agent-reconcile`).
+   *
+   * The first pass in a conversation also settles what no owner knows at all:
+   * an agent its journal has carried since before any owner recorded agents.
+   */
+  private async reconcileRunningAgents(): Promise<void> {
+    if (this.purged()) return;
+    const running = this.journal.runningAgents();
+    const ownerId = this.journal.ownerId();
+    if (running.length === 0 || !ownerId || (await this.turnRunning())) return;
+    const owner = await this.resolveOwnerForCaller({ ownerId });
+    if (!owner) return;
+    const startedAt = Date.now();
+    const hostsPi =
+      Boolean(this.piRuntime) ||
+      (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi" ||
+      Boolean(await this.ctx.storage.get<boolean>(PI_LIVE_KEY));
+    const own = hostsPi
+      ? await (async () => {
+          const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+          const { contextFor } = await import("./pi-runtime.js");
+          return await runtime.agentStandings(contextFor());
+        })()
+      : new Map<string, { running: boolean; status: "completed" | "error" | "canceled"; attempt: number }>();
+    const elsewhere = running.filter((entry) => !own.has(entry.agentId)).map((entry) => entry.agentId);
+    const threads = new Map(
+      (elsewhere.length === 0
+        ? []
+        : (unwrapRpc(
+            await this.ownerGate(ownerId).ownerInternal({
+              name: "agentThreads.statuses",
+              args: { ownerGeneration: owner.ownerGeneration, threadIds: elsewhere },
+              ownerGeneration: owner.ownerGeneration,
+            }),
+          ) as Array<{ threadId: string; status: string; attemptGeneration: number; errorMessage?: string }>)
+      ).map((thread) => [thread.threadId, thread]),
+    );
+    const unownedSettled = Boolean(await this.ctx.storage.get<number>(AGENTS_UNOWNED_SETTLED_KEY));
+    // Cards are rows: none lands inside a turn that started meanwhile.
+    if (this.purged() || (await this.turnRunning())) return;
+    for (const entry of running) {
+      const mine = own.get(entry.agentId);
+      const thread = threads.get(entry.agentId);
+      let ended: { kind: "completed" | "failed" | "canceled"; attempt: number; body: string } | null = null;
+      if (mine) {
+        if (!mine.running) {
+          ended = {
+            kind: mine.status === "error" ? "failed" : mine.status,
+            attempt: entry.attemptGeneration ?? mine.attempt,
+            body: mine.status === "canceled" ? "Paused." : "",
+          };
+        }
+      } else if (thread) {
+        // An owner record behind the journal's newest start is not about that start.
+        if (
+          (thread.status === "completed" || thread.status === "failed" || thread.status === "canceled") &&
+          thread.attemptGeneration >= (entry.attemptGeneration ?? 0)
+        ) {
+          ended = {
+            kind: thread.status,
+            attempt: entry.attemptGeneration ?? thread.attemptGeneration,
+            body: thread.errorMessage ?? "",
+          };
+        }
+      } else if (!unownedSettled && entry.createdAtMs < startedAt - AGENT_OWNER_RECORD_LAG_MS) {
+        ended = {
+          kind: "canceled",
+          attempt: entry.attemptGeneration ?? 1,
+          body: "No longer running: Stella lost track of this agent when it stopped.",
+        };
+      }
+      if (!ended) continue;
+      const identity = { agentId: entry.agentId, attemptGeneration: ended.attempt };
+      this.publishAgentLifecycleCard(`settle:${entry.agentId}`, Date.now(), {
+        type: "agent-lifecycle",
+        eventId: `settle:${entry.agentId}:${ended.attempt}`,
+        event:
+          ended.kind === "completed"
+            ? { type: "agent-completed", payload: { ...identity, result: "" } }
+            : {
+                type: ended.kind === "failed" ? "agent-failed" : "agent-canceled",
+                payload: { ...identity, ...(ended.body ? { error: ended.body } : {}) },
+              },
+      });
+      log("info", "conversation_agent_settled", {
+        conversationId: this.conversationId(),
+        agentId: entry.agentId,
+        status: ended.kind,
+        by: mine ? "pi" : thread ? "owner" : "unowned",
+      });
+    }
+    if (!unownedSettled) await this.ctx.storage.put(AGENTS_UNOWNED_SETTLED_KEY, startedAt);
   }
 
   private publishAgentLifecycleCard(

@@ -593,6 +593,34 @@ export const createStellaHostRunner = (
     computerAgents: {
       start: (args) => computerAgentCloudRecords.create(args),
       complete: (args) => computerAgentCloudRecords.complete(args),
+      reconcile: async (elsewhere) => {
+        const backend = context.backend.client();
+        if (!backend || !context.state.authToken?.trim()) return { settled: [] };
+        const { reconcileComputerAgents } = await import(
+          "./runner/computer-agent-reconcile.js"
+        );
+        const ownerGeneration = await context.cloudOwnerGeneration();
+        const fence = { originDeviceId: context.deviceId, ownerGeneration };
+        return await reconcileComputerAgents({
+          running: async () =>
+            await backend.call("computerThreads.running", fence),
+          complete: async (input) =>
+            await backend.call("computerThreads.complete", { ...fence, ...input }),
+          cancel: async (input) =>
+            await backend.call("computerThreads.cancel", { ...fence, ...input }),
+          // The agent loops' own record first: after a restart it already
+          // reads canceled for whatever the last process left running.
+          standing: async (threadId) => {
+            const record = context.runtimeStore.getAgentRecord?.(threadId);
+            if (!record) return await elsewhere(threadId);
+            return {
+              status: record.status,
+              attempt: record.attemptGeneration,
+              ...(record.error ? { error: record.error } : {}),
+            };
+          },
+        });
+      },
     },
     beginVoiceToolCallReceipt: (request) =>
       context.runtimeStore.beginVoiceToolCallReceipt(request),

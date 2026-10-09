@@ -14,6 +14,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import {
   ConversationBusy,
   defineDoc,
+  LiveDoc,
   watchEvents,
   type AgentEventStream,
   type Conversation,
@@ -118,7 +119,11 @@ export type DesktopChatsOptions = {
   cloudAgents?(conversationId: string): RemoteAgentHost | undefined;
   /** One of Stella's agents started work (a spawn or a follow-up: `attempt` counts them). */
   agentStarted?(agent: { conversationId: string; threadId: string; description: string; attempt: number }): void;
-  /** An agent finished and reported to Stella (the app shows a notification). */
+  /**
+   * An agent finished and reported to Stella (the app shows a notification).
+   * `running`: a message since has it working again, so `attempt` is that
+   * newer run's and still open.
+   */
   agentReported?(agent: {
     conversationId: string;
     threadId: string;
@@ -126,7 +131,10 @@ export type DesktopChatsOptions = {
     failed: boolean;
     report: string;
     attempt: number;
+    running: boolean;
   }): void;
+  /** One of Stella's agents was paused before it answered; Stella is not told (`StellaAgentsHost.agentPaused`). */
+  agentPaused?(agent: { conversationId: string; threadId: string; description: string; attempt: number }): void;
   /**
    * For a conversation kept on this computer: the agent loops' chat log,
    * which the Claude Code engine answers from. Its turns are mirrored both
@@ -354,7 +362,7 @@ export function desktopChats(options: DesktopChatsOptions) {
             }),
             agents: (() => {
               const cloud = options.cloudAgents?.(conversationId);
-              const { agentStarted, agentReported } = options;
+              const { agentStarted, agentReported, agentPaused } = options;
               /** How many runs Stella has given one of its agents: the attempt a run is. */
               const attempts = async (threadId: string) => {
                 if (!opened) return 1;
@@ -379,10 +387,24 @@ export function desktopChats(options: DesktopChatsOptions) {
                 ...(agentReported
                   ? {
                       agentReported: (agent) => {
-                        void attempts(agent.threadId).then(
-                          (attempt) => agentReported({ conversationId, ...agent, attempt }),
-                          (error: unknown) => options.report(error),
-                        );
+                        void (async () => {
+                          const attempt = await attempts(agent.threadId);
+                          const record = opened
+                            ? (await opened.harness.snapshot(StellaAgentsDoc, opened.root.id, context))?.agents[agent.threadId]
+                            : undefined;
+                          const live =
+                            opened && record && !record.remote
+                              ? await opened.harness.snapshot(LiveDoc, record.conversationId as ConversationId, context)
+                              : undefined;
+                          agentReported({ conversationId, ...agent, attempt, running: live?.run !== undefined });
+                        })().catch((error: unknown) => options.report(error));
+                      },
+                    }
+                  : {}),
+                ...(agentPaused
+                  ? {
+                      agentPaused: async (agent) => {
+                        agentPaused({ conversationId, ...agent, attempt: await attempts(agent.threadId) });
                       },
                     }
                   : {}),
@@ -857,7 +879,7 @@ export function desktopChats(options: DesktopChatsOptions) {
     const chat = await open(conversationId);
     const records = await chat.agentRecords(context);
     return {
-      agents: records.map(({ placement: _placement, ...agent }) => agent),
+      agents: records.map(({ placement: _placement, paused: _paused, ...agent }) => agent),
     };
   };
 
@@ -951,6 +973,26 @@ export function desktopChats(options: DesktopChatsOptions) {
         context,
       );
       return record.status === "running" ? "steered" : "resumed";
+    },
+    /**
+     * Where one of Stella's agents on this computer stands, for settling the
+     * cloud's record of it: undefined when no conversation here started it.
+     * A run a previous process left unfinished reads as running: it resumes.
+     */
+    async agentStatus(
+      threadId: string,
+    ): Promise<{ conversationId: string; status: "running" | "completed" | "error" | "canceled"; attempt: number } | undefined> {
+      const conversationId = (await threadIndex())[threadId];
+      if (!conversationId) return undefined;
+      const chat = await open(conversationId);
+      const record = (await chat.agentRecords(context)).find((agent) => agent.threadId === threadId);
+      if (!record) return undefined;
+      const calls = Object.values((await chat.harness.snapshot(StellaAgentsDoc, chat.root.id, context))?.calls ?? {});
+      return {
+        conversationId,
+        status: record.paused ? "canceled" : record.status,
+        attempt: Math.max(1, calls.filter((call) => call.threadId === threadId).length),
+      };
     },
     /** Whether any conversation has work in flight here, so the process must stay up. */
     busy(): boolean {

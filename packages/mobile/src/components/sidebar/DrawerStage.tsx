@@ -26,7 +26,7 @@ import {
   useDrawerPan,
 } from "../../lib/drawer";
 import { tapLight } from "../../lib/haptics";
-import { useColors, useTheme } from "../../theme/theme-context";
+import { useColors } from "../../theme/theme-context";
 import { GlassIconButton } from "../GlassIconButton";
 import { DrawerMaterial } from "./DrawerMaterial";
 
@@ -51,7 +51,6 @@ export function DrawerStage({
   };
 }) {
   const colors = useColors();
-  const { isDark } = useTheme();
   const { travel, scale, radius } = useDrawerMetrics();
   const reduce = useReducedMotion();
   const live = useDrawerLive();
@@ -82,13 +81,11 @@ export function DrawerStage({
     return () => sub.remove();
   }, [open]);
 
-  const shadow = isDark ? 0.6 : 0.16;
   const stage = useAnimatedStyle(() => {
     const v = p.value;
     const s = reduce ? 1 : 1 - (1 - scale) * Math.min(v, 1.2);
     return {
       transform: [{ translateX: v * travel }, { scale: s }],
-      shadowOpacity: interpolate(v, [0, 0.45, 0.9], [0, shadow, 0], CLAMP),
       borderRadius: interpolate(v, [0, 0.12], [0, radius], CLAMP),
     };
   });
@@ -99,14 +96,10 @@ export function DrawerStage({
     opacity: drawerVeil(p.value),
   }));
   const haze = useAnimatedStyle(() => ({
-    opacity: reduce
-      ? 0
-      : interpolate(drawerVeil(p.value), [0, 0.3], [0, 1], CLAMP),
+    opacity: reduce ? 0 : interpolate(p.value, [0, 0.16], [0, 1], CLAMP),
   }));
   const frost = useAnimatedStyle(() => ({
-    opacity: reduce
-      ? 0
-      : interpolate(drawerVeil(p.value), [0.1, 1], [0, 1], CLAMP),
+    opacity: reduce ? 0 : interpolate(p.value, [0.08, 0.42], [0, 1], CLAMP),
   }));
 
   const panelStyle = useAnimatedStyle(() => {
@@ -124,7 +117,10 @@ export function DrawerStage({
     };
   });
   const panelFocus = useAnimatedStyle(() => ({
-    opacity: reduce || p.value > 0.97 ? 0 : 1 - drawerVeil(p.value),
+    opacity:
+      reduce || p.value > 0.97
+        ? 0
+        : interpolate(p.value, [0, 0.9], [1, 0], CLAMP),
   }));
 
   const openPan = useDrawerPan("open", enabled && !open);
@@ -261,12 +257,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 0,
   },
-  stage: {
-    flex: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: -6, height: 0 },
-    shadowRadius: 28,
-  },
+  stage: { flex: 1 },
   clip: { flex: 1, overflow: "hidden" },
   chevron: { position: "absolute" },
 });

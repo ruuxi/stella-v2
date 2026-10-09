@@ -54,7 +54,6 @@ import {
   closeDrawer,
   drawerJustOpened,
   drawerProgress,
-  drawerVeil,
   isDrawerOpen,
   openDrawer,
   useDrawerLive,
@@ -251,8 +250,8 @@ export default function MainLayout() {
 
   const topBarFade = useAnimatedStyle(() => ({
     opacity: interpolate(
-      drawerVeil(drawerProgress.value),
-      [0, 0.25],
+      drawerProgress.value,
+      [0, 0.22],
       [1, 0],
       Extrapolation.CLAMP,
     ),

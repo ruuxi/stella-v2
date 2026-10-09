@@ -68,9 +68,9 @@ const stellaCatalogStore = createResourceStore<string, StellaCatalogPayload>({
 });
 
 /**
- * Single worker-owned catalog for direct providers. The runtime restores its
- * persisted last-good catalog immediately and refreshes pi.dev in the
- * background, so the renderer never maintains a second provider registry.
+ * Single worker-owned catalog for direct providers. The runtime serves pi-ai's
+ * built-in catalog plus Stella's managed models, so the renderer never
+ * maintains a second provider registry.
  */
 const managedGatewayStore = createResourceStore<"default", ManagedRuntimeCatalogPayload>({
   staleMs: MODEL_CATALOG_REFRESH_INTERVAL_MS,

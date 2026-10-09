@@ -134,24 +134,6 @@ const mkdirp = (p) => fs.mkdirSync(p, { recursive: true });
 const copyDir = (from, to) => {
   rmrf(to);
   fs.cpSync(from, to, { recursive: true });
-  restampCatalogStore(to);
-};
-/**
- * Templates are cached across invocations, but the catalog stamps the seed
- * wrote age with them: once they pass the runtime's refresh interval (4 h,
- * `REMOTE_CATALOG_REFRESH_INTERVAL_MS` in ai/model-runtime.ts) every boot
- * refetches each provider and republishes the catalog, so the "returning user"
- * would depend on the template's age. Each copy gets a just-refreshed store.
- */
-const restampCatalogStore = (dataDir) => {
-  const storePath = path.join(dataDir, "models-store.json");
-  if (!fs.existsSync(storePath)) return;
-  const stored = JSON.parse(fs.readFileSync(storePath, "utf8"));
-  const now = Date.now();
-  for (const entry of Object.values(stored)) {
-    if (entry && typeof entry.checkedAt === "number") entry.checkedAt = now;
-  }
-  fs.writeFileSync(storePath, JSON.stringify(stored, null, 2));
 };
 let runCounter = 0;
 const newRunDir = (label) => {

@@ -17,9 +17,9 @@
  * This module is intentionally self-contained: pure byte inspection, no
  * Photon/WASM.
  * It cannot re-encode a truly undecodable image (nothing can — the pixels are
- * gone), so an unprocessable block is dropped and the caller substitutes a
- * short text note instead of poisoning the request. Valid images pass through
- * untouched, so the working user-attached path does not regress.
+ * gone), so the attach gate refuses an unprocessable image instead of
+ * poisoning the request. Valid images pass through untouched, so the working
+ * user-attached path does not regress.
  */
 
 import { ANTHROPIC_DIRECT_MAX_IMAGE_BASE64_BYTES } from "./image-caps.js";
@@ -31,25 +31,14 @@ export type SupportedImageMediaType =
   | "image/gif"
   | "image/webp";
 
-const SUPPORTED_MEDIA_TYPES: readonly SupportedImageMediaType[] = [
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-];
-
 /**
  * Single shared ceiling on the base64 payload of an inline image, matched to
  * Anthropic's documented per-image limit on the direct API (10MB) — users hit
  * real 400s above that size. It is enforced against the base64 *string*
  * length (what the API actually counts), NOT the decoded byte length.
  *
- * This is the last-resort guard for both boundaries that protect inline
- * images, so an image can never pass one and then be silently dropped by the
- * other:
- *   - the tool-attach gate in kernel/agent-runtime/tool-adapters.ts, and
- *   - the Anthropic send boundary in providers/anthropic.ts (via
- *     `sanitizeInlineImagePayload`).
+ * This is the last-resort guard at the tool-attach gate in
+ * kernel/agent-runtime/tool-adapters.ts.
  *
  * The canonical value lives in `./image-caps.ts` alongside the other
  * provider/route limits (previously three files disagreed: 4.5MB, 5MB, 10MB).
@@ -58,15 +47,10 @@ const SUPPORTED_MEDIA_TYPES: readonly SupportedImageMediaType[] = [
  */
 export const MAX_IMAGE_BASE64_BYTES = ANTHROPIC_DIRECT_MAX_IMAGE_BASE64_BYTES;
 
-const DATA_URL_PREFIX_RE = /^data:([^;,]+)(;base64)?,/i;
-
 /**
  * Detect a supported image media type purely from magic bytes.
  *
- * NOTE: this mirrors `detectImageMimeTypeFromBytes` in ./image-mime.ts, but
- * only for the media types a model request accepts. Keep the two in sync —
- * if you add or adjust a format here, mirror it there (and vice versa) so
- * they don't silently drift.
+ * ./image-mime.ts sniffs with this too.
  */
 export const detectImageMediaType = (
   bytes: Uint8Array,
@@ -188,69 +172,4 @@ export const isCompleteImage = (
       return bytes.length >= declared + 8;
     }
   }
-};
-
-const stripDataUrlPrefix = (data: string): string => {
-  const match = DATA_URL_PREFIX_RE.exec(data);
-  return match ? data.slice(match[0].length) : data;
-};
-
-const decodeBase64 = (data: string): Uint8Array | null => {
-  const trimmed = stripDataUrlPrefix(data).trim();
-  if (trimmed.length === 0) return null;
-  try {
-    const buf = Buffer.from(trimmed, "base64");
-    if (buf.length === 0) return null;
-    return buf;
-  } catch {
-    return null;
-  }
-};
-
-export interface SanitizedImagePayload {
-  mediaType: SupportedImageMediaType;
-  /** Clean base64 (no data: URI prefix). */
-  data: string;
-}
-
-/**
- * Validate/repair an inline image for a base64 vision source.
- *
- * Returns the canonicalized payload (media type corrected from the actual
- * bytes, data: URI prefix stripped) when the image is a complete, supported,
- * in-limit image. Returns `null` when the image is empty, malformed,
- * truncated/corrupt, an unsupported format, or exceeds the size ceiling — in
- * which case the caller should drop it rather than send an unprocessable
- * block that fails the entire request.
- */
-export const sanitizeInlineImagePayload = (
-  data: string,
-  declaredMimeType: string | undefined,
-): SanitizedImagePayload | null => {
-  if (typeof data !== "string") return null;
-  const bytes = decodeBase64(data);
-  if (!bytes) return null;
-
-  // Trust the bytes over the declared media type: screenshots frequently
-  // carry a mislabeled or stale mime, and Anthropic sniffs the real format.
-  const detected = detectImageMediaType(bytes);
-  const declared = declaredMimeType?.split(";")[0]?.trim().toLowerCase();
-  const mediaType =
-    detected ??
-    (declared && SUPPORTED_MEDIA_TYPES.includes(declared as SupportedImageMediaType)
-      ? (declared as SupportedImageMediaType)
-      : null);
-
-  // Unrecognized/unsupported format: the provider can't decode it either.
-  if (!mediaType) return null;
-  // If bytes don't match a supported signature at all, drop it — a declared
-  // mime alone can't make unknown bytes decodable.
-  if (!detected) return null;
-
-  if (!isCompleteImage(bytes, mediaType)) return null;
-
-  const clean = stripDataUrlPrefix(data).trim();
-  if (clean.length > MAX_IMAGE_BASE64_BYTES) return null;
-
-  return { mediaType, data: clean };
 };

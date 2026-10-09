@@ -1,9 +1,4 @@
 {
-  "ai/providers/anthropic.ts": 1,
-  "ai/providers/gateway-json-request.ts": {
-    "new AbortController": 1,
-    "setTimeout(": 2
-  },
   "headless/cli.ts": 1,
   "kernel/agent-runtime/compaction-scheduler.ts": 1,
   "kernel/agent-runtime/external-engine-lifecycle.ts": 2,

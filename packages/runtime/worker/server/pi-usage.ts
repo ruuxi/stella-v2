@@ -128,6 +128,8 @@ const readConversation = (
       const [kind, at, provider, api, model, responseModel, usage, stopReason, errorMessage] = fields;
       const timestamp = num(at);
       if (kind !== "pi.assistant" || !usage || timestamp < fromMs || timestamp > toMs) continue;
+      // A reply written without a model call (the onboarding greeting) cost nothing.
+      if (!num(usage.totalTokens) && !num(usage.input) && !num(usage.output)) continue;
       const call = { id: row.id, conversation: row.conversation };
       const threadId = `pi:${conversationId}:${call.conversation}`;
       if (args.threadId && args.threadId !== threadId) continue;

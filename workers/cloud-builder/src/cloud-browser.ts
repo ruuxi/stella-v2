@@ -21,6 +21,8 @@ import {
 } from "@stella/contracts/cloud-browser";
 import { readBoundedResponseBytes } from "./bounded-body.js";
 
+/** How long the gateway may take to give a profile back. */
+const GATEWAY_CANCEL_TIMEOUT_MS = 30_000;
 /** A screenshot or a response body can be large; anything past this is refused. */
 const GATEWAY_RESPONSE_MAX_BYTES = 16 * 1024 * 1024;
 
@@ -74,6 +76,35 @@ export const gatewayBrowserTransport =
       return { kind: "failure", status: 502 };
     }
   };
+
+/**
+ * Give a handed-off profile back to agents at once, through the gateway's own
+ * decision route: for a handoff no client can show the user (its interaction
+ * could not be recorded), which would otherwise hold the profile until its
+ * deadline.
+ */
+export const cancelGatewayHandoff = async (
+  gateway: Fetcher,
+  authority: CloudBrowserAuthority,
+  suspension: CloudBrowserSuspension,
+): Promise<void> => {
+  const response = await gateway.fetch("https://browser-gateway/internal/interactions/decision", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      schemaVersion: 1,
+      authority,
+      profileId: suspension.profileId,
+      profileEpoch: suspension.profileEpoch,
+      interactionId: suspension.interactionId,
+      interactionRevision: suspension.interactionRevision,
+      decision: "cancel",
+    }),
+    signal: AbortSignal.timeout(GATEWAY_CANCEL_TIMEOUT_MS),
+    redirect: "manual",
+  });
+  await response.body?.cancel().catch(() => undefined);
+};
 
 export type CloudBrowserMethod =
   | "open"

@@ -71,8 +71,6 @@ import { LIFE_USER_PROFILE_DISPLAY_PATH } from "@stella/runtime/kernel/agent-run
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import { DurableObject } from "cloudflare:workers";
-import "./cloud-api-providers.js";
-import type { ExplicitModelAgent as RuntimeAgent } from "@stella/runtime/kernel/agent-core/explicit-model-agent.js";
 import type {
   AgentEvent,
   AgentMessage,
@@ -195,6 +193,8 @@ import {
   STELLA_MESSAGE_TARGET,
 } from "@stella/contracts/agent-directory";
 import {
+  agentCompletionPromptText,
+  agentLifecycleReport,
   agentStatusResult as sharedAgentStatusResult,
   commitCloudAgentToolOutcome as commitSharedCloudAgentToolOutcome,
   dispatchCloudAgentTurn,
@@ -203,12 +203,15 @@ import {
   readCloudAgentToolOutcome as readSharedCloudAgentToolOutcome,
   rememberCloudAgentControlReceipt as rememberSharedCloudAgentControlReceipt,
   requireCloudAgentControlReceipt as requireSharedCloudAgentControlReceipt,
-  steerCloudAgent,
   toolFingerprint as sharedToolFingerprint,
   toolScopedId as sharedToolScopedId,
   type CloudAgentControlReceipt,
   type CloudAgentToolKind,
   type CloudAgentToolOutcome,
+  type PiThreadPause,
+  type PiThreadPauseResult,
+  type PiThreadSteer,
+  type PiThreadSteerResult,
 } from "./cloud-agent-dispatch.js";
 import {
   authorizeDevAcceptanceProbe,
@@ -379,6 +382,7 @@ type WakeReport = { prompt: string; lifecycleReport?: string };
 type Env = Pick<
   Cloudflare.Env,
   | "BUILD_SESSIONS"
+  | "ORCHESTRATOR_SESSIONS"
   | "OWNER_GATES"
   | "WORLDS"
   | "LOADER"
@@ -452,6 +456,8 @@ export type ChatTurnRequest = {
   agentThreadControl?: CloudAgentControlReceipt;
   /** A computer's orchestrator controlling its cloud agent; the turn does that instead of answering. */
   piAgent?: import("@stella/contracts/turn-plane/turn-start").CloudPiAgentRequest;
+  /** An agent thread's attempt, run as a pi agent here; the turn starts it instead of answering. */
+  piThread?: import("@stella/contracts/turn-plane/turn-start").CloudPiThreadAttempt;
   wakeReportSpillKey?: string;
   watchdogMs?: number;
   /** Worker-issued owner purge lease generation. */
@@ -590,6 +596,44 @@ const piReportOutcome = (
 
 /** Durable key prefix: a cloud pi agent on a device's control receipt, by thread id. */
 const PI_DEVICE_AGENT_PREFIX = "pi:device-agent:";
+
+/** How an agent thread's attempt ended, as its terminal events carry it. */
+type PiThreadOutcome = {
+  status: "completed" | "failed" | "canceled";
+  resultJson?: string;
+  errorMessage?: string;
+  /** What its run saved to the owner's drive and linked in its answer. */
+  files?: import("./pi-runtime.js").PiDeliveredFile[];
+};
+
+/** One attempt of an agent thread whose agent runs here, until it settles. */
+type PiThreadAttemptRecord = {
+  turnId: string;
+  attemptGeneration: number;
+  /** pi has it: its agent was started or messaged under its call key. */
+  handedOff?: true;
+  /** A pause was asked for: a report without text settles it as canceled. */
+  pausing?: true;
+  /** The decided outcome, kept while it is delivered. */
+  terminal?: PiThreadOutcome & { completedAt: number };
+};
+
+/** An agent thread whose attempts run as a pi agent here (`piThread` turns). */
+type PiThreadRecord = {
+  ownerId: string;
+  ownerGeneration: string;
+  threadId: string;
+  description: string;
+  /** A computer's dispatch: the agent threads deliver its reports there, so nothing wakes here. */
+  originDeviceId?: string;
+  /** Attempts not settled yet, oldest first. */
+  attempts: PiThreadAttemptRecord[];
+  /** Every attempt through this generation has settled. */
+  settledThrough: number;
+};
+
+/** Durable key: an agent thread whose agent runs here, by thread id. */
+const piThreadKey = (threadId: string): string => `pi:thread:${threadId}`;
 
 /** Journal records read per batch when importing other writers' turns into pi. */
 const PI_JOURNAL_IMPORT_BATCH = 200;
@@ -2366,7 +2410,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
 
   /**
    * On wake, the turn a replaced isolate was running (a deploy, an eviction)
-   * and whether to resume it. Bounded like the resident agent: at most
+   * and whether to resume it. Bounded: at most
    * {@link CHAT_RESUME_MAX} resumes per turn, counted durably here before the
    * resumed loop runs; only turns younger than {@link CHAT_RESUME_MAX_AGE_MS};
    * and only while the original watchdog, which a resume never extends,
@@ -3792,9 +3836,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           : {}),
         ...(start.source ? { source: start.source } : {}),
         ...(start.title ? { title: start.title } : {}),
-        // A computer's agent brief is context for the agent, not a message.
-        ...(start.hiddenMessage || start.piAgent ? { hiddenMessage: true } : {}),
+        // An agent's brief is context for the agent, not a message.
+        ...(start.hiddenMessage || start.piAgent || start.piThread
+          ? { hiddenMessage: true }
+          : {}),
         ...(start.piAgent ? { piAgent: start.piAgent } : {}),
+        ...(start.piThread ? { piThread: start.piThread } : {}),
         ...(start.locale ? { locale: start.locale } : {}),
         ...(start.attachments ? { attachments: start.attachments } : {}),
         ...(start.agentThreadControl
@@ -4604,9 +4651,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // pi-durable (`runPiTurn`).
       const harnessExecution =
         turn.execution.engine === "anthropic" ? undefined : turn.execution;
-      if (turn.piAgent && harnessExecution?.engine !== "stella") {
+      if (
+        (turn.piAgent || turn.piThread) &&
+        harnessExecution?.engine !== "stella"
+      ) {
         throw new Error(
-          "A computer's cloud agents run on Stella's models; this conversation's cloud turns use another engine.",
+          "A cloud agent that runs here runs on Stella's models; this turn uses another engine.",
         );
       }
       // Admission already bound the owner; this only re-asserts it and sets
@@ -5296,6 +5346,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         });
         return await this.completeChatTurn(turn, "", args.started);
       }
+      if (turn.piThread) {
+        await this.startPiThreadAttempt(runtime, turn, turn.piThread, context);
+        return await this.completeChatTurn(turn, "", args.started);
+      }
       // What other writers journaled since (a computer's turns, another
       // engine's) is part of the conversation this turn answers.
       const [, images] = await Promise.all([
@@ -5471,6 +5525,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               seq: appended.seq,
             });
           },
+          deliverThreadReport: (report) => this.deliverPiThreadReport(report),
           // Every client lists the agents a conversation runs from these
           // cards, as it does the loop's.
           agentStarted: (event) =>
@@ -5668,6 +5723,485 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               payload: { ...identity, ...(outcome.body ? { error: outcome.body } : {}) },
             },
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Agent threads on Stella's models (`piThread` turns)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Hand one attempt of an agent thread to pi, as its agent here. The attempt
+   * is kept before pi has it, so a turn that ends first still settles it
+   * (`settleStrandedPiThreadAttempt`); the owner's agent threads learn it
+   * started once pi has it.
+   */
+  private async startPiThreadAttempt(
+    runtime: import("./pi-runtime.js").PiConversationRuntime,
+    turn: ChatTurnRequest,
+    attempt: import("@stella/contracts/turn-plane/turn-start").CloudPiThreadAttempt,
+    context: import("@earendil-works/chord").Context,
+  ): Promise<void> {
+    let record = await this.piThreadRecord(turn, attempt);
+    if (attempt.attemptGeneration <= record.settledThrough) return;
+    let open = record.attempts.find(
+      (entry) => entry.attemptGeneration === attempt.attemptGeneration,
+    );
+    if (!open) {
+      open = {
+        turnId: attempt.turnId,
+        attemptGeneration: attempt.attemptGeneration,
+      };
+      record = { ...record, attempts: [...record.attempts, open] };
+      await this.ctx.storage.put(piThreadKey(attempt.threadId), record);
+    }
+    // Paused before it started: it never starts.
+    if (open.pausing) {
+      await this.settlePiThreadAttempts(record, attempt.attemptGeneration, {
+        status: "canceled",
+        errorMessage: "Paused by orchestrator.",
+      });
+      return;
+    }
+    if (!open.handedOff) {
+      await runtime.threadAttempt(
+        {
+          threadId: attempt.threadId,
+          description: attempt.description,
+          attemptGeneration: attempt.attemptGeneration,
+        },
+        turn.prompt,
+        turn.turnId,
+        context,
+      );
+      const now = Date.now();
+      await this.updatePiThreadRecord(attempt.threadId, (current) => ({
+        ...current,
+        attempts: current.attempts.map((entry) =>
+          entry.attemptGeneration === attempt.attemptGeneration
+            ? { ...entry, handedOff: true }
+            : entry,
+        ),
+      }));
+      await this.deferOwnerEvents([
+        {
+          v: OWNER_EVENT_VERSION,
+          key: attempt.turnId,
+          ownerId: turn.ownerId,
+          ownerGeneration: turn.ownerGeneration,
+          emittedAt: now,
+          kind: "turn.started",
+          turnId: attempt.turnId,
+          turnKind: "agent",
+          conversationId: turn.conversationId,
+          sessionId: attempt.threadId,
+          lane: "agent",
+          source: "agent-thread",
+          clientMsgId: turn.clientMsgId,
+          threadId: attempt.threadId,
+          attemptGeneration: attempt.attemptGeneration,
+          agentType: "general",
+          execution: turn.execution,
+          prompt: turn.prompt,
+          createdAt: now,
+        },
+      ]);
+    }
+    log("info", "pi_thread_attempt_started", {
+      turnId: turn.turnId,
+      threadId: attempt.threadId,
+      attemptTurnId: attempt.turnId,
+      attemptGeneration: attempt.attemptGeneration,
+    });
+  }
+
+  /** The thread's record here, made on its first attempt. */
+  private async piThreadRecord(
+    turn: Pick<ChatTurnRequest, "ownerId" | "ownerGeneration">,
+    attempt: import("@stella/contracts/turn-plane/turn-start").CloudPiThreadAttempt,
+  ): Promise<PiThreadRecord> {
+    const stored = await this.ctx.storage.get<PiThreadRecord>(
+      piThreadKey(attempt.threadId),
+    );
+    if (stored) return stored;
+    return {
+      ownerId: turn.ownerId,
+      ownerGeneration: turn.ownerGeneration,
+      threadId: attempt.threadId,
+      description: attempt.description,
+      ...(attempt.originDeviceId
+        ? { originDeviceId: attempt.originDeviceId }
+        : {}),
+      attempts: [],
+      settledThrough: 0,
+    };
+  }
+
+  private async updatePiThreadRecord(
+    threadId: string,
+    change: (record: PiThreadRecord) => PiThreadRecord,
+  ): Promise<PiThreadRecord | undefined> {
+    return await this.ctx.blockConcurrencyWhile(async () => {
+      const current = await this.ctx.storage.get<PiThreadRecord>(
+        piThreadKey(threadId),
+      );
+      if (!current) return undefined;
+      const next = change(current);
+      await this.ctx.storage.put(piThreadKey(threadId), next);
+      return next;
+    });
+  }
+
+  /**
+   * A report of an agent thread's agent. It answers one attempt (the one
+   * whose message its run took; older open attempts are answered with it).
+   * A report without text settles an attempt only when it was paused.
+   */
+  private async deliverPiThreadReport(
+    report: import("./pi-runtime.js").PiThreadReport,
+  ): Promise<void> {
+    const record = await this.ctx.storage.get<PiThreadRecord>(
+      piThreadKey(report.threadId),
+    );
+    const handedOff = record?.attempts.filter((entry) => entry.handedOff) ?? [];
+    const answered =
+      report.attemptGeneration ?? handedOff.at(-1)?.attemptGeneration;
+    const attempt = record?.attempts.find(
+      (entry) => entry.attemptGeneration === answered,
+    );
+    if (!record || !attempt) {
+      log("info", "pi_thread_report_unmatched", {
+        threadId: report.threadId,
+        requestId: report.requestId,
+        attemptGeneration: report.attemptGeneration ?? null,
+      });
+      return;
+    }
+    let outcome: PiThreadOutcome;
+    if (report.settled) {
+      if (!attempt.pausing) return;
+      outcome = { status: "canceled", errorMessage: "Paused by orchestrator." };
+    } else {
+      const parsed = piReportOutcome(report.text);
+      outcome =
+        parsed.kind === "completed"
+          ? {
+              status: "completed",
+              resultJson: JSON.stringify({ finalText: parsed.body }),
+            }
+          : {
+              status: parsed.kind,
+              errorMessage:
+                parsed.body ||
+                (parsed.kind === "canceled"
+                  ? "The agent was stopped."
+                  : "The agent hit a problem and stopped."),
+            };
+    }
+    await this.settlePiThreadAttempts(record, attempt.attemptGeneration, {
+      ...outcome,
+      ...(report.files?.length ? { files: report.files } : {}),
+    });
+  }
+
+  /**
+   * The attempt this turn carried, when it ends without pi having it: a
+   * turn that failed, was stopped, or was refused before it started it.
+   */
+  private async settleStrandedPiThreadAttempt(
+    turn: ChatTurnRequest,
+    attempt: import("@stella/contracts/turn-plane/turn-start").CloudPiThreadAttempt,
+  ): Promise<void> {
+    const record = await this.piThreadRecord(turn, attempt);
+    if (attempt.attemptGeneration <= record.settledThrough) return;
+    const open = record.attempts.find(
+      (entry) => entry.attemptGeneration === attempt.attemptGeneration,
+    );
+    if (open?.handedOff) return;
+    await this.settlePiThreadAttempts(
+      open
+        ? record
+        : {
+            ...record,
+            attempts: [
+              ...record.attempts,
+              {
+                turnId: attempt.turnId,
+                attemptGeneration: attempt.attemptGeneration,
+              },
+            ],
+          },
+      attempt.attemptGeneration,
+      open?.pausing
+        ? { status: "canceled", errorMessage: "Paused by orchestrator." }
+        : { status: "failed", errorMessage: "The agent could not start." },
+    );
+  }
+
+  /**
+   * Settle an agent thread's attempts through `attemptGeneration` with one
+   * outcome, as a BuildSession settles its agent's: each attempt's terminal
+   * event and the thread's completion go to the owner's agent threads, and
+   * the conversation that started the thread is woken with the report
+   * (a computer's dispatch is delivered to it by the agent threads). The
+   * decision is kept before anything is sent, so a redelivered report
+   * repeats the same terminal and the same wake.
+   */
+  private async settlePiThreadAttempts(
+    record: PiThreadRecord,
+    attemptGeneration: number,
+    outcome: PiThreadOutcome,
+  ): Promise<void> {
+    const decided = await this.ctx.blockConcurrencyWhile(async () => {
+      const current =
+        (await this.ctx.storage.get<PiThreadRecord>(
+          piThreadKey(record.threadId),
+        )) ?? record;
+      const merged = current.attempts.some(
+        (entry) => entry.attemptGeneration === attemptGeneration,
+      )
+        ? current
+        : {
+            ...current,
+            attempts: [
+              ...current.attempts,
+              ...record.attempts.filter(
+                (entry) => entry.attemptGeneration === attemptGeneration,
+              ),
+            ],
+          };
+      const settling = merged.attempts.filter(
+        (entry) => entry.attemptGeneration <= attemptGeneration,
+      );
+      if (settling.length === 0) return undefined;
+      const terminal =
+        settling.find((entry) => entry.attemptGeneration === attemptGeneration)
+          ?.terminal ?? { ...outcome, completedAt: Date.now() };
+      const next: PiThreadRecord = {
+        ...merged,
+        attempts: merged.attempts.map((entry) =>
+          entry.attemptGeneration <= attemptGeneration
+            ? { ...entry, terminal: entry.terminal ?? terminal }
+            : entry,
+        ),
+      };
+      await this.ctx.storage.put(piThreadKey(record.threadId), next);
+      return { next, terminal };
+    });
+    if (!decided) return;
+    const { next, terminal } = decided;
+    const settling = next.attempts.filter(
+      (entry) => entry.attemptGeneration <= attemptGeneration,
+    );
+    const latest = settling.find(
+      (entry) => entry.attemptGeneration === attemptGeneration,
+    )!;
+    const base = (key: string) => ({
+      v: OWNER_EVENT_VERSION,
+      key,
+      ownerId: next.ownerId,
+      ownerGeneration: next.ownerGeneration,
+      emittedAt: terminal.completedAt,
+    });
+    const events: OwnerEvent[] = [];
+    if (terminal.files?.length) {
+      events.push({
+        ...base(`${latest.turnId}:${latest.attemptGeneration}:1`),
+        kind: "turn.event",
+        turnId: latest.turnId,
+        attemptGeneration: latest.attemptGeneration,
+        sessionId: next.threadId,
+        eventSeq: 1,
+        eventKind: "output_files",
+        payload: { files: terminal.files },
+        terminal: false,
+        createdAt: terminal.completedAt,
+      });
+    }
+    for (const entry of settling) {
+      const settled = entry.terminal ?? terminal;
+      events.push({
+        ...base(`${entry.turnId}:${entry.attemptGeneration}:2`),
+        kind: "turn.event",
+        turnId: entry.turnId,
+        attemptGeneration: entry.attemptGeneration,
+        sessionId: next.threadId,
+        eventSeq: 2,
+        eventKind: settled.status,
+        payload:
+          settled.status === "completed"
+            ? { finalText: agentLifecycleReport(settled) }
+            : { message: settled.errorMessage ?? "The agent stopped." },
+        terminal: true,
+        terminalStatus: settled.status,
+        ...(settled.resultJson ? { resultJson: settled.resultJson } : {}),
+        ...(settled.errorMessage ? { errorMessage: settled.errorMessage } : {}),
+        createdAt: settled.completedAt,
+      });
+    }
+    events.push({
+      ...base(`${next.threadId}:${latest.turnId}:${latest.attemptGeneration}`),
+      kind: "thread.completed",
+      threadId: next.threadId,
+      turnId: latest.turnId,
+      attemptGeneration: latest.attemptGeneration,
+      status: terminal.status,
+      ...(terminal.resultJson ? { resultJson: terminal.resultJson } : {}),
+      ...(terminal.errorMessage ? { errorMessage: terminal.errorMessage } : {}),
+      completedAt: terminal.completedAt,
+    });
+    await this.deferOwnerEvents(events);
+    if (!next.originDeviceId) {
+      const completion = {
+        status: terminal.status,
+        ...(terminal.resultJson ? { resultJson: terminal.resultJson } : {}),
+        ...(terminal.errorMessage ? { errorMessage: terminal.errorMessage } : {}),
+      };
+      const wake: CloudTurnStartRequest = {
+        protocol: TURN_PLANE_PROTOCOL,
+        clientMsgId:
+          `wake:${next.threadId}:${latest.attemptGeneration}`.slice(0, 64),
+        prompt: agentCompletionPromptText({
+          threadId: next.threadId,
+          description: next.description,
+          ...completion,
+        }),
+        lane: "wake",
+        source: "agent-thread",
+        hiddenMessage: true,
+        agentThreadControl: {
+          lifecycleReport: agentLifecycleReport(completion),
+          threadId: next.threadId,
+          attemptGeneration: latest.attemptGeneration,
+          threadUpdatedAt: terminal.completedAt,
+          status: terminal.status,
+        },
+      };
+      const response = await this.handleTurnStart(
+        new Request("https://orchestrator-session/turn", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            [HEADER_OWNER]: next.ownerId,
+            [HEADER_TURN_AUTH_KIND]: "service",
+            [TURN_OWNER_GENERATION_HEADER]: next.ownerGeneration,
+          },
+          body: JSON.stringify(wake),
+        }),
+      );
+      const body = await response.text().catch(() => "");
+      if (response.status !== 202 && response.status !== 200) {
+        // pi delivers the report again; the kept decision repeats this wake.
+        throw new Error(
+          `The agent's report was refused (${response.status}): ${body.slice(0, 300)}`,
+        );
+      }
+    }
+    await this.updatePiThreadRecord(next.threadId, (current) => ({
+      ...current,
+      attempts: current.attempts.filter(
+        (entry) => entry.attemptGeneration > attemptGeneration,
+      ),
+      settledThrough: Math.max(current.settledThrough, attemptGeneration),
+    }));
+    log("info", "pi_thread_attempt_settled", {
+      threadId: next.threadId,
+      attemptGeneration,
+      status: terminal.status,
+      woke: !next.originDeviceId,
+    });
+  }
+
+  /**
+   * New input for the running attempt of an agent thread whose agent runs
+   * here; it reads it before its next step. `unknown` when none does.
+   */
+  async steerPiThread(input: PiThreadSteer): Promise<PiThreadSteerResult> {
+    const record = await this.ctx.storage.get<PiThreadRecord>(
+      piThreadKey(input.threadId),
+    );
+    if (
+      !record ||
+      record.ownerId !== input.ownerId ||
+      record.ownerGeneration !== input.ownerGeneration
+    ) {
+      return { accepted: false, reason: "unknown" };
+    }
+    const running = record.attempts
+      .filter((entry) => entry.handedOff && !entry.terminal && !entry.pausing)
+      .at(-1);
+    if (!running) return { accepted: false, reason: "not_running" };
+    const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+    const { contextFor } = await import("./pi-runtime.js");
+    await runtime.steerThreadAgent(
+      {
+        threadId: input.threadId,
+        attemptGeneration: running.attemptGeneration,
+        messageId: input.messageId,
+        text: input.text,
+      },
+      contextFor(),
+    );
+    return {
+      accepted: true,
+      turnId: running.turnId,
+      attemptGeneration: running.attemptGeneration,
+    };
+  }
+
+  /**
+   * Pause one exact attempt of an agent thread whose agent runs here. Its
+   * attempt settles as canceled once its run stops, or when its turn comes
+   * if pi does not have it yet.
+   */
+  async pausePiThread(input: PiThreadPause): Promise<PiThreadPauseResult> {
+    const decided = await this.ctx.blockConcurrencyWhile(
+      async (): Promise<PiThreadPauseResult | "pause"> => {
+        const record = await this.ctx.storage.get<PiThreadRecord>(
+          piThreadKey(input.threadId),
+        );
+        if (
+          !record ||
+          record.ownerId !== input.ownerId ||
+          record.ownerGeneration !== input.ownerGeneration
+        ) {
+          return "unknown";
+        }
+        if (input.attemptGeneration <= record.settledThrough) return "terminal";
+        const attempt = record.attempts.find(
+          (entry) => entry.attemptGeneration === input.attemptGeneration,
+        );
+        if (attempt && attempt.turnId !== input.turnId) return "changed";
+        if (
+          record.attempts.some(
+            (entry) => entry.attemptGeneration > input.attemptGeneration,
+          )
+        ) {
+          return "changed";
+        }
+        if (attempt?.terminal) return "terminal";
+        await this.ctx.storage.put(piThreadKey(input.threadId), {
+          ...record,
+          attempts: attempt
+            ? record.attempts.map((entry) =>
+                entry === attempt ? { ...entry, pausing: true } : entry,
+              )
+            : [
+                ...record.attempts,
+                {
+                  turnId: input.turnId,
+                  attemptGeneration: input.attemptGeneration,
+                  pausing: true,
+                },
+              ],
+        } satisfies PiThreadRecord);
+        return attempt?.handedOff ? "pause" : "paused";
+      },
+    );
+    if (decided !== "pause") return decided;
+    const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+    const { contextFor } = await import("./pi-runtime.js");
+    await runtime.pauseThreadAgent(input.threadId, contextFor());
+    return "paused";
   }
 
   /**
@@ -6065,6 +6599,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       writerKey: `turn:${turn.turnId}:prompt`,
       role: "user",
       hidden: turn.hiddenMessage === true,
+      // An agent thread's brief is its agent's context, not this
+      // conversation's.
+      ...(turn.piThread ? { modelSkip: true } : {}),
       clientMsgId: turn.clientMsgId,
       createdAt: now,
       message: durablePrompt,
@@ -7080,6 +7617,17 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    */
   private async afterTerminal(turn: ChatTurnRequest): Promise<void> {
     this.finalizedTurnId = turn.turnId;
+    // An agent thread's attempt this turn never handed to pi still settles.
+    if (turn.piThread) {
+      await this.settleStrandedPiThreadAttempt(turn, turn.piThread).catch(
+        (error: unknown) => {
+          log("error", "pi_thread_attempt_settle_failed", {
+            threadId: turn.piThread?.threadId,
+            message: errorMessage(error),
+          });
+        },
+      );
+    }
     const now = Date.now();
     const indexAt = performance.now();
     await this.index
@@ -10069,6 +10617,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             }),
           releaseOwnerGate: async (input) => await this.releaseOwnerGate(input),
           deliverOwnerEvents: async (events) => await this.deferOwnerEvents([...events]),
+          // An agent on Stella's models runs in this conversation, after
+          // the turn that spawned it.
+          startConversationTurn: async (_conversationId, request) =>
+            await this.handleTurnStart(request),
         },
         caller: {
           ownerId: turn.ownerId,
@@ -10260,17 +10812,18 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                   ? "steered"
                   : "resumed";
             } else if (isCloudAgentControlActive(prior.status)) {
-              const steered = await steerCloudAgent({
-                env: this.env,
+              const steered = await this.steerPiThread({
+                ownerId: turn.ownerId,
+                ownerGeneration: turn.ownerGeneration,
                 threadId: prior.threadId,
-                message: {
-                  id: await toolScopedId("turn", toolCallId),
-                  kind: "input",
-                  text: args.message,
-                  createdAt: Date.now(),
-                },
-                ...(signal ? { signal } : {}),
+                messageId: await toolScopedId("turn", toolCallId),
+                text: args.message,
               });
+              if (!steered.accepted && steered.reason === "unknown") {
+                throw new Error(
+                  `${prior.threadId} works in its own container and takes no messages until it finishes. Its report arrives as [Agent completed]; stop it with pause_agent.`,
+                );
+              }
               if (steered.accepted) {
                 if (steered.attemptGeneration !== prior.attemptGeneration) {
                   throw new Error(
@@ -10450,69 +11003,88 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                 `${control.threadId} has no exact running turn to pause. Wait for its latest lifecycle update and try again.`,
               );
             }
-            const cancelRequestId = await sha256Hex(
-              JSON.stringify([
-                "pause_agent",
-                turn.turnId,
-                control.threadId,
-                toolCallId,
-              ]),
-            );
-            // The BuildSession atomically claims cancellation, stops the
-            // process, and delivers the terminal lifecycle wake. A
-            // pre-dispatch pause is persisted there and consumed as soon as
-            // the delayed turn arrives.
-            const teardown = await this.env.BUILD_SESSIONS.getByName(
-              control.threadId,
-            ).fetch("https://build-session/cancel", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                ownerId: turn.ownerId,
-                ownerGeneration: turn.ownerGeneration,
-                turnId: control.turnId,
-                attemptGeneration: control.attemptGeneration,
-                cancelRequestId,
-                reason: "Paused by orchestrator.",
-              }),
-              ...(signal ? { signal } : {}),
+            // An agent on Stella's models runs here as a pi agent: it stops,
+            // and its canceled report wakes this conversation.
+            const paused = await this.pausePiThread({
+              ownerId: turn.ownerId,
+              ownerGeneration: turn.ownerGeneration,
+              threadId: control.threadId,
+              turnId: control.turnId,
+              attemptGeneration: control.attemptGeneration,
             });
-            const teardownResult = (await teardown
-              .json()
-              .catch(() => ({}))) as {
-              canceled?: boolean;
-              pending?: boolean;
-              reason?: string;
-            };
-            if (teardown.status === 409) {
-              if (teardownResult.reason === "terminal_already_decided") {
-                disposition = "already_terminal";
-              } else {
-                throw new Error(
-                  `${control.threadId} was continued while it was being paused. Try again if the newer turn should also stop.`,
-                );
-              }
-            } else if (!teardown.ok) {
+            if (paused === "changed") {
               throw new Error(
-                `Could not pause ${control.threadId}. Try again.`,
+                `${control.threadId} was continued while it was being paused. Try again if the newer turn should also stop.`,
               );
-            } else if (
-              teardown.status === 202 &&
-              teardownResult.pending === true
-            ) {
-              disposition = "pending";
+            }
+            if (paused !== "unknown") {
+              disposition =
+                paused === "terminal" ? "already_terminal" : "pending";
             } else {
-              disposition = "paused";
-              // The BuildSession decided the terminal; its lifecycle wake
-              // repeats the same status and advances nothing further.
-              finalControl = await this.rememberCloudAgentControlReceipt({
-                ...control,
-                status: "canceled",
-                threadUpdatedAt: Math.max(
-                  Date.now(),
-                  control.threadUpdatedAt + 1,
-                ),
+              const cancelRequestId = await sha256Hex(
+                JSON.stringify([
+                  "pause_agent",
+                  turn.turnId,
+                  control.threadId,
+                  toolCallId,
+                ]),
+              );
+              // The BuildSession atomically claims cancellation, stops the
+              // process, and delivers the terminal lifecycle wake. A
+              // pre-dispatch pause is persisted there and consumed as soon as
+              // the delayed turn arrives.
+              const teardown = await this.env.BUILD_SESSIONS.getByName(
+                control.threadId,
+              ).fetch("https://build-session/cancel", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  ownerId: turn.ownerId,
+                  ownerGeneration: turn.ownerGeneration,
+                  turnId: control.turnId,
+                  attemptGeneration: control.attemptGeneration,
+                  cancelRequestId,
+                  reason: "Paused by orchestrator.",
+                }),
+                ...(signal ? { signal } : {}),
               });
+              const teardownResult = (await teardown
+                .json()
+                .catch(() => ({}))) as {
+                canceled?: boolean;
+                pending?: boolean;
+                reason?: string;
+              };
+              if (teardown.status === 409) {
+                if (teardownResult.reason === "terminal_already_decided") {
+                  disposition = "already_terminal";
+                } else {
+                  throw new Error(
+                    `${control.threadId} was continued while it was being paused. Try again if the newer turn should also stop.`,
+                  );
+                }
+              } else if (!teardown.ok) {
+                throw new Error(
+                  `Could not pause ${control.threadId}. Try again.`,
+                );
+              } else if (
+                teardown.status === 202 &&
+                teardownResult.pending === true
+              ) {
+                disposition = "pending";
+              } else {
+                disposition = "paused";
+                // The BuildSession decided the terminal; its lifecycle wake
+                // repeats the same status and advances nothing further.
+                finalControl = await this.rememberCloudAgentControlReceipt({
+                  ...control,
+                  status: "canceled",
+                  threadUpdatedAt: Math.max(
+                    Date.now(),
+                    control.threadUpdatedAt + 1,
+                  ),
+                });
+              }
             }
           }
           const outcome = await this.commitCloudAgentToolOutcome(

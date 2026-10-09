@@ -6,11 +6,6 @@ import type {
   TurnBrokerTurnStateCheckpointReceipt,
   TurnBrokerTurnStateCheckpointRequest,
 } from "@stella/contracts/turn-credential-broker";
-import {
-  agentComputeKey,
-  parsePersistedAgentCompute,
-  type PersistedAgentCompute,
-} from "../agent-compute-ladder.js";
 import { sha256Hex } from "../hash.js";
 import { INSTANCE_TIERS } from "../instance-size.js";
 import {
@@ -20,7 +15,6 @@ import {
 import {
   SandboxLifecycleDeferredError,
   sandboxLifecycleFailureFields,
-  type SandboxTarget,
 } from "../sandbox-lifecycle.js";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 import type { BuildSessionInternals } from "./host.js";
@@ -36,7 +30,6 @@ import {
   BUILDER_FALLBACK_MAX_RETRIES,
   OBSERVED_BROWSER_SUSPENSION_KEY,
   PENDING_BROWSER_SUSPENSION_KEY,
-  agentComputeRecoveryClaimKey,
   agentExecutionMarkerKey,
   agentRecoveryIdentity,
   bindObservedBrowserSuspensionToCanonicalCodeCall,
@@ -51,7 +44,6 @@ import {
   turnStateCheckpointOperationKey,
 } from "./shared/keys.js";
 import type {
-  AgentComputeRecoveryClaim,
   AgentExecutionMarker,
   BuilderFallbackInput,
   BuilderFallbackTranscript,
@@ -71,7 +63,6 @@ export type AlarmsRecoveryHost = Pick<
   | "exactTurnCancellations"
   | "abortUnpublishedTurnStateOperation"
   | "acknowledgeExactCancellationFromAlarm"
-  | "admittedResidentPlacement"
   | "advanceBuilderFallback"
   | "appendThreadTranscript"
   | "assertAgentTurnIdentity"
@@ -97,11 +88,7 @@ export type AlarmsRecoveryHost = Pick<
   | "reconcileAgentCheckpointAfterQuiescence"
   | "recoverAgentTurnAfterExecutorLoss"
   | "recoverObservedBrowserSuspension"
-  | "recoverResidentAgentTurn"
   | "registerTurn"
-  | "resumeResidentAgentTurn"
-  | "releaseAgentSessionResources"
-  | "repairedResidentJournal"
   | "retainPendingBrowserSuspension"
   | "retireTerminalAppTurnStorage"
   | "runAlarm"
@@ -206,22 +193,13 @@ export const runAlarmWithLease = async (
   let auxiliaryGeneration: string | undefined;
   let retireOriginalLease = false;
   try {
-    // A resident attempt may be resumed by this alarm, and a resumed loop
-    // runs under the turn's own run lease, never under an auxiliary lease
-    // this handler retires on the way out.
     const useRunLeaseForRecovery =
       turn.kind === "agent" &&
-      ((await host.admittedResidentPlacement(turn)) ||
-        Boolean(
-        await host.ctx.storage.get(
-          agentComputeKey(turn.turnId, turn.attemptGeneration!),
+      (Boolean(
+        await host.ctx.storage.get<AgentExecutionMarker>(
+          agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!),
         ),
       ) ||
-        Boolean(
-          await host.ctx.storage.get<AgentExecutionMarker>(
-            agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!),
-          ),
-        ) ||
         Boolean(
           await host.ctx.storage.get<BuilderFallbackTranscript>(
             builderFallbackTranscriptKey(turn.turnId, turn.attemptGeneration!),
@@ -421,7 +399,6 @@ export const runAlarm = async (
     }
   }
   if (turn.kind === "agent") {
-    const resident = await host.admittedResidentPlacement(turn);
     let marker: AgentExecutionMarker | undefined;
     try {
       marker = await host.exactAgentExecutionMarker(turn);
@@ -442,19 +419,6 @@ export const runAlarm = async (
           turn,
           marker,
           lost,
-          resident
-            ? async () => {
-                const sealed = await host.repairedResidentJournal(turn, lost);
-                return {
-                  historyCursor: sealed.historyCursor,
-                  messages: sealed.rows.map((row) => ({
-                    ordinal: row.ordinal,
-                    role: row.role,
-                    payloadJson: row.payloadJson,
-                  })),
-                };
-              }
-            : undefined,
         );
       } catch (error) {
         const retries = await recordBuilderFallbackRetry(host, turn);
@@ -565,16 +529,6 @@ export const runAlarm = async (
       );
       return;
     }
-    const computeRecovery = await recoverOrphanedAgentCompute(host, turn);
-    if (computeRecovery === "retry") return;
-    if (resident) {
-      // Continue the attempt if its bounds allow; otherwise fail it exactly
-      // as before. Both read the same journal, so a refused resume loses
-      // nothing the failure path would have kept.
-      if (await host.resumeResidentAgentTurn(turn)) return;
-      await host.recoverResidentAgentTurn(turn);
-      return;
-    }
   }
 
   const sandboxId = await host.ctx.storage.get<string>("sandboxId");
@@ -636,146 +590,6 @@ export const runAlarm = async (
   }
 };
 
-/**
- * Fence an admitted attachment whose isolate vanished before it could write
- * the execution marker. The claim and marker share one storage transaction:
- * either the restored world becomes archive-authoritative, or recovery owns
- * teardown, never both.
- */
-const claimOrphanedAgentComputeRecovery = async (
-  host: AlarmsRecoveryHost,
-  turn: TurnRequest,
-): Promise<PersistedAgentCompute | undefined> => {
-  const attemptGeneration = turn.attemptGeneration!;
-  const identity = { turnId: turn.turnId, attemptGeneration };
-  const computeKey = agentComputeKey(turn.turnId, attemptGeneration);
-  const markerKey = agentExecutionMarkerKey(turn.turnId, attemptGeneration);
-  const claimKey = agentComputeRecoveryClaimKey(turn.turnId, attemptGeneration);
-  return await host.ctx.storage.transaction(async (txn) => {
-    const [current, raw, marker, existingClaim] = await Promise.all([
-      txn.get<TurnRequest>("turn"),
-      txn.get(computeKey),
-      txn.get<AgentExecutionMarker>(markerKey),
-      txn.get<AgentComputeRecoveryClaim>(claimKey),
-    ]);
-    if (!exactTurnIdentityMatches(current, turn) || marker) return undefined;
-    if (raw === undefined) return undefined;
-    const compute = parsePersistedAgentCompute(raw, identity);
-    if (!compute) {
-      throw new Error("Agent compute recovery record was invalid.");
-    }
-    if (compute.phase === "resident") return undefined;
-    const sandboxId = compute.sandboxId!;
-    if (
-      existingClaim &&
-      (existingClaim.schemaVersion !== 1 ||
-        existingClaim.turnId !== turn.turnId ||
-        existingClaim.attemptGeneration !== attemptGeneration ||
-        existingClaim.sandboxId !== sandboxId)
-    ) {
-      throw new Error("Agent compute recovery claim was invalid.");
-    }
-    if (!existingClaim) {
-      await txn.put(claimKey, {
-        schemaVersion: 1,
-        turnId: turn.turnId,
-        attemptGeneration,
-        sandboxId,
-        createdAt: Date.now(),
-      } satisfies AgentComputeRecoveryClaim);
-    }
-    return compute;
-  });
-};
-
-const recoverOrphanedAgentCompute = async (
-  host: AlarmsRecoveryHost,
-  turn: TurnRequest,
-): Promise<"none" | "recovered" | "retry"> => {
-  let compute: PersistedAgentCompute | undefined;
-  try {
-    compute = await claimOrphanedAgentComputeRecovery(host, turn);
-  } catch (error) {
-    log("error", "agent_compute_recovery_claim_invalid", {
-      turnId: turn.turnId,
-      threadId: turn.threadId,
-      message: errorMessage(error),
-    });
-    await host.setExactTurnAlarm(turn, Date.now() + 30_000);
-    return "retry";
-  }
-  if (!compute) return "none";
-  const target: SandboxTarget = {
-    sandboxId: compute.sandboxId!,
-    size: compute.instanceSize,
-    workload: "world",
-  };
-  try {
-    await host.releaseAgentSessionResources({
-      ...target,
-      workload: "world",
-      sessionId: compute.sessionId!,
-      daemonDirectory: compute.daemonDirectory!,
-    });
-  } catch (error) {
-    log("error", "agent_compute_recovery_release_deferred", {
-      turnId: turn.turnId,
-      threadId: turn.threadId,
-      instanceSize: compute.instanceSize,
-      ...sandboxLifecycleFailureFields(error),
-    });
-    return "retry";
-  }
-  const attemptGeneration = turn.attemptGeneration!;
-  const computeKey = agentComputeKey(turn.turnId, attemptGeneration);
-  const claimKey = agentComputeRecoveryClaimKey(turn.turnId, attemptGeneration);
-  let removed = false;
-  await host.ctx.storage.transaction(async (txn) => {
-    const [current, marker, raw, claim, sharedSandboxId] = await Promise.all([
-      txn.get<TurnRequest>("turn"),
-      txn.get<AgentExecutionMarker>(
-        agentExecutionMarkerKey(turn.turnId, attemptGeneration),
-      ),
-      txn.get(computeKey),
-      txn.get<AgentComputeRecoveryClaim>(claimKey),
-      txn.get<string>("sandboxId"),
-    ]);
-    const latest = parsePersistedAgentCompute(raw, {
-      turnId: turn.turnId,
-      attemptGeneration,
-    });
-    if (
-      !exactTurnIdentityMatches(current, turn) ||
-      marker ||
-      !latest ||
-      latest.phase === "resident" ||
-      latest.sandboxId !== compute!.sandboxId ||
-      claim?.schemaVersion !== 1 ||
-      claim.turnId !== turn.turnId ||
-      claim.attemptGeneration !== attemptGeneration ||
-      claim.sandboxId !== compute!.sandboxId
-    ) {
-      return;
-    }
-    await txn.delete([computeKey, claimKey]);
-    if (sharedSandboxId === compute!.sandboxId) {
-      await txn.delete(["sandboxId", "sandboxSize"]);
-    }
-    removed = true;
-  });
-  if (!removed) {
-    await host.setExactTurnAlarm(turn, Date.now() + 1_000);
-    return "retry";
-  }
-  log("info", "agent_compute_orphan_recovered", {
-    turnId: turn.turnId,
-    threadId: turn.threadId,
-    instanceSize: compute.instanceSize,
-    phase: compute.phase,
-  });
-  return "recovered";
-};
-
 const recoveredAgentReport = (
   host: AlarmsRecoveryHost,
   turn: TurnRequest,
@@ -829,26 +643,14 @@ const executorLossText = (
           "The agent stopped unexpectedly after saving its workspace changes.",
       };
 
-/**
- * `resolveInput` runs after quiescence, never before. A resident turn's rows
- * come from a journal the loop is still appending to until the interrupt
- * above has unwound it, and sealing that journal early would fail the very
- * loop whose rows recovery is trying to keep.
- */
 export const recoverAgentTurnAfterExecutorLoss = async (
   host: AlarmsRecoveryHost,
   turn: TurnRequest,
   marker: AgentExecutionMarker,
   error: string,
-  resolveInput?: () => Promise<BuilderFallbackInput>,
 ): Promise<TurnBrokerTurnStateCheckpointReceipt> => {
   await host.interruptAgentForBuilderFallback(turn);
-  return await host.reconcileAgentCheckpointAfterQuiescence(
-    turn,
-    marker,
-    error,
-    await resolveInput?.(),
-  );
+  return await host.reconcileAgentCheckpointAfterQuiescence(turn, marker, error);
 };
 
 export const reconcileAgentCheckpointAfterQuiescence = async (

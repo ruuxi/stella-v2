@@ -6,14 +6,6 @@
  * Extracted verbatim from `BuildSession`; every former `this.` is the `host`
  * argument. See `src/build-session/host.ts` for why the host is structural.
  */
-import {
-  agentComputeKey,
-  parsePersistedAgentCompute,
-} from "../agent-compute-ladder.js";
-import {
-  parseTurnComputePlan,
-  turnComputePlanKey,
-} from "../general-agent-turn.js";
 import { sha256BytesHex } from "../hash.js";
 import {
   nativeHistoryCursorFromRows,
@@ -741,15 +733,13 @@ export type ForwardedBrowserGatewayCommand =
     }>;
 
 /**
- * One turn command to the Browser Gateway under this turn's exact authority.
- *
- * Both requesters come through here: the container executor's broker route
- * and a resident turn's `browser` global. A suspended response is recorded as
- * an observation before anyone sees it, so the takeover it describes can only
- * become user-visible once the canonical transcript binds it to the outer
- * Code call (`bindObservedBrowserSuspensionToCanonicalCodeCall`).
+ * One turn command from the container executor's broker route to the Browser
+ * Gateway, under this turn's exact authority. A suspended response is
+ * recorded as an observation before anyone sees it, so the takeover it
+ * describes can only become user-visible once the canonical transcript binds
+ * it to the outer Code call (`bindObservedBrowserSuspensionToCanonicalCodeCall`).
  */
-export const forwardBrowserGatewayCommand = async (
+const forwardBrowserGatewayCommand = async (
   host: Pick<TurnBrokerHost, "ctx" | "env">,
   turn: TurnRequest,
   args: {
@@ -1030,10 +1020,9 @@ export const serveTurnUserAskRequest = async (
 };
 
 /**
- * The container `code` cell's `connect` and `history`, answered exactly as
- * the resident isolate answers them: connectors through the owner object
- * under this turn's owner generation, history through the conversation the
- * agent was spawned from. A refused or failed call is still a 200 carrying
+ * The container `code` cell's `connect` and `history`: connectors through
+ * the owner object under this turn's owner generation, history through the
+ * conversation the agent was spawned from. A refused or failed call is still a 200 carrying
  * the error the cell rejects with; only a malformed frame denies the broker.
  */
 export const serveTurnCodeRequest = async (
@@ -1426,49 +1415,21 @@ export const handleTurnBroker = async (
   const payload = parseTurnStateCheckpointRequest(decoded);
 
   const admission = await host.ctx.blockConcurrencyWhile(async () => {
-    const [
-      current,
-      storedRecord,
-      terminal,
-      cancellation,
-      sandboxId,
-      computePlan,
-      computeRecord,
-    ] = await Promise.all([
-      host.ctx.storage.get<TurnRequest>("turn"),
-      host.ctx.storage.get<TurnBrokerRecord>(recordKey),
-      host.ctx.storage.get<boolean>("terminal"),
-      host.exactTurnCancellations.matching({
-        turnId: turn.turnId,
-        ownerId: turn.ownerId,
-        ownerGeneration: turn.ownerGeneration,
-        attemptGeneration: turn.attemptGeneration,
-      }),
-      host.ctx.storage.get<string>("sandboxId"),
-      host.ctx.storage.get(
-        turnComputePlanKey(turn.turnId, turn.attemptGeneration!),
-      ),
-      host.ctx.storage.get(
-        agentComputeKey(turn.turnId, turn.attemptGeneration!),
-      ),
-    ]);
+    const [current, storedRecord, terminal, cancellation, sandboxId] =
+      await Promise.all([
+        host.ctx.storage.get<TurnRequest>("turn"),
+        host.ctx.storage.get<TurnBrokerRecord>(recordKey),
+        host.ctx.storage.get<boolean>("terminal"),
+        host.exactTurnCancellations.matching({
+          turnId: turn.turnId,
+          ownerId: turn.ownerId,
+          ownerGeneration: turn.ownerGeneration,
+          attemptGeneration: turn.attemptGeneration,
+        }),
+        host.ctx.storage.get<string>("sandboxId"),
+      ]);
     if (!storedRecord) return { kind: "missing" as const };
     const running = host.agentTurnExecutions.get(turn.turnId);
-    const identity = {
-      turnId: turn.turnId,
-      attemptGeneration: turn.attemptGeneration!,
-    };
-    // A ladder turn's container is described by the compute record, which is
-    // scoped to this exact attempt. The bare `sandboxId` key is not: a
-    // predecessor attempt's leftover value would read as a live container
-    // this attempt never reserved. Native turns keep reading that key, so
-    // their fence is unchanged.
-    const laddered =
-      parseTurnComputePlan(computePlan, identity)?.plan.kind ===
-      "resident_stella";
-    const attachedSandbox = laddered
-      ? parsePersistedAgentCompute(computeRecord, identity)?.sandboxId
-      : sandboxId;
     const live: TurnBrokerLiveFence = {
       sessionId: turn.turnBrokerRoute!.sessionId,
       ownerId: turn.ownerId,
@@ -1477,7 +1438,7 @@ export const handleTurnBroker = async (
       attemptGeneration: turn.attemptGeneration!,
       active:
         exactTurnIdentityMatches(current, turn) &&
-        Boolean(attachedSandbox) &&
+        Boolean(sandboxId) &&
         running?.cancellation.aborted === false,
       canceled: Boolean(cancellation),
       terminal: terminal === true,

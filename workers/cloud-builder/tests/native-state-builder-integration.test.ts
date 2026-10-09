@@ -400,41 +400,6 @@ describe("native state Builder integration", () => {
     expect(calls[0]?.request.method).toBe("GET");
   });
 
-  test("stamps the broker origin/session at the authenticated turn gateway", async () => {
-    let forwarded: Request | undefined;
-    const env = {
-      BUILDER_SERVICE_SECRET: builderSecret,
-      BUILD_SESSIONS: {
-        getByName: () => ({
-          fetch: async (input: string | Request, init?: RequestInit) => {
-            forwarded =
-              input instanceof Request ? input : new Request(input, init);
-            return new Response("accepted");
-          },
-        }),
-      },
-    };
-    const response = await worker.fetch(
-      new Request(`https://builder.example/sessions/${sessionId}/turns`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${builderSecret}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ turnBrokerRoute: { endpoint: "https://evil" } }),
-      }),
-      env as never,
-    );
-    expect(response.status).toBe(200);
-    expect(forwarded).toBeDefined();
-    expect(forwarded?.headers.get("x-stella-build-session-name")).toBe(
-      sessionId,
-    );
-    expect(forwarded?.headers.get("x-stella-turn-broker-endpoint")).toBe(
-      `https://builder.example/sessions/${sessionId}/turn-broker`,
-    );
-  });
-
   test("durably observes an exact Browser Gateway wait before returning it", async () => {
     const responses = new Map<
       string,

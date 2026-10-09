@@ -4,10 +4,9 @@
  * Connectors belong to the account, so an agent reaches the same Store
  * integrations the orchestrator does: the global catalog, and the owner
  * object's live connections and action runs under the turn's own owner
- * generation. The resident isolate calls it in place; the container's code
- * reaches it through the turn broker. An agent never offers a connect card,
- * so there is no per-conversation decline memory here; that stays with the
- * orchestrator's `connector_status`.
+ * generation. The container's code reaches it through the turn broker. An
+ * agent never offers a connect card, so there is no per-conversation decline
+ * memory here; that stays with the orchestrator's `connector_status`.
  */
 
 import type { RpcResponse } from "@stella/contracts/backend/protocol";

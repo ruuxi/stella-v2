@@ -67,11 +67,7 @@ export type GeneralAgentPromptOptions = {
   skills?: GeneralAgentPromptSkills;
 } & GeneralAgentPromptWorkspace;
 
-/**
- * What `Bash` does before a sandbox is attached. The command list is
- * illustrative; `worker-shell-router.test.ts` in cloud-builder pins every name
- * here against the worker shell's allowlist.
- */
+/** What `Bash` does before a sandbox is attached. The command list is illustrative. */
 const lazyWorkspaceSentence = (workspaceRoot: string) => `No sandbox is \
 running yet. \`Read\`, \`Write\`, \`Edit\`, \`Grep\` and \`apply_patch\` work on \
 ${workspaceRoot} directly. \`Bash\` first tries a lightweight shell over \
@@ -155,9 +151,10 @@ const driveSection = (
 };
 
 /**
- * The same drive sentences the materialized prompt renders, for a resident
- * turn that only learns them when the container attaches mid-turn. One
- * renderer, so the two paths cannot describe one drive two different ways.
+ * The same drive sentences the materialized prompt renders, for an agent
+ * that only learns them when its container attaches (a cloud pi agent's
+ * attached tool host). One renderer, so the two paths cannot describe one
+ * drive two different ways.
  */
 export const driveHydrationNotice = (
   drive: DriveSyncResult,

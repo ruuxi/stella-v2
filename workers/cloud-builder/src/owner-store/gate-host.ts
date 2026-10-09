@@ -13,15 +13,14 @@ import {
   type CloudTurnStartRequest,
 } from "@stella/contracts/turn-plane/turn-start";
 import {
+  agentCompletionPromptText,
+  agentLifecycleReport,
+  cancelCloudAgentAttempt,
   CloudAgentDispatchRefused,
   dispatchCloudAgentTurn,
   steerCloudAgent,
 } from "../cloud-agent-dispatch.js";
 import { HEADER_CONVERSATION_ID, ORCHESTRATOR_INTERNAL_ORIGIN } from "../build-session/shared/keys.js";
-import {
-  agentCompletionPromptText,
-  agentLifecycleReport,
-} from "../build-session/terminal-delivery.js";
 import { HEADER_OWNER } from "../conversation-types.js";
 import { HEADER_TURN_AUTH_KIND } from "../turn-start-request.js";
 import type { OwnerEvent } from "@stella/contracts/turn-plane/owner-events";
@@ -168,14 +167,20 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
   async steerAgentTurn(input) {
     const steered = await steerCloudAgent({
       env: deps.env,
+      conversationId: input.conversationId,
+      ownerId: deps.ownerId(),
+      ownerGeneration: input.ownerGeneration,
       threadId: input.threadId,
-      message: {
-        id: input.messageId.slice(0, 256),
-        kind: input.kind ?? "input",
-        text: input.text,
-        createdAt: Date.now(),
-      },
+      messageId: input.messageId.slice(0, 256),
+      text: input.text,
     });
+    if (!steered.accepted && steered.reason === "unknown") {
+      throw new RpcError(
+        "CONFLICT",
+        `${input.threadId} works in its own container and takes no messages until it finishes. Wait for its report, or pause it.`,
+        { reason: "thread_busy" },
+      );
+    }
     return steered.accepted;
   },
 
@@ -195,26 +200,6 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
 
   async deliverAgentCompletion(input) {
     const text = agentCompletionPromptText(input);
-    if (input.parentThreadId) {
-      const steered = await steerCloudAgent({
-        env: deps.env,
-        threadId: input.parentThreadId,
-        message: {
-          id: `wake:${input.threadId}:${input.attemptGeneration}`.slice(0, 256),
-          kind:
-            input.status === "completed"
-              ? "child_completed"
-              : input.status === "canceled"
-                ? "child_canceled"
-                : "child_failed",
-          text,
-          threadId: input.threadId,
-          attemptGeneration: input.attemptGeneration,
-          createdAt: input.threadUpdatedAt,
-        },
-      });
-      if (steered.accepted) return;
-    }
     const response = await startOrchestratorTurn(deps, input, {
       protocol: TURN_PLANE_PROTOCOL,
       clientMsgId: `wake:${input.threadId}:${input.attemptGeneration}`.slice(0, 64),
@@ -311,26 +296,17 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
   },
 
   async cancelAgentTurn(input) {
-    const response = await deps.env.BUILD_SESSIONS.getByName(input.threadId).fetch(
-      "https://build-session/cancel",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ownerId: deps.ownerId(),
-          ownerGeneration: input.ownerGeneration,
-          turnId: input.turnId,
-          attemptGeneration: input.attemptGeneration,
-          cancelRequestId: input.cancelRequestId,
-          reason: "Paused by orchestrator.",
-        }),
-      },
-    );
-    if (response.status === 409) return "changed";
-    if (!response.ok) {
-      throw new Error(`Stopping the agent failed (${response.status}).`);
-    }
-    return "canceled";
+    return await cancelCloudAgentAttempt({
+      env: deps.env,
+      conversationId: input.conversationId,
+      threadId: input.threadId,
+      ownerId: deps.ownerId(),
+      ownerGeneration: input.ownerGeneration,
+      turnId: input.turnId,
+      attemptGeneration: input.attemptGeneration,
+      cancelRequestId: input.cancelRequestId,
+      reason: "Paused by orchestrator.",
+    });
   },
 
   async postConversationCard(input) {

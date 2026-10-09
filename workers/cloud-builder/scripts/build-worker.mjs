@@ -13,7 +13,6 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isEntryPoint } from "../../../scripts/lib/entry-point.mjs";
-import { buildWorkerShellModules } from "./build-worker-shell.mjs";
 import { buildSandboxCode } from "./sandbox-code.mjs";
 
 const workerRoot = path.resolve(
@@ -28,9 +27,6 @@ export const workerBuildDirectory = path.join(
 
 /** Keep real import() boundaries; Wrangler's normal bundle flattens them. */
 export const buildWorker = async ({ outdir = workerBuildDirectory } = {}) => {
-  // The worker shell's Dynamic Worker modules are imported lazily by the
-  // BuildSession; regenerate them from the pinned just-bash first.
-  await buildWorkerShellModules();
   // Stella's code for sandbox containers: written into this version's static
   // assets, and its hash compiled into the Sandbox object that installs it.
   const sandboxCode = await buildSandboxCode();

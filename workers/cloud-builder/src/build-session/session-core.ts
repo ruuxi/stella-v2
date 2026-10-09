@@ -7,8 +7,6 @@
  * instead of `this` and is delegated to from the class. See
  * `src/build-session/host.ts` for why the host is a structural type.
  */
-import type { WebSearchResult } from "@stella/contracts/backend/search";
-import { createAgentControlPlane } from "../agent-control-plane.js";
 import { retireTransientAppBuild } from "../app-build-artifacts.js";
 import { EXACT_TURN_CANCELLATIONS_KEY } from "../execution-placement-turn-cancellation.js";
 import {
@@ -17,7 +15,6 @@ import {
 } from "../native-state-checkpoint.js";
 import { deliverOwnerEvents } from "../owner-events.js";
 import { HEADER_OWNER_FENCE_ID } from "../owner-fence-do.js";
-import { unwrapRpc } from "../owner-store/errors.js";
 import { isSandboxDestroyDebtKey } from "../sandbox-lifecycle.js";
 import {
   appendThreadMessages,
@@ -63,7 +60,6 @@ import type {
   TurnRequest,
   WorkspaceBackupDebt,
 } from "./shared/types.js";
-import type { CloudAgentDispatchDependencies } from "../cloud-agent-dispatch.js";
 import type { TurnExecutionContext } from "../turn-cancellation.js";
 import {
   OWNER_EVENT_VERSION,
@@ -179,29 +175,6 @@ export const ownerGateFor = (host: SessionCoreHost, ownerId: string) => {
   return host.env.OWNER_GATES.getByName(ownerId);
 };
 
-/** Shared dispatch dependencies used when this agent spawns a child. */
-export const childAgentDispatchDependencies = (
-  host: SessionCoreHost,
-): CloudAgentDispatchDependencies => {
-  return {
-    env: host.env,
-    ownerGateAdmit: async (input) =>
-      await host.ownerGateFor(input.ownerId).admit({
-        lane: "agent",
-        turnId: input.turnId,
-        conversationId: input.conversationId,
-        expectedGeneration: input.expectedGeneration,
-      }),
-    releaseOwnerGate: async (input) => {
-      await host.ownerGateFor(input.ownerId).release({
-        turnId: input.turnId,
-      });
-    },
-    deliverOwnerEvents: async (events) =>
-      await host.deliverOwnerEventsDurable([...events]),
-  };
-};
-
 /**
  * Give this turn's slot back to the owner gate. Idempotent by construction
  * (the gate deletes a row it may not have), and never fatal: a release that
@@ -224,51 +197,6 @@ export const releaseOwnerGate = async (
       message: errorMessage(error),
     });
   }
-};
-
-/**
- * The resident loop's control plane, wired to this object's own transcript
- * table and owner events, and to the owner object for web search.
- */
-export const agentControlPlane = (
-  host: SessionCoreHost,
-  turn: TurnRequest,
-  attemptGeneration: number,
-  sessionId: string,
-): ReturnType<typeof createAgentControlPlane> => {
-  return createAgentControlPlane({
-    identity: {
-      ownerId: turn.ownerId,
-      ownerGeneration: turn.ownerGeneration,
-      threadId: turn.threadId!,
-      turnId: turn.turnId,
-      attemptGeneration,
-      sessionId,
-    },
-    storage: host.ctx.storage,
-    transport: {
-      readHistory: (options) =>
-        host.fetchCanonicalAgentHistory(turn, {
-          excludeCurrentTurn: options.excludeCurrentTurn,
-        }),
-      appendMessages: (messages) => host.appendThreadTranscript(turn, messages),
-      emitEvent: async (args) => {
-        await host.emitTurnEvent(turn, args.kind, args.payload, {
-          terminal: args.terminal,
-          ...(args.seq === "auto" ? {} : { eventSeq: args.seq }),
-          ...(args.signal ? { signal: args.signal } : {}),
-        });
-      },
-      webSearch: async (request) =>
-        unwrapRpc(
-          await host.env.OWNER_GATES.getByName(turn.ownerId).ownerInternal({
-            name: "search.web",
-            args: request,
-            ownerGeneration: turn.ownerGeneration,
-          }),
-        ) as WebSearchResult,
-    },
-  });
 };
 
 export const ownerEventBase = (

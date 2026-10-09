@@ -584,7 +584,6 @@ const settleDeviceAttempt = async (
       ownerGeneration: thread.owner_generation ?? "",
       conversationId: thread.conversation_id,
       threadId: thread.thread_id,
-      ...(thread.parent_thread_id ? { parentThreadId: thread.parent_thread_id } : {}),
       attemptGeneration: thread.attempt_generation,
       description: thread.description,
       status,
@@ -1151,6 +1150,8 @@ const continueFromDesktop = async (
     }
     const steered = await ctx.host.steerAgentTurn({
       threadId: thread.thread_id,
+      conversationId: thread.conversation_id,
+      ownerGeneration: args.ownerGeneration,
       messageId: args.controlRequestId,
       text: args.prompt,
     });
@@ -1369,9 +1370,10 @@ const deliverAgentMessage = async (
     }
     const steered = await ctx.host.steerAgentTurn({
       threadId: to,
+      conversationId: thread.conversation_id,
+      ownerGeneration: args.ownerGeneration,
       messageId: args.messageId,
       text: args.framed,
-      kind: "message",
     });
     if (steered) return { delivered: "steered", threadId: to };
     // Not running yet is not finished: superseding a queued first attempt
@@ -1729,6 +1731,7 @@ const cancelThread = async (ctx: OwnerContext, args: CancelArgs): Promise<Cancel
   }
   const outcome = await ctx.host.cancelAgentTurn({
     threadId: thread.thread_id,
+    conversationId: thread.conversation_id,
     turnId: turn.turn_id,
     attemptGeneration: thread.attempt_generation,
     ownerGeneration: args.ownerGeneration,

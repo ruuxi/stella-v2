@@ -25,13 +25,17 @@ import type {
   AgentToolResult,
 } from "@stella/runtime/kernel/agent-core/types.js";
 import type { ToolReplayPolicy } from "@stella/runtime/kernel/tools/defs/replay-policy.js";
-import { INTERRUPTED_TOOL_RESULT_TEXT } from "./agent-turn-journal.js";
 
 export type { ToolReplayPolicy };
 
 export type ReplayableAgentTool = AgentTool & { replay?: ToolReplayPolicy };
 
-export const INTERRUPTED_TOOL_CALL_TEXT = INTERRUPTED_TOOL_RESULT_TEXT;
+/**
+ * What a call that never came back tells the model: one call's result, not
+ * the turn's terminal row.
+ */
+export const INTERRUPTED_TOOL_CALL_TEXT =
+  "This tool call was interrupted before it reported a result. Its effect is unknown; verify before assuming it ran.";
 
 export const NOT_STARTED_TOOL_CALL_TEXT =
   "This tool call never started: the turn was interrupted before it could run. Nothing was done; call it again if it is still needed.";

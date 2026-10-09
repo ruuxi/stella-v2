@@ -5,10 +5,6 @@
  *
  * @see src/build-session/host.ts for why every call out takes `host`.
  */
-import {
-  agentComputeKey,
-  parsePersistedAgentCompute,
-} from "../agent-compute-ladder.js";
 import { classifyAgentFailureDiagnostic } from "../agent-failure-diagnostic.js";
 import { CloudHomeStore, gateHomeControl } from "../cloud-home-store.js";
 import type { CloudSkillCatalogSnapshot } from "../cloud-home-store.js";
@@ -18,7 +14,6 @@ import {
 } from "../cloud-skill-materializer.js";
 import { devAcceptanceProbesEnabled } from "../dev-acceptance-probes.js";
 import { executorSessionEnvironment } from "../executor-session-env.js";
-import { requiresExactThreadCandidate } from "../general-agent-turn.js";
 import { cloudNativeStateRoot } from "@stella/contracts/cloud-native-state";
 import {
   initialInstanceSize,
@@ -84,7 +79,6 @@ import {
   AGENT_RECOVERY_PENDING_KEY,
   AGENT_TURN_HEARTBEAT_MS,
   AGENT_WATCHDOG_DEADLINE_KEY,
-  agentComputeRecoveryClaimKey,
   agentContainerSize,
   agentExecutionMarkerKey,
   agentRecoveryIdentity,
@@ -103,7 +97,6 @@ import {
 } from "./shared/keys.js";
 import { acquireAgentContainerSlot } from "./session-sandbox.js";
 import type {
-  AgentComputeRecoveryClaim,
   AgentExecutionMarker,
   AgentExecutorResult,
   Execution,
@@ -259,19 +252,7 @@ export const quiesceCurrentAgentSession = async (
     }
     return { sandboxId, size: size ?? ("large" as const) };
   });
-  const identity = {
-    turnId: turn.turnId,
-    attemptGeneration: turn.attemptGeneration!,
-  };
-  const compute = parsePersistedAgentCompute(
-    await host.ctx.storage.get(
-      agentComputeKey(identity.turnId, identity.attemptGeneration),
-    ),
-    identity,
-  );
   const sandbox = host.sandbox(target.sandboxId, target.size, "world");
-  const executionSessionId =
-    compute?.sessionId ?? agentTurnSessionId(turn.turnId);
   if (!(await host.sandboxContainerRunning(sandbox))) return;
   // The container is this agent thread's own, but the SDK's
   // `killAllProcesses` ignores its session argument, so only this attempt's
@@ -282,7 +263,9 @@ export const quiesceCurrentAgentSession = async (
       "SIGKILL",
     )
     .catch(() => undefined);
-  await sandbox.deleteSession(executionSessionId).catch(() => undefined);
+  await sandbox
+    .deleteSession(agentTurnSessionId(turn.turnId))
+    .catch(() => undefined);
 };
 
 export const exactAgentExecutionMarker = async (
@@ -312,43 +295,14 @@ export const persistAgentExecutionMarker = async (
   turn: TurnRequest,
   marker: AgentExecutionMarker,
 ): Promise<void> => {
-  const claimKey = agentComputeRecoveryClaimKey(
-    turn.turnId,
-    turn.attemptGeneration!,
-  );
   await host.ctx.storage.transaction(async (txn) => {
-    const [current, claim] = await Promise.all([
-      txn.get<TurnRequest>("turn"),
-      txn.get<AgentComputeRecoveryClaim>(claimKey),
-    ]);
-    if (!exactTurnIdentityMatches(current, turn) || claim) {
+    if (!exactTurnIdentityMatches(await txn.get<TurnRequest>("turn"), turn)) {
       throw new AgentTurnAuthorityLostError();
     }
     await txn.put(
       agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!),
       marker,
     );
-  });
-};
-
-export const clearUnattachedAgentSandboxTuple = async (
-  host: ContainerTurnHost,
-  turn: TurnRequest,
-): Promise<void> => {
-  const attemptGeneration = turn.attemptGeneration!;
-  const identity = { turnId: turn.turnId, attemptGeneration };
-  await host.ctx.storage.transaction(async (txn) => {
-    const [current, raw] = await Promise.all([
-      txn.get<TurnRequest>("turn"),
-      txn.get(agentComputeKey(turn.turnId, attemptGeneration)),
-    ]);
-    if (!exactTurnIdentityMatches(current, turn)) {
-      throw new AgentTurnAuthorityLostError();
-    }
-    const compute = parsePersistedAgentCompute(raw, identity);
-    if (!compute?.sandboxId) {
-      await txn.delete(["sandboxId", "sandboxSize"]);
-    }
   });
 };
 
@@ -450,7 +404,9 @@ export const runContainerAgentTurn = async (
     if (
       resolvedTurnState.threadRegistryPresent &&
       !turnStateThreadRestore &&
-      requiresExactThreadCandidate(turn.execution)
+      // An explicit engine rebuilds its context from canonical rows when its
+      // exact checkpoint is missing; a turn dispatched without one cannot.
+      turn.execution === undefined
     ) {
       throw new AgentTurnError(
         "This agent's saved session no longer matches its cloud conversation. Start a new agent thread to continue safely.",
@@ -1149,13 +1105,7 @@ export const runContainerAgentTurn = async (
  * session, restore the canonical archives (or seed a first world), verify
  * the packaged renderer still matches, and confirm the restore with the
  * owner fence.
- *
- * Shared by the eager container path and the compute ladder's lazy attach,
- * which is the whole point: a mid-turn attach has to land on exactly the
- * disk an eager boot would have produced, or the two placements would
- * disagree about what a checkpoint means. It deliberately does not emit
- * `sandbox_ready` — the eager path reports a boot, the ladder reports an
- * attach, and the payloads differ.
+ * It does not emit `sandbox_ready`; its caller reports the boot.
  */
 export const attachAgentWorld = async (
   host: ContainerTurnHost,

@@ -68,8 +68,15 @@ type AgentRecord = {
   /** Its latest report was a failure. */
   failed?: true;
   /** It was started here for another host's orchestrator, which gets its reports. */
-  origin?: { deviceId: string };
+  origin?: AgentOrigin;
 };
+
+/**
+ * Who gets the reports of an agent started here for another host rather
+ * than for this orchestrator: a computer's orchestrator, or the owner's
+ * agent threads (one attempt of a thread they track, which they hand on).
+ */
+export type AgentOrigin = { deviceId: string } | { agentThread: true };
 
 /** One of the orchestrator's agents as the app lists it. */
 export type StellaAgentRecord = {
@@ -128,7 +135,7 @@ export type AgentReport = {
   /** Exactly-once key for the delivery. */
   requestId: string;
   /** The agent was started here for another host's orchestrator: the report is for it. */
-  origin?: { deviceId: string };
+  origin?: AgentOrigin;
   /**
    * For an agent started for another host: one of its messages was answered
    * within another report, or its run was paused. No text; that host counts
@@ -459,7 +466,7 @@ export function stellaAgents(host: StellaAgentsHost) {
       /** The thread id another host chose for it, instead of one made here. */
       threadId?: string;
       /** Started here for another host's orchestrator. */
-      origin?: { deviceId: string };
+      origin?: AgentOrigin;
     },
   ): Promise<{ threadId: string; existing: boolean }> => {
     const { parentConversationId, depth, description, runsOn, placement } = args;
@@ -750,7 +757,7 @@ export function stellaAgents(host: StellaAgentsHost) {
       /** The thread id another host chose for it. */
       threadId?: string;
       /** Started for another host's orchestrator, which gets its reports. */
-      origin?: { deviceId: string };
+      origin?: AgentOrigin;
     },
     context: Context,
   ): Promise<{ threadId: string; existing: boolean }> => {

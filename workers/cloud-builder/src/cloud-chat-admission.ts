@@ -76,4 +76,5 @@ export const chatTurnFingerprintSource = (
       : undefined,
     agentRuntime: request.agentRuntime,
     piAgent: request.piAgent,
+    piThread: request.piThread,
   });

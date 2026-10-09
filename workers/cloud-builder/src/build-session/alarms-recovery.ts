@@ -268,6 +268,11 @@ export const runAlarmWithLease = async (
   }
 };
 
+const STOPPED_BY_UPDATE = {
+  message: "Stopped by an update before it finished.",
+  threadError: "Stopped by an update.",
+};
+
 export const runAlarm = async (
   host: AlarmsRecoveryHost,
   turn: TurnRequest,
@@ -398,6 +403,14 @@ export const runAlarm = async (
       return;
     }
   }
+  // An agent on Stella's models runs as its conversation's pi agent, and
+  // BuildSession refuses one. A turn of one here is the resident loop's,
+  // which an update stopped mid-flight: it is settled once, as stopped by
+  // the update, after the usual recovery of any container it had attached.
+  const residentLeftover =
+    turn.kind === "agent" &&
+    turn.agentRole !== "orchestrator" &&
+    turn.execution?.engine === "stella";
   if (turn.kind === "agent") {
     let marker: AgentExecutionMarker | undefined;
     try {
@@ -525,8 +538,18 @@ export const runAlarm = async (
       }
       await host.deliverExecutorLossTerminal(
         turn,
-        executorLossText(recoveredAgentReport(host, turn)),
+        residentLeftover
+          ? STOPPED_BY_UPDATE
+          : executorLossText(recoveredAgentReport(host, turn)),
       );
+      return;
+    }
+    if (residentLeftover) {
+      log("info", "resident_agent_turn_settled", {
+        turnId: turn.turnId,
+        threadId: turn.threadId,
+      });
+      await host.deliverExecutorLossTerminal(turn, STOPPED_BY_UPDATE);
       return;
     }
   }

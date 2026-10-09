@@ -1839,6 +1839,18 @@ export class SessionStore {
     );
   }
 
+  listMessagesAfterSeq(
+    conversationIdInput: unknown,
+    afterSeq: number,
+    limit: number,
+  ) {
+    return this.chat.listMessagesAfterSeq(
+      this.sanitizeConversationId(conversationIdInput),
+      afterSeq,
+      limit,
+    );
+  }
+
   /* ------------------------------------------------------------------ */
   /* Message windows                                                     */
   /* ------------------------------------------------------------------ */

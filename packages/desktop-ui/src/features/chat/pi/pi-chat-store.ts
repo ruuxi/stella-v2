@@ -1,5 +1,6 @@
 /**
- * The desktop chat on pi-durable (launches with `STELLA_AGENT_RUNTIME=pi`).
+ * The desktop chat on pi-durable (unless the user's engine is Claude Code,
+ * whose turns keep their own path).
  *
  * One `PiChatState` per watched conversation, folded with the shared reducer
  * from the runtime's event batches (`piChat:events`). Watching asks the
@@ -38,8 +39,12 @@ let unsubscribeEvents: (() => void) | undefined;
 
 const api = () => (typeof window === "undefined" ? undefined : window.electronAPI?.piChat);
 
-/** Whether this launch runs the desktop chat on pi-durable. */
-export const piChatEnabled = (): boolean => api()?.enabled === true;
+/** Whether the desktop chat runs on pi-durable now; the user's engine can move it. */
+export const piChatEnabled = (): boolean => api()?.isEnabled() === true;
+
+/** Calls `listener` when the chat moves onto or off pi-durable. */
+export const subscribePiChatEnabled = (listener: () => void): (() => void) =>
+  api()?.onEnabledChanged(() => listener()) ?? (() => {});
 
 const publish = (entry: Watched) => {
   for (const listener of entry.listeners) listener();

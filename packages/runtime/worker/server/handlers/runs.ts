@@ -22,6 +22,7 @@ import {
   piDeliverAgentMessage,
   piPlacementCanceled,
   piPlacedChat,
+  piChatRouted,
   piRuntimeEnabled,
 } from "../pi-chats.js";
 import * as WorkerSessions from "../sessions.js";
@@ -162,8 +163,8 @@ export const runsHandlers: WorkerRpcHandlers = {
       };
       // On pi-durable the host's own turns (schedule fires, watch
       // escalations, heartbeats) and the chats other devices place here run
-      // in the conversation's harness.
-      if (piRuntimeEnabled() && automation.executionPlacementRunId) {
+      // in the conversation's harness; under Claude Code they keep its path.
+      if (piChatRouted(session) && automation.executionPlacementRunId) {
         const hostBus = yield* HostBus.Service;
         const placementRunId = automation.executionPlacementRunId;
         return yield* fromPromise(() =>
@@ -176,7 +177,7 @@ export const runsHandlers: WorkerRpcHandlers = {
           }),
         );
       }
-      if (piRuntimeEnabled()) {
+      if (piChatRouted(session)) {
         const hostBus = yield* HostBus.Service;
         return yield* fromPromise(async () =>
           (await piChatsFor(session, hostBus)).automation(automation.conversationId, {
@@ -253,7 +254,7 @@ export const runsHandlers: WorkerRpcHandlers = {
       );
       // On pi-durable an agent another device placed here runs in the
       // conversation's harness; its answer goes back through the placement.
-      if (piRuntimeEnabled()) {
+      if (piChatRouted(session)) {
         const hostBus = yield* HostBus.Service;
         const agentKey = payload.threadId || payload.executionId || crypto.randomUUID();
         const runKey = payload.executionId || agentKey;
@@ -290,15 +291,17 @@ export const runsHandlers: WorkerRpcHandlers = {
         () => new RunnerUnavailableError(),
       );
       const payload = params as RuntimeLocalAgentSteerRequest;
+      // One of pi's placed agents, when it runs there.
       if (piRuntimeEnabled()) {
         const hostBus = yield* HostBus.Service;
-        return yield* fromPromise(async () => ({
-          delivered: await (await piChatsFor(session, hostBus)).steerPlacedAgent({
+        const delivered = yield* fromPromise(async () =>
+          (await piChatsFor(session, hostBus)).steerPlacedAgent({
             key: String(payload.messageId || crypto.randomUUID()),
             agentKey: String(payload.agentId ?? ""),
             message: String(payload.text ?? ""),
           }),
-        }));
+        );
+        if (delivered) return { delivered };
       }
       const runner = yield* fromPromise(() =>
         session.runner.ensureInitialized(),
@@ -381,7 +384,7 @@ export const runsHandlers: WorkerRpcHandlers = {
       const payload = params as RuntimeLocalAgentRequest;
       // On pi-durable an agent the app starts (an app-source merge, memory
       // sync) is a pi agent of the conversation's orchestrator.
-      if (piRuntimeEnabled()) {
+      if (piChatRouted(session)) {
         const hostBus = yield* HostBus.Service;
         return yield* fromPromise(async () =>
           (await piChatsFor(session, hostBus)).startAgent(payload.conversationId, {

@@ -4,10 +4,11 @@ import {
   type RuntimeVoiceChatPayload,
   type RuntimeVoiceOrchestratorConfig,
   type RuntimeVoiceToolCallPayload,
+  type RuntimeVoiceToolCallResult,
 } from "@stella/contracts/protocol";
 import { VoiceUnavailableError } from "../errors.js";
 import * as HostBus from "../host-bus.js";
-import { piChatsFor, piRuntimeEnabled } from "../pi-chats.js";
+import { piChatRouted, piChatsFor } from "../pi-chats.js";
 import { piVoiceChat } from "../pi-voice.js";
 import * as WorkerSessions from "../sessions.js";
 import { fromPromise, type WorkerRpcHandlers } from "../rpc.js";
@@ -32,7 +33,7 @@ export const voiceHandlers: WorkerRpcHandlers = {
         uiVisibility?: "visible" | "hidden";
         voiceSession?: { durationMs: number };
       };
-      if (piRuntimeEnabled()) {
+      if (piChatRouted(session)) {
         const hostBus = yield* HostBus.Service;
         return yield* fromPromise(async () => {
           await (await piChatsFor(session, hostBus)).voiceTranscript(said.conversationId, {
@@ -53,7 +54,7 @@ export const voiceHandlers: WorkerRpcHandlers = {
     Effect.gen(function* () {
       const session = yield* voiceSession;
       const payload = params as RuntimeVoiceChatPayload;
-      if (piRuntimeEnabled()) {
+      if (piChatRouted(session)) {
         const hostBus = yield* HostBus.Service;
         return yield* fromPromise(async () =>
           piVoiceChat(await piChatsFor(session, hostBus), hostBus, payload),
@@ -68,7 +69,7 @@ export const voiceHandlers: WorkerRpcHandlers = {
       const request = params as { conversationId: string };
       // A call's voice model has no tools and writes its own brief; what it
       // reads from here is the conversation so far, from the transcript.
-      if (piRuntimeEnabled()) {
+      if (piChatRouted(session)) {
         const hostBus = yield* HostBus.Service;
         const history = yield* fromPromise(async () =>
           (await piChatsFor(session, hostBus)).voiceHistory(request.conversationId),
@@ -88,8 +89,8 @@ export const voiceHandlers: WorkerRpcHandlers = {
     Effect.flatMap(voiceSession, (session) =>
       // On pi-durable a call hands its work to Stella (`voiceOrchestratorChat`),
       // whose tools run in the conversation; the voice model runs none.
-      piRuntimeEnabled()
-        ? Effect.succeed({
+      piChatRouted(session)
+        ? Effect.succeed<RuntimeVoiceToolCallResult>({
             output: "Voice calls run no tools here; ask Stella to do it.",
             error: "Voice tools are not available; the call delegates to Stella.",
           })

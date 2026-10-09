@@ -14,6 +14,7 @@ import {
   piChatLoading,
   piChatSnapshot,
   subscribePiChat,
+  subscribePiChatEnabled,
   watchPiChat,
 } from "./pi-chat-store";
 import { piReplyFileEvents, piStreamingOverlay, projectPiChat } from "./pi-chat-records";
@@ -21,7 +22,8 @@ import { piReplyFileEvents, piStreamingOverlay, projectPiChat } from "./pi-chat-
 const NO_SUBSCRIPTION = () => () => {};
 
 export const usePiChat = (conversationId: string | null) => {
-  const enabled = piChatEnabled() && Boolean(conversationId);
+  // The user's engine can move the chat onto or off pi while it is open.
+  const enabled = useSyncExternalStore(subscribePiChatEnabled, piChatEnabled) && Boolean(conversationId);
 
   useEffect(() => {
     if (!enabled || !conversationId) return;

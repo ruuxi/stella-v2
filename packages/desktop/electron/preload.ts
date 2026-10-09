@@ -139,6 +139,7 @@ import {
   IPC_APP_SOURCE_UNDO,
   IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE,
   IPC_PI_CHAT_ENABLED,
+  IPC_PI_CHAT_ENABLED_CHANGED,
   IPC_PI_CHAT_EVENTS,
   IPC_PI_CHAT_REQUEST,
 } from "@stella/contracts/desktop/ipc-channels";
@@ -921,18 +922,26 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onVisibleChanged: onIpc<CompanionVisibility>(IPC_COMPANION_VISIBLE_CHANGED),
   },
 
-  piChat: {
-    enabled: (() => {
+  piChat: (() => {
+    let enabled = (() => {
       try {
         return ipcRenderer.sendSync(IPC_PI_CHAT_ENABLED) === true;
       } catch {
         return false;
       }
-    })(),
-    request: (request: PiChatRequest) =>
-      ipcRenderer.invoke(IPC_PI_CHAT_REQUEST, request) as Promise<unknown>,
-    onEvents: onIpc<PiChatEventsPayload>(IPC_PI_CHAT_EVENTS),
-  },
+    })();
+    // Registered before any page listener, so a listener reads the new value.
+    ipcRenderer.on(IPC_PI_CHAT_ENABLED_CHANGED, (_event, next: unknown) => {
+      enabled = next === true;
+    });
+    return {
+      isEnabled: () => enabled,
+      onEnabledChanged: onIpc<boolean>(IPC_PI_CHAT_ENABLED_CHANGED),
+      request: (request: PiChatRequest) =>
+        ipcRenderer.invoke(IPC_PI_CHAT_REQUEST, request) as Promise<unknown>,
+      onEvents: onIpc<PiChatEventsPayload>(IPC_PI_CHAT_EVENTS),
+    };
+  })(),
 
   agent: {
     oneShotCompletion: (payload: {

@@ -1,13 +1,19 @@
 import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { PiChatRequest, PiChatUsageRequest } from "@stella/contracts/pi-chat";
+import {
+  desktopPiChatEnabled,
+  desktopPiRuntime,
+  type PiChatRequest,
+  type PiChatUsageRequest,
+} from "@stella/contracts/pi-chat";
 import {
   METHOD_NAMES,
   NOTIFICATION_NAMES,
   type RuntimeChatPayload,
 } from "@stella/contracts/protocol";
 import {
+  getAgentRuntimeEngine,
   getModelOverride,
   getReasoningEffort,
   loadLocalPreferences,
@@ -21,6 +27,8 @@ import {
   persistPlacementCancellation,
   type PlacementLocalExecutionKind,
 } from "../../kernel/runner/execution-placement-local-ownership.js";
+import { prepareStoredLocalChatPayload } from "../../kernel/storage/local-chat-payload.js";
+import { resolveOrchestratorThreadKey } from "../../kernel/thread-runtime.js";
 import { prepareChatInput } from "./chat-input.js";
 import { piUserContent } from "./pi-chat-input.js";
 import { cloudAgentsFor } from "./pi-cloud-agents.js";
@@ -42,8 +50,68 @@ import type { OpenSession } from "./sessions.js";
 type DesktopChats = import("@stella/agent/host/desktop-chats").DesktopChats;
 
 
-/** Whether this desktop runs its chat on pi-durable (launched with `STELLA_AGENT_RUNTIME=pi`). */
-export const piRuntimeEnabled = (): boolean => process.env.STELLA_AGENT_RUNTIME === "pi";
+/** Whether this desktop runs pi-durable: by default, unless launched with `STELLA_AGENT_RUNTIME=loop`. */
+export const piRuntimeEnabled = (): boolean => desktopPiRuntime(process.env.STELLA_AGENT_RUNTIME);
+
+/**
+ * Whether a conversation's own turns go to pi: the runtime runs pi and the
+ * user's engine is not Claude Code, whose turns keep their own path.
+ */
+export const piChatRouted = (session: OpenSession): boolean =>
+  desktopPiChatEnabled(
+    process.env.STELLA_AGENT_RUNTIME,
+    getAgentRuntimeEngine(session.config.get().stellaDataDirPath),
+  );
+
+/** What pi wrote into a conversation's chat log, by its row ids. */
+const PI_LOG_ROW = "pi:";
+
+/**
+ * A conversation's chat log as pi mirrors it: the rows the agent loops wrote
+ * (Claude Code's turns), and pi's own messages written as the loops write
+ * theirs, into the timeline the app shows and the orchestrator thread the
+ * Claude Code engine reads its history from.
+ */
+const piLocalLog = (
+  session: OpenSession,
+  conversationId: string,
+): import("@stella/agent/host/desktop-local-log").DesktopLocalLog => ({
+  read: async (afterSeq, limit) => {
+    const page = session.storage.chatStore.listMessagesAfterSeq(conversationId, afterSeq, limit);
+    return { ...page, messages: page.messages.filter((message) => !message.id.startsWith(PI_LOG_ROW)) };
+  },
+  write: async (message) => {
+    const eventId = `${PI_LOG_ROW}${conversationId}:${message.key}`;
+    if (session.storage.chatStore.hasEvent(conversationId, eventId)) return;
+    const type = message.role === "user" ? "user_message" : "assistant_message";
+    const userMessageId = message.replyTo ? `${PI_LOG_ROW}${conversationId}:${message.replyTo}` : undefined;
+    session.storage.appendChatEventAndNotify({
+      conversationId,
+      eventId,
+      type,
+      timestamp: message.timestamp,
+      ...(userMessageId ? { requestId: userMessageId } : {}),
+      payload: prepareStoredLocalChatPayload({
+        type,
+        payload: {
+          text: message.text,
+          ...(userMessageId ? { userMessageId } : {}),
+          metadata:
+            message.role === "user"
+              ? { ui: { visibility: "visible" } }
+              : { runtime: message.followedByToolCall ? { followedByToolCall: true } : {} },
+        },
+        timestamp: message.timestamp,
+      }),
+    });
+    session.storage.runtimeStore.appendThreadMessage({
+      timestamp: message.timestamp,
+      threadKey: resolveOrchestratorThreadKey(conversationId),
+      role: message.role,
+      content: message.text,
+    });
+  },
+});
 
 const chatsBySession = new WeakMap<OpenSession, Promise<DesktopChats>>();
 /** The same chats once loaded, for synchronous checks. */
@@ -166,17 +234,10 @@ export const piChatsFor = (
           });
         })().catch((error) => console.warn("[pi-chat] computer thread completion failed", error));
       },
-      // A conversation kept on this computer brings what the agent loops
-      // showed; a cloud one gets its history from the journal.
-      legacyHistory: async (conversationId) =>
-        conversationId.startsWith("local_")
-          ? session.storage.runtimeStore.listSyncMessages(conversationId).map((message) => ({
-              id: message.localMessageId,
-              role: message.role,
-              text: message.text,
-              timestamp: message.timestamp,
-            }))
-          : [],
+      // A conversation kept on this computer shares the agent loops' chat
+      // log; a cloud one shares the journal.
+      localLog: (conversationId) =>
+        conversationId.startsWith("local_") ? piLocalLog(session, conversationId) : undefined,
       emit: (payload) => hostBus.notify(NOTIFICATION_NAMES.PI_CHAT_EVENTS, payload),
       report: (error) => console.error("[pi-chat]", error),
     }),

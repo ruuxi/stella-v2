@@ -5,6 +5,8 @@ import { promises as fs } from "fs";
 import path from "path";
 import { AGENT_RUN_FINISH_OUTCOMES, AGENT_STREAM_EVENT_TYPES, } from "@stella/contracts/agent-runtime";
 import { IPC_AGENT_ONE_SHOT_COMPLETION, IPC_PI_CHAT_ENABLED, IPC_PI_CHAT_REQUEST, } from "@stella/contracts/desktop/ipc-channels";
+import { desktopPiChatEnabled } from "@stella/contracts/pi-chat";
+import { getAgentRuntimeEngine } from "@stella/runtime/kernel/preferences/local-preferences";
 import { requireMatchingCloudConversationId, selectedCloudConversationId, } from "../cloud-conversation-mode.js";
 import { createMonotonicSeqGenerator } from "./monotonic-seq.js";
 import { stampAgentEventMainSeq, workerResumeLastSeq, } from "./agent-event-seq.js";
@@ -712,11 +714,11 @@ export const registerAgentHandlers = (options) => {
             conversationId,
         });
     });
-    // The desktop chat on pi-durable, for launches with
-    // STELLA_AGENT_RUNTIME=pi: the renderer submits to and watches one
-    // conversation's harness in the runtime.
+    // The desktop chat on pi-durable (unless the user's engine is Claude
+    // Code): the renderer submits to and watches one conversation's harness
+    // in the runtime.
     ipcMain.on(IPC_PI_CHAT_ENABLED, (event) => {
-        event.returnValue = process.env.STELLA_AGENT_RUNTIME?.trim() === "pi";
+        event.returnValue = desktopPiChatEnabled(process.env.STELLA_AGENT_RUNTIME, getAgentRuntimeEngine(options.getStellaDataDir()));
     });
     ipcMain.handle(IPC_PI_CHAT_REQUEST, async (event, request) => {
         if (!options.assertPrivilegedSender(event, IPC_PI_CHAT_REQUEST)) {

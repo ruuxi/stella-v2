@@ -284,8 +284,8 @@ export function useFullShellChat({
     () => buildActivityTasks(threadActivityRecords, localTaskDecorations),
     [threadActivityRecords, localTaskDecorations],
   );
-  // A launch with STELLA_AGENT_RUNTIME=pi runs the chat on pi-durable in the
-  // runtime and renders it from there; the journal bridge stays off.
+  // The chat runs on pi-durable in the runtime (unless the engine is Claude
+  // Code) and renders from there; the journal bridge stays off.
   const piChat = usePiChat(activeConversationId);
   const cloudChat = useCloudChatBridge({
     conversationId: activeConversationId,

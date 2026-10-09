@@ -1604,8 +1604,13 @@ export type ElectronUserAskApi = {
 
 /** The desktop chat on pi-durable (`@stella/contracts/pi-chat`). */
 export type ElectronPiChatApi = {
-  /** Whether this launch runs the desktop chat on pi-durable (`STELLA_AGENT_RUNTIME=pi`). */
-  enabled: boolean;
+  /**
+   * Whether the desktop chat runs on pi-durable: by default, but not under
+   * the Claude Code engine or a launch with `STELLA_AGENT_RUNTIME=loop`.
+   */
+  isEnabled: () => boolean;
+  /** Called when the user's engine moves the chat onto or off pi-durable. */
+  onEnabledChanged: (callback: (enabled: boolean) => void) => () => void;
   request: (request: PiChatRequest) => Promise<unknown>;
   onEvents: (callback: (payload: PiChatEventsPayload) => void) => () => void;
 };

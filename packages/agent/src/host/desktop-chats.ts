@@ -6,7 +6,7 @@
  * the app (`@stella/contracts/pi-chat`).
  */
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { AssistantMessage, Message, ModelThinkingLevel, TextContent } from "@earendil-works/pi-ai";
@@ -71,6 +71,7 @@ import {
 import { openBunSqliteStorage } from "../storage/bun-sqlite.ts";
 import { desktopAgentsHost, desktopEnvironments } from "./desktop-agents.ts";
 import { journalMirror, type DesktopJournal, type JournalMirror } from "./desktop-journal.ts";
+import { localLogMirror, writtenReply, type DesktopLocalLog, type LocalLogMirror } from "./desktop-local-log.ts";
 import { desktopGatewayAccess, resolveStellaModels } from "./desktop-gateway.ts";
 import { desktopContextSources } from "./desktop-sources.ts";
 
@@ -127,11 +128,11 @@ export type DesktopChatsOptions = {
     attempt: number;
   }): void;
   /**
-   * What a conversation kept on this computer showed before it ran on
-   * pi-durable (the agent loops' store), oldest first: written into its
-   * transcript the first time pi opens it.
+   * For a conversation kept on this computer: the agent loops' chat log,
+   * which the Claude Code engine answers from. Its turns are mirrored both
+   * ways, so the conversation stays one across engines.
    */
-  legacyHistory?(conversationId: string): Promise<LegacyMessage[]>;
+  localLog?(conversationId: string): DesktopLocalLog | undefined;
   /** A watched conversation's events, for every attached client. */
   emit(payload: PiChatEventsPayload): void;
   report(error: unknown): void;
@@ -148,6 +149,8 @@ type Chat = {
   steerPlacedAgent: OpenStellaHarness["steerPlacedAgent"];
   /** For a conversation stored in the cloud: its journal mirror. */
   mirror?: JournalMirror;
+  /** For a conversation kept on this computer: its chat log mirror. */
+  localLog?: LocalLogMirror;
   stream?: AgentEventStream;
   watchers: number;
   idleCheck: ReturnType<typeof setInterval>;
@@ -156,20 +159,7 @@ type Chat = {
   followUntil: number;
 };
 
-/** One message a conversation showed under the agent loops (`legacyHistory`). */
-export type LegacyMessage = { id: string; role: "user" | "assistant"; text: string; timestamp: number };
-
 const context = BACKGROUND_CONTEXT;
-
-/** How far a conversation's import of the agent loops' history got, so a crash mid-way resumes it. */
-const LegacyImportDoc = defineDoc<{ state?: "importing" | "done" }>({
-  kind: "stella.legacy-import",
-  version: 1,
-  scope: "conversation",
-  history: "latest",
-  fork: "current",
-  initial: () => ({}),
-});
 
 /** The response language a conversation's latest message asked for, so it holds across restarts. */
 const LocaleDoc = defineDoc<{ locale?: string }>({
@@ -180,30 +170,6 @@ const LocaleDoc = defineDoc<{ locale?: string }>({
   fork: "current",
   initial: () => ({}),
 });
-
-/**
- * A reply written into a transcript without a model call (the onboarding
- * greeting, history imported from the agent loops). It carries an empty usage: pi reads the last reply's usage to
- * size the context, and the usage dashboard skips a call that cost nothing.
- */
-const writtenReply = (text: string, timestamp: number, model: string): AssistantMessage =>
-  ({
-    role: "assistant",
-    content: [{ type: "text", text }],
-    api: "stella",
-    provider: "stella",
-    model,
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: "stop",
-    timestamp,
-  }) as AssistantMessage;
 
 /** A conversation id as a file name. */
 const fileName = (conversationId: string): string => {
@@ -268,41 +234,6 @@ export function desktopChats(options: DesktopChatsOptions) {
     }).catch((error: unknown) => options.report(error));
     await saving;
   };
-  /**
-   * A conversation the agent loops kept on this computer starts on pi with
-   * what they showed: its messages, written as they were, before anything
-   * else. Once per conversation; a crash mid-way resumes (each message is
-   * written once per id).
-   */
-  const importLegacyHistory = async (harness: Harness, root: Conversation, conversationId: string, fresh: boolean) => {
-    if (!options.legacyHistory) return;
-    const state = (await harness.snapshot(LegacyImportDoc, root.id, context))?.state;
-    if (state === "done" || (!fresh && state !== "importing")) return;
-    const setState = (next: "importing" | "done") =>
-      harness.commit(async (tx) => {
-        (await tx.doc(LegacyImportDoc, root.id)).state = next;
-        return undefined;
-      }, context);
-    await setState("importing");
-    for (const message of await options.legacyHistory(conversationId)) {
-      const text = message.text.trim();
-      if (!text) continue;
-      const model =
-        message.role === "user"
-          ? ({ role: "user", content: [{ type: "text", text }], timestamp: message.timestamp } as Message)
-          : writtenReply(text, message.timestamp, "legacy");
-      await root.submit(
-        {
-          type: "write",
-          requestId: `legacy:${message.id}`,
-          entry: { kind: message.role === "user" ? "pi.user" : "pi.assistant", model: [model] },
-        },
-        context,
-      );
-    }
-    await setState("done");
-  };
-
   const environments = desktopEnvironments(options.workspace);
   // A model on another provider runs with the key the user stored for it,
   // never one found in this process's environment.
@@ -401,10 +332,6 @@ export function desktopChats(options: DesktopChatsOptions) {
       chat = (async () => {
         await mkdir(directory, { recursive: true });
         const file = path.join(directory, fileName(conversationId));
-        const fresh = await stat(file).then(
-          () => false,
-          () => true,
-        );
         const storage = await openBunSqliteStorage(file);
         const destination: ExecutionDestination = {
           kind: "device",
@@ -471,7 +398,11 @@ export function desktopChats(options: DesktopChatsOptions) {
         const root = await harness.root(context, { agent: orchestrator });
         // A conversation from an older build keeps up with what the orchestrator is offered.
         if (offersAgentTools(await root.agent(context))) await root.configure(orchestrator, context);
-        await importLegacyHistory(harness, root, conversationId, fresh);
+        // A conversation kept on this computer starts with what the agent
+        // loops' chat log holds, and keeps up with it.
+        const log = options.localLog?.(conversationId);
+        const localLog = log ? await localLogMirror({ harness, root, log, report: options.report, context }) : undefined;
+        await localLog?.importNow().catch((error: unknown) => options.report(error));
         // Recovered work needs its models: a Stella alias waits for sign-in; a
         // model on the user's own key is ready at once.
         const rootModel = (await root.agent(context)).model;
@@ -545,6 +476,7 @@ export function desktopChats(options: DesktopChatsOptions) {
           runPlacedAgent,
           steerPlacedAgent,
           ...(mirror ? { mirror } : {}),
+          ...(localLog ? { localLog } : {}),
           watchers: 0,
           idleCheck,
           followCheck,
@@ -594,6 +526,8 @@ export function desktopChats(options: DesktopChatsOptions) {
 
   const watch = async (conversationId: string): Promise<PiChatWatchResult> => {
     const chat = await open(conversationId);
+    // What another engine said here since shows too.
+    await chat.localLog?.importNow().catch((error: unknown) => options.report(error));
     chat.watchers += 1;
     const stream = await attach(conversationId, chat);
     const { entries, hasOlder } = await history(chat);
@@ -659,11 +593,12 @@ export function desktopChats(options: DesktopChatsOptions) {
   };
 
   /**
-   * A conversation stored in the cloud answers with what other devices said
-   * too: their turns are imported first, waiting at most a moment for the
-   * journal.
+   * A conversation answers with what was said elsewhere too: one stored in
+   * the cloud with other devices' turns, imported first, waiting at most a
+   * moment for the journal; one kept on this computer with another engine's.
    */
   const caughtUp = async (chat: Chat): Promise<void> => {
+    await chat.localLog?.importNow().catch((error: unknown) => options.report(error));
     if (!chat.mirror) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([
@@ -715,6 +650,7 @@ export function desktopChats(options: DesktopChatsOptions) {
   /** The conversation open and its model ready, for work the host starts in it. */
   const ready = async (conversationId: string): Promise<Chat> => {
     const chat = await open(conversationId);
+    await chat.localLog?.importNow().catch((error: unknown) => options.report(error));
     await ensureModel((await chat.root.agent(context)).model);
     chat.refreshTools();
     await markActive(conversationId, true);
@@ -1049,6 +985,7 @@ export function desktopChats(options: DesktopChatsOptions) {
         clearInterval(chat.idleCheck);
         clearInterval(chat.followCheck);
         await chat.mirror?.stop();
+        await chat.localLog?.stop();
         await chat.stream?.stop().catch(() => undefined);
         await chat.harness.close(context).catch(() => undefined);
       }

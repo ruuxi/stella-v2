@@ -231,6 +231,22 @@ export const parseSpawnAgentModel = (
   };
 };
 
+/**
+ * Why an agent with this model selection cannot run on this computer, or
+ * null when it can. This computer's agents run on Claude Code: Stella's own
+ * engine runs on pi-durable, which spawns its agents itself, so a selection
+ * naming another engine (`stella`, `codex`) or a plain model reference has
+ * nothing to run on here. Cloud and other-device placements are unaffected.
+ */
+export const localSpawnSelectionError = (
+  selection: SpawnModelSelection,
+): string | null =>
+  selection.kind === "default" ||
+  (selection.kind === "engine" &&
+    selection.engine.engine === "claude_code_local")
+    ? null
+    : 'Agents on this computer run on Claude Code. Omit model, or pick a Claude Code model with "claude-code" or "claude-code/<model>".';
+
 export const createStateContext = (
   stateRoot: string,
   agentApi?: AgentToolApi,
@@ -846,6 +862,12 @@ export const handleSpawnAgent = async (
     });
   } catch (error) {
     return { error: (error as Error).message };
+  }
+  const localSelectionError = cloudPlacement
+    ? null
+    : localSpawnSelectionError(modelSelection);
+  if (localSelectionError) {
+    return { error: localSelectionError };
   }
   if (modelSelection.kind === "model") {
     // Fail the spawn loudly on an unroutable model — never silently fall

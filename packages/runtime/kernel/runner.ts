@@ -5,11 +5,9 @@ import {
   resolveAgentEngineForRun,
   resolveEffectiveAgentExecutionConfig,
   resolveAgentModelRoute,
-  resolveSubscriptionHarnessRouteModel,
   resolveAgent,
   sampleAgentEngineConfig,
 } from "./runner/context.js";
-import { forkDelayedCall } from "./runner/cloud-effect-runtime.js";
 import type { WebSearchResult } from "@stella/contracts/backend/search";
 import { scheduleRemotePromptRevalidation } from "./prompts/remote-prompts.js";
 import { createOrchestratorController } from "./runner/orchestrator.js";
@@ -42,30 +40,9 @@ import {
   readRestartInterruptionState,
 } from "./restart-continuation.js";
 import type {
-  OrchestratorRunLaunch,
   RunnerPublicApi,
   StellaHostRunnerOptions,
 } from "./runner/types.js";
-
-/** How long the boot resume pass waits for the runtime to be able to run. */
-const DURABLE_RESUME_READY_TIMEOUT_MS = 60_000;
-
-/** A stored launch record, or null when it is not an orchestrator chat run. */
-const parseOrchestratorRunLaunch = (
-  value: unknown,
-): OrchestratorRunLaunch | null => {
-  const launch = value as Partial<OrchestratorRunLaunch> | null | undefined;
-  if (
-    !launch ||
-    launch.kind !== "orchestrator-chat" ||
-    typeof launch.conversationId !== "string" ||
-    typeof launch.agentType !== "string" ||
-    typeof launch.userMessageId !== "string"
-  ) {
-    return null;
-  }
-  return launch as OrchestratorRunLaunch;
-};
 
 export type { StellaHostRunnerOptions } from "./runner/types.js";
 
@@ -300,11 +277,9 @@ export const createStellaHostRunner = (
     const selectedEngine =
       args.modelConfigSnapshot?.engine ??
       resolveAgentEngineForRun(configuredAgentEngine, args.spawnEngine);
-    const subscriptionHarnessEnabled =
-      selectedEngine === "codex_cli" ||
-      (args.modelConfigSnapshot
-        ? args.modelConfigSnapshot.subscriptionHarnessEnabled === true
-        : getSubscriptionHarnessEnabled(context.stellaDataDir, selectedEngine));
+    const subscriptionHarnessEnabled = args.modelConfigSnapshot
+      ? args.modelConfigSnapshot.subscriptionHarnessEnabled === true
+      : getSubscriptionHarnessEnabled(context.stellaDataDir, selectedEngine);
     const sampledEngineConfig = args.modelConfigSnapshot
       ? undefined
       : sampleAgentEngineConfig({
@@ -315,35 +290,14 @@ export const createStellaHostRunner = (
           reasoningEffort:
             args.spawnReasoningEffort ?? configuredReasoningEffort,
         });
-    const sampledSpawnEngine =
-      selectedEngine === "default"
-        ? args.spawnEngine
-        : {
-            engine: selectedEngine,
-            ...(sampledEngineConfig?.engineModel
-              ? { model: sampledEngineConfig.engineModel }
-              : {}),
-          };
-    const harnessRouteModel = resolveSubscriptionHarnessRouteModel({
-      stellaDataDir: context.stellaDataDir,
-      agentType: args.agentType,
-      configuredEngine: configuredAgentEngine,
-      subscriptionHarnessEnabled,
-      configuredModel,
-      ...(sampledSpawnEngine ? { spawnEngine: sampledSpawnEngine } : {}),
-      ...(args.modelConfigSnapshot
-        ? { modelConfigSnapshot: args.modelConfigSnapshot }
-        : {}),
-    });
     const resolved = await resolveAgentModelRoute(
       context,
       args.agentType,
-      harnessRouteModel ??
-        ("modelConfigSnapshot" in args && args.modelConfigSnapshot
-          ? args.modelConfigSnapshot.routeModel
-          : "model" in args
-            ? args.model
-            : undefined),
+      "modelConfigSnapshot" in args && args.modelConfigSnapshot
+        ? args.modelConfigSnapshot.routeModel
+        : "model" in args
+          ? args.model
+          : undefined,
       "modelConfigSnapshot" in args && args.modelConfigSnapshot
         ? AGENT_IDS.ORCHESTRATOR
         : args.agentType,
@@ -580,85 +534,6 @@ export const createStellaHostRunner = (
     },
     webSearch,
     handleLocalChat: orchestratorController.handleLocalChat,
-    resumeInterruptedOrchestratorRuns: async ({ createCallbacks }) => {
-      const resumed: string[] = [];
-      const failed: string[] = [];
-      const runTasks = context.runtimeStore.runTasks;
-      if (!runTasks) return { resumed, failed };
-      const pending = runTasks
-        .recoveryPlan()
-        .resumable.filter((record) => runTasks.isResumable(record.runId));
-      if (pending.length > 0) {
-        // The account session and model route arrive after initialization
-        // (auth refresh, catalog); a resume launched before them fails on
-        // "no usable model route". Wait for the same readiness a user send
-        // needs, bounded so an unready runtime still settles the runs.
-        const deadline = Date.now() + DURABLE_RESUME_READY_TIMEOUT_MS;
-        while (
-          !orchestratorController.agentHealthCheck().ready &&
-          Date.now() < deadline
-        ) {
-          await new Promise<void>((resolve) => {
-            forkDelayedCall(250, resolve);
-          });
-        }
-      }
-      for (const record of pending) {
-        const launch = parseOrchestratorRunLaunch(record.checkpoint.launch);
-        // Agent rows belong to the LocalAgentManager's own resume pass.
-        if (!launch) {
-          if (record.agentType === AGENT_IDS.ORCHESTRATOR) {
-            runTasks.abandon(record.runId);
-          }
-          continue;
-        }
-        if (!runTasks.isResumable(record.runId)) continue;
-        const resumeCount = runTasks.markResumed(record.runId);
-        const intents = runTasks.listIntents(record.runId);
-        try {
-          await orchestratorController.resumeOrchestratorRun({
-            launch,
-            runId: record.runId,
-            state: { record: { ...record, resumeCount }, intents },
-            callbacks: createCallbacks({ ...launch, runId: record.runId }),
-          });
-          console.warn("[runner] durable orchestrator run resumed", {
-            runId: record.runId,
-            conversationId: launch.conversationId,
-            resumeCount,
-            intents: intents.length,
-          });
-          resumed.push(record.runId);
-        } catch (error) {
-          // The launch already reported the failure through the callbacks.
-          runTasks.abandon(record.runId);
-          // A cloud turn's begin is no longer owned: let the writer recover it.
-          context.cloudTranscript.resume();
-          console.warn("[runner] durable orchestrator run resume failed", {
-            runId: record.runId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          failed.push(record.runId);
-        }
-      }
-      return { resumed, failed };
-    },
-    getRestartBlockers: () => {
-      const runTasks = context.runtimeStore.runTasks;
-      const durable = (runId: string | null | undefined): boolean =>
-        Boolean(runId) && (runTasks?.isLiveRunResumable(runId!) ?? false);
-      let nonDurableRuns = 0;
-      const activeRunId = context.state.activeOrchestratorRunId;
-      if (activeRunId && !durable(activeRunId)) nonDurableRuns += 1;
-      for (const attempt of context.state.localAgentManager?.listActiveAttemptRuns() ??
-        []) {
-        if (!durable(attempt.runId)) nonDurableRuns += 1;
-      }
-      return {
-        unsafeToolCalls: runTasks?.liveUnsafeIntentCount() ?? 0,
-        nonDurableRuns,
-      };
-    },
     sendMessage: orchestratorController.sendMessage,
     sendUserMessage: orchestratorController.sendUserMessage,
     runAutomationTurn: orchestratorController.runAutomationTurn,
@@ -723,11 +598,6 @@ export const createStellaHostRunner = (
       context.runtimeStore.beginVoiceToolCallReceipt(request),
     completeVoiceToolCallReceipt: (request) =>
       context.runtimeStore.completeVoiceToolCallReceipt(request),
-    notifyOrchestratorHistoryChanged: (conversationId: string) => {
-      context.state.orchestratorSessions
-        .get(conversationId)
-        ?.notifyHistoryChanged();
-    },
     getVoiceOrchestratorConfig: async ({ conversationId }) => {
       const agentType = AGENT_IDS.ORCHESTRATOR;
       const runId = `voice-session:${Date.now()}`;

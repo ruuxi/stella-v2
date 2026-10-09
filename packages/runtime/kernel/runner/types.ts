@@ -1,7 +1,7 @@
 import type { Api, Model } from "../../ai/types.js";
 import type { ImageCapTarget } from "../../ai/utils/image-caps.js";
 import type { AgentMessage } from "../agent-core/types.js";
-import type { OrchestratorSession } from "../agent-runtime/orchestrator-session.js";
+import type { CloudThread } from "./orchestrator-launch.js";
 import type { BackgroundCompactionScheduler } from "../agent-runtime/compaction-scheduler.js";
 import type { BackgroundExitWake } from "./background-exit-wake.js";
 import type { KernelRunSupervisor } from "./supervision/run-supervisor.js";
@@ -223,28 +223,6 @@ export type AgentCallbacks = {
     reason: string;
   }) => void;
   onAgentEvent?: (event: AgentLifecycleEvent) => void;
-  /**
-   * Client-owned metadata a durable run stores with its launch record and
-   * hands back to `createCallbacks` when the run resumes in a new process
-   * (e.g. the worker's request id and timezone). Plain JSON only.
-   */
-  durableClient?: Record<string, unknown>;
-};
-
-/**
- * What a durable orchestrator chat run stores to relaunch itself after the
- * worker process died (`run_task.checkpoint_json.launch`).
- */
-export type OrchestratorRunLaunch = {
-  kind: "orchestrator-chat";
-  conversationId: string;
-  agentType: string;
-  userMessageId: string;
-  uiVisibility?: "visible" | "hidden";
-  storageMode?: "cloud" | "local";
-  ownerGeneration?: string;
-  responseTarget?: RuntimeAgentEventPayload["responseTarget"];
-  client?: Record<string, unknown>;
 };
 
 export type QueuedOrchestratorTurn = {
@@ -317,13 +295,11 @@ export type RunnerState = {
    */
   sendRuntimeMessage?: (input: RuntimeSendMessageInput) => Promise<void>;
   /**
-   * Long-lived orchestrator sessions keyed by `conversationId`. Each session
-   * owns one live Pi `Agent` for the lifetime of the conversation and is
-   * reused across turns to keep provider prompt-cache prefixes stable. See
-   * `runtime/kernel/agent-runtime/orchestrator-session.ts`. Disposed on
-   * worker shutdown via `runtime-initialization.ts:stop`.
+   * The thread each cloud conversation's last turn here ran, hidden prompt
+   * rows included, keyed by `conversationId`. The next cloud turn extends it
+   * while the journal holds nothing else (`cloudThreadExtendingCanonical`).
    */
-  orchestratorSessions: Map<string, OrchestratorSession>;
+  cloudThreads: Map<string, CloudThread>;
   /**
    * Per-thread background compaction scheduler. Holds at most one
    * in-flight compaction per `threadKey`; finalize* paths schedule
@@ -515,26 +491,6 @@ export type RunnerPublicApi = {
     payload: ChatPayload,
     callbacks: AgentCallbacks,
   ) => Promise<{ runId: string }>;
-  /**
-   * Relaunch the orchestrator chat runs a previous worker process left
-   * running and the recovery plan kept resumable (`run-task.ts`).
-   * `createCallbacks` rebuilds each run's client callbacks from its stored
-   * launch record. A run that cannot relaunch reports a fatal error through
-   * those callbacks and is settled as failed.
-   */
-  resumeInterruptedOrchestratorRuns: (args: {
-    createCallbacks: (
-      launch: OrchestratorRunLaunch & { runId: string },
-    ) => AgentCallbacks;
-  }) => Promise<{ resumed: string[]; failed: string[] }>;
-  /**
-   * What would keep a worker restart from being invisible right now: unsafe
-   * tool calls in flight, and active runs that would not resume after it.
-   */
-  getRestartBlockers: () => {
-    unsafeToolCalls: number;
-    nonDurableRuns: number;
-  };
   sendMessage: (input: RuntimeSendMessageInput) => Promise<void>;
   sendUserMessage: (input: RuntimeSendUserMessageInput) => Promise<void>;
   runAutomationTurn: (
@@ -637,7 +593,6 @@ export type RunnerPublicApi = {
   };
   beginVoiceToolCallReceipt: RuntimeStore["beginVoiceToolCallReceipt"];
   completeVoiceToolCallReceipt: RuntimeStore["completeVoiceToolCallReceipt"];
-  notifyOrchestratorHistoryChanged: (conversationId: string) => void;
   getVoiceOrchestratorConfig: (
     payload: RuntimeVoiceOrchestratorConfigRequest,
   ) => Promise<RuntimeVoiceOrchestratorConfig>;

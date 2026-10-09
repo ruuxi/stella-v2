@@ -343,7 +343,7 @@ export interface AssistantMessage {
    * Provider-requested wait before retrying, in ms, parsed from the failing
    * response's `Retry-After` / `retry-after-ms` header. The raw error (and its
    * headers) is discarded when a failure becomes an `errorMessage` string, so
-   * this is how the run-level retry in `agent-run-retry` learns how long a
+   * this is how the run-level retry in `run-retry` learns how long a
    * rate-limited provider actually wants us to back off.
    */
   retryAfterMs?: number;

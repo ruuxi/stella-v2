@@ -105,13 +105,6 @@ const parseLocalModelId = (
   };
 };
 
-export const getResolvedLlmApiKey = async (
-  resolved: ResolvedLlmRoute,
-): Promise<string | undefined> => {
-  const apiKey = (await resolved.getApiKey())?.trim();
-  return apiKey ? apiKey : undefined;
-};
-
 /**
  * Conservative credentialless check: only routes that EXPLICITLY declare
  * `credentialless` (the `local/` provider, origin-verified credentialless

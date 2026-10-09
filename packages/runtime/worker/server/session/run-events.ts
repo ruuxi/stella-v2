@@ -8,6 +8,7 @@ import * as HostBus from "../host-bus.js";
 import * as SessionStorage from "./storage.js";
 import type { AgentEventPayload } from "../types.js";
 import { RunAdmissionStore } from "../../../kernel/storage/run-admission.js";
+import { settleInterruptedRunTasks } from "../../../kernel/storage/run-task.js";
 import { createRuntimeLogger } from "../../../kernel/debug.js";
 
 const logger = createRuntimeLogger("worker.run-events");
@@ -89,23 +90,9 @@ export const layer = Layer.effect(
       ack: ({ runId, lastSeq }) => runEventLog.ack({ runId, lastSeq }),
       listBufferedRuns: () => runEventLog.listBufferedRuns(),
       startupBackfill: () => {
-        // Runs the durable-run recovery plan resumes this boot keep their
-        // event stream open: the resumed run continues it (`run-task.ts`).
-        const resumes = (runId: string): boolean => {
-          try {
-            return chatStore.runTasks.isResumeOwned(runId);
-          } catch {
-            return false;
-          }
-        };
-        const resumedRunIds = new Set<string>();
         const bufferedRuns = runEventLog.listBufferedRuns();
         for (const buffered of bufferedRuns) {
           if (buffered.hasTerminalEvent) continue;
-          if (resumes(buffered.runId)) {
-            resumedRunIds.add(buffered.runId);
-            continue;
-          }
           runEventLog.append({
             runId: buffered.runId,
             seq: Number.MAX_SAFE_INTEGER,
@@ -121,12 +108,12 @@ export const layer = Layer.effect(
             },
           });
         }
-        // A durable chat run the plan gave up on whose events were all acked
-        // (pruned) still owes its client a terminal: without one a client
-        // that saw it start keeps showing it as working.
+        // A durable chat run an older build left running whose events were
+        // all acked (pruned) still owes its client a terminal: without one a
+        // client that saw it start keeps showing it as working.
         try {
           const buffered = new Set(bufferedRuns.map((run) => run.runId));
-          for (const row of chatStore.runTasks.recoveryPlan().abandoned) {
+          for (const row of settleInterruptedRunTasks(db)) {
             if (row.agentType !== "orchestrator" || buffered.has(row.runId)) {
               continue;
             }
@@ -157,14 +144,10 @@ export const layer = Layer.effect(
             error: error instanceof Error ? error.message : String(error),
           });
         }
-        // Admissions left open by the dead process settle unless their run
-        // resumes: nothing else will ever answer them.
+        // Admissions left open by the dead process settle: nothing else will
+        // ever answer them.
         try {
-          for (const row of chatStore.runTasks.recoveryPlan().resumable) {
-            resumedRunIds.add(row.runId);
-          }
           const settled = new RunAdmissionStore(db).settleStale({
-            keepRunIds: resumedRunIds,
             updatedBefore: sessionStartedAt,
           });
           if (settled > 0) {

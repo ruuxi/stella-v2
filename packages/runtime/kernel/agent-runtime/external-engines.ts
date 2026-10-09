@@ -176,9 +176,9 @@ export const buildPreambleToolBoundaryMessage = (args: {
       arguments: args.toolArgs,
     },
   ],
-  api: "chatgpt-responses",
-  provider: "chatgpt",
-  model: "codex",
+  api: "anthropic-messages",
+  provider: "anthropic",
+  model: "claude-code",
   usage: EMPTY_USAGE,
   stopReason: "toolUse",
   timestamp: now(),
@@ -226,8 +226,7 @@ export const buildToolResultContent = async (
 
 type ExternalEngineSessionKind =
   | "claude_code_local"
-  | "claude_code_local_vanilla"
-  | "codex_cli";
+  | "claude_code_local_vanilla";
 
 type ExternalOrchestratorEngine = "claude_code_local";
 
@@ -260,6 +259,7 @@ const EXTERNAL_ENGINE_SESSION_PREFIXES: readonly string[] = [
   // namespace so a takeover run never `--resume`s a vanilla conversation
   // (and vice versa).
   "claude_code_local_vanilla:",
+  // Codex sessions a thread stored before Codex ran on pi.
   "codex_cli:",
 ];
 
@@ -609,9 +609,9 @@ const recordClaudeHistoryDelivery = (args: {
 /**
  * Out-of-band rows the orchestration layer appends to a thread without going
  * through the engine's own turn loop — managed-child terminal reports and
- * interim task updates (see runner/agent-orchestration.ts). The Pi engine
- * picks these up through its history refresh; external engines resume from
- * their own CLI transcript, so these rows must be injected explicitly.
+ * interim task updates (see runner/agent-orchestration.ts). External engines
+ * resume from their own CLI transcript, so these rows must be injected
+ * explicitly.
  */
 const EXTERNAL_DELTA_CUSTOM_TYPES: ReadonlySet<string> = new Set([
   "runtime.task_lifecycle",
@@ -1332,8 +1332,8 @@ const runClaudeHostedTurn = async (args: {
   const nativeTools = vanilla
     ? []
     : resolveClaudeCodeNativeTools(nativeToolRole);
-  // Parity with createPiTools: node_repl carries the bounded deferred catalog;
-  // profiles without it get the safe direct-schema fallback instead. Stella
+  // node_repl carries the bounded deferred catalog; profiles without it get
+  // the safe direct-schema fallback instead. Stella
   // tools a built-in supersedes are left out so the model sees one spelling.
   const toolMetadata = vanilla
     ? []
@@ -1383,7 +1383,6 @@ const runClaudeHostedTurn = async (args: {
   const assistantUpdateBuffer = createExternalAssistantUpdateBuffer({
     store: args.opts.store,
     threadKey,
-    engine: "claude_code",
     runId,
     ...(typeof args.opts.agentContext.attemptGeneration === "number"
       ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
@@ -2014,7 +2013,7 @@ export const runExternalOrchestratorTurn = async (
 
   try {
     // Thread `session.runId` into the prompt build so lifecycle hooks receive
-    // the same run identity as the native engine path.
+    // the run's identity.
     const systemPrompt = renderSystemPrompt(
       await buildRuntimeSystemPrompt({ ...opts, runId: session.runId }),
     );
@@ -2036,7 +2035,6 @@ export const runExternalOrchestratorTurn = async (
     opts.onExecutionSessionCreated?.({
       runId: session.runId,
       threadKey: session.threadKey,
-      engine: "external",
       queueUserMessageId: session.runEvents.queueUserMessageId,
       agent: liveAgent.agent,
     });
@@ -2075,16 +2073,6 @@ export const runExternalOrchestratorTurn = async (
     throw markOrchestratorErrorReported(error);
   } finally {
     liveAgent.finish();
-    // The external engine persisted this turn's user + assistant messages to
-    // the shared durable thread but ran entirely outside the held-over Pi
-    // `OrchestratorSession`, so that session's in-memory `state.messages`
-    // still reflects only its own prior turns. Flag it for a history refresh
-    // so a later default-engine turn on this conversation re-syncs from the
-    // store instead of prompting with stale context that omits these Claude
-    // Code turns. Mirrors how realtime voice — another out-of-band writer to
-    // the same thread — calls `notifyHistoryChanged()`. No-op when no live Pi
-    // agent exists yet (it seeds fresh from the store on first construction).
-    opts.orchestratorSession?.notifyHistoryChanged();
   }
 };
 
@@ -2096,7 +2084,7 @@ export const runExternalSubagentTurn = async (
     runId: opts.runId ?? `local:sub:${crypto.randomUUID()}`,
   });
   const liveAgent = createExternalLiveAgent();
-  const detachLiveAgent = opts.subagentSession?.attachExternalLiveAgent?.(
+  const detachLiveAgent = opts.steering?.attach(
     liveAgent.agent,
     {
       store: opts.store,

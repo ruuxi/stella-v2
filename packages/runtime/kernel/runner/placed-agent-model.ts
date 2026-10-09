@@ -7,7 +7,10 @@
  */
 
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
-import { parseSpawnAgentModel } from "../tools/state.js";
+import {
+  localSpawnSelectionError,
+  parseSpawnAgentModel,
+} from "../tools/state.js";
 import type { AgentToolRequest, SpawnModelSupport } from "../tools/types.js";
 
 export const resolvePlacedAgentModel = async (
@@ -29,6 +32,8 @@ export const resolvePlacedAgentModel = async (
       return false;
     }
   });
+  const selectionError = localSpawnSelectionError(selection);
+  if (selectionError) throw new Error(selectionError);
   if (selection.kind === "model") {
     await support.validateSpawnModelWithMetadata(
       selection.model,

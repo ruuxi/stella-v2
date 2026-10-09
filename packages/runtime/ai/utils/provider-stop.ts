@@ -53,9 +53,8 @@ export function isSafetyStopReason(rawStopReason: string): boolean {
  * Message for a stream the provider deliberately terminated with an
  * anomalous stop reason instead of a completed message.
  *
- * Safety-class stop reasons get the refusal/safety wording that downstream
- * containment (`isProviderContentAbortMessage`) classifies on; everything
- * else (`failed`, `cancelled`, `OTHER`, …) gets neutral wording so generic
+ * Safety-class stop reasons get the refusal/safety wording; everything else
+ * (`failed`, `cancelled`, `OTHER`, …) gets neutral wording so generic
  * terminal failures are never mistaken for content aborts.
  */
 export function providerAbortedStopMessage(rawStopReason: string): string {

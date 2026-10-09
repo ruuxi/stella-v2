@@ -3,9 +3,6 @@ import {
   runExternalOrchestratorTurn,
   runExternalSubagentTurn,
 } from "./agent-runtime/external-engines.js";
-import { OrchestratorSession } from "./agent-runtime/orchestrator-session.js";
-import { SubagentSession } from "./agent-runtime/subagent-session.js";
-import { DEFAULT_MAX_TURNS } from "./agent-runtime/shared.js";
 import type { SubagentRunResult } from "./agent-runtime/types.js";
 
 export type {
@@ -29,55 +26,33 @@ import type {
   SubagentRunOptions,
 } from "./agent-runtime/types.js";
 
+/**
+ * The runner's turns run on Claude Code only: Stella's own engine runs on
+ * pi-durable (`@stella/agent`), which never reaches the runner. A turn that
+ * would need another engine (a thread whose saved route is not Claude Code,
+ * after the user moved off it) fails here instead of running anywhere else.
+ */
+const notClaudeCodeError = (): Error =>
+  new Error(
+    "This turn needs Claude Code: this computer runs agents on Claude Code, and Stella's own chat on pi.",
+  );
+
 export async function runOrchestratorTurn(
   opts: OrchestratorRunOptions,
 ): Promise<string> {
-  // A durable resume continues the native session that wrote the row; an
-  // external engine would re-send the prompt instead of continuing.
-  const integratedResult = opts.resume
-    ? null
-    : await runExternalOrchestratorTurn(opts);
-  if (integratedResult) {
-    return integratedResult;
-  }
-  const ownsSession = !opts.orchestratorSession;
-  const session =
-    opts.orchestratorSession ?? new OrchestratorSession(opts.conversationId);
-  try {
-    return await session.runTurn(opts);
-  } finally {
-    if (ownsSession) {
-      session.dispose();
-    }
-  }
+  const result = await runExternalOrchestratorTurn(opts);
+  if (result === null) throw notClaudeCodeError();
+  return result;
 }
 
 export async function runSubagentTask(
   opts: SubagentRunOptions,
 ): Promise<SubagentRunResult> {
-  const integratedResult = opts.resume
-    ? null
-    : await runExternalSubagentTurn(opts);
-  if (integratedResult) {
-    return integratedResult;
-  }
-  if (opts.subagentSession) {
-    return await opts.subagentSession.runTurn(opts);
-  }
-  const session = new SubagentSession(
-    opts.agentId ?? opts.runId ?? opts.userMessageId,
-    opts.conversationId,
-    opts.agentType,
-  );
-  try {
-    return await session.runTurn(opts);
-  } finally {
-    session.dispose();
-  }
+  const result = await runExternalSubagentTurn(opts);
+  if (result === null) throw notClaudeCodeError();
+  return result;
 }
 
 export const shutdownSubagentRuntimes = (): void => {
   shutdownExternalEngineIntegrations();
 };
-
-export const PI_RUNTIME_MAX_TURNS = DEFAULT_MAX_TURNS;

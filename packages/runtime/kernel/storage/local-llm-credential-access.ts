@@ -72,8 +72,8 @@ export const hasAccessibleLocalLlmOAuthCredential = (
  * → `refreshLocalLlmCredentialAccess`), and the host's `get` reads the same
  * store that list enumerates. So a provider the list does not name has no
  * value to fetch: answer null locally instead of asking the host twice per
- * model call (api-key, then oauth) for providers the user never
- * connected.
+ * model call (api-key, then oauth) for providers routed through
+ * models.json/runtime-managed auth.
  */
 export const getAccessibleLocalLlmApiKey = async (
   stellaDataDirPath: string,

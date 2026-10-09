@@ -1,19 +1,27 @@
 import { Context, Effect, Layer } from "effect";
-import type { RuntimeModelCatalogSnapshot } from "@stella/contracts/model-catalog";
+import { NOTIFICATION_NAMES } from "@stella/contracts/protocol";
 import { getFileLogger } from "../../observability/file-logger.js";
 import { forkDelayed, type WorkerTimerHandle } from "../effect-runtime.js";
+import * as HostBus from "./host-bus.js";
 import type { RuntimeRunner } from "./types.js";
 
 /**
- * Owns the lazy `kernel/model-catalog` module (the model picker's listing)
- * and the debounced background warm of the Stella model catalog.
+ * Owns the lazy `kernel/model-runtime` module: the catalog-changed subscription
+ * (forwarded to the host as MODEL_CATALOG_UPDATED) and the debounced
+ * background catalog warm.
  *
  * The module import stays dynamic so the model registry isn't parsed on the
- * worker-ready path.
+ * worker-ready path, exactly as before.
  */
 export interface Interface {
-  /** The catalog as the model picker lists it. */
-  readonly listModels: () => Promise<RuntimeModelCatalogSnapshot>;
+  /**
+   * Import the model runtime (memoized) and install the catalog-changed
+   * subscription once. Safe to call repeatedly; no-ops the subscription
+   * after dispose so a shutting-down worker doesn't re-subscribe.
+   */
+  readonly ensureSubscription: () => Promise<
+    (typeof import("../../kernel/model-runtime.js"))["modelRuntime"]
+  >;
   /**
    * Warm the Stella model catalog in the background whenever an input to its
    * cache key changes (auth identity, device, backend).
@@ -22,7 +30,7 @@ export interface Interface {
    * application. No-ops when the runner isn't built yet.
    */
   readonly scheduleWarm: (getRunner: () => RuntimeRunner | null) => void;
-  /** Cancel a pending warm (worker shutdown). */
+  /** Unsubscribe and refuse future subscriptions (worker shutdown). */
   readonly dispose: () => void;
 }
 
@@ -33,10 +41,25 @@ export class Service extends Context.Service<Service, Interface>()(
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
+    const hostBus = yield* HostBus.Service;
+    let disposed = false;
+    let unsubscribe: (() => void) | undefined;
+    let modulePromise:
+      | Promise<typeof import("../../kernel/model-runtime.js")>
+      | undefined;
     let warmTimer: WorkerTimerHandle | null = null;
 
-    const listModels = async () =>
-      (await import("../../kernel/model-catalog.js")).modelCatalogSnapshot();
+    const ensureSubscription = async () => {
+      const loaded = await (modulePromise ??= import(
+        "../../kernel/model-runtime.js"
+      ));
+      if (!disposed) {
+        unsubscribe ??= loaded.modelRuntime.onCatalogChanged((snapshot) => {
+          hostBus.notify(NOTIFICATION_NAMES.MODEL_CATALOG_UPDATED, snapshot);
+        });
+      }
+      return loaded.modelRuntime;
+    };
 
     const scheduleWarm = (getRunner: () => RuntimeRunner | null) => {
       if (!getRunner()) return;
@@ -59,6 +82,9 @@ export const layer = Layer.effect(
     };
 
     const dispose = () => {
+      disposed = true;
+      unsubscribe?.();
+      unsubscribe = undefined;
       if (warmTimer) {
         warmTimer.cancel();
         warmTimer = null;
@@ -67,6 +93,6 @@ export const layer = Layer.effect(
 
     yield* Effect.addFinalizer(() => Effect.sync(dispose));
 
-    return { listModels, scheduleWarm, dispose };
+    return { ensureSubscription, scheduleWarm, dispose };
   }),
 );

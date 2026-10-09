@@ -635,6 +635,8 @@ describe("Stella Responses transport", () => {
         api: "openai-responses",
         provider: "openai",
         baseUrl: RELAY,
+        reasoning: true,
+        thinkingLevelMap: { xhigh: "xhigh" },
       },
       getApiKey: () => "native-capability",
     };

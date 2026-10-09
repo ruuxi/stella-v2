@@ -1,0 +1,61 @@
+.root {
+  --l-margin: clamp(20px, 4.4vw, 72px);
+  --l-ink: #0a0a0d;
+  --l-aurora: linear-gradient(90deg, #00eeff, #0e8aff 30%, #703cff 60%, #ff4ac0);
+  position: relative;
+  min-height: 100vh;
+  overflow-x: clip;
+  background: #060609;
+  color: var(--l-ink);
+  font-family: var(--l-sans), system-ui, sans-serif;
+  font-optical-sizing: auto;
+}
+
+.root :where(h1, h2, h3, h4, h5, h6, p) {
+  font-family: inherit;
+  font-weight: inherit;
+}
+
+.root ::selection {
+  background: #703cff;
+  color: #fff;
+}
+
+.root :global(.button--download),
+.root :global(.download-menu > summary) {
+  gap: 12px;
+  padding: 18px 30px;
+  border: 0;
+  border-radius: 999px;
+  background: #0a0a0d;
+  color: #fff;
+  font-family: var(--l-sans);
+  font-style: normal;
+  font-weight: 640;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15) inset, 0 18px 40px -16px rgba(40, 20, 120, 0.55);
+  transition: transform 260ms cubic-bezier(0.3, 1.6, 0.5, 1), box-shadow 260ms ease;
+}
+
+.root :global(.button--download):hover,
+.root :global(.download-menu > summary):hover {
+  background: #0a0a0d;
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.15) inset, 0 24px 50px -16px rgba(80, 40, 220, 0.7);
+}
+
+.root :global(.button--download) svg {
+  opacity: 1;
+}
+
+.invert :global(.button--download),
+.invert :global(.download-menu > summary) {
+  background: #fff;
+  color: #0a0a0d;
+}
+
+.invert :global(.button--download):hover,
+.invert :global(.download-menu > summary):hover {
+  background: #fff;
+}

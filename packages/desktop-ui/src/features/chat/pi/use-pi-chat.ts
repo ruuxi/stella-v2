@@ -16,7 +16,7 @@ import {
   subscribePiChat,
   watchPiChat,
 } from "./pi-chat-store";
-import { piStreamingOverlay, projectPiChat } from "./pi-chat-records";
+import { piReplyFileEvents, piStreamingOverlay, projectPiChat } from "./pi-chat-records";
 
 const NO_SUBSCRIPTION = () => () => {};
 
@@ -43,6 +43,7 @@ export const usePiChat = (conversationId: string | null) => {
     () => projectPiChat({ entries: state.entries, requestIds: state.requestIds }),
     [state.entries, state.requestIds],
   );
+  const replyFiles = useMemo(() => piReplyFileEvents(state.entries), [state.entries]);
   const streamingAssistants = useMemo(
     () => piStreamingOverlay({ streaming: state.streaming }, projection.turn),
     [state.streaming, projection.turn],
@@ -88,6 +89,8 @@ export const usePiChat = (conversationId: string | null) => {
   return {
     enabled,
     messages: projection.messages,
+    /** Replies that link files, for the Files panel. */
+    replyFiles,
     streamingAssistants,
     // A turn running elsewhere (placed in the cloud or on another computer) is running here too.
     isStreaming: state.running || state.queued.length > 0 || state.remote.length > 0,

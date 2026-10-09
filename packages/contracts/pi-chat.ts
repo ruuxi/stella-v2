@@ -193,7 +193,25 @@ export type PiChatRequest =
   | { op: "older"; conversationId: string; beforeEntryId: number }
   | { op: "agents"; conversationId: string }
   /** A turn was placed elsewhere: follow the journal closely until it shows. */
-  | { op: "follow"; conversationId: string };
+  | { op: "follow"; conversationId: string }
+  /** Stella's greeting after onboarding, as a reply in the conversation; kept on this computer. */
+  | { op: "welcome"; conversationId: string; message: string }
+  /** The local files Stella's replies and its agents linked (`{ paths }`): what a paired phone may open. */
+  | { op: "files"; conversationId: string };
+
+/**
+ * The model calls of the conversations on pi, as the usage dashboard lists
+ * them (`LocalModelUsagePage`). Sent by the desktop's main process, not by a
+ * window, so it names no conversation it acts on.
+ */
+export type PiChatUsageRequest = {
+  op: "usage";
+  fromMs?: number;
+  toMs?: number;
+  conversationId?: string;
+  threadId?: string;
+  limit?: number;
+};
 
 export type PiChatWatchResult = {
   /** The snapshot, its entries widened to the latest page of the whole history. */

@@ -332,8 +332,13 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         getBackendUrl: () => services.authService.getBackendUrl(),
         getAuthToken: () => services.authService.getAuthToken(),
     });
+    // On pi-durable a conversation's transcript names the files Stella linked there.
+    const piLinkedFiles = process.env.STELLA_AGENT_RUNTIME?.trim() === "pi"
+        ? async (conversationId) => (await lifecycle.getRunner()?.piChat({ op: "files", conversationId }))?.paths ?? []
+        : undefined;
     const officePreview = registerOfficePreviewHandlers({
         cloudFileGrants,
+        piLinkedFiles,
         getAuthToken: () => services.authService.getAuthToken(),
         getStellaAppDir: lifecycle.getStellaAppDir,
         getStellaDataDir: lifecycle.getStellaDataDir,
@@ -346,6 +351,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     });
     const display = registerDisplayHandlers({
         cloudFileGrants,
+        piLinkedFiles,
         deviceFileLocator: createDeviceFileLocator({
             getBackendUrl: () => services.authService.getBackendUrl(),
             getAuthToken: () => services.authService.getAuthToken(),
@@ -372,6 +378,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     });
     registerLocalChatHandlers({
         localChatHistoryService: services.localChatHistoryService,
+        getStellaHostRunner: lifecycle.getRunner,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     registerThemeHandlers({

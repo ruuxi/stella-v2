@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { PiChatRequest } from "@stella/contracts/pi-chat";
+import type { PiChatRequest, PiChatUsageRequest } from "@stella/contracts/pi-chat";
 import {
   METHOD_NAMES,
   NOTIFICATION_NAMES,
@@ -21,6 +21,7 @@ import { prepareChatInput } from "./chat-input.js";
 import { piUserContent } from "./pi-chat-input.js";
 import { cloudAgentsFor } from "./pi-cloud-agents.js";
 import { cloudJournalFor } from "./pi-journal.js";
+import { piModelUsage } from "./pi-usage.js";
 import {
   createRemoteDeviceSigner,
   HOST_DEVICE_SIGNING_METHOD,
@@ -291,8 +292,9 @@ export const cancelPiPlacedAgent = async (
 export const piChatRequest = async (
   session: OpenSession,
   hostBus: HostBus.Interface,
-  request: PiChatRequest,
+  request: PiChatRequest | PiChatUsageRequest,
 ): Promise<unknown> => {
+  if (request.op === "usage") return await piModelUsage(session.config.get().stellaDataDirPath, request);
   const chats = await piChatsFor(session, hostBus);
   if (request.op !== "submit" || !request.send) return await chats.request(request);
   const payload: RuntimeChatPayload = {

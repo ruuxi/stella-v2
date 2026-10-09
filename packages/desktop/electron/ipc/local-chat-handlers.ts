@@ -1,5 +1,8 @@
 import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
-import type { ConversationSummaryCursor } from "@stella/contracts/local-chat";
+import type {
+  ConversationSummaryCursor,
+  LocalModelUsagePage,
+} from "@stella/contracts/local-chat";
 import type { ConversationFocusRoot } from "@stella/contracts/reply-refs";
 import {
   IPC_CLOUD_CONVERSATION_CACHE_ACTIVATE_AUTHORITY,
@@ -41,6 +44,8 @@ const parseConversationFocusRoot = (
 
 type LocalChatHandlersOptions = {
   localChatHistoryService: LocalChatHistoryService;
+  /** The runtime, for what conversations on pi-durable keep (their model usage). */
+  getStellaHostRunner?: () => { piChat(request: unknown): Promise<unknown> } | null | undefined;
   assertPrivilegedSender: (
     event: IpcMainEvent | IpcMainInvokeEvent,
     channel: string,
@@ -466,14 +471,32 @@ export const registerLocalChatHandlers = (
         options,
         event,
         IPC_LOCAL_CHAT_LIST_MODEL_USAGE,
-        (client) =>
-          client.listModelUsage({
+        async (client) => {
+          const args = {
             fromMs: payload?.fromMs,
             toMs: payload?.toMs,
             conversationId: payload?.conversationId,
             threadId: payload?.threadId,
             limit: payload?.limit,
-          }),
+          };
+          const local = client.listModelUsage(args);
+          // On pi-durable the conversations keep their own calls; the
+          // agent loops' history stays listed beside them.
+          const runner =
+            process.env.STELLA_AGENT_RUNTIME?.trim() === "pi"
+              ? options.getStellaHostRunner?.()
+              : null;
+          if (!runner) return local;
+          const pi = (await runner.piChat({ op: "usage", ...args })) as LocalModelUsagePage;
+          const limit = args.limit ?? 10_000;
+          const records = [...local.records, ...pi.records].sort(
+            (a, b) => b.timestamp - a.timestamp,
+          );
+          return {
+            records: records.slice(0, limit),
+            truncated: local.truncated || pi.truncated || records.length > limit,
+          };
+        },
       ),
   );
 

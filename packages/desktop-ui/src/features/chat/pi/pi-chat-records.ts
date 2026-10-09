@@ -12,8 +12,10 @@ import {
   piJournalUserMessage,
   piMessageText,
   type PiChatState,
+  type PiEntry,
 } from "@stella/contracts/pi-chat";
-import type { MessageRecord } from "@stella/contracts/local-chat";
+import type { EventRecord, MessageRecord } from "@stella/contracts/local-chat";
+import type { DesktopThreadActivityRecord } from "@/features/chat/thread-activity-types";
 import type { JournalRecord } from "@/features/cloud/conversation-protocol";
 import { journalRecordsToMessageRecords } from "@/features/cloud/journal-message-records";
 import {
@@ -110,4 +112,57 @@ export const piStreamingOverlay = (
       runId: "pi",
     },
   ];
+};
+
+/**
+ * Activity's agent rows for a conversation on pi: each of Stella's agents'
+ * start and how it ended, in the lifecycle events the panel reads, from the
+ * agents the task rows list (`piChatAgents`).
+ */
+export const piAgentActivityEvents = (records: readonly DesktopThreadActivityRecord[]): EventRecord[] => {
+  const events: EventRecord[] = [];
+  for (const record of records) {
+    if (record.source !== "stella") continue;
+    const identity = { agentId: record.threadId, attemptGeneration: record.attemptGeneration ?? 1 };
+    events.push({
+      _id: `pi:${record.threadId}:started`,
+      timestamp: record.startedAt,
+      type: "agent-started",
+      payload: { ...identity, description: record.description, agentType: record.agentType },
+    });
+    const endedAt = record.completedAt ?? record.startedAt;
+    if (record.status === "completed") {
+      events.push({
+        _id: `pi:${record.threadId}:completed`,
+        timestamp: endedAt,
+        type: "agent-completed",
+        payload: { ...identity, result: record.result ?? "" },
+      });
+    } else if (record.status === "error" || record.status === "canceled") {
+      events.push({
+        _id: `pi:${record.threadId}:${record.status}`,
+        timestamp: endedAt,
+        type: record.status === "error" ? "agent-failed" : "agent-canceled",
+        payload: { ...identity, ...(record.error ? { error: record.error } : {}) },
+      });
+    }
+  }
+  return events.sort((a, b) => a.timestamp - b.timestamp || (a._id < b._id ? -1 : 1));
+};
+
+/**
+ * Stella's replies that link files, in the event shape the Files panel reads
+ * (the panel takes the links from the text). Agents' results come with
+ * their lifecycle (`piAgentActivityEvents`).
+ */
+export const piReplyFileEvents = (entries: readonly PiEntry[]): EventRecord[] => {
+  const events: EventRecord[] = [];
+  for (const entry of entries) {
+    const message = entry.model?.[0];
+    if (entry.kind !== "pi.assistant" || message?.role !== "assistant" || message.stella?.hidden) continue;
+    const text = piMessageText(message);
+    if (!text.includes("](")) continue;
+    events.push({ _id: `pi:${entry.id}`, timestamp: message.timestamp, type: "assistant_message", payload: { text } });
+  }
+  return events;
 };

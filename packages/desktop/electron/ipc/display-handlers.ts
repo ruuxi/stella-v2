@@ -46,6 +46,8 @@ type DisplayHandlersOptions = {
   cloudFileGrants?: CloudConversationFileGrants;
   deviceFileLocator?: DeviceFileLocator;
   getDeviceId?: () => string | null;
+  /** On pi-durable: the local files Stella linked in a conversation's transcript. */
+  piLinkedFiles?: (conversationId: string) => Promise<readonly string[]>;
   assertPrivilegedSender: (
     event: IpcMainEvent | IpcMainInvokeEvent,
     channel: string,
@@ -387,10 +389,20 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
             : await resolveCanonicalConversationFilePaths(
                 await options.cloudFileGrants.listPaths(conversationId),
               );
+        const piPaths =
+          allowedByLocalHistory ||
+          canonicalPaths.has(resolved) ||
+          cloudPaths.has(resolved) ||
+          !options.piLinkedFiles
+            ? new Set<string>()
+            : await resolveCanonicalConversationFilePaths(
+                await options.piLinkedFiles(conversationId).catch(() => []),
+              );
         if (
           !allowedByLocalHistory &&
           !canonicalPaths.has(resolved) &&
-          !cloudPaths.has(resolved)
+          !cloudPaths.has(resolved) &&
+          !piPaths.has(resolved)
         ) {
           throw new Error(
             `${REMOTE_VIEW_DENIAL_PREFIX}reading this file needs your computer. Only Stella's own outputs and files from the current conversation can load here.`,

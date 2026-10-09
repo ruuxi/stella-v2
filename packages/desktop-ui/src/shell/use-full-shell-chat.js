@@ -35,6 +35,7 @@ import { composerDraftFromUserRow } from "@/app/chat/message-composer-restore";
 import { useChatStore } from "@/context/chat-store-context";
 import { useCloudChatBridge } from "@/features/cloud/use-cloud-chat-bridge";
 import { usePiChat } from "@/features/chat/pi/use-pi-chat";
+import { piAgentActivityEvents } from "@/features/chat/pi/pi-chat-records";
 import { cloudAttachmentsStore } from "@/features/cloud/cloud-composer-store";
 import { useOwnDeviceRemoteCancel } from "@/features/cloud/use-own-device-remote-cancel";
 import { backendClient } from "@/platform/backend/backend-client";
@@ -54,6 +55,7 @@ const OPEN_BOTTOM_SETTLE_MS = 600;
 const OPEN_BOTTOM_STABLE_FRAMES = 3;
 const NO_NEWER_CLOUD_MESSAGES = () => false;
 const EMPTY_STREAMING_ASSISTANTS = [];
+const EMPTY_EVENTS = [];
 const hasNonWhitespaceText = (text) => text.trim().length > 0;
 const setBoundedTabMemory = (memory, conversationId, value) => {
   memory.delete(conversationId);
@@ -313,8 +315,21 @@ export function useFullShellChat({
     return localOptimisticEvents.some((event) =>
       event.type === "user_message" && !persistedIds.has(event._id));
   }, [localOptimisticEvents, persistedMessages]);
-  const activities = cloudChat.activities;
-  const persistedFiles = cloudChat.files;
+  // On pi the transcript and its agents are the conversation's record:
+  // Activity lists the agents, Files the links in replies and agents' results.
+  const piActivities = useMemo(
+    () => piChat.enabled ? piAgentActivityEvents(threadActivityRecords) : EMPTY_EVENTS,
+    [piChat.enabled, threadActivityRecords],
+  );
+  const piFiles = useMemo(
+    () => piChat.enabled
+      ? [...piChat.replyFiles, ...piActivities.filter((event) => event.type === "agent-completed")]
+        .sort((a, b) => a.timestamp - b.timestamp)
+      : EMPTY_EVENTS,
+    [piChat.enabled, piChat.replyFiles, piActivities],
+  );
+  const activities = piChat.enabled ? piActivities : cloudChat.activities;
+  const persistedFiles = piChat.enabled ? piFiles : cloudChat.files;
   const tasks = cloudChat.tasks;
   const optimisticEvents = cloudChat.isWebShell
     ? cloudChat.optimisticEvents
@@ -430,7 +445,10 @@ export function useFullShellChat({
   const loadLatestMessages = storageMode === "local" && !piChat.enabled
     ? localMessageFeed.loadLatest
     : NO_NEWER_CLOUD_MESSAGES;
-  const hasOlderActivity = storageMode === "local"
+  // pi's agents come whole.
+  const hasOlderActivity = piChat.enabled
+    ? false
+    : storageMode === "local"
     ? localActivityFeed.hasOlderActivity
     : cloudChat.hasOlderActivity;
   const isLoadingOlderActivity = storageMode === "local"
@@ -439,13 +457,20 @@ export function useFullShellChat({
   const loadOlderActivity = storageMode === "local"
     ? localActivityFeed.loadOlder
     : cloudChat.loadOlderActivity;
-  const hasOlderFiles = storageMode === "local"
+  // Older replies' files come with the transcript's older pages.
+  const hasOlderFiles = piChat.enabled
+    ? piChat.hasOlderMessages
+    : storageMode === "local"
     ? localFileFeed.hasOlderFiles
     : cloudChat.conversation.state.hasOlder;
-  const isLoadingOlderFiles = storageMode === "local"
+  const isLoadingOlderFiles = piChat.enabled
+    ? piChat.isLoadingOlder
+    : storageMode === "local"
     ? localFileFeed.isLoadingOlder
     : cloudChat.conversation.state.loadingOlder;
-  const loadOlderFiles = storageMode === "local"
+  const loadOlderFiles = piChat.enabled
+    ? piChat.loadOlderMessages
+    : storageMode === "local"
     ? localFileFeed.loadOlder
     : cloudChat.conversation.loadOlder;
   // Visible chat timeline: SQLite-backed `persistedMessages` plus the
@@ -1057,9 +1082,12 @@ export function useFullShellChat({
       }
     })();
   }, []);
+  // Rewind and fork aren't offered for conversations on pi-durable.
   const messageActions = useMemo(
-    () => ({ rewind: rewindToUserMessage, fork: forkToNewConversation }),
-    [rewindToUserMessage, forkToNewConversation],
+    () => piChat.enabled
+      ? null
+      : { rewind: rewindToUserMessage, fork: forkToNewConversation },
+    [piChat.enabled, rewindToUserMessage, forkToNewConversation],
   );
   const chatColumnConversation = useMemo(
     () => ({

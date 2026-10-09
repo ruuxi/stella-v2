@@ -6,6 +6,7 @@
  * runtime for a snapshot; batches that arrive before it answers are held and
  * applied after it, so nothing is lost or applied out of order.
  */
+import type { LocalChatAgentReport } from "@stella/contracts/local-chat";
 import type { DesktopThreadActivityRecord } from "@/features/chat/thread-activity-types";
 import {
   emptyPiChat,
@@ -174,6 +175,13 @@ export const submitPiChat = async (
   return (result as Partial<PiChatPlacedResult> | undefined)?.placed;
 };
 
+/** Stella's greeting after onboarding, as a reply in the conversation. */
+export const submitPiWelcome = async (conversationId: string, message: string): Promise<void> => {
+  const chat = api();
+  if (!chat) throw new Error("Stella's runtime is not available.");
+  await chat.request({ op: "welcome", conversationId, message });
+};
+
 /** Stop the conversation's run, and the placed turns it is running elsewhere. */
 export const abortPiChat = (conversationId: string): void => {
   const dispatchIds = (watched.get(conversationId)?.state.remote ?? []).flatMap((turn) =>
@@ -207,6 +215,25 @@ export const piChatAgents = async (conversationId: string): Promise<DesktopThrea
       assistantMessagesUpdatedAt: agent.updatedAt,
     };
   });
+};
+
+/** One agent's report as the task report shows it: its latest words, whole. */
+export const piAgentReport = async (
+  conversationId: string,
+  threadId: string,
+): Promise<LocalChatAgentReport | null> => {
+  const agent = (await piChatAgents(conversationId)).find((record) => record.threadId === threadId);
+  if (!agent) return null;
+  return {
+    threadId,
+    description: agent.description,
+    agentType: agent.agentType,
+    status: agent.status,
+    ...(agent.result ? { result: agent.result } : {}),
+    ...(agent.error ? { error: agent.error } : {}),
+    startedAt: agent.startedAt,
+    ...(agent.completedAt ? { completedAt: agent.completedAt } : {}),
+  };
 };
 
 /** Batches of pi events for every watched conversation, as they arrive. */

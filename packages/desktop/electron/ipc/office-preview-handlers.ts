@@ -34,6 +34,8 @@ type OfficePreviewHandlersOptions = {
   getAuthToken?: () => Promise<string | null>;
   /** Files Stella produced or displayed in a conversation, per its cloud journal. */
   cloudFileGrants?: CloudConversationFileGrants;
+  /** On pi-durable: the local files Stella linked in a conversation's transcript. */
+  piLinkedFiles?: (conversationId: string) => Promise<readonly string[]>;
   assertPrivilegedSender: (
     event: IpcMainEvent | IpcMainInvokeEvent,
     channel: string,
@@ -251,6 +253,12 @@ export const registerOfficePreviewHandlers = (
     if (options.cloudFileGrants) {
       for (const filePath of await resolveCanonicalConversationFilePaths(
         await options.cloudFileGrants.listPaths(conversationId),
+      ))
+        artifactPaths.add(filePath);
+    }
+    if (options.piLinkedFiles) {
+      for (const filePath of await resolveCanonicalConversationFilePaths(
+        await options.piLinkedFiles(conversationId).catch(() => []),
       ))
         artifactPaths.add(filePath);
     }

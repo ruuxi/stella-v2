@@ -84,6 +84,8 @@ export type JournalMirror = {
   importNow(): Promise<void>;
   /** Stella's turns another writer is running now, as the imports found them. */
   remoteTurns(): PiRemoteTurn[];
+  /** Whether a turn of this computer's is open in the journal (a Stop from another device ends it). */
+  turnOpen(): boolean;
   /** Mirror what the transcript has added since the last sync. */
   sync(): void;
   stop(): Promise<void>;
@@ -170,6 +172,7 @@ export async function journalMirror(args: {
     // A first import starts at a prompt: a window may open mid-turn, on tool
     // results whose calls it no longer holds.
     let atPrompt = imported !== undefined;
+    let stoppedElsewhere = false;
     for (;;) {
       const page = await journal.read(after);
       const messages: (JournalMessage | JournalAgentReport)[] = [];
@@ -179,7 +182,12 @@ export async function journalMirror(args: {
           messages.push(report);
           continue;
         }
-        if (journal.ownTurn(record.turnId)) continue;
+        if (journal.ownTurn(record.turnId)) {
+          // Stopped from another device (the phone's Stop) while it runs here.
+          const open = [...held].some((localTurnId) => record.turnId.endsWith(`:${localTurnId}`));
+          if (open && record.kind === "turn" && record.phase === "canceled") stoppedElsewhere = true;
+          continue;
+        }
         if (record.kind === "turn") {
           if (record.phase === "started") remote.set(record.turnId, record.createdAtMs ?? Date.now());
           else remote.delete(record.turnId);
@@ -201,6 +209,7 @@ export async function journalMirror(args: {
       if (page.complete || through <= after) break;
       after = through;
     }
+    if (stoppedElsewhere) await root.abort(context);
     const turns = remoteTurns();
     const seen = JSON.stringify(turns);
     if (seen !== remoteSeen) {
@@ -284,7 +293,9 @@ export async function journalMirror(args: {
       );
       for (const entry of page) {
         const message = entry.model?.[0];
-        if (message && journalSeqOf(entry) === undefined) {
+        // What stays on this computer (the onboarding greeting) is never journaled.
+        const localOnly = (entry.data as { localOnly?: unknown } | undefined)?.localOnly === true;
+        if (message && !localOnly && journalSeqOf(entry) === undefined) {
           const said = message as Message & { source?: string; stella?: { hidden?: true } };
           if (said.source === "voice" && (message.role === "user" || message.role === "assistant")) {
             const journaled = message.role === "user" ? piJournalUserMessage(message as PiUserMessage) : undefined;
@@ -368,6 +379,7 @@ export async function journalMirror(args: {
   return {
     importNow,
     remoteTurns,
+    turnOpen: () => held.size > 0,
     sync,
     async stop() {
       stopped = true;

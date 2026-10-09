@@ -38,12 +38,10 @@ import {
   type Conversation,
   type ConversationId,
   type EntryRecord,
-  type EnvTarget,
   type Harness,
   type SettledSubmissionRecord,
 } from "@earendil-works/pi-durable";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
-import { ShellExecutionEnv, type ShellBackend } from "@stella/agent/env/shell-env";
 import {
   offersAgentTools,
   openStellaHarness,
@@ -63,6 +61,7 @@ import {
   StellaAgentsDoc,
   type AgentReport,
   type AgentRun,
+  type AgentRunEnd,
   type RemoteAgentHost,
   type StellaAgentsHost,
 } from "@stella/agent/stella/agents";
@@ -75,7 +74,6 @@ import {
 import type { StellaContextSources, StellaMemory } from "@stella/agent/stella/context";
 import { importJournal, JournalSyncDoc, type JournalMessage } from "@stella/agent/stella/journal-sync";
 export { journalSeqOf } from "@stella/agent/stella/journal-sync";
-import { placementOf, StellaPlacementDoc } from "@stella/agent/stella/placement";
 import type { AgentModelReasoningEffort, CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ExecutionContextSnapshot } from "@stella/contracts/execution-context";
 import {
@@ -95,8 +93,31 @@ import {
   type ModelGatewayControl,
 } from "./managed-request-cancellation.js";
 import { bundledPrompt } from "./prompts/bundled.js";
-import { sandboxClient, type SandboxHandle } from "./sandbox-client.js";
-import { agentSandboxId, WORLD_ROOT, worldName } from "./workspace.js";
+import type { SerializedAgentToolResult } from "@stella/executor-cloud/attached-tool-protocol";
+import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
+import { TURN_BROKER_HEADERS } from "@stella/contracts/turn-credential-broker";
+import { serveTurnDriveRequest } from "./build-session/turn-broker.js";
+import {
+  forgetPiCompute,
+  openPiComputeLease,
+  piBrokerSessionId,
+  releasePiCompute,
+  type PiComputeHost,
+  type PiComputeLease,
+  type PiComputeOwner,
+  type PiComputeRecord,
+} from "./pi-agent-compute.js";
+import { piAttachedCoding, type PiAttachedToolCall } from "./pi-attached-tools.js";
+import {
+  claimTurnBrokerRequest,
+  preflightTurnBrokerRequest,
+  TurnBrokerBodyTooLargeError,
+  readTurnBrokerRequestBody,
+  turnBrokerDenialResponse,
+  turnBrokerStorageKey,
+  turnBrokerTargetMatchesEngine,
+  type TurnBrokerRecord,
+} from "./turn-credential-broker.js";
 
 /** How long recovered work waits for its turn or agent run to bind a transport. */
 const BINDING_WAIT_MS = 120_000;
@@ -108,7 +129,6 @@ const CONTAINER_SLOT_POLL_MS = 5_000;
 /** How long a computer's pause holds its turn: the run is marked at once, then winds down on its own. */
 const ORIGIN_PAUSE_HOLD_MS = 5_000;
 /** A command without its own timeout. */
-const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60_000;
 /** Storage key of what agents need between turns. */
 const PI_AGENT_STATE_KEY = "piAgentState";
 /** The newest entries a client starts from, and per older page. */
@@ -165,7 +185,12 @@ export type PiAgentInfo = {
   attempt: number;
   /** Started for a computer's orchestrator, whose own turns show it. */
   origin?: { deviceId: string };
+  /** What its latest run saved to the owner's drive and linked in its answer. */
+  files?: PiDeliveredFile[];
 };
+
+/** A file an agent delivered: in the owner's drive, for the conversation's files card. */
+export type PiDeliveredFile = { path: string; name: string; sizeBytes: number; contentType: string };
 
 export type PiTurnSources = {
   orchestratorPrompt: string;
@@ -190,7 +215,10 @@ export type PiTurnBinding = {
   tools(): Promise<readonly CloudCodeSourceAgentTool[]>;
 };
 
-export type PiRuntimeEnv = Pick<Cloudflare.Env, "OWNER_GATES"> &
+export type PiRuntimeEnv = Pick<
+  Cloudflare.Env,
+  "OWNER_GATES" | "WORLDS" | "BUILDER_SERVICE_SECRET"
+> &
   Partial<
     Pick<
       Cloudflare.Env,
@@ -200,6 +228,7 @@ export type PiRuntimeEnv = Pick<Cloudflare.Env, "OWNER_GATES"> &
       | "CAPABILITY_SIGNING_KEY"
       | "CAPABILITY_SIGNING_KID"
       | "SANDBOX_IDLE_TIMEOUT_MS"
+      | "CLOUD_BUILDER_PUBLIC_URL"
     >
   >;
 
@@ -289,17 +318,6 @@ export const assistantText = (entry: EntryRecord | undefined): string => {
   return message.content.map((part) => (part.type === "text" ? part.text : "")).join("");
 };
 
-const base64ToBytes = (value: string): Uint8Array =>
-  Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
-
-const bytesToBase64 = (bytes: Uint8Array): string => {
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-  }
-  return btoa(binary);
-};
-
 const withBearer = (request: Request, capability: string): Request => {
   const headers = new Headers(request.headers);
   headers.set("authorization", `Bearer ${capability}`);
@@ -322,14 +340,21 @@ type ActiveRun = {
   guard?: PiAgentGuard;
 };
 
-/** An agent's container, from its first command until its last run ends. */
-type AgentContainer = {
-  sandboxId: string;
-  handle: SandboxHandle;
-  env: ShellExecutionEnv;
-  /** Set once the owner gate gave this container a slot. */
-  slot?: Promise<void>;
+/** An agent's container, from its first tool call until its last run ends. */
+type AgentLease = {
+  lease: PiComputeLease;
+  threadId: string;
+  /** Tool calls on it now: a lease is renewed only between them. */
+  inFlight: number;
 };
+
+/** A lease is renewed before its credentials run out, when no call is on it. */
+const LEASE_RENEW_MS = 3 * 60_000;
+/** The files an agent's latest run delivered, until its report carries them. */
+const deliveredFilesKey = (threadId: string) => `piAgentFiles:${threadId}`;
+
+const brokerFailure = (status: number): Response =>
+  Response.json({ error: "Turn broker request failed." }, { status, headers: { "cache-control": "no-store" } });
 
 type Opened = {
   harness: Harness;
@@ -371,7 +396,12 @@ export class PiConversationRuntime {
   #modelKey: string | undefined;
   /** Agent runs by their conversation's provider session id. */
   readonly #runs = new Map<string, ActiveRun[]>();
-  readonly #containers = new Map<number, AgentContainer>();
+  /** Agents' containers by their conversation. */
+  readonly #leases = new Map<number, Promise<AgentLease>>();
+  /** Leases whose daemon may call the broker, by `turnId:attemptGeneration` (until released). */
+  readonly #live = new Map<string, AgentLease>();
+  /** Broker claims, one at a time. */
+  #brokerClaims: Promise<unknown> = Promise.resolve();
   /** Requests waiting for a transport: `root`, or an agent's session id. */
   readonly #waiting = new Map<string, Set<() => void>>();
   /** The root conversation's events for clients watching the pi view. */
@@ -650,7 +680,7 @@ export class PiConversationRuntime {
           this.#options.agentStarted?.({ threadId: run.threadId, turnId: spawnedIn, ...info });
         }
       },
-      endAgentRun: async (run) => {
+      endAgentRun: async (run, _context, end) => {
         let ended: ActiveRun | undefined;
         for (const [sessionId, runs] of this.#runs) {
           const index = runs.findIndex((active) => active.run.runId === run.runId);
@@ -659,16 +689,20 @@ export class PiConversationRuntime {
           if (runs.length === 0) this.#runs.delete(sessionId);
           break;
         }
+        // The agent's last run: its container's work is saved and delivered
+        // while the run still holds its admission, then the container goes.
+        const busy = [...this.#runs.values()].some((runs) =>
+          runs.some((active) => active.run.agentConversationId === run.agentConversationId),
+        );
+        if (!busy) {
+          await this.#endLease(run.agentConversationId, end ?? {}).catch((error: unknown) => this.#options.report(error));
+        }
         await ended?.guard?.release().catch((error: unknown) => this.#options.report(error));
         const authority = this.#state?.authority;
         if (!authority) return;
         await this.#gate(authority)
           .release({ turnId: ended?.turnId ?? `pi:${authority.conversationId}:${run.runId}` })
           .catch((error: unknown) => this.#options.report(error));
-        const busy = [...this.#runs.values()].some((runs) =>
-          runs.some((active) => active.run.agentConversationId === run.agentConversationId),
-        );
-        if (!busy) await this.#releaseContainer(run).catch((error: unknown) => this.#options.report(error));
         this.#options.log("pi_agent_run_ended", { threadId: run.threadId, turnId: ended?.turnId });
       },
       deliverReport: async (report, context) => {
@@ -682,7 +716,12 @@ export class PiConversationRuntime {
         }
         // Only the host that started it counts what settled without a report.
         if (report.settled) return;
-        await this.#options.deliverReport(report, authority, await this.#agentInfo(report.threadId, context));
+        // What the agent's run delivered goes with its report, once.
+        const filesKey = deliveredFilesKey(report.threadId);
+        const files = await this.#options.storage.get<PiDeliveredFile[]>(filesKey);
+        const info = await this.#agentInfo(report.threadId, context);
+        await this.#options.deliverReport(report, authority, files?.length ? { ...info, files } : info);
+        if (files) await this.#options.storage.delete(filesKey);
       },
     };
   }
@@ -731,132 +770,253 @@ export class PiConversationRuntime {
   // ---- agent containers -----------------------------------------------------
 
   /** The ExecutionEnv of a conversation: its container for a cloud agent; none for the orchestrator. */
-  async #env({ conversationId, read }: EnvTarget, context: Context): Promise<ShellExecutionEnv | undefined> {
-    const placement = placementOf(await read.snapshot(StellaPlacementDoc, conversationId, context));
-    if (placement?.kind !== "cloud") return undefined;
-    const existing = this.#containers.get(conversationId);
-    if (existing) return existing.env;
-    const role = await read.snapshot(StellaAgentDoc, conversationId, context);
-    return (await this.#container(conversationId, role?.threadId ?? String(conversationId))).env;
+  // ---- agents' containers ---------------------------------------------------
+
+  #owner(authority: PiAuthority): PiComputeOwner {
+    return { ownerId: authority.ownerId, ownerGeneration: authority.ownerGeneration, conversationId: authority.conversationId };
   }
 
-  /** An agent's container, one per agent thread. Nothing starts until its first command. */
-  async #container(conversationId: ConversationId, threadId: string): Promise<AgentContainer> {
-    const { authority } = await this.#agentState();
-    const namespace = this.#options.env.Sandbox;
-    if (!namespace) throw new Error("Cloud containers are not configured.");
-    // Thread ids are unique per conversation; the container is per agent.
-    const sandboxId = await agentSandboxId(authority.ownerId, `pi:${authority.conversationId}:${threadId}`);
-    const world = await worldName(authority.ownerId);
-    const existing = this.#containers.get(conversationId);
-    if (existing) return existing;
-    const idle = Number(this.#options.env.SANDBOX_IDLE_TIMEOUT_MS);
-    const handle = sandboxClient(namespace, sandboxId, {
-      size: "small",
-      workload: "world",
-      ...(Number.isSafeInteger(idle) && idle > 0 ? { idleTimeoutMs: idle } : {}),
-      world,
-    });
-    const container: AgentContainer = {
-      sandboxId,
-      handle,
-      env: new ShellExecutionEnv(this.#sandboxBackend(sandboxId, handle, () => this.#takeSlot(container, authority))),
-    };
-    this.#containers.set(conversationId, container);
-    return container;
-  }
-
-  /**
-   * Before the container's first command: one of the owner's agent container
-   * slots, then the workspace directory commands run in.
-   */
-  #takeSlot(container: AgentContainer, authority: PiAuthority, signal?: AbortSignal): Promise<void> {
-    container.slot ??= (async () => {
-      const deadline = Date.now() + CONTAINER_SLOT_WAIT_MS;
-      for (;;) {
-        const slot = await this.#gate(authority).acquireAgentContainer({ sandboxId: container.sandboxId });
-        if (slot.ok) {
-          // A fresh container has no workspace yet; a command cannot start in a missing directory.
-          try {
-            await container.handle.mkdir(WORLD_ROOT, { recursive: true });
-          } catch (error) {
-            await this.#gate(authority)
-              .releaseAgentContainer({ sandboxId: container.sandboxId })
-              .catch(() => undefined);
-            throw error;
-          }
-          return;
-        }
-        if (Date.now() >= deadline) {
-          throw new Error(
-            `Your cloud is already running ${slot.limit} agents' workspaces, its limit. This agent waited ${CONTAINER_SLOT_WAIT_MS / 60_000} minutes for one of them to finish.`,
-          );
-        }
-        await waitFor(CONTAINER_SLOT_POLL_MS, signal);
-      }
-    })().catch((error: unknown) => {
-      container.slot = undefined;
-      throw error;
-    });
-    return container.slot;
-  }
-
-  /**
-   * After an agent's last run: snapshot and stop its container for the
-   * owner's next agent container, then free its slot. By the agent's id, not
-   * by what this isolate started: an isolate lost to an eviction may have
-   * started it. Both steps are no-ops for a container that never ran.
-   */
-  async #releaseContainer(run: AgentRun): Promise<void> {
-    const authority = this.#state?.authority;
-    if (!authority) return;
-    const container = await this.#container(run.agentConversationId, run.threadId);
-    this.#containers.delete(run.agentConversationId);
-    await container.handle.release().catch((error: unknown) => this.#options.report(error));
-    await this.#gate(authority)
-      .releaseAgentContainer({ sandboxId: container.sandboxId })
-      .catch((error: unknown) => this.#options.report(error));
-  }
-
-  #sandboxBackend(sandboxId: string, handle: SandboxHandle, slot: () => Promise<void>): ShellBackend {
+  #computeHost(): PiComputeHost {
     return {
-      id: `sandbox:${sandboxId}`,
-      cwd: WORLD_ROOT,
-      exec: async (command, options) => {
-        await slot();
-        const timeoutMs = options.timeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
-        const result = await handle
-          .exec(command, {
-            cwd: options.cwd ?? WORLD_ROOT,
-            ...(options.env ? { env: options.env } : {}),
-            timeout: timeoutMs,
-          })
-          .catch((error: unknown) => {
-            this.#options.log("pi_agent_exec_failed", {
-              sandbox: sandboxId.slice(0, 16),
-              cwd: options.cwd ?? WORLD_ROOT,
-              message: error instanceof Error ? error.message : String(error),
-            });
-            throw error;
-          });
-        // `timeout(1)` exits 124 when it stops the command.
-        return { exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr, timedOut: result.exitCode === 124 };
+      env: this.#options.env,
+      storage: this.#options.storage,
+      takeSlot: (owner, sandboxId, signal) => this.#takeSlot(owner, sandboxId, signal),
+      releaseSlot: async (owner, sandboxId) => {
+        await this.#options.env.OWNER_GATES.getByName(owner.ownerId).releaseAgentContainer({ sandboxId });
       },
-      readFile: async (path) => {
-        await slot();
-        try {
-          const file = await handle.readFile(path, { encoding: "base64" });
-          return base64ToBytes(file.content);
-        } catch (error) {
-          if (!(await handle.exists(path)).exists) return undefined;
-          throw error;
-        }
-      },
-      writeFile: async (path, bytes) => {
-        await slot();
-        await handle.writeFile(path, bytesToBase64(bytes), { encoding: "base64" });
-      },
+      log: this.#options.log,
     };
+  }
+
+  /** One of the owner's agent container slots, waited for. */
+  async #takeSlot(owner: PiComputeOwner, sandboxId: string, signal: AbortSignal): Promise<void> {
+    const deadline = Date.now() + CONTAINER_SLOT_WAIT_MS;
+    for (;;) {
+      const slot = await this.#options.env.OWNER_GATES.getByName(owner.ownerId).acquireAgentContainer({ sandboxId });
+      if (slot.ok) return;
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `Your cloud is already running ${slot.limit} agents' workspaces, its limit. This agent waited ${CONTAINER_SLOT_WAIT_MS / 60_000} minutes for one of them to finish.`,
+        );
+      }
+      await waitFor(CONTAINER_SLOT_POLL_MS, signal);
+    }
+  }
+
+  /** A cloud agent's file or shell tool call, run in its container. */
+  async #attachedTool(call: PiAttachedToolCall, context: Context): Promise<SerializedAgentToolResult> {
+    const { harness } = await this.open();
+    const agentConversationId = call.conversationId as ConversationId;
+    const sessionId = await this.#providerSession(harness, agentConversationId, context);
+    const active = await this.#agentRun(sessionId, context.abortSignal);
+    const held = await this.#lease(agentConversationId, active, context);
+    try {
+      return await held.lease.ladder.execute({ toolCallId: call.callId, toolName: call.toolName, params: call.params });
+    } finally {
+      held.inFlight -= 1;
+    }
+  }
+
+  /**
+   * The agent's lease, with this call counted on it: the one it holds, or a
+   * new one when it holds none or its credentials are near their end with
+   * nothing running on it.
+   */
+  async #lease(agentConversationId: ConversationId, active: ActiveRun, context: Context): Promise<AgentLease> {
+    const current = this.#leases.get(agentConversationId);
+    if (current) {
+      const held = await current;
+      if (held.inFlight > 0 || held.lease.expiresAt - Date.now() > LEASE_RENEW_MS) {
+        held.inFlight += 1;
+        return held;
+      }
+      if (this.#leases.get(agentConversationId) === current) {
+        this.#leases.delete(agentConversationId);
+        await this.#releaseLease(agentConversationId, held, {});
+      }
+      return await this.#lease(agentConversationId, active, context);
+    }
+    const opening = (async (): Promise<AgentLease> => {
+      const { authority } = await this.#agentState();
+      const { harness } = await this.open();
+      const role = await harness.snapshot(StellaAgentDoc, agentConversationId, context);
+      const threadId = role?.threadId ?? active.run.threadId;
+      const lease = await openPiComputeLease(this.#computeHost(), {
+        owner: this.#owner(authority),
+        agentConversationId,
+        threadId,
+        turnId: active.turnId,
+      });
+      const held: AgentLease = { lease, threadId, inFlight: 0 };
+      this.#live.set(`${lease.record.turnId}:${lease.record.attemptGeneration}`, held);
+      return held;
+    })();
+    this.#leases.set(agentConversationId, opening);
+    opening.catch(() => {
+      if (this.#leases.get(agentConversationId) === opening) this.#leases.delete(agentConversationId);
+    });
+    const held = await opening;
+    held.inFlight += 1;
+    return held;
+  }
+
+  /** The agent's last run ended: its lease is quiesced (unless it was stopped) and released. */
+  async #endLease(agentConversationId: number, end: AgentRunEnd): Promise<void> {
+    const current = this.#leases.get(agentConversationId);
+    if (!current) return;
+    this.#leases.delete(agentConversationId);
+    const held = await current.catch(() => undefined);
+    if (held) await this.#releaseLease(agentConversationId, held, end);
+  }
+
+  /**
+   * Quiesce a lease (the world pushed, the drive written back, the files the
+   * answer links delivered), then release it. A stopped run's lease is only
+   * released.
+   */
+  async #releaseLease(agentConversationId: number, held: AgentLease, end: AgentRunEnd): Promise<void> {
+    const { ladder, record } = held.lease;
+    if (!end.aborted && ladder.attached()) {
+      try {
+        const { deliveredFiles } = await ladder.quiesce(extractLocalFileLinkPaths(end.answer ?? ""));
+        this.#options.log("pi_agent_quiesced", { threadId: held.threadId, delivered: deliveredFiles.length });
+      } catch (error) {
+        this.#options.report(error);
+      }
+    }
+    await ladder.teardown().catch((error: unknown) => this.#options.report(error));
+    held.lease.abort();
+    this.#live.delete(`${record.turnId}:${record.attemptGeneration}`);
+    await forgetPiCompute(this.#computeHost(), agentConversationId, record).catch((error: unknown) =>
+      this.#options.report(error),
+    );
+  }
+
+  /** Leases an eviction dropped: their sessions and slots are released, their records forgotten. */
+  async #sweepLeases(): Promise<void> {
+    const left = await this.#options.storage.list<PiComputeRecord>({ prefix: "piCompute:" });
+    for (const [key, record] of left) {
+      const agentConversationId = Number(key.slice("piCompute:".length));
+      if (this.#leases.has(agentConversationId) || record?.version !== 1) continue;
+      const released = releasePiCompute(this.#computeHost(), record).catch((error: unknown) => this.#options.report(error));
+      await Promise.race([released, scheduler.wait(20_000)]);
+      await forgetPiCompute(this.#computeHost(), agentConversationId, record).catch(() => undefined);
+      this.#options.log("pi_agent_lease_swept", { turnId: record.turnId, attemptGeneration: record.attemptGeneration });
+    }
+  }
+
+  /**
+   * A request from an agent's container daemon, presented with its lease's
+   * one-shot credential (`/sessions/pi:<conversation>/turn-broker`): the
+   * drive's sync, writes and deletes, and the lease's events (its delivered
+   * files). Nothing else is served here.
+   */
+  async handleBroker(request: Request): Promise<Response> {
+    const turnId = request.headers.get(TURN_BROKER_HEADERS.turnId) ?? "";
+    const attemptGeneration = Number(request.headers.get(TURN_BROKER_HEADERS.attemptGeneration));
+    if (!turnId || !Number.isSafeInteger(attemptGeneration) || attemptGeneration < 1) return brokerFailure(401);
+    const recordKey = turnBrokerStorageKey({ turnId, attemptGeneration });
+    const initial = await this.#options.storage.get<TurnBrokerRecord>(recordKey);
+    if (!initial) return brokerFailure(401);
+    const preflight = await preflightTurnBrokerRequest({ record: initial, headers: request.headers, now: Date.now() });
+    if (!preflight.ok) return turnBrokerDenialResponse(preflight);
+    const { target } = preflight;
+    if (request.method !== target.method) return brokerFailure(403);
+    const held = this.#live.get(`${turnId}:${attemptGeneration}`);
+    if (!held) return brokerFailure(410);
+    const engine = (await this.#agentState()).authority.execution.engine;
+    if ((target.kind !== "drive" && target.kind !== "turn-event") || !turnBrokerTargetMatchesEngine(target, engine)) {
+      return brokerFailure(403);
+    }
+    let body: Uint8Array;
+    try {
+      body = await readTurnBrokerRequestBody(request, target.maxBodyBytes);
+    } catch (error) {
+      return brokerFailure(error instanceof TurnBrokerBodyTooLargeError ? 413 : 400);
+    }
+    const bodySha256 = [...new Uint8Array(await crypto.subtle.digest("SHA-256", body))]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+    const { owner } = held.lease.record;
+    // One claim at a time: each consumes the record's next sequence.
+    const claim = this.#brokerClaims.then(async () => {
+      const record = await this.#options.storage.get<TurnBrokerRecord>(recordKey);
+      if (!record) return undefined;
+      const claimed = await claimTurnBrokerRequest({
+        record,
+        live: {
+          sessionId: piBrokerSessionId(owner.conversationId),
+          ownerId: owner.ownerId,
+          ownerGeneration: owner.ownerGeneration,
+          turnId,
+          attemptGeneration,
+          active: this.#live.get(`${turnId}:${attemptGeneration}`) === held,
+          canceled: false,
+          terminal: false,
+        },
+        headers: request.headers,
+        now: Date.now(),
+        bodyBytes: body.byteLength,
+        bodySha256,
+      });
+      if (claimed.ok && claimed.disposition === "claim") await this.#options.storage.put(recordKey, claimed.record);
+      return claimed;
+    });
+    this.#brokerClaims = claim.catch(() => undefined);
+    const claimed = await claim;
+    if (!claimed) return brokerFailure(401);
+    if (!claimed.ok) return turnBrokerDenialResponse(claimed);
+    if (claimed.disposition !== "claim") return brokerFailure(409);
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(body));
+    } catch {
+      return brokerFailure(400);
+    }
+    if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) return brokerFailure(400);
+    const payload = decoded as Record<string, unknown>;
+    if (payload.turnId !== turnId) return brokerFailure(403);
+    try {
+      if (target.kind === "drive") {
+        return await serveTurnDriveRequest(
+          this.#options.env,
+          { ownerId: owner.ownerId, ownerGeneration: owner.ownerGeneration, turnId, kind: "agent" },
+          target.path,
+          payload,
+        );
+      }
+      // A container never decides that work is over.
+      if (payload.terminal === true) return brokerFailure(403);
+      if (payload.kind === "output_files") await this.#noteDeliveredFiles(held.threadId, payload.payload);
+      else this.#options.log("pi_agent_turn_event", { threadId: held.threadId, kind: String(payload.kind).slice(0, 64) });
+      return Response.json({ ok: true }, { headers: { "cache-control": "no-store" } });
+    } catch (error) {
+      this.#options.report(error);
+      return brokerFailure(502);
+    }
+  }
+
+  /** The files a lease's quiesce delivered, kept for the agent's report. */
+  async #noteDeliveredFiles(threadId: string, payload: unknown): Promise<void> {
+    const listed = (payload as { files?: unknown } | undefined)?.files;
+    if (!Array.isArray(listed)) return;
+    const files: PiDeliveredFile[] = [];
+    for (const entry of listed) {
+      const file = entry as Record<string, unknown> | null;
+      if (!file || typeof file.path !== "string") continue;
+      files.push({
+        path: file.path,
+        name: typeof file.name === "string" ? file.name : file.path.split("/").at(-1) || file.path,
+        sizeBytes: typeof file.sizeBytes === "number" ? file.sizeBytes : 0,
+        contentType: typeof file.contentType === "string" ? file.contentType : "application/octet-stream",
+      });
+    }
+    if (files.length === 0) return;
+    const key = deliveredFilesKey(threadId);
+    const kept = (await this.#options.storage.get<PiDeliveredFile[]>(key)) ?? [];
+    const byPath = new Map(kept.map((file) => [file.path, file]));
+    for (const file of files) byPath.set(file.path, file);
+    await this.#options.storage.put(key, [...byPath.values()].slice(-50));
   }
 
   // ---- harness --------------------------------------------------------------
@@ -877,13 +1037,16 @@ export class PiConversationRuntime {
           sources: this.#sources(),
           agents: this.#agents(),
           tools: this.#tools(),
-          env: (target, context) => this.#env(target, context),
+          // An agent's file and shell tools run in its container, through the attached tool host.
+          extensions: [piAttachedCoding((call, context) => this.#attachedTool(call, context))],
           onReport: this.#options.report,
         },
         BACKGROUND_CONTEXT,
       );
       const root = await harness.root(BACKGROUND_CONTEXT);
       const rootSession = await this.#providerSession(harness, root.id, BACKGROUND_CONTEXT);
+      // Work an eviction cut off held containers this isolate never leased.
+      await this.#sweepLeases().catch((error: unknown) => this.#options.report(error));
       harness.resume();
       return { harness, root, rootSession, refreshTools, agents: { startAgent, messageAgent, pauseAgent } };
     })().catch((error: unknown) => {
@@ -1167,12 +1330,18 @@ export class PiConversationRuntime {
   async discard(): Promise<number> {
     const runs = [...this.#runs.values()].flat();
     this.#runs.clear();
+    const leases = [...this.#leases.keys()];
     await this.close();
     const authority = this.#state?.authority;
+    // Nothing a purged conversation's agents did is saved anywhere.
+    await Promise.all(
+      leases.map((agentConversationId) =>
+        this.#endLease(agentConversationId, { aborted: true }).catch((error: unknown) => this.#options.report(error)),
+      ),
+    );
     await Promise.all(
       runs.map(async (active) => {
         await active.guard?.release().catch((error: unknown) => this.#options.report(error));
-        await this.#releaseContainer(active.run).catch((error: unknown) => this.#options.report(error));
         if (authority) {
           await this.#gate(authority)
             .release({ turnId: active.turnId })

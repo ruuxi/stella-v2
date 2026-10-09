@@ -35,7 +35,7 @@ import type {
   SpawnEngineSelection,
   SpawnReasoningEffort,
 } from "@stella/contracts/agent-engine";
-import { isRegisteredModelReference } from "../../ai/models.js";
+import { isRegisteredModelReference } from "../model-catalog.js";
 import {
   isOpenEndedModelReference,
   isRegisteredBareStellaModelReference,

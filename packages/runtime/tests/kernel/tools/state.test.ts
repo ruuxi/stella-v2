@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MODELS } from "@stella/contracts/models.generated";
-import { registerModel, unregisterModel } from "@stella/runtime/ai/models";
-import type { Model } from "@stella/runtime/ai/types";
+import type { Model } from "@earendil-works/pi-ai";
+import { setManagedProviderModels } from "@stella/runtime/kernel/model-catalog";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   createStateContext,
@@ -231,7 +231,7 @@ describe("state tools", () => {
 
   it("lets a registered model ending in an effort word win over suffix parsing", () => {
     const modelReference = "spawn-test/future-model:high";
-    registerModel("spawn-test", {
+    setManagedProviderModels("spawn-test", [{
       id: "future-model:high",
       name: "Future Model",
       api: "openai-completions",
@@ -242,14 +242,14 @@ describe("state tools", () => {
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: 1,
       maxTokens: 1,
-    } as Model<any>);
+    } as Model<any>]);
     try {
       expect(parseSpawnAgentModel(modelReference)).toEqual({
         kind: "model",
         model: modelReference,
       });
     } finally {
-      unregisterModel("spawn-test", "future-model:high");
+      setManagedProviderModels("spawn-test", []);
     }
   });
 

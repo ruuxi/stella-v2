@@ -10,7 +10,7 @@ import type {
   AssistantMessage,
   ImageContent,
   TextContent,
-} from "../../ai/types.js";
+} from "@earendil-works/pi-ai";
 import {
   CONTEXT_DELTA_CUSTOM_TYPE_PREFIX,
   PINNED_INSTRUCTION_ENTRY_ID_MARKER,

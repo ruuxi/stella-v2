@@ -20,7 +20,6 @@ import {
 } from "../prompts/remote-prompts.js";
 import type { ExtensionServices } from "../extensions/services.js";
 import { createExtensionRuntimeApi } from "../extensions/runtime-api.js";
-import { modelRuntime } from "../../ai/model-runtime.js";
 import { createRuntimeLogger } from "../debug.js";
 import type { RunnerContext } from "./types.js";
 import { joinWithTimeout } from "../shared/supervised-scope.js";
@@ -79,7 +78,7 @@ type LoadedExtensions = Awaited<ReturnType<typeof loadExtensions>>;
 
 /**
  * Narrow dependency seam for the runner's startup transaction. Production
- * uses the concrete extension/model runtimes and filesystem watchers below;
+ * uses the concrete extension loader and filesystem watchers below;
  * deterministic lifecycle tests replace only the operations that need a
  * settlement barrier.
  */
@@ -89,14 +88,6 @@ export type RuntimeInitializationLifecycleOverrides = {
     extensionsPath: string;
     services: ExtensionServices;
   }) => Promise<LoadedExtensions>;
-  initializeModels?: (args: {
-    signal: AbortSignal;
-    stellaDataDir: string;
-  }) => Promise<void>;
-  refreshModels?: (args: {
-    signal: AbortSignal;
-    stellaDataDir: string;
-  }) => Promise<void>;
   installLoadedExtensions?: (extensions: LoadedExtensions) => void;
   startWatchers?: () => void;
   stopWatchers?: () => void;
@@ -290,9 +281,10 @@ export const createRuntimeInitialization = (
       });
     }
     context.toolHost.registerExtensionTools(extensions.tools);
-    modelRuntime.setExtensionProviders(extensions.providers);
+    // Models run on pi-ai's providers and the keys the user adds in
+    // Settings; an extension's provider definition is not one of them.
     for (const providerDef of extensions.providers) {
-      logger.info(`extensions.provider.registered.${providerDef.name}`, {
+      logger.warn(`extensions.provider.unsupported.${providerDef.name}`, {
         modelCount: providerDef.models.length,
       });
     }
@@ -376,68 +368,18 @@ export const createRuntimeInitialization = (
       }),
       timedBootStep("runnerExtensions"),
     );
-    // models.json + the cached catalog (allowNetwork: false). The network
-    // refresh below is forked after initialization and never gates ready.
-    const modelsLoad = interruptAndJoinPromise((signal) =>
-      lifecycle?.initializeModels
-        ? lifecycle.initializeModels({
-            signal,
-            stellaDataDir: context.stellaDataDir,
-          })
-        : modelRuntime.initialize({
-            stellaDataDir: context.stellaDataDir,
-            allowNetwork: false,
-          }),
-    ).pipe(timedBootStep("runnerModelsJson"));
-
-    const startup = Effect.all([extensionsLoad, modelsLoad], {
-      concurrency: "unbounded",
-    }).pipe(
+    const startup = extensionsLoad.pipe(
       Effect.flatMap(() =>
         Effect.sync(() => {
-          if (!isCurrentGeneration()) return false;
+          if (!isCurrentGeneration()) return;
           context.state.isInitialized = true;
           if (lifecycle?.startWatchers) {
             lifecycle.startWatchers();
           } else {
             startExtensionWatcher();
-            startModelConfigWatcher();
           }
-          return true;
         }),
       ),
-      Effect.flatMap((initialized) => {
-        if (!initialized) return Effect.void;
-        const refresh = interruptAndJoinPromise((signal) =>
-          lifecycle?.refreshModels
-            ? lifecycle.refreshModels({
-                signal,
-                stellaDataDir: context.stellaDataDir,
-              })
-            : modelRuntime.refresh({ allowNetwork: true, signal }),
-        ).pipe(
-          timedBootStep("catalogRefresh"),
-          Effect.tap(() =>
-            Effect.sync(() => {
-              if (!isCurrentGeneration()) return;
-              logger.info("model-runtime.catalog.ready", {
-                modelCount: modelRuntime.getModelCount(),
-              });
-            }),
-          ),
-          Effect.catch((error) =>
-            Effect.sync(() => {
-              if (!isCurrentGeneration()) return;
-              logger.warn("model-runtime.catalog.load-failed", {
-                error: error instanceof Error ? error.message : String(error),
-              });
-            }),
-          ),
-        );
-        return Effect.asVoid(
-          Effect.forkIn(refresh, scope, { startImmediately: true }),
-        );
-      }),
     );
     const fiber = initRuntime.runSync(
       Effect.forkIn(startup, scope, { startImmediately: true }),
@@ -545,7 +487,6 @@ export const createRuntimeInitialization = (
     context.hookEmitter.clearBySource("extension");
     context.toolHost.unregisterExtensionTools();
     installLoadedExtensions(extensions);
-    await modelRuntime.reloadConfig();
     logger.info("extensions.reload.done");
     return { status: "reloaded" };
   };
@@ -557,8 +498,6 @@ export const createRuntimeInitialization = (
    * so the reload eventually applies after the in-flight run completes.
    */
   let resourceWatchers: FSWatcher[] = [];
-  let modelConfigWatcher: FSWatcher | null = null;
-  let modelConfigDebounce: Fiber.Fiber<void> | null = null;
   const FILE_WATCH_DEBOUNCE_MS = 500;
   const RELOAD_BUSY_RETRY_MS = 2_000;
   const extensionReloadScheduler = createExtensionReloadScheduler(
@@ -635,67 +574,8 @@ export const createRuntimeInitialization = (
     }
   };
 
-  const scheduleModelConfigReload = () => {
-    modelConfigDebounce?.interruptUnsafe();
-    modelConfigDebounce = forkAfter(FILE_WATCH_DEBOUNCE_MS, () => {
-      modelConfigDebounce = null;
-      void modelRuntime
-        .reloadConfig()
-        .then(() => {
-          const configError = modelRuntime.getSnapshot().configError;
-          if (configError) {
-            logger.warn("model-runtime.config.invalid", { error: configError });
-          } else {
-            logger.info("model-runtime.config.reloaded");
-          }
-        })
-        .catch((error) => {
-          logger.warn("model-runtime.config.reload-failed", {
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
-    });
-  };
-
-  const startModelConfigWatcher = () => {
-    if (modelConfigWatcher) return;
-    try {
-      modelConfigWatcher = fsWatch(
-        context.stellaDataDir,
-        { recursive: false },
-        (_eventType, filename) => {
-          if (filename && path.basename(String(filename)) === "models.json") {
-            scheduleModelConfigReload();
-          }
-        },
-      );
-      modelConfigWatcher.on("error", (error) => {
-        logger.warn("model-runtime.config.watch.error", {
-          error: error instanceof Error ? error.message : String(error),
-          path: context.stellaDataDir,
-        });
-      });
-      logger.info("model-runtime.config.watch.started", {
-        path: path.join(context.stellaDataDir, "models.json"),
-      });
-    } catch (error) {
-      logger.warn("model-runtime.config.watch.start-failed", {
-        error: error instanceof Error ? error.message : String(error),
-        path: context.stellaDataDir,
-      });
-    }
-  };
-
   const stopExtensionWatcher = () => {
     extensionReloadScheduler.cancel();
-    modelConfigDebounce?.interruptUnsafe();
-    modelConfigDebounce = null;
-    try {
-      modelConfigWatcher?.close();
-    } catch {
-      // Best-effort.
-    }
-    modelConfigWatcher = null;
     for (const watcher of resourceWatchers) {
       try {
         watcher.close();

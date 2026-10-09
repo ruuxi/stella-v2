@@ -83,8 +83,8 @@ import {
   getClaudeCodeAgentModelId,
   getClaudeCodeRuntimeEffortLevel,
 } from "../integrations/claude-code-agent-runtime.js";
-import { getSupportedThinkingLevels } from "../../ai/thinking-levels.js";
-import type { Model, Api, ModelThinkingLevel } from "../../ai/types.js";
+import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
+import { supportedThinkingLevels } from "../model-catalog.js";
 import type {
   PersistedRuntimeThreadPayload,
   RuntimeThreadMessage,
@@ -1298,7 +1298,7 @@ export const resolveSpawnReasoningEffortForModel = (
     "xhigh",
   ];
   const requestedIndex = effortOrder.indexOf(requested);
-  const supported = getSupportedThinkingLevels(model);
+  const supported = supportedThinkingLevels(model);
   let nearest: ModelThinkingLevel | undefined;
   let nearestDistance = Number.POSITIVE_INFINITY;
   for (const candidate of supported) {

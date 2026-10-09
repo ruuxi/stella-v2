@@ -5,7 +5,7 @@ import type {
   AgentToolUpdateCallback,
 } from "../agent-core/types.js";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
-import type { ImageContent, TextContent } from "../../ai/types.js";
+import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { DEVICE_TOOL_NAMES } from "../tools/schemas.js";
 import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
 import type {

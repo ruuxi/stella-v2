@@ -1,4 +1,4 @@
-import type { AgentState } from "../agent-core/types.js";
+import type { AgentMessage } from "../agent-core/types.js";
 import { createRuntimeLogger } from "../debug.js";
 import { resetSkillReadDedup } from "../tools/skill-read-dedup.js";
 import type { RuntimeRunEventRecorder } from "./run-events.js";
@@ -284,7 +284,7 @@ const emitSubagentAgentEnd = (
 };
 
 type CompactableAgentState = {
-  state: Pick<AgentState, "messages">;
+  state: { messages: AgentMessage[] };
 };
 
 /**

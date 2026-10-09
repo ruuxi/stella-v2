@@ -16,15 +16,7 @@ export const lifecycleHandlers: WorkerRpcHandlers = {
       // Boot timeline starts the moment initialize is dispatched; sessions
       // reports it once the runner is ready (worker.ready.timing).
       const timeline = new BootTimeline();
-      const catalog = yield* ModelCatalog.Service;
       const sessions = yield* WorkerSessions.Service;
-      // Subscribe before the runner loads extensions or models.json so every
-      // successful initial/hot registry composition reaches the renderer.
-      yield* fromPromise(() =>
-        timeline.timeAsync("catalogSubscribe", () =>
-          catalog.ensureSubscription(),
-        ),
-      );
       return yield* sessions.initialize(params as WorkerInitializationState, {
         timeline,
       });
@@ -89,18 +81,9 @@ export const lifecycleHandlers: WorkerRpcHandlers = {
       };
     }),
 
-  [METHOD_NAMES.INTERNAL_WORKER_LIST_MODELS]: (params) =>
+  [METHOD_NAMES.INTERNAL_WORKER_LIST_MODELS]: () =>
     Effect.gen(function* () {
       const catalog = yield* ModelCatalog.Service;
-      const modelRuntime = yield* fromPromise(() =>
-        catalog.ensureSubscription(),
-      );
-      const forceRefresh =
-        Boolean(params) &&
-        typeof params === "object" &&
-        (params as { forceRefresh?: unknown }).forceRefresh === true;
-      return yield* fromPromise(() =>
-        modelRuntime.getSnapshotForListing({ forceRefresh }),
-      );
+      return yield* fromPromise(() => catalog.listModels());
     }),
 };

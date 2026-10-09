@@ -342,16 +342,20 @@ type ActiveRun = {
   guard?: PiAgentGuard;
 };
 
-/** An agent's container, from its first tool call until its last run ends. */
+/** An agent's container, from the start of its run until its last run ends. */
 type AgentLease = {
   lease: PiComputeLease;
   threadId: string;
   /** Tool calls on it now: a lease is renewed only between them. */
   inFlight: number;
+  /** Whether any call reached it, so its work is saved when the run ends. */
+  used: boolean;
 };
 
 /** A lease is renewed before its credentials run out, when no call is on it. */
 const LEASE_RENEW_MS = 3 * 60_000;
+/** How long a released lease's container is given to stop coming up. */
+const LEASE_STOP_WAIT_MS = 30_000;
 /** The files an agent's latest run delivered, until its report carries them. */
 const deliveredFilesKey = (threadId: string) => `piAgentFiles:${threadId}`;
 
@@ -681,6 +685,10 @@ export class PiConversationRuntime {
         this.#notify(active.sessionId);
         this.#options.heartbeat();
         this.#options.log("pi_agent_run_started", { threadId: run.threadId, turnId });
+        // The agent's container comes up while its first model call runs.
+        void this.#lease(run.agentConversationId as ConversationId, active, context).catch((error: unknown) =>
+          this.#options.report(error),
+        );
         const spawnedIn = this.#binding?.turnId ?? this.#state?.lastTurnId;
         const info = await this.#agentInfo(run.threadId, context);
         // A computer's agent shows in that computer's own turns.
@@ -818,6 +826,7 @@ export class PiConversationRuntime {
     const sessionId = await this.#providerSession(harness, agentConversationId, context);
     const active = await this.#agentRun(sessionId, context.abortSignal);
     const held = await this.#lease(agentConversationId, active, context);
+    held.inFlight += 1;
     // A pause or stop while the command runs takes the container's work down
     // with it, unsaved, rather than waiting for the command to finish.
     const signal = context.abortSignal;
@@ -827,7 +836,12 @@ export class PiConversationRuntime {
     signal?.addEventListener("abort", stop, { once: true });
     try {
       signal?.throwIfAborted();
-      return await held.lease.ladder.execute({ toolCallId: call.callId, toolName: call.toolName, params: call.params });
+      held.used = true;
+      return await held.lease.call({ toolCallId: call.callId, toolName: call.toolName, params: call.params });
+    } catch (error) {
+      // A container that did not come up, or went down, is let go: the next call starts a fresh one.
+      void this.#dropLease(agentConversationId, held).catch((dropError: unknown) => this.#options.report(dropError));
+      throw error;
     } finally {
       signal?.removeEventListener("abort", stop);
       held.inFlight -= 1;
@@ -835,18 +849,14 @@ export class PiConversationRuntime {
   }
 
   /**
-   * The agent's lease, with this call counted on it: the one it holds, or a
-   * new one when it holds none or its credentials are near their end with
-   * nothing running on it.
+   * The agent's lease: the one it holds, or a new one when it holds none or
+   * its credentials are near their end with nothing running on it.
    */
   async #lease(agentConversationId: ConversationId, active: ActiveRun, context: Context): Promise<AgentLease> {
     const current = this.#leases.get(agentConversationId);
     if (current) {
       const held = await current;
-      if (held.inFlight > 0 || held.lease.expiresAt - Date.now() > LEASE_RENEW_MS) {
-        held.inFlight += 1;
-        return held;
-      }
+      if (held.inFlight > 0 || held.lease.expiresAt - Date.now() > LEASE_RENEW_MS) return held;
       if (this.#leases.get(agentConversationId) === current) {
         this.#leases.delete(agentConversationId);
         await this.#releaseLease(agentConversationId, held, {});
@@ -864,7 +874,7 @@ export class PiConversationRuntime {
         threadId,
         turnId: active.turnId,
       });
-      const held: AgentLease = { lease, threadId, inFlight: 0 };
+      const held: AgentLease = { lease, threadId, inFlight: 0, used: false };
       this.#live.set(`${lease.record.turnId}:${lease.record.attemptGeneration}`, held);
       return held;
     })();
@@ -872,9 +882,7 @@ export class PiConversationRuntime {
     opening.catch(() => {
       if (this.#leases.get(agentConversationId) === opening) this.#leases.delete(agentConversationId);
     });
-    const held = await opening;
-    held.inFlight += 1;
-    return held;
+    return await opening;
   }
 
   /** The agent's last run ended: its lease is quiesced (unless it was stopped) and released. */
@@ -886,27 +894,40 @@ export class PiConversationRuntime {
     if (held) await this.#releaseLease(agentConversationId, held, end);
   }
 
+  /** Let a broken lease go, if it is still the agent's, with nothing saved from it. */
+  async #dropLease(agentConversationId: number, held: AgentLease): Promise<void> {
+    const current = this.#leases.get(agentConversationId);
+    if (!current || (await current.catch(() => undefined)) !== held) return;
+    if (this.#leases.get(agentConversationId) !== current) return;
+    this.#leases.delete(agentConversationId);
+    await this.#releaseLease(agentConversationId, held, { aborted: true });
+  }
+
   /**
-   * Quiesce a lease (the world pushed, the drive written back, the files the
-   * answer links delivered), then release it. A stopped run's lease is only
-   * released.
+   * Quiesce a lease the agent worked in (the world pushed, the drive written
+   * back, the files the answer links delivered), then release it. A stopped
+   * run's lease, or one never used, is only released.
    */
   async #releaseLease(agentConversationId: number, held: AgentLease, end: AgentRunEnd): Promise<void> {
-    const { ladder, record } = held.lease;
-    if (!end.aborted && ladder.attached()) {
+    const { lease } = held;
+    const { record } = lease;
+    const up = held.used && (await lease.ready.then(() => true, () => false));
+    if (!end.aborted && up) {
       try {
         // The agent's home is the world: a link to `~/drive/...` names the drive copy there.
         const linked = extractLocalFileLinkPaths(end.answer ?? "").map((linkedPath) =>
           linkedPath === "~" || linkedPath.startsWith("~/") ? `${WORLD_ROOT}${linkedPath.slice(1)}` : linkedPath,
         );
-        const { deliveredFiles } = await ladder.quiesce(linked);
+        const { deliveredFiles } = await lease.quiesce(linked);
         this.#options.log("pi_agent_quiesced", { threadId: held.threadId, delivered: deliveredFiles.length });
       } catch (error) {
         this.#options.report(error);
       }
     }
-    await ladder.teardown().catch((error: unknown) => this.#options.report(error));
-    held.lease.abort();
+    // A container still coming up stops first, so nothing it creates outlives the release.
+    lease.abort();
+    await Promise.race([lease.ready.catch(() => undefined), scheduler.wait(LEASE_STOP_WAIT_MS)]);
+    await lease.release().catch((error: unknown) => this.#options.report(error));
     this.#live.delete(`${record.turnId}:${record.attemptGeneration}`);
     await forgetPiCompute(this.#computeHost(), agentConversationId, record).catch((error: unknown) =>
       this.#options.report(error),

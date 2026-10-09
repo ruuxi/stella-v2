@@ -1,26 +1,25 @@
 /**
- * A cloud pi agent's container, attached the way the cloud's general agents
- * attach theirs: the owner's world materialized on the container's disk, the
- * attached tool host daemon serving the agent's file and shell tools as the
- * unprivileged tool user, the world synced and the drive hydrated around
- * every command, and what the agent's answer links delivered when the work
- * is done. One lease per agent conversation, from the first tool call that
- * needs the container to the end of the agent's last run.
+ * A cloud pi agent's container: the owner's world materialized on the
+ * container's disk, the attached tool host daemon serving the agent's file
+ * and shell tools as the unprivileged tool user, the world synced and the
+ * drive hydrated around every command, and what the agent's answer links
+ * delivered when the work is done. One lease per agent conversation, booted
+ * when the agent's run starts and released when its last run ends; every
+ * file and shell tool call goes straight to it.
  *
- * The compute ladder and the sandbox attachment are the general agents' own;
- * this module gives them what a BuildSession would: a session, a world, a
- * broker credential (served by the orchestrator object, `pi:<conversation>`)
- * and a release. Every record names the exact lease, so a lease an eviction
- * dropped is found and released when the harness opens again.
+ * The sandbox attachment is the general agents' own; this module gives it
+ * what a BuildSession would: a session, a world, a broker credential (served
+ * by the orchestrator object, `pi:<conversation>`) and a release. Every
+ * record names the exact lease, so a lease an eviction dropped is found and
+ * released when the harness opens again.
  */
+import type { SerializedAgentToolResult } from "@stella/executor-cloud/attached-tool-protocol";
 import {
-  agentComputeKey,
-  createAgentComputeLadder,
-  createLazySandboxAttachment,
-  parsePersistedAgentCompute,
-  type AgentComputeLadder,
-} from "./agent-compute-ladder.js";
-import { attachedToolPathsForDirectory } from "@stella/executor-cloud/attached-tool-protocol";
+  ATTACHED_TOOL_PROTOCOL_VERSION,
+  attachedToolFingerprint,
+  attachedToolPathsForDirectory,
+  isAttachedToolName,
+} from "@stella/executor-cloud/attached-tool-protocol";
 import { executorSessionEnvironment } from "./executor-session-env.js";
 import { normalizeToolWorkspaceRoot, turnBrokerCredentialsPath } from "./build-session/shared/keys.js";
 import { sandboxClient, type ExecutionSession, type SandboxHandle } from "./sandbox-client.js";
@@ -66,9 +65,19 @@ export type PiComputeRecord = {
   daemonDirectory: string;
 };
 
+/** One file or shell tool call for the agent's container. */
+export type PiWorkspaceCall = { toolCallId: string; toolName: string; params: Record<string, unknown> };
+
 export type PiComputeLease = {
   readonly record: PiComputeRecord;
-  readonly ladder: AgentComputeLadder;
+  /** Settles when the container is up: the world on its disk and the daemon serving. */
+  readonly ready: Promise<void>;
+  /** Run one call in the container, once it is up. */
+  call(call: PiWorkspaceCall): Promise<SerializedAgentToolResult>;
+  /** Push the world, write the drive back and deliver what the answer links. */
+  quiesce(linkedPaths: readonly string[]): Promise<{ deliveredFiles: readonly string[] }>;
+  /** Let the container go: its daemon, session and slot. */
+  release(): Promise<void>;
   /** When its broker and world credentials stop working. */
   readonly expiresAt: number;
   /** Stops anything still running on it. */
@@ -81,8 +90,8 @@ export const piBrokerSessionId = (conversationId: string): string => `pi:${conve
 const generationKey = (agentConversationId: number) => `piComputeGen:${agentConversationId}`;
 /** The lease of one agent conversation, while it holds resources. */
 export const piComputeKey = (agentConversationId: number) => `piCompute:${agentConversationId}`;
-/** Agents that once needed a large container keep starting on one. */
-const largeKey = (threadId: string) => `piAgentContainerLarge:${threadId}`;
+/** Every agent's container is the small instance. */
+const INSTANCE_SIZE = "small";
 
 /** A credential's life, the most the broker and the world allow. */
 const CREDENTIAL_TTL_MS = Math.min(TURN_BROKER_MAX_TTL_MS, 30 * 60_000);
@@ -121,9 +130,9 @@ const quoted = (value: string) => `'${value.replace(/'/gu, `'"'"'`)}'`;
  * and stops, the warmest start for the owner's next agent). Each step is
  * best-effort; a container that is not running holds none of them.
  */
-export const releasePiCompute = async (host: PiComputeHost, record: PiComputeRecord, size: "small" | "large" = "small") => {
+export const releasePiCompute = async (host: PiComputeHost, record: PiComputeRecord) => {
   await host.releaseSlot(record.owner, record.sandboxId).catch(() => undefined);
-  const sandbox = sandboxFor(host, record.sandboxId, size, await worldName(record.owner.ownerId));
+  const sandbox = sandboxFor(host, record.sandboxId, INSTANCE_SIZE, await worldName(record.owner.ownerId));
   const running = await sandbox
     .getState()
     .then((state) => state.status === "running")
@@ -156,8 +165,8 @@ export const releasePiCompute = async (host: PiComputeHost, record: PiComputeRec
 };
 
 /**
- * Lease the container for one agent conversation. Nothing starts until the
- * ladder's first tool call; then the world and the daemon come up for it.
+ * Lease the container for one agent conversation: it starts coming up at
+ * once, and `ready` settles when the world and the daemon are up.
  */
 export const openPiComputeLease = async (
   host: PiComputeHost,
@@ -197,13 +206,11 @@ export const openPiComputeLease = async (
   };
   const expiresAt = Date.now() + CREDENTIAL_TTL_MS;
   let sandbox: SandboxHandle | undefined;
-  let size: "small" | "large" = "small";
 
-  const attachWorld = async (target: { sandboxId: string; instanceSize: "small" | "large"; sessionId: string }) => {
+  const attachWorld = async (target: { sandboxId: string; sessionId: string }) => {
     const started = Date.now();
     await host.takeSlot(owner, target.sandboxId, execution.signal);
-    size = target.instanceSize;
-    sandbox = sandboxFor(host, target.sandboxId, size, world);
+    sandbox = sandboxFor(host, target.sandboxId, INSTANCE_SIZE, world);
     const options = {
       id: target.sessionId,
       cwd: "/opt/stella",
@@ -245,7 +252,6 @@ export const openPiComputeLease = async (
       threadId,
       turnId,
       attemptGeneration,
-      size,
       revision: head.revision,
       ms: Date.now() - started,
     });
@@ -296,57 +302,94 @@ export const openPiComputeLease = async (
     };
   };
 
-  const attachment = createLazySandboxAttachment(async () => {
-    const { createAgentSandboxAttachment } = await import("./agent-sandbox-attachment.js");
-    return createAgentSandboxAttachment({
-      context,
-      attachWorld,
-      prepareBrokerHandoff,
-      startDaemon: async (command, options) => {
-        if (!sandbox) throw new Error("The agent's container has not been attached.");
-        return await sandbox.startProcess(command, {
-          cwd: options.cwd,
-          env: executorSessionEnvironment(),
-          processId: options.processId,
-        });
-      },
-      release: async () => await releasePiCompute(host, record, size),
-      destroy: async (target) => {
-        await host.releaseSlot(owner, target.sandboxId).catch(() => undefined);
-        await sandboxFor(host, target.sandboxId, target.instanceSize, world)
-          .destroy()
-          .catch(() => undefined);
-      },
-      emitEvent: (kind, payload) => host.log("pi_agent_compute_event", { threadId, kind, payload }),
-    });
+  const { createAgentSandboxAttachment } = await import("./agent-sandbox-attachment.js");
+  const attachment = createAgentSandboxAttachment({
+    context,
+    attachWorld,
+    prepareBrokerHandoff,
+    startDaemon: async (command, options) => {
+      if (!sandbox) throw new Error("The agent's container has not been attached.");
+      return await sandbox.startProcess(command, {
+        cwd: options.cwd,
+        env: executorSessionEnvironment(),
+        processId: options.processId,
+      });
+    },
+    release: async () => await releasePiCompute(host, record),
+    destroy: async (target) => {
+      await host.releaseSlot(owner, target.sandboxId).catch(() => undefined);
+      await sandboxFor(host, target.sandboxId, INSTANCE_SIZE, world)
+        .destroy()
+        .catch(() => undefined);
+    },
+    emitEvent: (kind, payload) => host.log("pi_agent_compute_event", { threadId, kind, payload }),
   });
-
-  const ladder = createAgentComputeLadder({
-    ...identity,
+  const target = {
     sandboxId: record.sandboxId,
+    instanceSize: INSTANCE_SIZE,
     sessionId: record.sessionId,
     daemonDirectory: record.daemonDirectory,
-    initialInstanceSize: "small",
-    selectInstanceSize: async (initial) =>
-      (await host.storage.get<boolean>(largeKey(threadId))) === true ? "large" : initial,
-    rememberInstanceSize: async (chosen) => {
-      if (chosen === "large") await host.storage.put(largeKey(threadId), true);
-    },
-    store: {
-      read: async () => parsePersistedAgentCompute(await host.storage.get(agentComputeKey(turnId, attemptGeneration)), identity),
-      write: async (next) => {
-        await host.storage.put(agentComputeKey(turnId, attemptGeneration), next);
-      },
-    },
-    attachment,
-    context,
-    emitEvent: (kind, payload) => host.log("pi_agent_compute_event", { threadId, kind, payload }),
+  } as const;
+
+  /** What the daemon noticed while it came up, said once with the first call's result. */
+  let bootNotice: string | undefined;
+  const ready = (async () => {
+    await attachment.boot(target);
+    const report = await attachment.control({ sandboxId: record.sandboxId, control: "boot_report", ...identity });
+    if (report.status === "boot_report" && report.notices.length > 0) bootNotice = report.notices.join(" ");
+  })();
+  // A caller that needs the container hears why it did not come up.
+  ready.catch(() => undefined);
+  let quiesced: Promise<{ deliveredFiles: readonly string[] }> | undefined;
+  let releasing: Promise<void> | undefined;
+
+  const failure = (message: string): SerializedAgentToolResult => ({
+    outcome: { kind: "error", message },
+    details: null,
+    authorizedImages: [],
   });
 
   return {
     record,
-    ladder,
+    ready,
     expiresAt,
+    async call({ toolCallId, toolName, params }) {
+      if (!isAttachedToolName(toolName)) return failure(`${toolName} is not a tool the workspace can run.`);
+      await ready;
+      context.assertActive();
+      const response = await attachment.callTool({
+        sandboxId: record.sandboxId,
+        request: {
+          version: ATTACHED_TOOL_PROTOCOL_VERSION,
+          ...identity,
+          toolCallId,
+          fingerprint: await attachedToolFingerprint({ toolName, params }),
+          toolName,
+          params,
+        },
+      });
+      if (response.status === "pending") {
+        // The daemon is still running the call this replays; running it again could do it twice.
+        return failure("That command is still running in the workspace. Wait for it before trying again.");
+      }
+      if (response.status !== "completed") return failure(response.error);
+      const result = response.result;
+      if (!bootNotice || result.outcome.kind !== "ok") return result;
+      const notice = bootNotice;
+      bootNotice = undefined;
+      return { ...result, outcome: { kind: "ok", text: `${result.outcome.text}\n\n${notice}` } };
+    },
+    quiesce: (linkedPaths) =>
+      (quiesced ??= (async () => {
+        const response = await attachment.control({
+          sandboxId: record.sandboxId,
+          control: "quiesce",
+          linkedPaths: [...linkedPaths],
+          ...identity,
+        });
+        return { deliveredFiles: response.status === "quiesced" ? response.deliveredFiles : [] };
+      })()),
+    release: () => (releasing ??= attachment.release(target)),
     abort: (reason) => {
       void execution.interrupt(reason).catch(() => undefined);
       released();
@@ -356,9 +399,5 @@ export const openPiComputeLease = async (
 
 /** Forget a released lease's records. */
 export const forgetPiCompute = async (host: PiComputeHost, agentConversationId: number, record: PiComputeRecord) => {
-  await host.storage.delete([
-    piComputeKey(agentConversationId),
-    agentComputeKey(record.turnId, record.attemptGeneration),
-    turnBrokerStorageKey(record),
-  ]);
+  await host.storage.delete([piComputeKey(agentConversationId), turnBrokerStorageKey(record)]);
 };

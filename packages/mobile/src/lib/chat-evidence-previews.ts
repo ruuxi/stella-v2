@@ -5,9 +5,10 @@
  * none of that, so each kind takes the cheapest native route Expo already
  * offers, and the JS thread never decodes, parses or rasterizes anything:
  *
- * - An image is handed to `expo-image` as a `file://` URI and downsampled
- *   natively to the card's size. Only its pixel dimensions come back to JS,
- *   through one native load that is released immediately.
+ * - An image shows the small JPEG made where the file entered the drive
+ *   (`.thumbnails/<drive path>.jpg`, see `chat-evidence-thumbnails`), or one
+ *   the paired computer renders on request. Only when neither exists is the
+ *   whole file pulled down and handed to `expo-image` as a `file://` URI.
  * - A video's poster frame comes from `expo-video-thumbnails`, which reads the
  *   frame with AVFoundation. For a drive file it reads the signed URL directly,
  *   so a ten-minute recording costs a range request, not a download. At rest a
@@ -28,9 +29,19 @@ import * as VideoThumbnails from "expo-video-thumbnails";
 import { extractPreviewBars } from "@siteed/audio-studio";
 import { cloudWorldDrivePath } from "@stella/contracts/cloud-world-paths";
 import { EVIDENCE_PEAK_COUNT } from "@stella/contracts/chat-evidence";
+import {
+  EVIDENCE_THUMBNAIL_CONTENT_TYPE,
+  EVIDENCE_THUMBNAIL_MAX_BYTES,
+  evidenceThumbnailDrivePath,
+  isEvidenceThumbnailSource,
+} from "@stella/contracts/chat-evidence-thumbnails";
 import type { EvidenceSourceKind } from "@stella/contracts/chat-evidence-naming";
 import { resolveCloudDriveFile } from "./use-cloud-drive-file-uri";
-import { readLinkedArtifactFile } from "./desktop-artifact-data";
+import {
+  locateDeviceFile,
+  readDesktopArtifactThumbnail,
+  readLinkedArtifactFile,
+} from "./desktop-artifact-data";
 import type { StoredPhoneAccess } from "./phone-access";
 import { evidenceBasename } from "./chat-evidence-sources";
 
@@ -49,7 +60,7 @@ const MAX_DEVICE_READ_BYTES = 64 * 1024 * 1024;
 const GENERATION_CONCURRENCY = 3;
 
 export type EvidencePreview =
-  | { kind: "image"; uri: string; width: number; height: number }
+  | { kind: "image"; uri: string; width?: number; height?: number }
   | { kind: "video"; posterUri: string; durationMs?: number }
   | { kind: "audio"; peaks: number[]; durationMs: number };
 
@@ -133,13 +144,19 @@ const drivePathFor = (filePath: string): string | null => {
   return trimmed.replace(/^\.\//, "");
 };
 
-type RemoteSource = { url: string; sizeBytes: number; identity: string };
+type RemoteSource = {
+  drivePath: string;
+  url: string;
+  sizeBytes: number;
+  identity: string;
+};
 
 const remoteSourceFor = async (filePath: string): Promise<RemoteSource | null> => {
   const drivePath = drivePathFor(filePath);
   if (!drivePath) return null;
   const entry = await resolveCloudDriveFile(drivePath);
   return {
+    drivePath,
     url: entry.url,
     sizeBytes: entry.sizeBytes,
     identity: `${CACHE_SCHEMA}:drive:${drivePath}:${entry.sizeBytes}`,
@@ -187,10 +204,71 @@ const localSourceFor = async (
   };
 };
 
+const driveThumbnailFor = async (
+  drivePath: string,
+): Promise<EvidencePreview | null> => {
+  const thumbnailPath = evidenceThumbnailDrivePath(drivePath);
+  if (!thumbnailPath) return null;
+  const entry = await resolveCloudDriveFile(thumbnailPath).catch(() => null);
+  if (!entry || entry.sizeBytes <= 0 || entry.sizeBytes > EVIDENCE_THUMBNAIL_MAX_BYTES) {
+    return null;
+  }
+  const identity = `${CACHE_SCHEMA}:thumbnail:${thumbnailPath}:${entry.sizeBytes}`;
+  const cached = readManifest(identity);
+  if (cached?.kind === "image") return cached;
+  const target = new File(directoryFor("thumbnail"), `${stableKey(identity)}.jpg`);
+  await File.downloadFileAsync(entry.url, target, { idempotent: true });
+  const preview: EvidencePreview = { kind: "image", uri: target.uri };
+  writeManifest(identity, preview);
+  return preview;
+};
+
+const deviceThumbnailFor = async (
+  request: EvidencePreviewRequest,
+): Promise<EvidencePreview | null> => {
+  const location = await locateDeviceFile(request.filePath);
+  if (location?.drivePath) {
+    const copy = await driveThumbnailFor(location.drivePath).catch(() => null);
+    if (copy) return copy;
+  }
+  const access = request.access;
+  if (!access || (location && location.deviceId !== access.desktopDeviceId)) {
+    return null;
+  }
+  const result = await readDesktopArtifactThumbnail(
+    access,
+    request.conversationId,
+    request.filePath,
+  ).catch(() => null);
+  if (
+    !result ||
+    result.bytes.byteLength === 0 ||
+    result.bytes.byteLength > MAX_DEVICE_READ_BYTES
+  ) {
+    return null;
+  }
+  const extension = result.mimeType.startsWith(EVIDENCE_THUMBNAIL_CONTENT_TYPE)
+    ? ".jpg"
+    : extensionOf(request.filePath);
+  const target = new File(
+    directoryFor("thumbnail"),
+    `${stableKey(`device:${request.filePath}`)}-${result.bytes.byteLength}${extension}`,
+  );
+  target.create({ overwrite: true, intermediates: true });
+  target.write(result.bytes);
+  return { kind: "image", uri: target.uri };
+};
+
 const imagePreviewFor = async (
   request: EvidencePreviewRequest,
   remote: RemoteSource | null,
 ): Promise<EvidencePreview> => {
+  if (isEvidenceThumbnailSource(request.filePath)) {
+    const thumbnail = await (
+      remote ? driveThumbnailFor(remote.drivePath) : deviceThumbnailFor(request)
+    ).catch(() => null);
+    if (thumbnail) return thumbnail;
+  }
   if (remote && remote.sizeBytes > MAX_IMAGE_BYTES) {
     throw new Error("Image is too large to preview.");
   }

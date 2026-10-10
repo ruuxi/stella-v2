@@ -42,11 +42,6 @@ export const chatHandlers: WorkerRpcHandlers = {
           new WorkerRequestError({ message: "conversationId is required." }),
         );
       }
-      if (!threadId) {
-        return yield* Effect.fail(
-          new WorkerRequestError({ message: "threadId is required." }),
-        );
-      }
       if (!message) {
         return yield* Effect.fail(
           new WorkerRequestError({ message: "message is required." }),
@@ -55,6 +50,27 @@ export const chatHandlers: WorkerRpcHandlers = {
       const session = yield* WorkerSessions.sessionOrFail(
         () => new RunnerUnavailableError(),
       );
+      if (!threadId) {
+        const userAsk = payload.metadata?.userAsk as { askId?: unknown } | undefined;
+        if (typeof userAsk?.askId !== "string" || !userAsk.askId) {
+          return yield* Effect.fail(
+            new WorkerRequestError({ message: "threadId is required." }),
+          );
+        }
+        const runner = session.runnerCell.get();
+        if (!runner) {
+          return yield* Effect.fail(new RunnerUnavailableError());
+        }
+        const askId = userAsk.askId;
+        return yield* fromPromise(async () => {
+          await runner.deliverOrchestratorNote({
+            conversationId,
+            requestId: `user-ask-late:${askId}`,
+            text: message,
+          });
+          return { delivered: true as const };
+        });
+      }
       // On pi-durable the agent is one of the conversation's pi agents.
       if (piChatRouted(session)) {
         const hostBus = yield* HostBus.Service;

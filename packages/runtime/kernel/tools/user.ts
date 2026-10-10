@@ -1,13 +1,8 @@
 import {
   USER_ASK_MAX_FIELDS,
-  USER_ASK_MAX_OPTIONS,
-  USER_ASK_MIN_OPTIONS,
   USER_ASK_FIELD_TYPES,
   clampUrgency,
-  clampUserAskTimeoutMs,
   normalizeUserAskOptions,
-  normalizeUserAskQuestions,
-  userAskReadableAnswers,
   type SecureValueTarget,
   type SecureValueUseReceipt,
   type UserAskField,
@@ -16,6 +11,8 @@ import {
   type UserAskResolution,
   type UserAskUrgencyLevel,
 } from "@stella/contracts/user-ask";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import { prepareAskUser, userAskResolutionResult } from "./defs/ask-user-def.js";
 import type { ToolContext, ToolResult } from "./types.js";
 
 export type AskUserRequest = {
@@ -72,46 +69,6 @@ const contextFields = (
   };
 };
 
-const resolutionToResult = (
-  resolution: UserAskResolution,
-  questions: readonly UserAskQuestion[] = [],
-): ToolResult => {
-  if (resolution.outcome === "answered") {
-    return {
-      result: {
-        outcome: "answered",
-        ...(resolution.responses
-          ? { answers: userAskReadableAnswers(questions, resolution.responses) }
-          : {}),
-        ...(resolution.values ? { values: resolution.values } : {}),
-        ...(resolution.handles ? { handles: resolution.handles } : {}),
-        ...(resolution.late ? { late: true } : {}),
-      },
-    };
-  }
-  if (resolution.outcome === "defaulted") {
-    return {
-      result: {
-        outcome: "defaulted",
-        answers: userAskReadableAnswers(questions, resolution.responses),
-        note: resolution.note,
-        tellTheUser: resolution.note,
-      },
-    };
-  }
-  return {
-    result: { outcome: resolution.outcome, note: resolution.note },
-  };
-};
-
-const normalizeTimeout = (
-  value: unknown,
-  blocking: boolean,
-): number | undefined => {
-  if (blocking) return undefined;
-  return clampUserAskTimeoutMs(value);
-};
-
 export const handleAskUser = async (
   config: UserToolsConfig,
   args: Record<string, unknown>,
@@ -120,40 +77,20 @@ export const handleAskUser = async (
   if (!config.askUser) {
     return { error: "Asking the user is not supported on this device." };
   }
-  const questions = normalizeUserAskQuestions(args);
-  if (questions.length === 0) return { error: "questions is required." };
-  const thin = questions.find(
-    (question) => question.options.length < USER_ASK_MIN_OPTIONS,
-  );
-  if (thin) {
-    return {
-      error: `Give "${thin.question}" between ${USER_ASK_MIN_OPTIONS} and ${USER_ASK_MAX_OPTIONS} concrete options. The user can always type their own answer or skip.`,
-    };
-  }
-
-  const blocking = args.blocking === true;
-  if (!blocking) {
-    const missing = questions.find(
-      (question) => question.defaultChoiceId === undefined,
-    );
-    if (missing) {
-      return {
-        error: `A timed ask needs default_choice on every question, set to one of its option ids, so the work can continue without an answer ("${missing.question}" has none). Use blocking only for hard-to-undo actions.`,
-      };
-    }
-  }
-
-  const timeoutMs = normalizeTimeout(args.timeout_ms ?? args.timeoutMs, blocking);
-
+  const prepared = prepareAskUser(args, {
+    orchestrator: context?.agentType === AGENT_IDS.ORCHESTRATOR,
+  });
+  if (!prepared.ok) return { error: prepared.error };
+  const { questions, blocking, timeoutMs, urgency } = prepared;
   try {
     const resolution = await config.askUser({
       questions,
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
       blocking,
-      urgency: clampUrgency(args.urgency),
+      urgency,
       ...contextFields(context, args),
     });
-    return resolutionToResult(resolution, questions);
+    return userAskResolutionResult(resolution, questions);
   } catch (error) {
     return { error: (error as Error).message || "The ask failed." };
   }
@@ -234,7 +171,7 @@ export const handleRequestSecureInput = async (
       urgency: clampUrgency(args.urgency),
       ...contextFields(context, args),
     });
-    return resolutionToResult(resolution);
+    return userAskResolutionResult(resolution);
   } catch (error) {
     return { error: (error as Error).message || "Secure input failed." };
   }

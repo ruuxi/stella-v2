@@ -16,6 +16,7 @@ import {
 } from "@stella/contracts/desktop/ipc-channels";
 import { BackendClient } from "@stella/contracts/backend/client";
 import { redactSensitiveText } from "@stella/contracts/sensitive-data";
+import { PI_LATE_ANSWER_PREFIX } from "@stella/contracts/pi-chat";
 import {
   DEFAULT_USER_ASK_ESCALATION_POLICY,
   USER_ASK_BLOCKING_TTL_MS,
@@ -525,7 +526,7 @@ export class UserAskService {
     async deliverLateAnswer(record, answered) {
         const { conversationId, threadId } = record.ask;
         const runner = this.options.getRunner();
-        if (!runner || !conversationId || !threadId) {
+        if (!runner || !conversationId) {
             return {
                 ok: false,
                 error: "That answer was recorded, but the agent thread it belongs to is no longer reachable.",
@@ -544,7 +545,7 @@ export class UserAskService {
             ...(answered.handles ? { handles: answered.handles } : {}),
         };
         const message = [
-            `A late answer arrived for the ask you already continued past: "${title}".`,
+            `${PI_LATE_ANSWER_PREFIX} A late answer arrived for the ask you already continued past: "${title}".`,
             "Adapt if it changes what you were doing, and say so plainly if it is too late to change.",
             JSON.stringify(body),
         ].join("\n");

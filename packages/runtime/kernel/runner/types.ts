@@ -458,6 +458,7 @@ export type RunnerPublicApi = {
   deviceId: string;
   hookEmitter: HookEmitter;
   setPiReportDelivery: (delivery: PiReportDelivery | null) => void;
+  deliverOrchestratorNote: PiReportDelivery;
   setBackendUrl: (value: string | null) => void;
   setAuthToken: (value: string | null) => void;
   setHasConnectedAccount: (value: boolean) => void;

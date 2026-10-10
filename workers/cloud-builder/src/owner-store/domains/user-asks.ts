@@ -25,6 +25,8 @@ import {
   userAskAcceptsAnswer,
   userAskHasDefaults,
   userAskIsOpen,
+  userAskQuestionsOf,
+  userAskReadableAnswers,
   userAskTitleOf,
   validateUserAskResponses,
   type UserAsk,
@@ -42,6 +44,8 @@ import {
   type UserAskSummary,
   type UserAskUrgencyLevel,
 } from "@stella/contracts/user-ask";
+import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import { PI_LATE_ANSWER_PREFIX } from "@stella/contracts/pi-chat";
 import {
   array,
   boolean,
@@ -91,6 +95,12 @@ export const USER_ASKS_EXPIRE_JOB = "userAsks.expire";
 export const USER_ASKS_REPEAT_JOB = "userAsks.repeat";
 export const USER_ASKS_SWEEP_JOB = "userAsks.sweep";
 export const USER_ASKS_CLOUD_ESCALATE_JOB = "userAsks.cloudEscalate";
+export const USER_ASKS_DELIVER_LATE_JOB = "userAsks.deliverLate";
+
+const CLOUD_ORCHESTRATOR_ASK_THREAD_ID = AGENT_IDS.ORCHESTRATOR;
+
+const deliverLateJobId = (askId: string): string =>
+  `${USER_ASKS_DELIVER_LATE_JOB}:${askId}`;
 
 export const USER_ASKS_MIGRATION = {
   id: "userAsks.1-init",
@@ -999,6 +1009,15 @@ const answerAsk = (ctx: OwnerContext, askId: string, answer: UserAskAnswer) => {
     responses ? JSON.stringify(responses) : null,
   );
   const closed = closeAsk(ctx, row, late ? "answered_late" : "answered");
+  if (
+    isCloudOrigin(row.origin_device_id) &&
+    row.thread_id === CLOUD_ORCHESTRATOR_ASK_THREAD_ID &&
+    (late || (row.deadline_at !== null && ctx.now >= row.deadline_at))
+  ) {
+    ctx.jobs.schedule(USER_ASKS_DELIVER_LATE_JOB, ctx.now, { askId }, {
+      id: deliverLateJobId(askId),
+    });
+  }
   const stored = readAnswer(ctx.db, askId)!;
   return {
     ask: summaryOf(closed),
@@ -1350,6 +1369,35 @@ const escalateCloudAsk = async (
   rearm();
 };
 
+const deliverLateAnswer = async (
+  ctx: OwnerContext,
+  payload: unknown,
+): Promise<void> => {
+  const askId = (payload as { askId?: unknown } | null)?.askId;
+  if (typeof askId !== "string") return;
+  const row = readRow(ctx.db, askId);
+  const stored = row ? readAnswer(ctx.db, askId) : null;
+  if (!row || !stored || stored.answer.kind !== "questions") return;
+  const detail = parseDetail(row);
+  const body = {
+    outcome: "answered",
+    late: true,
+    askId,
+    answers: userAskReadableAnswers(userAskQuestionsOf(detail), stored.answer.responses),
+  };
+  const { ownerGeneration } = await ctx.host.snapshot();
+  await ctx.host.startAgentMessageTurn({
+    ownerGeneration,
+    conversationId: row.conversation_id,
+    clientMsgId: `ask-late:${askId}`.slice(0, 64),
+    prompt: [
+      `${PI_LATE_ANSWER_PREFIX} A late answer arrived for the ask you already continued past: "${userAskTitleOf(detail)}".`,
+      "Adapt if it changes what you were doing, and say so plainly if it is too late to change.",
+      JSON.stringify(body),
+    ].join("\n"),
+  });
+};
+
 const defaultAsk = (ctx: OwnerContext, payload: unknown): void => {
   const askId = (payload as { askId?: unknown } | null)?.askId;
   if (typeof askId !== "string") return;
@@ -1574,6 +1622,7 @@ export const userAsksDomain = {
     [USER_ASKS_EXPIRE_JOB]: { run: expireAsk, maxAttempts: 5 },
     [USER_ASKS_REPEAT_JOB]: { run: repeatBreakthrough, maxAttempts: 3 },
     [USER_ASKS_CLOUD_ESCALATE_JOB]: { run: escalateCloudAsk, maxAttempts: 3 },
+    [USER_ASKS_DELIVER_LATE_JOB]: { run: deliverLateAnswer, maxAttempts: 5 },
     [USER_ASKS_SWEEP_JOB]: { run: (ctx) => sweep(ctx), maxAttempts: 10 },
   },
   purge: (ctx: OwnerContext) => {
@@ -1584,6 +1633,7 @@ export const userAsksDomain = {
       ctx.jobs.cancel(expireJobId(ask_id));
       ctx.jobs.cancel(repeatJobId(ask_id));
       ctx.jobs.cancel(cloudEscalateJobId(ask_id));
+      ctx.jobs.cancel(deliverLateJobId(ask_id));
     }
     ctx.jobs.cancel(USER_ASKS_SWEEP_JOB);
     ctx.db.run("DELETE FROM user_ask_answers");

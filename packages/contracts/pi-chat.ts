@@ -455,9 +455,15 @@ const LEADING_SYSTEM_REMINDER_RE = /^<system-reminder>[\s\S]*?<\/system-reminder
 const AGENT_NOTE_RE = /^<agent-message from="[^"\n]*" thread_id="[^"\n]*">\n[\s\S]*\n<\/agent-message>$/;
 
 /** Text from Stella's agents, not the user: an agent's report, or a note an agent sent. */
+export const PI_LATE_ANSWER_PREFIX = "[Late answer]";
+
 export const isPiAgentText = (text: string): boolean => {
   const body = text.trimStart().replace(LEADING_SYSTEM_REMINDER_RE, "");
-  return PI_REPORT_RE.test(body) || AGENT_NOTE_RE.test(text.trim());
+  return (
+    PI_REPORT_RE.test(body) ||
+    body.startsWith(PI_LATE_ANSWER_PREFIX) ||
+    AGENT_NOTE_RE.test(text.trim())
+  );
 };
 
 /**

@@ -249,6 +249,7 @@ import type { CloudBrowserClient } from "./cloud-browser.js";
 import { createCloudImageGenTool } from "./cloud-image-gen-tool.js";
 import { createCloudWebTool } from "./cloud-web-tool.js";
 import { createCloudHtmlTool } from "./cloud-html-tool.js";
+import { createCloudAskUserTool } from "./cloud-ask-user-tool.js";
 import { unwrapRpc } from "./owner-store/errors.js";
 import { createCloudDriveTool } from "./cloud-drive-tool.js";
 import { createCloudSwitchDestinationTool } from "./cloud-switch-destination-tool.js";
@@ -11723,6 +11724,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           this.publishTurnFilesCard(turn.turnId, writerKey, files),
       }),
       createCloudMapTool({ apiKey: mapsServerKey(this.env), ownerInternal: toolContext.ownerInternal }),
+      createCloudAskUserTool({
+        conversationId: turn.conversationId,
+        ownerInternal: toolContext.ownerInternal,
+      }),
       createCloudReadTool({
         ...(agentHome.available
           ? { skills: { home: agentHome.cloudStore(), snapshot: skillCatalog } }

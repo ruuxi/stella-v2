@@ -97,7 +97,13 @@ import {
   type StellaToolSpec,
 } from "@stella/agent/stella/host-tools";
 import type { StellaContextSources, StellaMemory } from "@stella/agent/stella/context";
-import { importJournal, JournalSyncDoc, type JournalMessage } from "@stella/agent/stella/journal-sync";
+import {
+  alignJournalContext,
+  importJournal,
+  journalImportAfter,
+  JournalSyncDoc,
+  type JournalMessage,
+} from "@stella/agent/stella/journal-sync";
 export { journalSeqOf } from "@stella/agent/stella/journal-sync";
 import type { AgentModelReasoningEffort, CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { AgentActivityEntry } from "@stella/contracts/conversation-agent-activity";
@@ -306,6 +312,11 @@ export type PiRuntimeOptions = {
   storage: DurableObjectStorage;
   env: PiRuntimeEnv;
   gatewayOrigin: string;
+  /**
+   * The journal's context start (`Journal.contextStartSeq`), where the root
+   * transcript is seeded from, as a computer's transcript is.
+   */
+  contextStartSeq(): number;
   waitUntil(work: Promise<unknown>): void;
   report(error: unknown): void;
   log(event: string, fields: Record<string, unknown>): void;
@@ -1750,6 +1761,11 @@ export class PiConversationRuntime {
         BACKGROUND_CONTEXT,
       );
       const root = await harness.root(BACKGROUND_CONTEXT);
+      // Before recovered work runs: a root seeded with the whole journal is
+      // too large to read back into one model request.
+      if (await alignJournalContext(harness, root, this.#options.contextStartSeq(), BACKGROUND_CONTEXT)) {
+        this.#options.log("pi_root_context_aligned", {});
+      }
       const rootSession = await this.#providerSession(harness, root.id, BACKGROUND_CONTEXT);
       // Work an eviction cut off held containers this isolate never leased.
       await this.#sweepLeases().catch((error: unknown) => this.#options.report(error));
@@ -2055,7 +2071,8 @@ export class PiConversationRuntime {
   ): Promise<number> {
     const { harness, root } = await this.open();
     const state = await harness.snapshot(JournalSyncDoc, root.id, context);
-    let after = state?.importedSeq ?? -1;
+    const start = await journalImportAfter(state, () => this.#options.contextStartSeq());
+    let after = start.after;
     const ran = new Map<string, boolean>();
     for (;;) {
       const page = await read(after);
@@ -2072,7 +2089,7 @@ export class PiConversationRuntime {
         messages.push({ seq: record.seq, turnId: record.turnId, role: record.role, hidden: record.hidden === true, message });
       }
       const through: number = page.records.at(-1)?.seq ?? after;
-      await importJournal(harness, root, messages, through, context);
+      await importJournal(harness, root, messages, through, context, start.seededFromSeq);
       if (page.complete || through <= after) return through;
       after = through;
     }

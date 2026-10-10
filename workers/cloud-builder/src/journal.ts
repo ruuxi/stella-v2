@@ -1770,8 +1770,13 @@ export class Journal {
    * support in DO SQLite is unverified, and pass 1 already reads three small
    * columns. A micro-optimisation is not worth an unverified dependency.
    */
-  selectWindow(excludeTurnId: string, budgetTokens: number, afterSeq = -1): WindowSelection {
-    const meta = this.meta();
+  /**
+   * Where the context window opens: the oldest of the newest messages that
+   * fit `budgetTokens`, on a user message. A transcript any host keeps of
+   * this conversation is seeded from here (`journalImportAfter`). The next
+   * seq when no message qualifies. Reads metadata only.
+   */
+  contextStartSeq(excludeTurnId: string, budgetTokens: number, afterSeq = -1): number {
     const scan = this.sql
       .exec<{ seq: number; tokens: number; role: string | null }>(
         `SELECT seq, tokens, role FROM journal
@@ -1782,15 +1787,6 @@ export class Journal {
         CONTEXT_SCAN_ROW_CAP,
       )
       .toArray();
-    if (scan.length === 0) {
-      return {
-        messages: [],
-        rows: [],
-        startSeq: meta.next_seq,
-        endSeq: meta.next_seq - 1,
-        spilled: [],
-      };
-    }
     scan.reverse(); // oldest-first
     let used = 0;
     let start = scan.length;
@@ -1802,7 +1798,13 @@ export class Journal {
     // Never open the window on an orphaned toolResult: the provider rejects a
     // result with no preceding call. Same rule pruneAgentHistory applies.
     while (start < scan.length && scan[start]!.role !== "user") start += 1;
-    if (start >= scan.length) {
+    return start < scan.length ? scan[start]!.seq : this.meta().next_seq;
+  }
+
+  selectWindow(excludeTurnId: string, budgetTokens: number, afterSeq = -1): WindowSelection {
+    const meta = this.meta();
+    const startSeq = this.contextStartSeq(excludeTurnId, budgetTokens, afterSeq);
+    if (startSeq >= meta.next_seq) {
       return {
         messages: [],
         rows: [],
@@ -1811,7 +1813,6 @@ export class Journal {
         spilled: [],
       };
     }
-    const startSeq = scan[start]!.seq;
     const rows = this.sql
       .exec<WindowRow>(
         `SELECT seq, role, hidden, tool_call_id, payload_json, spill_key FROM journal

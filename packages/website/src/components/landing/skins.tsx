@@ -1,7 +1,8 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { StellaCharacter } from "./stella-character";
+import { ThemeGradient, windowThemeStyle, type WindowThemeKey } from "./window-theme";
 import s from "./skins.module.css";
 
 export function WindowBar({ status, compact = false }: { status?: ReactNode; compact?: boolean }) {
@@ -53,9 +54,36 @@ export function Composer({ placeholder = "Do anything" }: { placeholder?: string
   );
 }
 
-export function StellaSkin() {
+export const DEFAULT_LIGHT: WindowThemeKey = { id: "default", dark: false };
+
+export function WindowFrame({
+  theme = DEFAULT_LIGHT,
+  backdrop,
+  className,
+  style,
+  children,
+}: {
+  theme?: WindowThemeKey;
+  backdrop?: ReactNode;
+  className?: string;
+  style?: CSSProperties;
+  children: ReactNode;
+}) {
   return (
-    <div className={s.stella}>
+    <div
+      className={className ? `${s.stella} ${className}` : s.stella}
+      data-dark={theme.dark ? "1" : "0"}
+      style={{ ...windowThemeStyle(theme), ...style }}
+    >
+      <div className={s.backdrop}>{backdrop ?? <ThemeGradient theme={theme} />}</div>
+      {children}
+    </div>
+  );
+}
+
+export function StellaSkin({ theme, backdrop }: { theme?: WindowThemeKey; backdrop?: ReactNode }) {
+  return (
+    <WindowFrame theme={theme} backdrop={backdrop}>
       <WindowBar />
       <div className={s.stellaColumn}>
         <p className={s.stamp}>Today 9:12 AM</p>
@@ -68,6 +96,6 @@ export function StellaSkin() {
         <p className={s.her}>Done. Dr. Okafor confirmed Monday at 9.</p>
         <Composer />
       </div>
-    </div>
+    </WindowFrame>
   );
 }

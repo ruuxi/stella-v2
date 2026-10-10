@@ -8,6 +8,8 @@ type CloudAgentThreadRow = {
   originConversationId: string;
   description: string;
   agentType: string;
+  placement: "cloud" | "computer";
+  executorDeviceId: string | null;
   ownerGeneration: string;
   attemptGeneration: number;
   status: string;
@@ -36,6 +38,7 @@ type CloudAgentLifecycleMonitorOptions = {
     terminalUpdatedAt: number;
   }) => Promise<unknown>;
   hasDurableLifecycleEvent: (event: AgentLifecycleEvent) => boolean;
+  reportsLocally?: (row: CloudAgentThreadRow) => boolean;
   onLifecycleEvent: (event: AgentLifecycleEvent) => void | Promise<void>;
   /** Persist exact control authority before a terminal row can be ACKed. */
   onControlReceipt?: (row: CloudAgentThreadRow) => void | Promise<void>;
@@ -119,6 +122,8 @@ const parseThreadRow = (
     originConversationId,
     description,
     agentType,
+    placement: record.placement === "computer" ? "computer" : "cloud",
+    executorDeviceId: readString(record, "executorDeviceId"),
     ownerGeneration,
     attemptGeneration,
     status,
@@ -241,6 +246,10 @@ export const createCloudAgentLifecycleMonitor = (
     event: AgentLifecycleEvent | null,
   ) => {
     try {
+      if (options.reportsLocally?.(row)) {
+        if (event) await acknowledge(row);
+        return;
+      }
       await options.onControlReceipt?.(row);
       if (!event?.eventId) return;
       if (!options.hasDurableLifecycleEvent(event)) {

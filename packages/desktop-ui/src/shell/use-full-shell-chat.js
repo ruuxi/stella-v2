@@ -27,6 +27,7 @@ import { buildActivityTasks } from "@/features/chat/lib/event-transforms";
 import { useCapturedChatContext } from "./use-captured-chat-context";
 import { useChatScrollManagement } from "./use-chat-scroll-management";
 import { useChatHomeSurface } from "./use-chat-home-surface";
+import { useConversationUserAsks } from "@/features/user-ask/user-ask-store";
 import { useAgentInputRouting } from "./use-agent-input-routing";
 import { useConversationModelSelection } from "./use-conversation-model-selection";
 import { useStellaSendMessageBridge } from "./use-stella-send-message-bridge";
@@ -503,6 +504,10 @@ export function useFullShellChat({
   }, [activities, traceEnabled, persistedMessages]);
   useTraceEventMonitor(traceEnabled, traceEvents);
   const hasMessages = displayMessages.length > 0;
+  const conversationAsks = useConversationUserAsks(activeConversationId);
+  const hasOpenQuestion = conversationAsks.some(
+    (ask) => ask.detail.kind === "question",
+  );
   const {
     showHomeContent,
     enterChatSurfaceForInteraction,
@@ -515,6 +520,7 @@ export function useFullShellChat({
     isInitialLoading: isInitialLoadingMessages,
     isStreaming,
     activeConversationId,
+    hasOpenQuestion,
   });
   // Focus the composer on mount and whenever the user navigates onto the
   // chat route (covers both home content and the full chat surface), so

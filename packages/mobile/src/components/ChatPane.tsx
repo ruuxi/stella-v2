@@ -4535,7 +4535,7 @@ export function ChatPane({
     [searchQuery, styles, colors, jumpToMessage],
   );
 
-  const empty = visibleMessages.length === 0;
+  const empty = listMessages.length === 0;
   const composerHasContent =
     !draftEmpty || (attachments?.length ?? 0) > 0 || (quotes?.length ?? 0) > 0;
   const canSubmit =

@@ -201,7 +201,8 @@ const parseAskList = (payload: unknown): readonly UserAsk[] => {
   const rows = Array.isArray(payload)
     ? payload
     : payload && typeof payload === "object"
-      ? ((payload as Record<string, unknown>).asks ??
+      ? ((payload as Record<string, unknown>).open ??
+        (payload as Record<string, unknown>).asks ??
         (payload as Record<string, unknown>).userAsks)
       : null;
   if (!Array.isArray(rows)) return EMPTY_ASKS;

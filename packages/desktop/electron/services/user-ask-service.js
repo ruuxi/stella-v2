@@ -802,9 +802,29 @@ export class UserAskService {
         }
     }
     async publishAsk(ask) {
+        if (!ask.conversationId || !ask.originDeviceId) {
+            return;
+        }
+        const now = new Date();
         await this.cloudRequest(CLOUD_ASKS_PATH, {
             method: "POST",
-            body: JSON.stringify({ ask }),
+            body: JSON.stringify({
+                askId: ask.askId,
+                kind: ask.kind,
+                conversationId: ask.conversationId,
+                threadId: ask.threadId || "orchestrator",
+                toolCallId: ask.toolCallId || ask.askId,
+                ...(ask.agentLabel ? { agentLabel: ask.agentLabel } : {}),
+                originDeviceId: ask.originDeviceId,
+                urgency: ask.urgency,
+                blocking: ask.blocking,
+                ...(ask.deadlineAt === undefined
+                    ? {}
+                    : { timeoutMs: Math.max(0, ask.deadlineAt - ask.createdAt) }),
+                localMinuteOfDay: now.getHours() * 60 + now.getMinutes(),
+                detail: ask.detail,
+                ...(ask.recipientKey ? { recipientKey: ask.recipientKey } : {}),
+            }),
         });
     }
     async publishAskResolved(askId, state) {

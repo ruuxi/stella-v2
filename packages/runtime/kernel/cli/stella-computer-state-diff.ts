@@ -259,3 +259,22 @@ export const formatStateDiffBlock = (diff: StateDiff) => {
   lines.push("</app_state_diff>");
   return `${lines.join("\n")}\n`;
 };
+
+/** Diff two snapshots through a platform's line renderer and target summary. */
+export const computeSnapshotDiff = <Snapshot>(
+  previous: Snapshot | null,
+  current: Snapshot,
+  renderLines: (snapshot: Snapshot) => string[],
+  describeTarget: (snapshot: Snapshot, lineCount: number) => StateDiffTarget,
+): StateDiff => {
+  const previousLines = previous ? renderLines(previous) : null;
+  const currentLines = renderLines(current);
+  return computeStateDiff({
+    previousLines,
+    currentLines,
+    previousTarget: previous
+      ? describeTarget(previous, previousLines?.length ?? 0)
+      : null,
+    currentTarget: describeTarget(current, currentLines.length),
+  });
+};

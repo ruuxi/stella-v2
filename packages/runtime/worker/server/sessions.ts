@@ -27,6 +27,7 @@ import * as RunnerModule from "./runner-module.js";
 import {
   closePiChats,
   piChatsBusy,
+  piDeliverReport,
   reconcileComputerAgents,
   resumePiChats,
 } from "./pi-chats.js";
@@ -550,6 +551,9 @@ export const layer = Layer.effect(
                     const builtRunner =
                       await session.runner.awaitBuildSettled();
                     if (!builtRunner) runnerOutcome = "failure";
+                    builtRunner?.setPiReportDelivery((report) =>
+                      piDeliverReport(session, hostBus, report),
+                    );
                     // The initialize-time warm below no-ops while the runner
                     // is still building; warm once it exists, as before.
                     if (builtRunner && currentSession === session) {

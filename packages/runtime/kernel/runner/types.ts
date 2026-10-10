@@ -293,6 +293,7 @@ export type RunnerState = {
    * exists so tools built earlier can reach a conversation's Stella.
    */
   sendRuntimeMessage?: (input: RuntimeSendMessageInput) => Promise<void>;
+  piReportDelivery?: PiReportDelivery;
   /**
    * The thread each cloud conversation's last turn here ran, hidden prompt
    * rows included, keyed by `conversationId`. The next cloud turn extends it
@@ -447,9 +448,16 @@ export type RunnerContext = {
   };
 };
 
+export type PiReportDelivery = (report: {
+  conversationId: string;
+  requestId: string;
+  text: string;
+}) => Promise<void>;
+
 export type RunnerPublicApi = {
   deviceId: string;
   hookEmitter: HookEmitter;
+  setPiReportDelivery: (delivery: PiReportDelivery | null) => void;
   setBackendUrl: (value: string | null) => void;
   setAuthToken: (value: string | null) => void;
   setHasConnectedAccount: (value: boolean) => void;

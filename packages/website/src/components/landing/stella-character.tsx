@@ -6,6 +6,7 @@ import {
   type StellaCharacterState,
   type StellaMarkHandle,
 } from "@stella/character/rig";
+import { useLayerLive } from "./motion";
 
 export type { StellaCharacterState, StellaMarkHandle };
 
@@ -57,6 +58,11 @@ export function StellaCharacter({
   useEffect(() => {
     markRef.current?.setState(state);
   }, [state]);
+
+  useLayerLive(hostRef, (live) => {
+    if (live) markRef.current?.resume();
+    else markRef.current?.pause();
+  });
 
   return (
     <span

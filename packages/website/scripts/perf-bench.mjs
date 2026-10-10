@@ -641,6 +641,9 @@ const HELP = `Lab benchmark for the Stella website (production build).
 Options:
   --start               run "next start" on --port (default 3123) for the duration
   --base URL            benchmark an already running server instead
+  --targets A=URL,B=URL interleave two running servers run by run (ABBA order),
+                        write <out-dir>/A.json and B.json and print the comparison
+  --out-dir DIR         where --targets writes results (default .perf)
   --runs N              runs per journey (default 7)
   --journeys LIST       comma list of kind:route@profile, kind = load | scroll | inp,
                         profile = desktop | mobile (default ${DEFAULT_JOURNEYS.join(",")})
@@ -677,37 +680,51 @@ async function main() {
     return { key: j, kind: m[1], route: m[2], profile: m[3] || "desktop" };
   });
   let server = null;
-  let base = typeof args.base === "string" ? args.base.replace(/\/$/, "") : "";
-  if (args.start || !base) {
-    server = await startServer(Number(args.port ?? 3123));
-    base = server.base;
+  let targets;
+  if (typeof args.targets === "string") {
+    targets = args.targets.split(",").map((t) => {
+      const [name, url] = t.split("=");
+      return { name, base: url.replace(/\/$/, "") };
+    });
+  } else {
+    let base = typeof args.base === "string" ? args.base.replace(/\/$/, "") : "";
+    if (args.start || !base) {
+      server = await startServer(Number(args.port ?? 3123));
+      base = server.base;
+    }
+    targets = [{ name: typeof args.label === "string" ? args.label : "run", base }];
   }
-  for (const j of journeys) await fetch(base + j.route).then((r) => r.text());
+  for (const t of targets) for (const j of journeys) await fetch(t.base + j.route).then((r) => r.text());
   const chrome = findChrome(typeof args.chrome === "string" ? args.chrome : "");
   const browser = await launchBrowser(chrome, !args["no-gpu"]);
-  const result = {
-    meta: { label: args.label || "", date: new Date().toISOString(), base, runs, ...opts, chrome, gpu: !args["no-gpu"] },
+  const results = targets.map((t) => ({
+    meta: { label: targets.length > 1 ? t.name : args.label || "", date: new Date().toISOString(), base: t.base, runs, ...opts, chrome, gpu: !args["no-gpu"] },
     journeys: Object.fromEntries(journeys.map((j) => [j.key, []])),
-  };
+  }));
   try {
     for (let i = 0; i < runs; i += 1) {
       for (const j of journeys) {
-        const page = await openPage(browser.cdp, j.profile, opts);
-        try {
-          const url = base + j.route;
-          const r =
-            j.kind === "load"
-              ? await runLoad(page, url, opts)
-              : j.kind === "scroll"
-                ? await runScroll(page, url, opts)
-                : await runInp(page, url, j.route, opts);
-          result.journeys[j.key].push(r);
-          const brief = Object.entries(r.metrics).slice(0, 7).map(([k, v]) => k + "=" + fmt(v)).join(" ");
-          process.stderr.write("[" + (i + 1) + "/" + runs + "] " + j.key + " " + brief + "\n");
-        } catch (e) {
-          process.stderr.write("[" + (i + 1) + "/" + runs + "] " + j.key + " FAILED " + e.message + "\n");
-        } finally {
-          await page.close();
+        const order = targets.map((_, k) => k);
+        if (i % 2 === 1) order.reverse();
+        for (const k of order) {
+          const page = await openPage(browser.cdp, j.profile, opts);
+          const tag = targets.length > 1 ? " " + targets[k].name : "";
+          try {
+            const url = targets[k].base + j.route;
+            const r =
+              j.kind === "load"
+                ? await runLoad(page, url, opts)
+                : j.kind === "scroll"
+                  ? await runScroll(page, url, opts)
+                  : await runInp(page, url, j.route, opts);
+            results[k].journeys[j.key].push(r);
+            const brief = Object.entries(r.metrics).slice(0, 7).map(([key, v]) => key + "=" + fmt(v)).join(" ");
+            process.stderr.write("[" + (i + 1) + "/" + runs + "]" + tag + " " + j.key + " " + brief + "\n");
+          } catch (e) {
+            process.stderr.write("[" + (i + 1) + "/" + runs + "]" + tag + " " + j.key + " FAILED " + e.message + "\n");
+          } finally {
+            await page.close();
+          }
         }
       }
     }
@@ -715,11 +732,22 @@ async function main() {
     await browser.close();
     server?.stop();
   }
+  if (targets.length > 1) {
+    const dir = typeof args["out-dir"] === "string" ? args["out-dir"] : ".perf";
+    fs.mkdirSync(dir, { recursive: true });
+    const files = targets.map((t, k) => {
+      const file = path.join(dir, t.name + ".json");
+      fs.writeFileSync(file, JSON.stringify(results[k]));
+      return file;
+    });
+    compare(files[0], files[1]);
+    return;
+  }
   if (typeof args.out === "string") {
     fs.mkdirSync(path.dirname(path.resolve(args.out)), { recursive: true });
-    fs.writeFileSync(args.out, JSON.stringify(result));
+    fs.writeFileSync(args.out, JSON.stringify(results[0]));
   }
-  printSummary(result);
+  printSummary(results[0]);
 }
 
 main().catch((e) => {

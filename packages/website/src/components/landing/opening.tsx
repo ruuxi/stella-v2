@@ -42,7 +42,7 @@ function JourneyBackdrop() {
 }
 
 const LINES = [
-  "Stella rewrites itself.",
+  "Design your Stella.",
   "“Build it out of blocks.”",
   "“Go full 90s anime.”",
   "“I trade for a living.”",
@@ -53,7 +53,7 @@ const LINES = [
 const SKINS = [StellaSkin, BlocksSkin, OpsSkin, TraderSkin, EditorSkin];
 const HOLDS = [2.9, 3.6, 3.3, 3.6];
 
-const INTRO = 1.9;
+const INTRO = 0.3;
 const FADE = 0.62;
 const FINAL = 2.1;
 const SEG_LEN = HOLDS.map((h) => FADE + h);
@@ -91,6 +91,8 @@ function frameAt(t: number): Frame {
   } else f.base = 0;
   return f;
 }
+
+const SETTLE = 0.6;
 
 const REDUCED_AT = INTRO + SEG_LEN[0] + SEG_LEN[1] + 2.4;
 
@@ -231,32 +233,32 @@ export function Opening() {
       st.p = p;
       const scrolled = p * m.travel;
 
-      const heroFade = seg(p, 0.1, 0.36);
+      const heroFade = seg(p, 0.08, 0.3);
       if (heroRef.current) {
         heroRef.current.style.transform = `translate3d(0, ${-scrolled}px, 0)`;
         heroRef.current.style.opacity = String(1 - heroFade);
       }
       if (mascotRef.current) {
-        mascotRef.current.style.transform = `translate3d(0, ${-scrolled * 0.7}px, 0) scale(${1 - 0.12 * seg(p, 0, 0.4)})`;
-        mascotRef.current.style.opacity = String(1 - seg(p, 0.12, 0.4));
+        mascotRef.current.style.transform = `translate3d(0, ${-scrolled * 0.7}px, 0) scale(${1 - 0.12 * seg(p, 0, 0.34)})`;
+        mascotRef.current.style.opacity = String(1 - seg(p, 0.1, 0.34));
       }
-      if (heroAuroraRef.current) heroAuroraRef.current.style.opacity = String(1 - seg(p, 0.05, 0.35));
-      if (darkAuroraRef.current) darkAuroraRef.current.style.opacity = String(seg(p, 0.55, 0.95));
+      if (heroAuroraRef.current) heroAuroraRef.current.style.opacity = String(1 - seg(p, 0.04, 0.3));
+      if (darkAuroraRef.current) darkAuroraRef.current.style.opacity = String(seg(p, 0.42, 0.75));
 
-      const travelK = ease.inOut(seg(p, 0, 0.82));
+      const travelK = ease.inOut(seg(p, 0, SETTLE));
       stage.style.transform = `translate3d(0, ${lerp(m.y0 - m.y1, 0, travelK)}px, 0)`;
 
-      tintJourney(seg(p, 0.04, 0.88));
+      tintJourney(seg(p, 0.02, SETTLE - 0.04));
 
-      const dark = seg(p, 0.36, 0.6);
+      const dark = seg(p, 0.28, 0.5);
       const c = Math.round(lerp(255, 6, dark));
       sticky.style.backgroundColor = `rgb(${c}, ${c}, ${Math.round(lerp(255, 9, dark))})`;
       const tone = dark > 0.5 ? "dark" : "light";
       if (track.dataset.tone !== tone) track.dataset.tone = tone;
 
-      if (p >= 0.93) startDemo();
-      else if (p < 0.85) stopDemo();
-      if (!st.demo) setLine(p > 0.56 ? 0 : -1);
+      if (p >= SETTLE) startDemo();
+      else if (p < 0.35) stopDemo();
+      if (!st.demo) setLine(p > 0.32 ? 0 : -1);
     };
 
     const onScroll = () => {
@@ -347,7 +349,7 @@ export function Opening() {
           ))}
         </div>
         <h2 id="rewrite-title" className="sr-only">
-          Stella rewrites itself. Ask it to be built out of blocks, to go full 90s anime, to become a
+          Design your Stella. Ask it to be built out of blocks, to go full 90s anime, to become a
           trading desk or a film editor&apos;s suite. Anything you ask.
         </h2>
 

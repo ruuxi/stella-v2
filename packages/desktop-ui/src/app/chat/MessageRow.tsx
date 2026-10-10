@@ -717,6 +717,9 @@ export const AssistantMessageRow = memo(
               conversationId={conversationId}
             />
           ) : null}
+          {row.askRecords?.map((record) => (
+            <UserAskRecordCard key={record.id} record={record} />
+          ))}
           {hasBody && (
             // Bubble + its hover control share one horizontal line, so the
             // ellipsis sits to the RIGHT of the bubble and reserves no height.
@@ -808,9 +811,6 @@ export const AssistantMessageRow = memo(
           {hasMapArtifacts && row.mapArtifacts && (
             <MapRouteCards cards={row.mapArtifacts} />
           )}
-          {row.askRecords?.map((record) => (
-            <UserAskRecordCard key={record.id} record={record} />
-          ))}
           {row.officePreviewRef && (
             <OfficePreviewCard previewRef={row.officePreviewRef} />
           )}

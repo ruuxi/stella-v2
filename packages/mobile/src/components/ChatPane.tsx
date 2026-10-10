@@ -2108,6 +2108,11 @@ const ChatMessageRow = memo(function ChatMessageRow({
           onOpen={() => onOpenReply(contextRef)}
         />
       ) : null}
+      {item.askRecords?.map((record) => (
+        <View key={record.id} style={hasText ? styles.askRecordAbove : undefined}>
+          <UserAskRecordView record={record} />
+        </View>
+      ))}
       {hasText && isSelecting ? (
         // "Select" mode: the reply's plain text in a selection surface with
         // everything selected and a Copy / Ask Stella pill.
@@ -2152,11 +2157,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
           {evidenceMedia}
         </View>
       ) : null}
-      {item.askRecords?.map((record) => (
-        <View key={record.id} style={styles.artifactGroupSpaced}>
-          <UserAskRecordView record={record} />
-        </View>
-      ))}
       {scheduleReceipts.map((receipt) => (
         <Text
           key={receipt.id}
@@ -5611,6 +5611,7 @@ const makeStyles = (colors: Colors) =>
      * the same ~10-12pt optical inset as the top, with no negative margins that
      * could clip a trailing code block.
      */
+    askRecordAbove: { marginBottom: 6 },
     assistantBubble: {
       alignSelf: "flex-start",
       overflow: "hidden",

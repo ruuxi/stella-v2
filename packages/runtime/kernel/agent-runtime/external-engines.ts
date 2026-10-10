@@ -19,6 +19,7 @@ import {
   claudeCodeResumableSessionId,
   runClaudeCodeTurn,
   shutdownClaudeCodeRuntime,
+  type ClaudeCodeTurnRequest,
 } from "../integrations/claude-code-session-runtime.js";
 import {
   getClaudeCodeAgentModelId,
@@ -1576,9 +1577,9 @@ const createClaudeToolRelay = (args: {
 const runClaudeTurnsUntilDrained = async (args: {
   hosted: ClaudeHostedTurnArgs;
   /** Request fields that stay fixed across every turn of the session. */
-  turnRequest: Record<string, unknown>;
+  turnRequest: Omit<ClaudeCodeTurnRequest, "prompt">;
   /** Request fields rebuilt for each turn. */
-  perTurnRequest: () => Record<string, unknown>;
+  perTurnRequest: () => Partial<ClaudeCodeTurnRequest>;
   persistedSessionId: string | undefined;
   firstPrompt: ClaudeHostedPrompt;
   buildQueuedPrompt: (input: {

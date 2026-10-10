@@ -32,7 +32,10 @@ export type ElectronApi = Omit<ElectronAPI, "theme"> & {
   theme: { listInstalled: () => Promise<Theme[]> };
 };
 
+export type ElectronAgentApi = ElectronApi["agent"];
 export type ElectronBrowserViewApi = ElectronApi["browserView"];
+export type ElectronLocalChatApi = ElectronApi["localChat"];
+export type ElectronSystemApi = ElectronApi["system"];
 
 declare global {
   interface Window {

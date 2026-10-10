@@ -39,7 +39,6 @@ const CACHE_DIRNAME = "chat-evidence";
 const CACHE_SCHEMA = "v1";
 const FULL_HASH_CAP_BYTES = 48 * 1024 * 1024;
 const SAMPLE_BYTES = 1024 * 1024;
-const STACK_THRESHOLD = 4;
 const STACK_FRAME_CAP = 8;
 const GENERATION_CONCURRENCY = 3;
 
@@ -129,23 +128,7 @@ const describeSource = async (
 
 const planCards = (entries: SourceEntry[]): CardPlan[] => {
   const plans: CardPlan[] = [];
-  const consumed = new Set<string>();
-
-  const stackable: EvidenceSourceKind[] = ["image", "video"];
-  for (const sourceKind of stackable) {
-    const group = entries.filter(
-      (entry) =>
-        entry.kind === sourceKind &&
-        !entry.elsewhere &&
-        !consumed.has(entry.filePath),
-    );
-    if (group.length < STACK_THRESHOLD) continue;
-    for (const entry of group) consumed.add(entry.filePath);
-    plans.push({ kind: "stack", entries: group, sourceKind });
-  }
-
   for (const entry of entries) {
-    if (consumed.has(entry.filePath)) continue;
     plans.push({ kind: "single", entry });
   }
 

@@ -4,7 +4,7 @@ import RefreshRuntime from "react-refresh/runtime";
  * The renderer's side of hot updates when it runs from source. The source
  * server loads this before anything else in every window, so React DOM finds
  * the refresh hook, and prefixes every module it serves with
- * `const __stella_hot = import.meta.hot = globalThis.__stellaHot.module(import.meta.url);`
+ * `const __stella_hot = (import.meta.hot = globalThis.__stellaHot?.module(import.meta.url)) ?? …`
  * which records that this window loaded the module and gives it a hot
  * context. After an update, Electron main calls `__stellaHot.update(payload)`
  * with the modules to re-import; anything that cannot apply reloads the page.

@@ -48,6 +48,8 @@ type TurnState = {
   startedAt?: number;
   /** Stella has said something in the thread for this request. */
   acked?: boolean;
+  /** Someone pressed Stop; the request ends here whatever still reports. */
+  stopped?: boolean;
   updatedAt: number;
 };
 
@@ -99,13 +101,23 @@ const assistantText = (payload: unknown): string | null => {
 
 /**
  * Links Slack can't open (drive and workspace paths, which Stella's own apps
- * turn into file chips) become their label; the files themselves are uploaded
- * into the thread.
+ * turn into file chips) are dropped when they stand on a line of their own,
+ * since the file itself is uploaded into the thread, and become their label
+ * inside a sentence.
  */
+const NON_WEB_LINK = /\[([^\]\n]+)\]\((?!https?:|mailto:)([^)\s]+)\)/iu;
 const forSlack = (text: string): string =>
-  text.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/gu, (whole, label: string, target: string) =>
-    /^(https?:|mailto:)/iu.test(target) ? whole : label,
-  );
+  text
+    .split("\n")
+    .filter((line) => {
+      const match = NON_WEB_LINK.exec(line);
+      if (!match) return true;
+      const rest = line.replace(match[0], "").replace(/[-*•:.!()\s]/gu, "");
+      return rest.length > 40;
+    })
+    .join("\n")
+    .replace(new RegExp(NON_WEB_LINK.source, "giu"), (_whole, label: string) => label)
+    .trim();
 
 export class SlackRelay {
   private binding: SlackRelayBinding | null | undefined;
@@ -166,6 +178,37 @@ export class SlackRelay {
       }
       await this.saveTurns();
       this.scheduleRender(host);
+    });
+  }
+
+  /** Agents a Slack request started that are still working. */
+  async runningAgentIds(): Promise<string[]> {
+    const turns = await this.loadTurns();
+    const ids = new Set<string>();
+    for (const state of Object.values(turns)) {
+      for (const line of state.lines) {
+        if (line.key.startsWith("agent:") && line.state === "running") ids.add(line.key.slice("agent:".length));
+      }
+    }
+    return [...ids];
+  }
+
+  /** Stop pressed: the request reads Stopped, once, naming who stopped it. */
+  stopped(hostTurnId: string, slackUserId: string): void {
+    this.enqueue(async () => {
+      const state = await this.turn(hostTurnId);
+      if (state.stopped) return;
+      state.stopped = true;
+      for (const line of state.lines) {
+        if (line.state === "running") {
+          line.state = "error";
+          if (line.key.startsWith("agent:")) line.text = `${line.text} (stopped)`;
+        }
+      }
+      await this.saveTurns();
+      this.scheduleRender(hostTurnId);
+      await this.postText(`:octagonal_sign: Stopped by <@${slackUserId}>.`);
+      this.settleSoon();
     });
   }
 
@@ -230,6 +273,7 @@ export class SlackRelay {
     for (const [turnId, state] of Object.entries(turns)) {
       if (state.phase === "running" && now - state.updatedAt < STALE_TURN_MS) runningTurnId = turnId;
       if (
+        !state.stopped &&
         now - state.updatedAt < STALE_AGENT_MS &&
         state.lines.some((line) => line.key.startsWith("agent:") && line.state === "running")
       ) {
@@ -341,6 +385,7 @@ export class SlackRelay {
     const state = await this.turn(host);
     const line = state.lines.find((entry) => entry.key === key);
     if (!line) return;
+    if (state.stopped) return;
     line.state = event.type === "agent-completed" ? "done" : "error";
     if (event.type === "agent-canceled") line.text = `${line.text} (stopped)`;
     if (event.type === "agent-failed" && event.payload.error) line.text = `${line.text} (${event.payload.error.slice(0, 80)})`;
@@ -360,8 +405,9 @@ export class SlackRelay {
     }
     await this.saveTurns();
     if (hostState.progressTs) this.scheduleRender(host);
-    if (phase === "canceled") await this.postText(":octagonal_sign: Stopped.");
-    else if (phase !== "completed") {
+    if (phase === "canceled") {
+      if (!hostState.stopped) await this.postText(":octagonal_sign: Stopped.");
+    } else if (phase !== "completed" && !hostState.stopped) {
       await this.postText(`:warning: ${notice?.trim() || "Stella couldn't finish this one. Try again in a moment."}`);
     }
     this.settleSoon();
@@ -417,17 +463,28 @@ export class SlackRelay {
     this.lastRender.set(turnId, Date.now());
     const current = (await this.storage.get<string>(CURRENT_KEY)) ?? null;
     const { runningTurnId, agentsRunning } = await this.busy();
+    const isCurrent = turnId === current;
     const ownAgentsRunning = state.lines.some((line) => line.key.startsWith("agent:") && line.state === "running");
-    const working = turnId === current ? Boolean(runningTurnId) || agentsRunning : state.phase === "running" || ownAgentsRunning;
-    const header = working
-      ? runningTurnId || state.phase === "running"
-        ? ":hourglass_flowing_sand: *Working on it…*"
-        : ":hourglass_flowing_sand: *Background agents still working…*"
-      : state.phase === "canceled"
-        ? ":octagonal_sign: *Stopped*"
-        : state.phase === "failed"
-          ? ":warning: *Didn't finish*"
-          : ":white_check_mark: *Done*";
+    let header: string;
+    let working = true;
+    if (state.stopped) {
+      header = ":octagonal_sign: *Stopped*";
+      working = false;
+    } else if (state.phase === "running") {
+      header = ":hourglass_flowing_sand: *Working on it…*";
+    } else if (isCurrent ? agentsRunning : ownAgentsRunning) {
+      header = ":hourglass_flowing_sand: *Background agents still working…*";
+    } else if (isCurrent && runningTurnId) {
+      header = ":hourglass_flowing_sand: *Finishing up…*";
+    } else {
+      working = false;
+      header =
+        state.phase === "canceled"
+          ? ":octagonal_sign: *Stopped*"
+          : state.phase === "failed"
+            ? ":warning: *Didn't finish*"
+            : ":white_check_mark: *Done*";
+    }
     const icon = (line: Line): string =>
       line.state === "running" && working ? ":small_blue_diamond:" : line.state === "error" ? ":x:" : ":white_check_mark:";
     const lines = state.lines
@@ -435,8 +492,7 @@ export class SlackRelay {
       .map((line) => `${icon(line)} ${line.text.slice(0, 180)}${(line.count ?? 1) > 1 ? ` (×${line.count})` : ""}`);
     const text = [header, ...lines].join("\n");
     const blocks: unknown[] = [{ type: "section", text: { type: "mrkdwn", text: text.slice(0, 2_900) } }];
-    const stoppable = turnId === current ? runningTurnId : state.phase === "running" ? turnId : null;
-    if (working && stoppable) {
+    if (working) {
       blocks.push({
         type: "actions",
         elements: [
@@ -444,7 +500,8 @@ export class SlackRelay {
             type: "button",
             action_id: STOP_ACTION,
             text: { type: "plain_text", text: "Stop" },
-            value: stopValue(this.conversationId(), stoppable),
+            style: "danger",
+            value: stopValue(this.conversationId(), turnId),
           },
         ],
       });

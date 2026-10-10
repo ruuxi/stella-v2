@@ -319,6 +319,54 @@ export class OrchestratorSessionObject extends OrchestratorTurnStart {
     return json({ bound: true });
   }
 
+  /**
+   * Stop from Slack: the running and queued turns are canceled, and every
+   * background agent a Slack request started here is paused, so nothing
+   * reports back afterwards. Internal; the Worker has checked that the person
+   * pressing Stop owns the conversation.
+   */
+  private async handleSlackStop(request: Request): Promise<Response> {
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    const ownerId = typeof body?.ownerId === "string" ? body.ownerId : "";
+    const hostTurnId = typeof body?.hostTurnId === "string" ? body.hostTurnId : "";
+    const slackUserId = typeof body?.slackUserId === "string" ? body.slackUserId : "";
+    if (!ownerId || !hostTurnId || !slackUserId) return json({ error: "Malformed stop." }, 400);
+    if (this.journal.meta().owner_id !== ownerId) return json({ error: "owner_mismatch" }, 403);
+    const relay = this.slack();
+    const agents = await relay.runningAgentIds();
+    relay.stopped(hostTurnId, slackUserId);
+    const turnIds = new Set<string>();
+    const current = await this.ctx.storage.get<{ turnId: string; ownerId: string }>("turn");
+    if (current?.ownerId === ownerId) turnIds.add(current.turnId);
+    for (const queued of await this.queuedTurns()) {
+      if (queued.ownerId === ownerId) turnIds.add(queued.turnId);
+    }
+    const canceled: string[] = [];
+    for (const turnId of turnIds) {
+      try {
+        await this.cancelTurn(turnId);
+        canceled.push(turnId);
+      } catch (error) {
+        log("error", "slack_stop_turn_failed", { turnId, message: errorMessage(error) });
+      }
+    }
+    const paused: string[] = [];
+    if (agents.length) {
+      const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+      const { contextFor } = await import("./pi-runtime.js");
+      for (const threadId of agents) {
+        try {
+          await runtime.pauseThreadAgent(threadId, contextFor());
+          paused.push(threadId);
+        } catch (error) {
+          log("error", "slack_stop_agent_failed", { threadId, message: errorMessage(error) });
+        }
+      }
+    }
+    log("info", "slack_stop", { conversationId: this.conversationId(), canceled, paused });
+    return json({ stopped: true, canceled, paused });
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/socket") return this.handleSocket(request);
@@ -381,6 +429,7 @@ export class OrchestratorSessionObject extends OrchestratorTurnStart {
     }
     if (url.pathname === "/journal") return this.handleJournalAppend(request);
     if (url.pathname === "/slack/bind") return this.handleSlackBind(request);
+    if (url.pathname === "/slack/stop") return this.handleSlackStop(request);
     if (url.pathname === "/cards") return this.handleCard(request);
     if (url.pathname === "/purge") return this.handlePurge();
     if (url.pathname === "/owner-purge-cancel") {

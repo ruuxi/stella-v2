@@ -49,17 +49,11 @@ export const handleSlackInteraction = async (env: Cloudflare.Env, payload: Inter
     }
     return;
   }
-  const { ownerGeneration } = await env.OWNER_GATES.getByName(ownerId).snapshot();
-  const response = await env.ORCHESTRATOR_SESSIONS.getByName(target.c).fetch(`${ORCHESTRATOR_INTERNAL_ORIGIN}/cancel`, {
+  const response = await env.ORCHESTRATOR_SESSIONS.getByName(target.c).fetch(`${ORCHESTRATOR_INTERNAL_ORIGIN}/slack/stop`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      turnId: target.t,
-      cancelRequestId: `slack-stop-${crypto.randomUUID()}`,
-      ownerId,
-      ownerGeneration,
-    }),
+    body: JSON.stringify({ ownerId, hostTurnId: target.t, slackUserId: userId }),
   });
-  console.log(JSON.stringify({ event: "slack_stop", status: response.status }));
+  console.log(JSON.stringify({ event: "slack_stop_pressed", status: response.status }));
   await response.body?.cancel().catch(() => undefined);
 };

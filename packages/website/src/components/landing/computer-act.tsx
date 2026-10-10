@@ -2,14 +2,15 @@
 
 import { useEffect, useRef } from "react";
 import { createSpring, ease, lerp, seg, useInViewOnce, useTimeline, type Spring } from "./motion";
+import { StellaCharacter } from "./stella-character";
 import c from "./computer-act.module.css";
 
 const W = 1200;
 const H = 750;
 const U0 = 0.3;
 const U1 = 3.25;
-const PLAY = 11;
-const CYCLE = PLAY + 3.5;
+const PLAY = 11 / 1.5;
+const CYCLE = PLAY + 2.6;
 
 type Key = { u: number; x: number; y: number };
 
@@ -100,11 +101,11 @@ export function ComputerAct() {
     const x = createSpring(1320, (v) => {
       live.current.x = v;
       apply();
-    }, { stiffness: 140, damping: 19 });
+    }, { stiffness: 260, damping: 26 });
     const y = createSpring(470, (v) => {
       live.current.y = v;
       apply();
-    }, { stiffness: 140, damping: 19 });
+    }, { stiffness: 260, damping: 26 });
     springs.current = { x, y };
     measure();
     const ro = new ResizeObserver(measure);
@@ -124,7 +125,7 @@ export function ComputerAct() {
     springs.current?.x.set(p.x);
     springs.current?.y.set(p.y);
 
-    l.enter = ease.out(seg(seconds, 0, 0.9));
+    l.enter = ease.out(seg(seconds, 0, 0.6));
 
     const stage = stageAt(u);
     if (stage !== l.stage && canvasRef.current) {
@@ -146,7 +147,7 @@ export function ComputerAct() {
     let ripple = 0;
     for (const click of CLICKS) {
       const d = u - click;
-      if (d >= 0 && d < 0.12) ripple = d / 0.12;
+      if (d >= 0 && d < 0.18) ripple = d / 0.18;
     }
     if (rippleRef.current) {
       rippleRef.current.style.opacity = ripple > 0 ? String(1 - ripple) : "0";
@@ -167,7 +168,7 @@ export function ComputerAct() {
     >
       <div className={c.sticky}>
         <h2 id="computer-title" className={c.title}>
-          It uses your <span>computer.</span>
+          It can use your <span>computer.</span>
         </h2>
         <div ref={viewRef} className={c.view} aria-hidden="true">
           <div ref={canvasRef} className={c.canvas} data-stage="search">
@@ -304,7 +305,7 @@ export function ComputerAct() {
             </div>
 
             <div className={c.toast}>
-              <span className={c.toastMark} />
+              <StellaCharacter size={30} className={c.toastMark} eyeColor="#ffffff" />
               <span>
                 <b>Stella</b>
                 Booked. Seat 14A, $412. It&apos;s in your calendar.

@@ -554,8 +554,6 @@
   flex: none;
   width: 30px;
   height: 30px;
-  border-radius: 8px;
-  background: conic-gradient(from 200deg, #ff4ac0, #703cff, #0e8aff, #00eeff, #ff4ac0);
 }
 
 .canvas[data-stage="done"] .toast {

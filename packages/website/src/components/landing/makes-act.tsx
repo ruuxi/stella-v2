@@ -86,12 +86,15 @@ function MusicCard({ active, onPlaying }: { active: boolean; onPlaying: (playing
 }
 
 const CARDS = ["images", "video", "music", "three"] as const;
-const ADVANCE_MS = 5200;
+const ADVANCE_MS = 1500;
+const HOLD_MS = 5200;
+const OUT_MS = 700;
 
 export function MakesAct() {
   const sectionRef = useRef<HTMLElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [active, setActive] = useState(0);
+  const [out, setOut] = useState(false);
   const [near, setNear] = useState(false);
   const [running, setRunning] = useState(false);
   const [hold, setHold] = useState(false);
@@ -128,19 +131,36 @@ export function MakesAct() {
 
   useEffect(() => {
     if (!running || hold || prefersReducedMotion()) return;
-    const id = window.setTimeout(() => setActive((a) => (a + 1) % CARDS.length), ADVANCE_MS);
+    if (out) {
+      const id = window.setTimeout(() => {
+        setOut(false);
+        setActive(0);
+      }, OUT_MS);
+      return () => window.clearTimeout(id);
+    }
+    const last = active === CARDS.length - 1;
+    const id = window.setTimeout(() => {
+      if (last) setOut(true);
+      else setActive((a) => a + 1);
+    }, last ? HOLD_MS : ADVANCE_MS);
     return () => window.clearTimeout(id);
-  }, [running, hold, active, tick]);
+  }, [running, hold, active, out, tick]);
+
+  useEffect(() => {
+    if (prefersReducedMotion()) setActive(CARDS.length - 1);
+  }, []);
 
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    if (active === 1 && running) void v.play().catch(() => {});
+    if (active >= 1 && !out && running) void v.play().catch(() => {});
     else v.pause();
-  }, [active, near, running]);
+  }, [active, out, near, running]);
 
-  const pos = (i: number) => (i === active ? "on" : i < active ? "past" : "next");
+  const pos = (i: number) => (out ? "out" : i === active ? "on" : i < active ? "past" : "next");
+  const depth = (i: number) => String(Math.max(0, active - i));
   const choose = (i: number) => {
+    setOut(false);
     setActive(i);
     setTick((t) => t + 1);
   };
@@ -155,7 +175,7 @@ export function MakesAct() {
               key={w}
               type="button"
               className={k.word}
-              data-active={i === active ? "1" : "0"}
+              data-active={!out && i <= active ? (i === active ? "1" : "2") : "0"}
               aria-pressed={i === active}
               onClick={() => choose(i)}
             >
@@ -166,14 +186,14 @@ export function MakesAct() {
       </div>
 
       <div className={k.stage}>
-        <div className={`${k.card} ${k.images}`} data-pos={pos(0)}>
+        <div className={`${k.card} ${k.images}`} data-pos={pos(0)} data-depth={depth(0)}>
           <div className={k.frame}>
             <img className={k.cabin} src="/landing/cabin.webp" alt="Our cabin in winter, painted by Stella in gouache." loading="lazy" decoding="async" />
             <img className={k.record} src="/landing/record.webp" alt="An abstract mid-century jazz record cover made by Stella." loading="lazy" decoding="async" />
             <p className={k.ask}>“A cover for my jazz record”</p>
           </div>
         </div>
-        <div className={`${k.card} ${k.video}`} data-pos={pos(1)}>
+        <div className={`${k.card} ${k.video}`} data-pos={pos(1)} data-depth={depth(1)}>
           <div className={k.frame}>
             <video
               ref={videoRef}
@@ -189,7 +209,7 @@ export function MakesAct() {
             <p className={k.ask}>“Now make it snow”</p>
           </div>
         </div>
-        <div className={`${k.card} ${k.musicCard}`} data-pos={pos(2)}>
+        <div className={`${k.card} ${k.musicCard}`} data-pos={pos(2)} data-depth={depth(2)}>
           <div className={k.frame}>
             <MusicCard active={active === 2} onPlaying={onPlaying} />
             <p className={k.ask}>“Something to code to”</p>
@@ -197,7 +217,7 @@ export function MakesAct() {
         </div>
         <div
           className={`${k.card} ${k.three}`}
-          data-pos={pos(3)}
+          data-pos={pos(3)} data-depth={depth(3)}
           onPointerDown={() => setTick((t) => t + 1)}
         >
           <div className={k.frame}>

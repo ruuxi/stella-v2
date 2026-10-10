@@ -52,18 +52,58 @@
   font-stretch: 125%;
 }
 
+.word[data-active="2"] {
+  color: #9a9aa4;
+}
+
 .stage {
   position: relative;
   height: min(76svh, 720px);
 }
 
 .card {
+  --x: 0%;
+  --y: 0%;
+  --r: 0deg;
   position: absolute;
-  inset: 0;
-  transform-origin: 50% 100%;
+  left: 0;
+  top: 0;
+  width: 70%;
+  height: 64%;
+  transform-origin: 50% 60%;
+  transform: translate(calc(var(--x) / 0.7), calc(var(--y) / 0.64)) rotate(var(--r));
   transition:
-    transform 1100ms cubic-bezier(0.2, 1, 0.3, 1),
-    opacity 700ms ease;
+    transform 760ms cubic-bezier(0.2, 1, 0.3, 1),
+    opacity 380ms ease,
+    filter 600ms ease;
+}
+
+.images {
+  --x: 0%;
+  --y: 2%;
+  --r: -5deg;
+  z-index: 1;
+}
+
+.video {
+  --x: 11%;
+  --y: 12%;
+  --r: 3deg;
+  z-index: 2;
+}
+
+.musicCard {
+  --x: 20%;
+  --y: 22%;
+  --r: -2deg;
+  z-index: 3;
+}
+
+.three {
+  --x: 30%;
+  --y: 34%;
+  --r: 4deg;
+  z-index: 4;
 }
 
 .card::after {
@@ -71,33 +111,48 @@
   position: absolute;
   inset: 0;
   border-radius: 28px;
-  background: #0a0a0d;
+  background: #fff;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 900ms ease;
+  transition: opacity 600ms ease;
 }
 
 .card[data-pos="next"] {
-  transform: translateY(115%) rotate(6deg);
+  transform: translate(calc(var(--x) / 0.7 + 6%), calc(var(--y) / 0.64 + 34%)) rotate(calc(var(--r) * 3)) scale(1.06);
   opacity: 0;
+  filter: blur(10px);
   pointer-events: none;
 }
 
-.card:nth-child(even)[data-pos="next"] {
-  transform: translateY(115%) rotate(-6deg);
+.card[data-pos="out"] {
+  transform: translate(calc(var(--x) / 0.7), calc(var(--y) / 0.64 - 8%)) rotate(var(--r)) scale(0.94);
+  opacity: 0;
+  filter: blur(8px);
+  pointer-events: none;
+  transition:
+    transform 700ms cubic-bezier(0.5, 0, 0.75, 0),
+    opacity 600ms ease,
+    filter 600ms ease;
+}
+
+.card[data-pos="past"][data-depth="1"]::after {
+  opacity: 0.18;
+}
+
+.card[data-pos="past"][data-depth="2"]::after {
+  opacity: 0.32;
+}
+
+.card[data-pos="past"][data-depth="3"]::after {
+  opacity: 0.44;
 }
 
 .card[data-pos="past"] {
-  transform: translateY(-5%) scale(0.9);
   pointer-events: none;
 }
 
-.card[data-pos="past"]::after {
-  opacity: 0.5;
-}
-
 .act:not([data-in="1"]) .card[data-pos="on"] {
-  transform: translateY(80px);
+  transform: translate(calc(var(--x) / 0.7), calc(var(--y) / 0.64 + 20%)) rotate(var(--r));
   opacity: 0;
 }
 
@@ -338,7 +393,12 @@
   }
 
   .stage {
-    height: min(58svh, 520px);
+    height: min(60svh, 540px);
+  }
+
+  .card {
+    width: 68%;
+    height: 62%;
   }
 
   .frame,

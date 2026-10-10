@@ -585,6 +585,22 @@ function ChatSurface(props: {
     }),
     [cloudModelSettings, composerModelPinned, t],
   );
+  // Handed to the pane's memoized composer, so it keeps one identity per chat.
+  const composerIntervention = useMemo(
+    () => (
+      <>
+        <CloudBoundary resetKey={thread.conversationId}>
+          <UserAskCard conversationId={thread.conversationId} />
+          <CloudConnectorConnectCard conversationId={thread.conversationId} />
+          <CloudBrowserInterventionCard
+            conversationId={thread.conversationId}
+          />
+        </CloudBoundary>
+        <ComposerNotice conversationId={thread.conversationId} />
+      </>
+    ),
+    [thread.conversationId],
+  );
 
   return (
     <View style={styles.screen}>
@@ -613,48 +629,44 @@ function ChatSurface(props: {
         emptyContent={
           <Text style={styles.emptyText}>{t("mobile.chat.emptyPrompt")}</Text>
         }
-        historyLoading={!thread.storageLoaded}
-        hasOlderHistory={thread.hasOlderMessages}
-        hasNewerHistory={thread.hasNewerMessages}
-        historyPageLoading={thread.historyPageLoading}
-        onLoadOlderHistory={thread.loadOlderMessages}
-        onLoadNewerHistory={thread.loadNewerMessages}
-        draftStore={thread.draftStore}
-        {...(composerModelPicker ? { composerModelPicker } : {})}
-        sendReady={sendReady}
-        onSubmit={thread.send}
-        onStop={thread.stop}
-        realtimeVoiceConversationId={thread.conversationId}
-        realtimeVoiceExecution={realtimeVoiceRoute.execution}
-        realtimeVoiceDesktopAccess={realtimeVoiceRoute.desktopAccess}
+        history={{
+          loading: !thread.storageLoaded,
+          hasOlder: thread.hasOlderMessages,
+          hasNewer: thread.hasNewerMessages,
+          pageLoading: thread.historyPageLoading,
+          onLoadOlder: thread.loadOlderMessages,
+          onLoadNewer: thread.loadNewerMessages,
+        }}
+        composer={{
+          draftStore: thread.draftStore,
+          modelPicker: composerModelPicker,
+          sendReady,
+          onSubmit: thread.send,
+          onStop: thread.stop,
+          placeholder: t("mobile.chat.composerPlaceholder"),
+          intervention: composerIntervention,
+        }}
+        realtimeVoice={{
+          conversationId: thread.conversationId,
+          execution: realtimeVoiceRoute.execution,
+          desktopAccess: realtimeVoiceRoute.desktopAccess,
+          onAction: performRealtimeVoiceAction,
+        }}
         desktopAccess={access}
-        onRealtimeVoiceAction={performRealtimeVoiceAction}
-        placeholder={t("mobile.chat.composerPlaceholder")}
-        composerIntervention={
-          <>
-            <CloudBoundary resetKey={thread.conversationId}>
-              <UserAskCard conversationId={thread.conversationId} />
-              <CloudConnectorConnectCard
-                conversationId={thread.conversationId}
-              />
-              <CloudBrowserInterventionCard
-                conversationId={thread.conversationId}
-              />
-            </CloudBoundary>
-            <ComposerNotice conversationId={thread.conversationId} />
-          </>
-        }
         offline={offline}
-        enableAttachments
-        attachments={thread.attachments}
-        onAddAttachments={thread.addAttachments}
-        onRemoveAttachment={thread.removeAttachment}
-        onRetryAttachment={thread.retryAttachment}
-        quotes={thread.quotes}
-        onAddQuote={thread.addQuote}
-        onRemoveQuote={thread.removeQuote}
-        maxAttachments={thread.maxAttachments}
-        dictationAnonymous={anonymous}
+        attachments={{
+          items: thread.attachments,
+          onAdd: thread.addAttachments,
+          onRemove: thread.removeAttachment,
+          onRetry: thread.retryAttachment,
+          max: thread.maxAttachments,
+        }}
+        quotes={{
+          items: thread.quotes,
+          onAdd: thread.addQuote,
+          onRemove: thread.removeQuote,
+        }}
+        dictation={{ anonymous }}
         onOpenArtifact={setSelectedArtifact}
         conversationId={thread.conversationId}
         activityTasks={thread.conversationTasks}

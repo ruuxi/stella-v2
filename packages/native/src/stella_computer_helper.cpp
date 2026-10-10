@@ -512,7 +512,7 @@ private:
         windowClass.hInstance = instance;
         windowClass.lpfnWndProc = &AgentCursorOverlay::windowProc;
         windowClass.lpszClassName = className;
-        windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        windowClass.hCursor = LoadCursor(nullptr, IDC_ARROW);
         RegisterClassExW(&windowClass);
         hwnd_ = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,

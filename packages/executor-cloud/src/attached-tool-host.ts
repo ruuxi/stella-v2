@@ -583,7 +583,24 @@ export const runAttachedToolHost = (
         }).catch((error) => {
           console.error(`world pull failed: ${asError(error).message}`);
         });
-        await pushWorldProjection({ root: workspaceRoot, access: input.world });
+        // A failed world push must not cost the turn its drive changes: the
+        // container is released after this, so write the drive back first and
+        // only then surface the world failure.
+        const worldPushError = await pushWorldProjection({
+          root: workspaceRoot,
+          access: input.world,
+        }).then(
+          () => null,
+          (error: unknown) => asError(error),
+        );
+        const report = await deliverDrive(linkedPaths);
+        if (worldPushError) throw worldPushError;
+        return report;
+      };
+
+      const deliverDrive = async (
+        linkedPaths: readonly string[],
+      ): Promise<AttachedToolHostReport> => {
         // The drive copy is not part of the world: what this turn created,
         // changed or deleted under drive/ reaches the drive only from here.
         const writeBack = await writeBackDrive({

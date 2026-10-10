@@ -2048,18 +2048,23 @@ class ClaudeCodeSessionRuntime {
     }
     const executablePath = resolveExternalCliPath("claude");
     const effortLevel = request.effortLevel?.trim();
-    const childEnv = buildExternalCliChildEnv(executablePath, process.env, {
-      ...(request.cliBridgeSocketPath
-        ? { cliBridgeSocketPath: request.cliBridgeSocketPath }
-        : {}),
-    });
+    // The Stella shell environment is the base, so the CLI's own directory
+    // still leads its PATH and the credential scrub below still applies.
+    const childEnv = buildExternalCliChildEnv(
+      executablePath,
+      request.shellEnv ? { ...process.env, ...request.shellEnv } : process.env,
+      {
+        ...(request.cliBridgeSocketPath
+          ? { cliBridgeSocketPath: request.cliBridgeSocketPath }
+          : {}),
+      },
+    );
     // Claude Code prefers an API key or an injected token over its own
     // login, so a stray one in the environment would run on something other
     // than the login the user chose. Stella never injects a credential.
     delete childEnv.ANTHROPIC_API_KEY;
     delete childEnv.ANTHROPIC_AUTH_TOKEN;
     delete childEnv.CLAUDE_CODE_OAUTH_TOKEN;
-    if (request.shellEnv) Object.assign(childEnv, request.shellEnv);
     if (claudeConfigDir) {
       childEnv.CLAUDE_CONFIG_DIR = claudeConfigDir;
     }

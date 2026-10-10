@@ -30,6 +30,17 @@ const WHEEL_SWIPE_PX = 80;
 /** Quiet time that ends one trackpad gesture (and its inertia). */
 const WHEEL_GESTURE_IDLE_MS = 220;
 
+/**
+ * The trackpad gesture in progress. A swipe swaps this viewer for the next
+ * file's, and that swipe's inertia keeps arriving at the new one, so the lock
+ * lives outside any one viewer: one gesture steps one file.
+ */
+const wheelGesture: {
+  travel: number;
+  fired: boolean;
+  idleTimer: ReturnType<typeof setTimeout> | null;
+} = { travel: 0, fired: false, idleTimer: null };
+
 const isSwipeableMedia = (entry: FileEntry): boolean =>
   entry.source === "media" &&
   entry.payload.kind === "media" &&
@@ -81,27 +92,27 @@ export const MediaTabContent = ({ item }: { item: MediaTabItem }) => {
   useEffect(() => {
     const preview = previewRef.current;
     if (!preview) return;
-    let travel = 0;
-    let fired = false;
-    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    const gesture = wheelGesture;
     const onWheel = (event: WheelEvent) => {
       if (event.ctrlKey) return;
-      if (idleTimer) clearTimeout(idleTimer);
-      idleTimer = setTimeout(() => {
-        travel = 0;
-        fired = false;
+      if (gesture.idleTimer) clearTimeout(gesture.idleTimer);
+      gesture.idleTimer = setTimeout(() => {
+        gesture.idleTimer = null;
+        gesture.travel = 0;
+        gesture.fired = false;
       }, WHEEL_GESTURE_IDLE_MS);
-      if (fired || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
-      travel += event.deltaX;
-      if (Math.abs(travel) < WHEEL_SWIPE_PX) return;
-      fired = true;
-      step(travel > 0 ? "next" : "previous");
+      if (gesture.fired || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) {
+        return;
+      }
+      gesture.travel += event.deltaX;
+      if (Math.abs(gesture.travel) < WHEEL_SWIPE_PX) return;
+      gesture.fired = true;
+      step(gesture.travel > 0 ? "next" : "previous");
     };
     preview.addEventListener("wheel", onWheel, { passive: true });
-    return () => {
-      preview.removeEventListener("wheel", onWheel);
-      if (idleTimer) clearTimeout(idleTimer);
-    };
+    // The idle timer outlives this viewer: it is what releases the lock once
+    // the gesture that replaced this viewer goes quiet.
+    return () => preview.removeEventListener("wheel", onWheel);
   }, [step]);
 
   const handleKeyDown = useCallback(

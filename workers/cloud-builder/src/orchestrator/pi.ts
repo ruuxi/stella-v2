@@ -32,6 +32,12 @@ import {
 import { HEADER_TURN_AUTH_KIND } from "../turn-start-request.js";
 import { CLOUD_HISTORY_TOKEN_BUDGET } from "@stella/executor-cloud/prune-history";
 import {
+  type JournalCheckpoint,
+  type JournalCheckpointFirstKept,
+  parseJournalCheckpoint,
+} from "@stella/contracts/journal-checkpoint";
+import type { JournalStart } from "@stella/agent/stella/journal-sync";
+import {
   cancelDeviceAgent,
   continueDeviceAgent,
   type DeviceAgentCaller,
@@ -65,7 +71,8 @@ import {
   listIntegrationCatalog,
 } from "../integrations/catalog.js";
 import { sleepWithAbort } from "@stella/runtime/kernel/tools/effect-runtime.js";
-import { HEADER_OWNER } from "../conversation-types.js";
+import { HEADER_OWNER, utf8Length } from "../conversation-types.js";
+import { localTurnId as makeLocalTurnId } from "../local-turn-protocol.js";
 import type {
   OwnerFencedTurn,
   PiThreadOutcome,
@@ -81,6 +88,7 @@ import {
   piThreadKey,
   PI_LIVE_KEY,
   PI_BRAIN_KEY,
+  JOURNAL_CHECKPOINT_KEY,
   BRAIN_HANDOFF_KEY,
   AGENT_RECONCILE_INTERVAL_MS,
   AGENTS_VIEW_KEY,
@@ -100,7 +108,7 @@ import { OrchestratorCloudAgents } from "./cloud-agents.js";
 
 /**
  * pi-durable: the conversation's pi runtime, pi agents and threads, the
- * brain's placement, and the running-agents view.
+ * brain's placement, the journal checkpoint, and the running-agents view.
  */
 export abstract class OrchestratorPi extends OrchestratorCloudAgents {
   /** A model grant from the owner, unless a freeze landed while it was issued. */
@@ -244,8 +252,7 @@ export abstract class OrchestratorPi extends OrchestratorCloudAgents {
           storage: this.ctx.storage,
           env: this.env,
           gatewayOrigin,
-          contextStartSeq: () =>
-            this.journal.contextStartSeq("", CLOUD_HISTORY_TOKEN_BUDGET),
+          journalStart: () => this.journalStart(),
           waitUntil: (work) => this.ctx.waitUntil(work),
           report: (error) =>
             log("error", "pi_runtime_report", { message: errorMessage(error) }),
@@ -282,6 +289,14 @@ export abstract class OrchestratorPi extends OrchestratorCloudAgents {
               writerKey: `pi-report:${report.requestId}`,
             });
             if (appended.inserted) this.publish(appended.record);
+            // What the agent saved to the drive and linked, as the conversation's files card.
+            if (agent.files?.length) {
+              this.publishTurnFilesCard(
+                turnId,
+                `pi-files:${report.requestId}`,
+                agent.files,
+              );
+            }
             log("info", "pi_origin_report_journaled", {
               threadId: report.threadId,
               settled: report.settled === true,
@@ -1192,6 +1207,78 @@ export abstract class OrchestratorPi extends OrchestratorCloudAgents {
     return [...pi, ...owner.filter((agent) => !listed.has(agent.agentId))].map(
       (agent) => agent.title,
     );
+  }
+
+  /**
+   * The latest checkpoint of this journal epoch, if a host published one.
+   * One whose messages after it already rolled out of the hot journal is
+   * stale (no host compacted for that long), and a new transcript starts
+   * from the journal's window instead.
+   */
+  protected async journalCheckpoint(): Promise<JournalCheckpoint | undefined> {
+    const stored = await this.ctx.storage.get<
+      JournalCheckpoint & { epoch: number }
+    >(JOURNAL_CHECKPOINT_KEY);
+    const meta = this.journal.meta();
+    if (
+      !stored ||
+      stored.epoch !== meta.epoch ||
+      stored.throughSeq + 1 < meta.hot_min_seq
+    ) {
+      return undefined;
+    }
+    return parseJournalCheckpoint(stored);
+  }
+
+  /** Where a new transcript of this conversation starts (`journalImportAfter`). */
+  protected async journalStart(): Promise<JournalStart> {
+    const checkpoint = await this.journalCheckpoint();
+    return {
+      contextStartSeq: this.journal.contextStartSeq(
+        "",
+        CLOUD_HISTORY_TOKEN_BUDGET,
+      ),
+      ...(checkpoint ? { checkpoint } : {}),
+    };
+  }
+
+  /**
+   * Keep a compaction as the conversation's checkpoint: its summary covers
+   * the journal up to the message before the first one it kept. Only a newer
+   * checkpoint replaces the one kept. Returns where it covers through, or
+   * undefined when the kept message is not in the journal.
+   */
+  protected async storeJournalCheckpoint(
+    summary: string,
+    firstKept: JournalCheckpointFirstKept,
+    deviceId?: string,
+  ): Promise<number | undefined> {
+    const keptSeq =
+      "seq" in firstKept
+        ? firstKept.seq
+        : this.journal.turnStartSeq(
+            "turnId" in firstKept
+              ? firstKept.turnId
+              : makeLocalTurnId(deviceId ?? "", firstKept.localTurnId),
+          );
+    const meta = this.journal.meta();
+    if (keptSeq === undefined || keptSeq < 1 || keptSeq >= meta.next_seq)
+      return undefined;
+    const throughSeq = keptSeq - 1;
+    const current = await this.journalCheckpoint();
+    if (current && current.throughSeq >= throughSeq) return current.throughSeq;
+    await this.ctx.storage.put(JOURNAL_CHECKPOINT_KEY, {
+      summary,
+      throughSeq,
+      epoch: meta.epoch,
+    });
+    log("info", "journal_checkpoint_stored", {
+      conversationId: this.conversationId(),
+      throughSeq,
+      summaryBytes: utf8Length(summary),
+      from: deviceId ? "device" : "cloud",
+    });
+    return throughSeq;
   }
 
   protected async setPiBrain(host: PiBrainHost): Promise<PiBrainRecord> {

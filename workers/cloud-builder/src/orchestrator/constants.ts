@@ -28,6 +28,10 @@ export const PI_MIRRORED_KEY = "piMirroredEntry";
 export const PI_LIVE_KEY = "piLive";
 /** Where this pi conversation's brain runs (`@stella/contracts/turn-plane/pi-brain`). */
 export const PI_BRAIN_KEY = "piBrain";
+/** The conversation's latest compaction checkpoint (`@stella/contracts/journal-checkpoint`). */
+export const JOURNAL_CHECKPOINT_KEY = "journalCheckpoint";
+/** How many of its own recent turns the cloud searches for the one a compaction kept. */
+export const CHECKPOINT_TURN_SCAN = 64;
 /**
  * Durable key: the brief a turn's `switch_destination` left for the computer
  * Stella moved to (pi's or Claude Code's), placed there once that turn ends.

@@ -149,6 +149,12 @@ export class LocalMemoryFiles {
     );
     try {
       await fs.writeFile(temporary, bytes, { mode });
+      // Look again right before the rename: a local edit landing during the
+      // prep above must not be replaced.
+      if ((await this.currentSha(relative)) !== expectSha) {
+        await fs.rm(temporary, { force: true });
+        return false;
+      }
       await fs.rename(temporary, file);
     } catch (error) {
       await fs.rm(temporary, { force: true }).catch(() => undefined);
@@ -163,8 +169,28 @@ export class LocalMemoryFiles {
     const current = await this.currentSha(relative);
     if (current === null) return true;
     if (current !== expectSha) return false;
-    await fs.rm(this.absolute(relative), { force: true });
+    // Move the file aside first and check what was actually moved, so an edit
+    // landing between the check above and the delete is never lost.
+    const file = this.absolute(relative);
+    const aside = path.join(
+      path.dirname(file),
+      `.${path.basename(file)}.${randomUUID()}.deleting`,
+    );
+    try {
+      await fs.rename(file, aside);
+    } catch (error) {
+      if (errorCode(error) === "ENOENT") return true;
+      throw error;
+    }
     this.hashes.delete(relative);
-    return true;
+    const moved = await fs.readFile(aside).catch(() => null);
+    if (moved === null || sha256Hex(new Uint8Array(moved)) === expectSha) {
+      await fs.rm(aside, { force: true });
+      return true;
+    }
+    // Changed meanwhile: put it back unless something newer took its place.
+    await fs.link(aside, file).catch(() => undefined);
+    await fs.rm(aside, { force: true });
+    return false;
   }
 }

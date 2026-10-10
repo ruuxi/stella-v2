@@ -830,10 +830,14 @@ export abstract class OrchestratorTools extends OrchestratorPi {
       }),
     ];
     // The orchestrator's memory files are world files; with memory off it has
-    // no `memory` client at all.
+    // no `memory` client at all. Each write holds to the memory epoch it
+    // started in, so one running when a wipe begins cannot undo it.
     const memory =
       memoryEnabled && worldBinding
-        ? createWorldMemory(() => ownerMemoryWorld(worldBinding, turn.ownerId))
+        ? createWorldMemory(
+            () => ownerMemoryWorld(worldBinding, turn.ownerId),
+            agentHome.memoryEpochFence(),
+          )
         : undefined;
     const codeTool = await createCloudCodeAgentTool({
       loader: this.env.LOADER,

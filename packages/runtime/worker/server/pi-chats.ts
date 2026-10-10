@@ -11,6 +11,7 @@ import {
   NOTIFICATION_NAMES,
   type RuntimeChatPayload,
 } from "@stella/contracts/protocol";
+import { CLIENT_MSG_ID_PATTERN } from "@stella/contracts/turn-plane/turn-start";
 import {
   getAgentRuntimeEngine,
   getModelOverride,
@@ -132,7 +133,10 @@ export const piChatsFor = (
   let chats = chatsBySession.get(session);
   if (chats) return chats;
   let signer: ReturnType<typeof createRemoteDeviceSigner> | undefined;
-  chats = import("@stella/agent/host/desktop-chats").then(({ desktopChats }) =>
+  chats = Promise.all([
+    import("@stella/agent/host/desktop-chats"),
+    import("../../kernel/model-routing.js"),
+  ]).then(([{ desktopChats }, { resolveDirectLlmRoute }]) =>
     desktopChats({
       dataDir: session.config.get().stellaDataDirPath,
       deviceId: session.config.deviceId,
@@ -144,6 +148,9 @@ export const piChatsFor = (
         apiKey: (provider) => getAccessibleLocalLlmApiKey(session.config.get().stellaDataDirPath, provider),
         oauthToken: (provider) => getAccessibleLocalLlmOAuthApiKey(session.config.get().stellaDataDirPath, provider),
       },
+      // The models the picker lists: models.json and extension providers, builtin overrides.
+      resolveDirectModel: (reference) =>
+        resolveDirectLlmRoute({ stellaAppDir: session.config.get().stellaDataDirPath, modelName: reference }),
       thinkingLevel: () => {
         const effort = getReasoningEffort(session.config.get().stellaDataDirPath, "orchestrator");
         return effort === "default" ? "off" : effort;
@@ -479,7 +486,14 @@ export const piChatRequest = async (
     resolveImageTarget: async () =>
       (await session.runnerCell.get()?.resolveImageTarget(payload.agentType)) ?? undefined,
   });
-  return await chats.submit(request.conversationId, request.requestId, piUserContent(payload, prepared), {
+  const content = piUserContent(payload, prepared);
+  // The composer's id rides on the message into the journal, so every view of
+  // the conversation binds the sent message to the same row.
+  if (CLIENT_MSG_ID_PATTERN.test(request.requestId)) {
+    const [first] = content;
+    content[0] = { ...first!, stella: { ...first!.stella, clientMsgId: request.requestId } };
+  }
+  return await chats.submit(request.conversationId, request.requestId, content, {
     ...(payload.locale ? { locale: payload.locale } : {}),
     ...(request.send.followSender ? { followSender: true } : {}),
   });

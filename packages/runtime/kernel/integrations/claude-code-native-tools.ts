@@ -61,12 +61,46 @@ export const CLAUDE_CODE_ORCHESTRATOR_WITHHELD_TOOLS: readonly string[] = [
   "write_stdin",
 ];
 
+/**
+ * Stella tool names that grant each built-in when an agent has a tools
+ * allowlist. A built-in is granted when the allowlist names it or any
+ * Stella tool it stands in for (shell -> Bash, apply_patch -> Write/Edit);
+ * Glob, read-only, rides on Read or Grep.
+ */
+const STELLA_TOOLS_GRANTING_NATIVE: Readonly<
+  Record<string, readonly string[]>
+> = {
+  Read: ["Read"],
+  Edit: ["Edit", "apply_patch"],
+  Write: ["Write", "apply_patch"],
+  Bash: ["Bash", "exec_command", "write_stdin"],
+  Grep: ["Grep"],
+  Glob: ["Glob", "Grep", "Read"],
+};
+
+/**
+ * The built-ins a role keeps, narrowed to the agent's tools allowlist when
+ * it has one (an absent or empty allowlist means the role's full set, the
+ * same default Stella's own tool resolution uses).
+ */
 export const resolveClaudeCodeNativeTools = (
   role: ClaudeCodeNativeToolRole,
-): readonly string[] =>
-  role === "orchestrator"
-    ? CLAUDE_CODE_ORCHESTRATOR_NATIVE_TOOLS
-    : CLAUDE_CODE_WORKER_NATIVE_TOOLS;
+  toolsAllowlist?: readonly string[],
+): readonly string[] => {
+  const roleTools =
+    role === "orchestrator"
+      ? CLAUDE_CODE_ORCHESTRATOR_NATIVE_TOOLS
+      : CLAUDE_CODE_WORKER_NATIVE_TOOLS;
+  if (!Array.isArray(toolsAllowlist) || toolsAllowlist.length === 0) {
+    return roleTools;
+  }
+  const allowed = new Set(toolsAllowlist);
+  return roleTools.filter((nativeTool) =>
+    (STELLA_TOOLS_GRANTING_NATIVE[nativeTool] ?? [nativeTool]).some((name) =>
+      allowed.has(name),
+    ),
+  );
+};
 
 /**
  * Drop the Stella MCP tools that an enabled built-in supersedes, plus the

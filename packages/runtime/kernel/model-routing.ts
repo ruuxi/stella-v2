@@ -672,6 +672,38 @@ const resolveLlmRouteResult = (args: {
   };
 };
 
+/**
+ * An explicit pick on the user's own key (`<provider>/<model>`, not Stella),
+ * resolved as the model picker lists it: models.json and extension
+ * providers, builtin overrides, their keys and configured headers. Desktop
+ * chats (`@stella/agent`) run their BYOK models on it.
+ */
+export const resolveDirectLlmRoute = (args: {
+  stellaAppDir: string;
+  modelName: string;
+}): ResolvedLlmRoute | { error: string } => {
+  const parsed = parseModelReference(
+    normalizeDesktopLocalEngineModelReference(args.modelName),
+  );
+  if (!parsed || parsed.provider === STELLA_PROVIDER) {
+    return { error: `${args.modelName} isn't a model on your own key.` };
+  }
+  const direct = resolveDirectProviderRoute({
+    stellaAppDir: args.stellaAppDir,
+    provider: parsed.provider,
+    modelId: parsed.modelId,
+    fullModelId: parsed.fullModelId,
+  });
+  if (direct.kind === "route") return direct.route;
+  return {
+    error: formatLlmRouteFailure({
+      kind: direct.kind,
+      provider: parsed.provider,
+      model: parsed.fullModelId,
+    }),
+  };
+};
+
 export const canResolveLlmRoute = (args: {
   stellaAppDir: string;
   modelName: string | undefined;

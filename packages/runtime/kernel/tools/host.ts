@@ -38,6 +38,7 @@ import {
 
 import { log, logError, recoverStaleSecretFiles } from "./utils.js";
 import {
+  buildAgentShellEnvironment,
   createShellState,
   listRunningShellSessionsOwnedBy,
   readShellExitSnapshot,
@@ -795,6 +796,9 @@ export const createToolHost = ({
     getToolCatalog,
     getHandlerNames: () => Object.keys(handlers),
     getShells: () => Array.from(shellState.shells.values()),
+    /** Stella's managed-shell environment, for CLIs that bring their own shell. */
+    buildAgentShellEnvironment: (context: ToolContext, cwd: string) =>
+      buildAgentShellEnvironment(shellState, context, cwd),
     /**
      * Session ids still running, optionally scoped to the sessions a run
      * touched. Shells outlive the run that started them by design (see the

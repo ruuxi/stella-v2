@@ -38,6 +38,9 @@ import {
   type ExecutionPlacementInboxRow,
 } from "./execution-placement-inbox.js";
 import { ExecutionPlacementLeases } from "./execution-placement-leases.js";
+
+// Existing importers still open the inbox through the bridge module.
+export { ExecutionPlacementInbox };
 import {
   forkDelayed,
   forkInterval,

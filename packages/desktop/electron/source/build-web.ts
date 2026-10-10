@@ -66,12 +66,31 @@ export type WebBuildOptions = {
   env: RendererEnv;
   cacheDir: string;
   log?: (message: string) => void;
+  staticHome?: boolean;
 };
 
 const NEW_URL = /new\s+URL\(\s*(["'])([^"'\n]+)\1\s*,\s*import\.meta\.url\s*\)/g;
 const CSS_URL = /url\(\s*(['"]?)([^'")]+)\1\s*\)/g;
 const LAUNCH_RESCUE =
   /    <div id="stella-launch"[\s\S]*?<script src="[^"\n]*\/stella-launch-rescue\.js"><\/script>\s*/;
+
+const FUN_GREETINGS = /const FUN_GREETINGS = (\[[\s\S]*?\]);/;
+const FUN_GREETING_CHANCE = /const FUN_GREETING_CHANCE = ([0-9.]+);/;
+
+const staticHomeMarkup = (uiRoot: string, log: (message: string) => void): string => {
+  const partial = fs.readFileSync(path.join(uiRoot, "web-static-home.html"), "utf8");
+  const home = fs.readFileSync(path.join(uiRoot, "src", "app", "home", "HomeContent.jsx"), "utf8");
+  let greetings: string[] = [];
+  try {
+    greetings = JSON.parse(FUN_GREETINGS.exec(home)?.[1]?.replace(/,\s*\]$/, "]") ?? "[]");
+  } catch {
+    log("[web-build] HomeContent's greetings were not found; the static Home uses the time of day only.");
+  }
+  const chance = Number(FUN_GREETING_CHANCE.exec(home)?.[1] ?? 0);
+  return partial
+    .replace("__STELLA_FUN_GREETINGS__", () => JSON.stringify(greetings))
+    .replace("__STELLA_FUN_GREETING_CHANCE__", () => String(Number.isFinite(chance) ? chance : 0));
+};
 
 const isExternalUrl = (value: string) =>
   !value || value.startsWith("#") || value.startsWith("//") || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value);
@@ -130,19 +149,28 @@ export const buildWebRenderer = async (options: WebBuildOptions): Promise<{ file
     return exists(file) ? `${emitAsset(file)}${suffix}` : null;
   };
 
-  const rewriteCssUrls = (css: string, fromFile: string) =>
+  const rewriteCssUrls = (css: string, fromFile: string, prefix = "") =>
     css.replace(CSS_URL, (match, quote: string, reference: string) => {
       const rewritten = rewriteReference(reference, fromFile);
-      return rewritten === null ? match : `url(${quote}${rewritten}${quote})`;
+      return rewritten === null ? match : `url(${quote}${prefix}${rewritten}${quote})`;
     });
 
-  const stylesheet = async (file: string): Promise<string> => {
-    const source = await fs.promises.readFile(file, "utf8");
-    const css = isTailwindStylesheet(source)
-      ? await createTailwindBuild({ tools, file, root: uiRoot }).build(source)
-      : source;
-    return rewriteCssUrls(css, file);
+  const compiledCss = new Map<string, Promise<string>>();
+  const compileStylesheet = (file: string): Promise<string> => {
+    let compiled = compiledCss.get(file);
+    if (!compiled) {
+      compiled = fs.promises.readFile(file, "utf8").then((source) =>
+        isTailwindStylesheet(source) ? createTailwindBuild({ tools, file, root: uiRoot }).build(source) : source,
+      );
+      compiledCss.set(file, compiled);
+    }
+    return compiled;
   };
+
+  const stylesheet = async (file: string, prefix = ""): Promise<string> =>
+    rewriteCssUrls(await compileStylesheet(file), file, prefix);
+
+  const linkedCss = new Set<string>();
 
   const rolldownOptions = (input: Record<string, string>) => ({
     input,
@@ -216,6 +244,7 @@ export const buildWebRenderer = async (options: WebBuildOptions): Promise<{ file
       if (id.startsWith("\0")) return null;
       const ext = path.extname(id).toLowerCase();
       if (ext === ".css") {
+        if (linkedCss.has(id)) return { code: "export default \"\";\n", moduleType: "js" as const };
         return { code: cssModule(await stylesheet(id), toPosix(path.relative(repoRoot, id))), moduleType: "js" as const };
       }
       if (SOURCE_EXTENSIONS.has(ext) || ext === ".cjs" || ext === ".json") {
@@ -227,6 +256,33 @@ export const buildWebRenderer = async (options: WebBuildOptions): Promise<{ file
     },
   };
 
+  const entryStylesheets = async (entryFile: string): Promise<string[]> => {
+    const probe = await tools.rolldown(rolldownOptions({ main: entryFile }));
+    let probeOutput;
+    try {
+      ({ output: probeOutput } = await probe.generate({ format: "esm" }));
+    } finally {
+      await probe.close();
+    }
+    const chunks = new Map(
+      probeOutput.flatMap((item) => (item.type === "chunk" ? [[item.fileName, item] as const] : [])),
+    );
+    const evaluated = new Set<string>();
+    const stylesheets: string[] = [];
+    const evaluate = (fileName: string) => {
+      const chunk = chunks.get(fileName);
+      if (!chunk || evaluated.has(fileName)) return;
+      evaluated.add(fileName);
+      for (const imported of chunk.imports) evaluate(imported);
+      for (const id of chunk.moduleIds) {
+        if (path.extname(id).toLowerCase() === ".css") stylesheets.push(id);
+      }
+    };
+    const entry = [...chunks.values()].find((chunk) => chunk.isEntry);
+    if (entry) evaluate(entry.fileName);
+    return stylesheets;
+  };
+
   // The entry, from the page's module script.
   const htmlFile = path.join(uiRoot, "index.html");
   let html = fs.readFileSync(htmlFile, "utf8");
@@ -235,6 +291,9 @@ export const buildWebRenderer = async (options: WebBuildOptions): Promise<{ file
   if (!entryTag || !entryFile) throw new Error("index.html has no module script entry.");
 
   const startedAt = Date.now();
+  const criticalCss = options.staticHome ? await entryStylesheets(entryFile) : [];
+  for (const id of criticalCss) linkedCss.add(id);
+
   const bundle = await tools.rolldown(rolldownOptions({ main: entryFile }));
   let output;
   try {
@@ -287,15 +346,20 @@ export const buildWebRenderer = async (options: WebBuildOptions): Promise<{ file
     }
   };
   const backend = originOf(options.env.VITE_STELLA_BACKEND_URL);
+  const linkedStylesheet = criticalCss.length
+    ? emitFile("app.css", Buffer.from((await Promise.all(criticalCss.map((id) => stylesheet(id, "../")))).join("\n")))
+    : null;
+  if (options.staticHome) {
+    const markup = staticHomeMarkup(uiRoot, log);
+    html = html.replace(/(\s*)<div id="root">/, (match, indent: string) => `${indent}${markup.trim().split("\n").join(indent)}${match}`);
+  }
+  const entryTags = [
+    `<script type="module" crossorigin src="./${entry.fileName}"></script>`,
+    ...[...preload].map((fileName) => `<link rel="modulepreload" crossorigin href="./${fileName}">`),
+  ];
   html = html
     .replace(LAUNCH_RESCUE, "")
-    .replace(
-      entryTag[0],
-      [
-        `<script type="module" crossorigin src="./${entry.fileName}"></script>`,
-        ...[...preload].map((fileName) => `<link rel="modulepreload" crossorigin href="./${fileName}">`),
-      ].join("\n    "),
-    )
+    .replace(entryTag[0], () => (options.staticHome ? "" : entryTags.join("\n    ")))
     .replace(/<style>([\s\S]*?)<\/style>/g, (_match, css: string) => `<style>${rewriteCssUrls(css, htmlFile)}</style>`)
     .replace(/(<(?:link|script|img)\b[^>]*?\s(?:href|src)=")(\/[^"]*)"/g, (match, head: string, reference: string) => {
       const rewritten = rewriteReference(reference, htmlFile);
@@ -305,9 +369,17 @@ export const buildWebRenderer = async (options: WebBuildOptions): Promise<{ file
       "</head>",
       [
         ...(backend ? [`  <link rel="preconnect" href="${backend}" crossorigin="anonymous">`] : []),
+        ...(linkedStylesheet ? [`  <link rel="stylesheet" href="./${linkedStylesheet}">`] : []),
+        ...(options.staticHome ? entryTags.map((tag) => `  ${tag}`) : []),
         "</head>",
       ].join("\n  "),
     );
+  if (options.staticHome) {
+    const hashes = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(
+      (match) => `'sha256-${createHash("sha256").update(match[1]!).digest("base64")}'`,
+    );
+    html = html.replace(/(<meta\s+http-equiv="Content-Security-Policy"\s+content="[^"]*?script-src )/, (match) => `${match}${hashes.join(" ")} `);
+  }
   fs.writeFileSync(path.join(outDir, "index.html"), html);
 
   // Static files, and pdf.js's worker from the copy react-pdf imports.

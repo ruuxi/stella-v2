@@ -1,0 +1,115 @@
+<style>
+  #stella-static-home {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483000;
+    background: var(--background);
+  }
+  #stella-static-home[data-leaving] {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 160ms ease;
+  }
+  #stella-static-home textarea {
+    color: var(--text-strong);
+  }
+</style>
+<div id="stella-static-home" aria-label="Stella">
+  <div class="app window-full">
+    <div class="window-shell full" data-window-mode="app">
+      <div class="full-body">
+        <div class="content-area">
+          <div class="persistent-chat-surface persistent-chat-surface--active">
+            <div class="full-body-row">
+              <div class="full-body-home-overlay full-body-main--home">
+                <div class="home-content">
+                  <h1 class="home-stella-title" id="stella-static-home-greeting"></h1>
+                  <div class="composer-wrap">
+                    <div class="composer">
+                      <div class="composer-context-peek-anchor"><div class="composer-context-lead-row"></div></div>
+                      <div class="composer-shell" style="height: 46px; border-radius: 46px">
+                        <div class="composer-shell-content">
+                          <form class="composer-form">
+                            <button type="button" tabindex="-1" class="chat-composer-icon-button chat-composer-icon-button--add composer-add-button" title="Add"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="stella-icon stella-icon-plus"><path d="M12 5.5v13M5.5 12h13"></path></svg></button>
+                            <div class="composer-model-mention-field">
+                              <textarea class="chat-composer-field chat-composer-textarea composer-model-mention-textarea composer-input" placeholder="Do anything" rows="1" aria-label="Message Stella"></textarea>
+                            </div>
+                            <div class="composer-toolbar">
+                              <div class="composer-toolbar-left">
+                                <button type="button" tabindex="-1" class="chat-composer-icon-button chat-composer-icon-button--add composer-add-button composer-add-button--toolbar" title="Add"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="stella-icon stella-icon-plus"><path d="M12 5.5v13M5.5 12h13"></path></svg></button>
+                              </div>
+                              <div class="composer-toolbar-right">
+                                <div class="composer-voice-controls">
+                                  <button type="button" tabindex="-1" class="chat-composer-icon-button chat-composer-icon-button--mic composer-mic" title="Start dictation" aria-label="Start dictation"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="stella-icon stella-icon-mic"><rect x="9.25" y="3" width="5.5" height="11" rx="2.75"></rect><path d="M5.75 11.5a6.25 6.25 0 0 0 12.5 0M12 17.75V21"></path></svg></button>
+                                </div>
+                                <button type="submit" tabindex="-1" class="chat-composer-icon-button chat-composer-icon-button--submit composer-submit" disabled style="opacity: 0.4; transform: scale(0.92)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="stella-icon stella-icon-arrow-up"><path d="M12 19.5v-15M5.5 11 12 4.5 18.5 11"></path></svg></button>
+                              </div>
+                            </div>
+                          </form>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  (function () {
+    var shell = document.getElementById("stella-static-home");
+    if (!shell) return;
+    var params = new URLSearchParams(window.location.search);
+    var surface = null;
+    try {
+      surface = window.localStorage.getItem("stella.chatHomeSurface");
+    } catch (error) {}
+    if (
+      surface === "chat" ||
+      params.get("mobile") === "1" ||
+      params.get("window") === "mini" ||
+      document.documentElement.getAttribute("data-platform") === "mobile"
+    ) {
+      shell.remove();
+      return;
+    }
+    try {
+      var snapshot = JSON.parse(window.localStorage.getItem("stella:static-home:root") || "null");
+      if (snapshot && typeof snapshot === "object") {
+        for (var name in snapshot) {
+          if (typeof snapshot[name] === "string") document.documentElement.setAttribute(name, snapshot[name]);
+        }
+      }
+    } catch (error) {}
+    var funGreetings = __STELLA_FUN_GREETINGS__;
+    var hour = new Date().getHours();
+    var greeting = { kind: "time" };
+    var text =
+      hour < 5 ? "Good night"
+      : hour < 12 ? "Good morning"
+      : hour < 17 ? "Good afternoon"
+      : hour < 21 ? "Good evening"
+      : "Good night";
+    if (funGreetings.length > 0 && Math.random() < __STELLA_FUN_GREETING_CHANCE__) {
+      text = funGreetings[Math.floor(Math.random() * funGreetings.length)];
+      greeting = { kind: "fun", text: text };
+    }
+    window.__stellaStaticGreeting = greeting;
+    document.getElementById("stella-static-home-greeting").textContent = text;
+    var draft = shell.querySelector("textarea");
+    draft.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) event.preventDefault();
+    });
+    window.__stellaStaticHomeKeepInput = function (event) {
+      var target = event.target;
+      if (!target || !target.closest || !target.closest("#root")) return;
+      if (target.matches("textarea.chat-composer-textarea")) shell.dataset.appFocused = "true";
+      draft.focus({ preventScroll: true });
+    };
+    document.addEventListener("focusin", window.__stellaStaticHomeKeepInput, true);
+  })();
+</script>

@@ -57,6 +57,13 @@ const FUN_GREETINGS = [
 // Probability the greeting is a random fun message instead of the time-of-day greeting.
 const FUN_GREETING_CHANCE = 0.25;
 function pickInitialGreetingState() {
+    const fromStaticHome = typeof window === "undefined" ? undefined : window.__stellaStaticGreeting;
+    if (fromStaticHome?.kind === "fun" && typeof fromStaticHome.text === "string") {
+        return { kind: "fun", text: fromStaticHome.text };
+    }
+    if (fromStaticHome?.kind === "time") {
+        return { kind: "time" };
+    }
     if (Math.random() < FUN_GREETING_CHANCE) {
         const idx = Math.floor(Math.random() * FUN_GREETINGS.length);
         return { kind: "fun", text: FUN_GREETINGS[idx] };

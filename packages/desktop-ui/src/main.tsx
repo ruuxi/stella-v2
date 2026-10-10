@@ -23,6 +23,9 @@ if (import.meta.env.VITE_STELLA_WEB_BUILD === "1") {
   void import("./platform/web-renderer-switch").then((module) =>
     module.startWebRendererSwitch(),
   );
+  void import("./platform/web-static-home").then((module) =>
+    module.adoptStaticHome(),
+  );
 }
 
 document.documentElement.dataset.stellaWindow = "full";

@@ -1,11 +1,13 @@
 /**
  * Builds the renderer for the browser (see `electron/source/build-web.ts`).
  *
- *   bun packages/desktop/scripts/build-web-renderer.ts [--out <dir>]
+ *   bun packages/desktop/scripts/build-web-renderer.ts [--out <dir>] [--static-home]
  *
  * Runs against the checkout it lives in. The default output is the website's
  * `public/chat-app/`; the desktop passes its own directory when it builds a
- * fork's renderer for upload.
+ * fork's renderer for upload. `--static-home` puts the static Home
+ * (desktop-ui/web-static-home.html) in the page and links the entry's
+ * stylesheets from it, for the shared build only.
  */
 
 import path from "node:path";
@@ -26,5 +28,6 @@ const { files } = await buildWebRenderer({
   env: webBuildEnv(path.join(repoRoot, "packages", "desktop-ui")),
   cacheDir: path.join(repoRoot, "node_modules", ".cache", "stella-web-build"),
   log: (message) => console.log(message),
+  staticHome: process.argv.includes("--static-home"),
 });
 console.log(`Wrote ${files.length} files to ${path.relative(process.cwd(), outDir) || "."}`);

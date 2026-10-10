@@ -9,14 +9,6 @@ import {
 import { createKernelRunSupervisor } from "../kernel/runner/supervision/run-supervisor.js";
 import { BackgroundCompactionScheduler } from "../kernel/agent-runtime/compaction-scheduler.js";
 import {
-  executePreparedToolCall,
-  type PreparedToolCall,
-} from "../kernel/agent-core/agent-loop.js";
-import type {
-  AgentTool,
-  AgentToolResult,
-} from "../kernel/agent-core/types.js";
-import {
   LocalAgentManager,
   type AgentLifecycleEvent,
 } from "../kernel/agents/local-agent-manager.js";
@@ -475,82 +467,5 @@ describe("BackgroundCompactionScheduler shutdown", () => {
     });
     expect(ran).toBe(false);
     expect(scheduler.pending("thread-b")).toBeNull();
-  });
-});
-
-describe("agent-loop pending tool teardown", () => {
-  const makePrepared = (execute: AgentTool["execute"]): PreparedToolCall => ({
-    kind: "prepared",
-    toolCall: {
-      type: "toolCall",
-      id: "tool-call-1",
-      name: "Bash",
-      arguments: {},
-    } as never,
-    tool: {
-      name: "Bash",
-      label: "Exec",
-      description: "test tool",
-      parameters: { type: "object", properties: {} } as never,
-      execute,
-    } as AgentTool,
-    args: {},
-  });
-
-  it("outer abort tears down a cooperative tool's child process and settles the pending call", async () => {
-    const { child, pid, exited } = await spawnHangingChild();
-    spawnedChildren.push(child);
-    const prepared = makePrepared(
-      (_id, _args, signal) =>
-        new Promise<AgentToolResult<unknown>>((_resolve, reject) => {
-          const teardown = () => {
-            child.kill("SIGKILL");
-            void exited.then(() =>
-              reject(new Error("Tool canceled by abort signal")),
-            );
-          };
-          if (signal?.aborted) return teardown();
-          signal?.addEventListener("abort", teardown, { once: true });
-        }),
-    );
-
-    const controller = new AbortController();
-    const outcomePromise = executePreparedToolCall(
-      prepared,
-      controller.signal,
-      vi.fn(),
-    );
-    expect(pidIsAlive(pid)).toBe(true);
-    controller.abort(new Error("Canceled"));
-
-    const outcome = await outcomePromise;
-    // The pending tool call settled as an error AND its child process is
-    // gone — the settlement waited for the tool's actual teardown.
-    expect(outcome.isError).toBe(true);
-    expect(pidIsAlive(pid)).toBe(false);
-  });
-
-  it("abandons an abort-ignoring tool after the bounded cancellation grace, not the full inactivity window", async () => {
-    const prepared = makePrepared(
-      () => new Promise<AgentToolResult<unknown>>(() => {}),
-    );
-    const controller = new AbortController();
-    const startedAt = Date.now();
-    const outcomePromise = executePreparedToolCall(
-      prepared,
-      controller.signal,
-      vi.fn(),
-      60_000,
-      100,
-    );
-    controller.abort(new Error("Canceled"));
-
-    const outcome = await outcomePromise;
-    expect(Date.now() - startedAt).toBeLessThan(5_000);
-    expect(outcome.isError).toBe(true);
-    const text = outcome.result.content
-      .map((part) => (part.type === "text" ? part.text : ""))
-      .join(" ");
-    expect(text).toContain("ignored cancellation");
   });
 });

@@ -38,13 +38,13 @@ vi.mock(
 );
 
 const completeSimpleCalls: Array<Record<string, unknown>> = [];
-vi.mock("@stella/runtime/ai/stream", () => ({
-  completeSimple: async (
-    model: unknown,
+vi.mock("@stella/runtime/kernel/llm-completion", () => ({
+  completeOnRoute: async (
+    route: { model: unknown },
     context: unknown,
     options: unknown,
   ) => {
-    completeSimpleCalls.push({ model, context, options });
+    completeSimpleCalls.push({ model: route.model, context, options });
     return { content: [{ type: "text", text: "relay summary" }] };
   },
   readAssistantText: () => "relay summary",

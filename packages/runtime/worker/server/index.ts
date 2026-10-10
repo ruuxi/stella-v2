@@ -12,6 +12,7 @@ import { localChatHandlers } from "./handlers/local-chat.js";
 import { voiceHandlers } from "./handlers/voice.js";
 import { runnerOpsHandlers } from "./handlers/runner-ops.js";
 import { discoveryHandlers } from "./handlers/discovery.js";
+import { piChatHandlers } from "./handlers/pi-chat.js";
 
 /**
  * The runtime worker server: per-domain Effect services composed at this
@@ -47,6 +48,7 @@ export const createRuntimeWorkerServer = (
     ...voiceHandlers,
     ...runnerOpsHandlers,
     ...discoveryHandlers,
+    ...piChatHandlers,
   });
 
   // Warm the base layer so the sync hasActiveWork path never has to build it.

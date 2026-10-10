@@ -42,7 +42,7 @@ import { tapLight, tapMedium } from "./haptics";
 import {
   startDictationMeter,
   stopDictationMeter,
-  updateDictationMeter,
+  pushDictationLevels,
 } from "./dictation-meter";
 
 /** Minimum elapsed time before we bother round-tripping audio to the server. */
@@ -299,6 +299,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
       };
       capture = current;
       captureRef.current = current;
+      const sliceLevels = createLevelSlicer();
       const emitter = new LegacyEventEmitter(AudioStudioModule);
       audioSubscriptionRef.current = emitter.addListener<{
         encoded?: string;
@@ -310,7 +311,7 @@ export function useDictation(options: UseDictationOptions): UseDictationResult {
         if (!audio) return;
         const bytes = audioEventToPcm16(audio);
         if (bytes.byteLength === 0) return;
-        updateDictationMeter(pcm16PeakLevel(bytes));
+        pushDictationLevels(sliceLevels(bytes));
         if (current.full) return;
         if (current.live) {
           current.bytes += bytes.byteLength;
@@ -572,19 +573,39 @@ const audioEventToPcm16 = (
 
 /** Samples per RMS window: 8 ms at 16 kHz, close to desktop's worklet frame. */
 const LEVEL_FRAME_SAMPLES = 128;
+/** Samples per waveform bar: 80 ms at 16 kHz, desktop's level cadence. */
+const LEVEL_SLICE_SAMPLES = (DICTATION_SAMPLE_RATE * 80) / 1000;
 /** RMS during normal speech sits around 0.05–0.15; desktop's `LEVEL_GAIN`. */
 const LEVEL_GAIN = 6;
 
 /**
- * Peak RMS across short windows of the chunk, on desktop's 0..1 scale. The
- * native recorder hands over ~100 ms at a time; one RMS over all of it
- * averages the syllables away and reads as a flat, sluggish waveform.
+ * Cuts the recorder's chunks into 80 ms slices and returns one 0..1 level per
+ * slice: the peak RMS across short windows, on desktop's scale (one RMS over
+ * the whole slice averages the syllables away). A partial slice at the end of
+ * a chunk is carried into the next, so the bar rate matches the audio exactly
+ * whatever size the recorder's chunks are.
  */
-const pcm16PeakLevel = (bytes: ArrayBuffer): number => {
-  const samples = new Int16Array(bytes);
+const createLevelSlicer = () => {
+  let carry = new Int16Array(0);
+  return (bytes: ArrayBuffer): number[] => {
+    const incoming = new Int16Array(bytes);
+    const samples = new Int16Array(carry.length + incoming.length);
+    samples.set(carry, 0);
+    samples.set(incoming, carry.length);
+    const levels: number[] = [];
+    let start = 0;
+    for (; start + LEVEL_SLICE_SAMPLES <= samples.length; start += LEVEL_SLICE_SAMPLES) {
+      levels.push(peakLevel(samples, start, start + LEVEL_SLICE_SAMPLES));
+    }
+    carry = samples.slice(start);
+    return levels;
+  };
+};
+
+const peakLevel = (samples: Int16Array, from: number, to: number): number => {
   let peak = 0;
-  for (let start = 0; start < samples.length; start += LEVEL_FRAME_SAMPLES) {
-    const end = Math.min(samples.length, start + LEVEL_FRAME_SAMPLES);
+  for (let start = from; start < to; start += LEVEL_FRAME_SAMPLES) {
+    const end = Math.min(to, start + LEVEL_FRAME_SAMPLES);
     let sum = 0;
     for (let i = start; i < end; i += 1) {
       const sample = samples[i]! / 0x8000;

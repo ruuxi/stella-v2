@@ -44,7 +44,7 @@ import {
 import { CONVERSATION_TITLE_MAX } from "@stella/contracts/backend/conversations";
 import { OWNER_GENERATION_STALE } from "@stella/contracts/backend/protocol";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import type { CloudBrowserResumeReceipt } from "@stella/contracts/cloud-browser";
+import type { CloudAgentLifecycleCard } from "@stella/contracts/cloud-agent-lifecycle";
 import type {
   ThreadCompletedEvent,
   ThreadSpawnedEvent,
@@ -253,6 +253,79 @@ const sha256Hex = async (text: string): Promise<string> =>
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
 
+// ── Journal records of agents no turn reports ─────────────────────────────
+
+/** Report text a terminal card carries: enough to say what happened, not the report. */
+const CARD_REPORT_MAX_CHARS = 2_000;
+
+/**
+ * The lifecycle card of one attempt of an agent the conversation's own turns
+ * do not report: a computer's agent (`computerThreads.*`), or a cloud agent a
+ * desktop started, whose report goes to that desktop rather than waking the
+ * conversation. The conversation's running-agent list (what a phone's top bar
+ * counts) is folded from its journal, so without these an agent that ended
+ * without a wake prompt (paused, or canceled when Stella quit) read as running
+ * for good.
+ */
+const agentLifecycleCard = (
+  row: ThreadRow,
+  outcome: { kind: "started" } | { kind: "completed" | "failed" | "canceled"; text?: string | null },
+): { sourceTurnId: string; card: CloudAgentLifecycleCard } => {
+  const identity = { agentId: row.thread_id, attemptGeneration: row.attempt_generation };
+  const eventId = `thread:${row.thread_id}:${row.attempt_generation}:${outcome.kind === "started" ? "started" : "terminal"}`;
+  const text = outcome.kind === "started" ? "" : clip(outcome.text?.trim() ?? "", CARD_REPORT_MAX_CHARS);
+  return {
+    sourceTurnId: `thread:${row.thread_id}:${row.attempt_generation}`,
+    card: {
+      type: "agent-lifecycle",
+      eventId,
+      event:
+        outcome.kind === "started"
+          ? {
+              type: "agent-started",
+              payload: { ...identity, description: row.description, agentType: row.agent_type },
+            }
+          : outcome.kind === "completed"
+            ? { type: "agent-completed", payload: { ...identity, result: text } }
+            : {
+                type: outcome.kind === "failed" ? "agent-failed" : "agent-canceled",
+                payload: { ...identity, ...(text ? { error: text } : {}) },
+              },
+    },
+  };
+};
+
+/** The cloud conversation whose journal shows a thread, or null for one kept on a computer. */
+const journalConversationOf = (db: OwnerDbReader, row: ThreadRow): string | null => {
+  const conversationId = row.origin_conversation_id ?? row.conversation_id;
+  return db.one<{ conversation_id: string }>(
+    "SELECT conversation_id FROM conversations WHERE conversation_id = ? AND deleted_at IS NULL",
+    conversationId,
+  )
+    ? conversationId
+    : null;
+};
+
+/**
+ * Post one attempt's card to the conversation's journal. Best effort, as every
+ * card is. A subagent's are not posted: the conversation counts the agents
+ * Stella started, as its own turns list them.
+ */
+const postAgentLifecycleCard = async (
+  ctx: OwnerContext,
+  row: ThreadRow,
+  outcome: Parameters<typeof agentLifecycleCard>[1],
+): Promise<void> => {
+  if (row.parent_thread_id !== null) return;
+  const conversationId = journalConversationOf(ctx.db, row);
+  if (!conversationId || !row.owner_generation) return;
+  await ctx.host.postConversationCard({
+    conversationId,
+    ownerGeneration: row.owner_generation,
+    ...agentLifecycleCard(row, outcome),
+  });
+};
+
 // ── Fences ────────────────────────────────────────────────────────────────
 
 const assertGeneration = async (ctx: OwnerContext, ownerGeneration: string): Promise<void> => {
@@ -281,8 +354,6 @@ type DispatchJob = {
   turnId: string;
   attemptGeneration: number;
   attempt: number;
-  /** The hosted-browser answer this attempt resumes with. */
-  browserResume?: CloudBrowserResumeReceipt;
   availabilityRetries?: number;
 };
 
@@ -349,7 +420,6 @@ const runDispatch = async (ctx: OwnerContext, job: DispatchJob): Promise<void> =
         ? { originConversationId: thread.origin_conversation_id }
         : {}),
       ...(thread.parent_thread_id ? { parentThreadId: thread.parent_thread_id } : {}),
-      ...(job.browserResume ? { browserResume: job.browserResume } : {}),
     });
     ctx.db.run("DELETE FROM agent_dispatch_prompts WHERE turn_id = ?", turn.turn_id);
   } catch (error) {
@@ -584,7 +654,6 @@ const settleDeviceAttempt = async (
       ownerGeneration: thread.owner_generation ?? "",
       conversationId: thread.conversation_id,
       threadId: thread.thread_id,
-      ...(thread.parent_thread_id ? { parentThreadId: thread.parent_thread_id } : {}),
       attemptGeneration: thread.attempt_generation,
       description: thread.description,
       status,
@@ -902,7 +971,6 @@ const startAttempt = (
     fingerprint: string;
     prompt: string;
     attachments?: readonly string[];
-    browserResume?: CloudBrowserResumeReceipt;
   },
 ): void => {
   ctx.db.run(
@@ -934,7 +1002,6 @@ const startAttempt = (
       turnId: input.turnId,
       attemptGeneration: input.thread.attempt_generation,
       attempt: 1,
-      ...(input.browserResume ? { browserResume: input.browserResume } : {}),
     } satisfies DispatchJob,
     { id: `dispatch:${input.turnId}` },
   );
@@ -1151,6 +1218,8 @@ const continueFromDesktop = async (
     }
     const steered = await ctx.host.steerAgentTurn({
       threadId: thread.thread_id,
+      conversationId: thread.conversation_id,
+      ownerGeneration: args.ownerGeneration,
       messageId: args.controlRequestId,
       text: args.prompt,
     });
@@ -1369,9 +1438,10 @@ const deliverAgentMessage = async (
     }
     const steered = await ctx.host.steerAgentTurn({
       threadId: to,
+      conversationId: thread.conversation_id,
+      ownerGeneration: args.ownerGeneration,
       messageId: args.messageId,
       text: args.framed,
-      kind: "message",
     });
     if (steered) return { delivered: "steered", threadId: to };
     // Not running yet is not finished: superseding a queued first attempt
@@ -1593,78 +1663,6 @@ const flushDeviceMessages = (ctx: OwnerContext, raw: unknown): { scheduled: numb
   return { scheduled };
 };
 
-/**
- * Resume a thread parked on a hosted-browser wait as its next attempt, with
- * the browser's answer. False when that exact wait is no longer current.
- */
-export const resumeWaitingAgentThread = (
-  ctx: OwnerContext,
-  input: {
-    threadId: string;
-    attemptGeneration: number;
-    ownerGeneration: string;
-    clientMsgId: string;
-    browserResume: CloudBrowserResumeReceipt;
-  },
-): boolean => {
-  const thread = readThread(ctx.db, input.threadId);
-  if (
-    !thread ||
-    thread.status !== "waiting_for_user" ||
-    thread.attempt_generation !== input.attemptGeneration ||
-    thread.owner_generation !== input.ownerGeneration
-  ) {
-    return false;
-  }
-  ctx.db.run(
-    `UPDATE agent_turns SET status = 'completed', updated_at = ?
-      WHERE thread_id = ? AND attempt_generation = ? AND status = 'waiting_for_user'`,
-    ctx.now,
-    thread.thread_id,
-    thread.attempt_generation,
-  );
-  ctx.db.run(
-    `UPDATE agent_threads SET status = 'running', attempt_generation = ?,
-       result_json = NULL, error_message = NULL, updated_at = ?
-     WHERE thread_id = ?`,
-    thread.attempt_generation + 1,
-    ctx.now,
-    thread.thread_id,
-  );
-  const resumed = readThread(ctx.db, thread.thread_id)!;
-  startAttempt(ctx, {
-    thread: resumed,
-    turnId: crypto.randomUUID(),
-    clientMsgId: input.clientMsgId,
-    fingerprint: "browser-resume",
-    prompt: `[Browser ${input.browserResume.result}] ${input.browserResume.safeMessage}`,
-    browserResume: input.browserResume,
-  });
-  return true;
-};
-
-/** Cancel a thread parked on a hosted-browser wait (the browser profile was reset). */
-export const cancelWaitingAgentThread = (
-  ctx: OwnerContext,
-  input: { threadId: string; attemptGeneration: number; message: string },
-): void => {
-  ctx.db.run(
-    `UPDATE agent_turns SET status = 'canceled', updated_at = ?
-      WHERE thread_id = ? AND attempt_generation = ? AND status = 'waiting_for_user'`,
-    ctx.now,
-    input.threadId,
-    input.attemptGeneration,
-  );
-  ctx.db.run(
-    `UPDATE agent_threads SET status = 'canceled', error_message = ?, updated_at = ?
-      WHERE thread_id = ? AND attempt_generation = ? AND status = 'waiting_for_user'`,
-    clip(input.message, 2_000),
-    ctx.now,
-    input.threadId,
-    input.attemptGeneration,
-  );
-};
-
 type CancelArgs = AgentThreadCalls["agentThreads.cancel"]["args"];
 type CancelResult = AgentThreadCalls["agentThreads.cancel"]["result"];
 
@@ -1729,6 +1727,7 @@ const cancelThread = async (ctx: OwnerContext, args: CancelArgs): Promise<Cancel
   }
   const outcome = await ctx.host.cancelAgentTurn({
     threadId: thread.thread_id,
+    conversationId: thread.conversation_id,
     turnId: turn.turn_id,
     attemptGeneration: thread.attempt_generation,
     ownerGeneration: args.ownerGeneration,
@@ -1837,6 +1836,7 @@ const startComputerThread = async (
       ctx.now,
       existing.thread_id,
     );
+    await postAgentLifecycleCard(ctx, readThread(ctx.db, existing.thread_id)!, { kind: "started" });
     return { threadId: existing.thread_id };
   }
   if (args.attemptGeneration !== 1) {
@@ -1844,12 +1844,13 @@ const startComputerThread = async (
   }
   ctx.db.run(
     `INSERT INTO agent_threads
-       (thread_id, conversation_id, owner_generation, origin_device_id, origin_conversation_id,
+       (thread_id, conversation_id, owner_generation, parent_thread_id, origin_device_id, origin_conversation_id,
         description, placement, agent_type, attempt_generation, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'computer', ?, 1, 'running', ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'computer', ?, 1, 'running', ?, ?)`,
     args.threadId,
     args.conversationId,
     args.ownerGeneration,
+    args.parentThreadId ?? null,
     args.originDeviceId,
     args.conversationId,
     args.description,
@@ -1857,6 +1858,7 @@ const startComputerThread = async (
     ctx.now,
     ctx.now,
   );
+  await postAgentLifecycleCard(ctx, readThread(ctx.db, args.threadId)!, { kind: "started" });
   return { threadId: args.threadId };
 };
 
@@ -1892,6 +1894,10 @@ const completeComputerThread = async (
     ctx.now,
     row.thread_id,
   );
+  await postAgentLifecycleCard(ctx, row, {
+    kind: args.status,
+    text: args.status === "completed" ? args.result : args.error,
+  });
   return { updated: true, status: args.status };
 };
 
@@ -1904,12 +1910,14 @@ const cancelComputerThread = async (
   if (!row) throw new RpcError("NOT_FOUND", "That agent no longer exists.");
   if (row.attempt_generation !== args.attemptGeneration) return { canceled: false, status: row.status };
   if (row.status !== "running") return { canceled: true, status: row.status };
+  const reason = args.reason?.trim() || "Canceled on this computer.";
   ctx.db.run(
     "UPDATE agent_threads SET status = 'canceled', error_message = ?, updated_at = ? WHERE thread_id = ?",
-    args.reason?.trim() || "Canceled on this computer.",
+    reason,
     ctx.now,
     row.thread_id,
   );
+  await postAgentLifecycleCard(ctx, row, { kind: "canceled", text: reason });
   return { canceled: true, status: "canceled" };
 };
 
@@ -2024,21 +2032,6 @@ export const applyAgentThreadEvent = (
         }
         return;
       }
-      if (!event.terminal && event.eventKind === "waiting_for_user") {
-        db.run(
-          "UPDATE agent_turns SET status = 'waiting_for_user', updated_at = ? WHERE turn_id = ? AND status IN ('running', 'resuming')",
-          event.createdAt,
-          turn.turn_id,
-        );
-        db.run(
-          `UPDATE agent_threads SET status = 'waiting_for_user', updated_at = MAX(updated_at, ?)
-            WHERE thread_id = ? AND attempt_generation = ? AND status IN ('running', 'resuming')`,
-          event.createdAt,
-          turn.thread_id,
-          turn.attempt_generation,
-        );
-        return;
-      }
       if (event.terminal) {
         db.run(
           "UPDATE agent_turns SET status = ?, updated_at = ? WHERE turn_id = ? AND status IN ('running', 'resuming', 'waiting_for_user')",
@@ -2122,6 +2115,22 @@ export const applyAgentThreadEvent = (
         event.completedAt,
         thread.thread_id,
       );
+      // A desktop-dispatched thread reports through that desktop, which may
+      // be asleep: its conversation's journal still learns it ended.
+      const journalConversation =
+        thread.origin_device_id !== null && thread.parent_thread_id === null && event.status !== "waiting_for_user"
+          ? journalConversationOf(db, thread)
+          : null;
+      if (journalConversation && thread.owner_generation && event.status !== "waiting_for_user") {
+        effects.cards.push({
+          conversationId: journalConversation,
+          ownerGeneration: thread.owner_generation,
+          ...agentLifecycleCard(
+            { ...thread, attempt_generation: event.attemptGeneration },
+            { kind: event.status, text: event.status === "completed" ? null : event.errorMessage },
+          ),
+        });
+      }
       // A desktop-dispatched thread delivers through that desktop; any
       // other completed thread files its outputs under the turn that
       // started it, where both clients attribute them.
@@ -2366,6 +2375,7 @@ export const agentThreadsDomain = {
         description: string({ max: 1_000 }),
         agentType: string({ min: 1, max: 100 }),
         attemptGeneration: number({ int: true, min: 1 }),
+        parentThreadId: optional(id()),
       }),
       handler: startComputerThread,
     },
@@ -2400,6 +2410,27 @@ export const agentThreadsDomain = {
         await assertGeneration(ctx, args.ownerGeneration);
         const row = readComputerThread(ctx.db, args);
         return row ? computerRecord(row) : null;
+      },
+    },
+    "computerThreads.running": {
+      scope: "owner",
+      parse: object({ originDeviceId: id(256), ownerGeneration: generation }),
+      handler: async (ctx, args) => {
+        await assertGeneration(ctx, args.ownerGeneration);
+        return ctx.db
+          .all<Pick<ThreadRow, "thread_id" | "conversation_id" | "attempt_generation">>(
+            `SELECT thread_id, conversation_id, attempt_generation FROM agent_threads
+              WHERE placement = 'computer' AND origin_device_id = ? AND owner_generation = ? AND status = 'running'
+              ORDER BY updated_at DESC LIMIT ?`,
+            args.originDeviceId,
+            args.ownerGeneration,
+            RUNNING_AGENT_THREADS_LIMIT,
+          )
+          .map((row) => ({
+            threadId: row.thread_id,
+            conversationId: row.conversation_id,
+            attemptGeneration: row.attempt_generation,
+          }));
       },
     },
   },
@@ -2458,6 +2489,58 @@ export const agentThreadsDomain = {
       await agentDirectory(ctx, object({ ownerGeneration: generation, conversationId: id(256) })(raw)),
     "agentThreads.message": async (ctx, raw) => await messageAgent(ctx, messageParser(raw)),
     "agentThreads.flushDeviceMessages": flushDeviceMessages,
+    /**
+     * Where each of a conversation's agents stands in these records, for the
+     * conversation to settle the ones its journal still shows as running
+     * that already ended. Threads it does not know are left out.
+     */
+    "agentThreads.statuses": async (ctx, raw) => {
+      const args = object({
+        ownerGeneration: generation,
+        threadIds: array(id(256), { max: RUNNING_AGENT_THREADS_LIMIT }),
+      })(raw);
+      await assertGeneration(ctx, args.ownerGeneration);
+      return args.threadIds.flatMap((threadId) => {
+        const row = readThread(ctx.db, threadId);
+        return row
+          ? [
+              {
+                threadId,
+                status: row.status,
+                attemptGeneration: row.attempt_generation,
+                ...(row.error_message !== null ? { errorMessage: row.error_message } : {}),
+              },
+            ]
+          : [];
+      });
+    },
+    /**
+     * The threads a conversation lists as running: the ones whose cards it
+     * would show (`postAgentLifecycleCard`), read here rather than folded
+     * from the cards, which a lost post leaves running for good.
+     */
+    "agentThreads.runningIn": async (ctx, raw) => {
+      const args = object({ ownerGeneration: generation, conversationId: id(256) })(raw);
+      await assertGeneration(ctx, args.ownerGeneration);
+      return ctx.db
+        .all<ThreadRow>(
+          `SELECT * FROM agent_threads
+            WHERE (origin_conversation_id = ? OR (origin_conversation_id IS NULL AND conversation_id = ?))
+              AND parent_thread_id IS NULL AND status IN ${LIVE_STATUSES_SQL}
+            ORDER BY created_at ASC LIMIT ?`,
+          args.conversationId,
+          args.conversationId,
+          RUNNING_AGENT_THREADS_LIMIT,
+        )
+        .map((row) => ({
+          threadId: row.thread_id,
+          description: row.description,
+          agentType: row.agent_type,
+          attemptGeneration: row.attempt_generation,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        }));
+    },
   },
   jobs: {
     "agentThreads.dispatch": {

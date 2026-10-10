@@ -27,13 +27,39 @@ export type CloudTurnAttemptPaths = {
   input: string;
   /** The executor's authoritative result, written mode 0600. */
   result: string;
+  /**
+   * Messages for the running agent. The executor creates it once the agent
+   * can take them and renames it away when the agent stops taking them;
+   * BuildSession renames each message into it whole, so a message either
+   * lands while the agent takes messages or is refused.
+   */
+  inbox: string;
 };
 
 const pathsFor = (directory: string): CloudTurnAttemptPaths => ({
   directory,
   input: `${directory}/turn-input.json`,
   result: `${directory}/result.json`,
+  inbox: `${directory}/inbox`,
 });
+
+/** One inbox message's file: `{ "text": string }` as JSON. */
+export const CLOUD_TURN_INBOX_MESSAGE_PATTERN =
+  /^([0-9]{16})-([0-9a-f]{64})\.json$/u;
+
+/**
+ * Named by when it arrived (so the inbox reads in order) and the hash of the
+ * sender's message id (so a resent message is taken once).
+ */
+export const cloudTurnInboxMessageName = (
+  receivedAt: number,
+  messageIdHash: string,
+): string => {
+  if (!/^[0-9a-f]{64}$/u.test(messageIdHash)) {
+    throw new Error("Inbox message id hash is invalid.");
+  }
+  return `${String(Math.max(0, Math.floor(receivedAt))).padStart(16, "0")}-${messageIdHash}.json`;
+};
 
 /** BuildSession side: the directory for this thread's attempt. */
 export const cloudTurnAttemptPaths = (

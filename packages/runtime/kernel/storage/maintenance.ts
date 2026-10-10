@@ -1153,9 +1153,9 @@ export class DatabaseMaintenance {
   }
 
   /**
-   * Retention for durable runs: terminal `run_task` rows and unowned
-   * `tool_intent` rows older than 7 days. Both tables hold one row per run or
-   * tool call, so a pass is one indexed DELETE each; at most once per
+   * Retention for older builds' durable runs: terminal `run_task` rows and
+   * unowned `tool_intent` rows older than 7 days. Both tables hold one row per
+   * run or tool call, so a pass is one indexed DELETE each; at most once per
    * `RUN_ADMISSION_PRUNE_INTERVAL_MS` of idle ticks.
    */
   private pruneRunTasks(connection: SqliteDatabase): void {

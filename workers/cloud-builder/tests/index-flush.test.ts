@@ -148,51 +148,6 @@ describe("conversation index over owner events", () => {
     expect(outbox.events).toHaveLength(1);
   });
 
-  test("an old-epoch send cannot mark a rewound head synced", async () => {
-    const journal = await openJournal();
-    appendUser(journal, "turn-old", "old");
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    let started!: () => void;
-    const sendStarted = new Promise<void>((resolve) => {
-      started = resolve;
-    });
-    const index = new ConversationIndex(
-      journal,
-      () => undefined,
-      () => ({ ownerId: "owner-1", ownerGeneration: "generation-1" }),
-      {
-        enqueue: async () => {
-          started();
-          await gate;
-        },
-        purged: () => false,
-      },
-    );
-    const flushing = index.flush({ activity: "idle", updatedAt: 1 });
-    await sendStarted;
-    await journal.applyTruncate({
-      operationId: "operation-1",
-      throughSeq: -1,
-      expectedEpoch: 1,
-      expectedLastSeq: 0,
-      removedSegmentFirstSeqs: [],
-      purgeKeys: [],
-      retiredWriterKeys: [],
-      retiredTurnIds: ["turn-old"],
-      retiredAt: 2,
-      resultJson: JSON.stringify({ complete: true, nextEpoch: 2, lastSeq: -1 }),
-    });
-    release();
-
-    expect(await flushing).toEqual({ accepted: false });
-    expect(journal.meta().index_synced_seq).toBe(-1);
-    appendUser(journal, "turn-new", "new");
-    expect(index.lagging()).toBe(true);
-  });
-
   test("a purged session sends nothing", async () => {
     const journal = await openJournal();
     const outbox = fakeOwnerEvents();

@@ -96,10 +96,11 @@ describe("WorldStore in real Workerd", () => {
       firstChangeRevision: 1,
       secondChangeRevision: 2,
       idempotent: true,
-      changed: ["pushed.txt"],
       missing: [expect.stringMatching(/^[0-9a-f]{64}$/u)],
+      missingRevision: 2,
       pushed: [],
       pushRevision: 3,
+      pushPreviousRevision: 2,
       after: "pushed",
       tarName: "pushed.txt",
       tarContent: "pushed",
@@ -191,7 +192,7 @@ describe("WorldStore in real Workerd", () => {
       await fetch(`${origin}/route-push`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ entries }),
+        body: JSON.stringify({ entries, deleted: [] }),
       });
     const missing = (await (await listing()).json()) as {
       missingBlobs: string[];

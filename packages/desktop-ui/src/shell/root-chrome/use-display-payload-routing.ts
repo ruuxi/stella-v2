@@ -25,7 +25,7 @@ type UseDisplayPayloadRoutingResult = {
  *
  * Programmatic payloads register or refresh tabs without opening the
  * workspace panel. The panel should only open from an explicit user action
- * (toggle, keyboard/context-menu open, or clicking a resource/card).
+ * (toggle, keyboard open, or clicking a resource/card).
  * Also seeds the workspace panel with a stable Trash tab when the
  * previous agent run left files in deferred-delete trash, and wires
  * the owner-scoped media materializer so any media job gets surfaced

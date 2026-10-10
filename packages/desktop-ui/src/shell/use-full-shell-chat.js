@@ -1,4 +1,3 @@
-import { truncateLocalConversation, forkLocalConversation } from "@/features/chat/services/local-chat-store";
 import {
   useCallback,
   useEffect,
@@ -31,17 +30,15 @@ import { useChatHomeSurface } from "./use-chat-home-surface";
 import { useAgentInputRouting } from "./use-agent-input-routing";
 import { useConversationModelSelection } from "./use-conversation-model-selection";
 import { useStellaSendMessageBridge } from "./use-stella-send-message-bridge";
-import { composerDraftFromUserRow } from "@/app/chat/message-composer-restore";
 import { useChatStore } from "@/context/chat-store-context";
 import { useCloudChatBridge } from "@/features/cloud/use-cloud-chat-bridge";
+import { usePiChat } from "@/features/chat/pi/use-pi-chat";
+import { useTranscriptSourceHandoff } from "./use-transcript-source-handoff";
+import { piAgentActivityEvents } from "@/features/chat/pi/pi-chat-records";
 import { cloudAttachmentsStore } from "@/features/cloud/cloud-composer-store";
 import { useOwnDeviceRemoteCancel } from "@/features/cloud/use-own-device-remote-cancel";
-import { backendClient } from "@/platform/backend/backend-client";
-import { cloudPrefixBoundaryForUserMessage } from "@/features/cloud/use-cloud-chat-bridge";
-import { conversationStore } from "@/features/cloud/conversation-store";
-import { markCloudConversationCreated } from "@/features/cloud/cloud-conversation-selection";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
-import { showToast } from "@/ui/toast";
+import { acceptedUserMessageIds } from "@/features/chat/lib/accepted-user-message-ids";
 const MAX_RETAINED_TAB_STATE = 20;
 /**
  * How long, after opening/switching into a conversation that lands at the
@@ -49,8 +46,11 @@ const MAX_RETAINED_TAB_STATE = 20;
  * (agent cards, activity cards, images) settles and grows the scroll height.
  */
 const OPEN_BOTTOM_SETTLE_MS = 600;
+// Frames the height must hold still before an opening chat is shown.
+const OPEN_BOTTOM_STABLE_FRAMES = 3;
 const NO_NEWER_CLOUD_MESSAGES = () => false;
 const EMPTY_STREAMING_ASSISTANTS = [];
+const EMPTY_EVENTS = [];
 const hasNonWhitespaceText = (text) => text.trim().length > 0;
 const setBoundedTabMemory = (memory, conversationId, value) => {
   memory.delete(conversationId);
@@ -92,31 +92,13 @@ export const createConversationScrollMemoryCleanup = ({
     });
   };
 };
-const newConversationEditRequestId = () =>
-  typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `edit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-export const cloudConversationEditFailureMessage = (error, fallback) => {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message.trim();
-  }
-  return fallback;
-};
-const forkCloudConversation = (args) =>
-  backendClient.call("conversations.fork", args);
-const rewindCloudConversation = (args) =>
-  backendClient.call("conversations.rewind", args);
-
 export function useFullShellChat({
   activeConversationId,
   isOnChatRoute,
   traceEnabled,
-  navigateToConversation,
 }) {
   const { cloudFeaturesEnabled, isLocalStorage, storageMode } = useChatStore();
   const { accountScope } = useCloudConversationSession();
-  const activeAccountScopeRef = useRef(accountScope);
-  activeAccountScopeRef.current = accountScope;
   // Message state + always-current mirror ref, synced at WRITE time. The
   // dictate-and-submit commit is rAF-deferred and can fire before React
   // flushes the render that carries the appended transcript — a ref synced in
@@ -146,6 +128,13 @@ export function useFullShellChat({
   activeConversationIdRef.current = activeConversationId;
   const previousComposerConversationIdRef = useRef(activeConversationId);
   const restoredConversationScrollRef = useRef(null);
+  const [settledScrollConversationId, setSettledScrollConversationId] =
+    useState(null);
+  const markScrollSettled = useCallback((conversationId) => {
+    setSettledScrollConversationId((current) =>
+      current === conversationId ? current : conversationId,
+    );
+  }, []);
   // Text the onboarding hand-off asked to submit as soon as the composer can.
   const pendingAutoSendTextRef = useRef(null);
   // Auth scope is a hard renderer privacy boundary. Clear composer content,
@@ -248,6 +237,7 @@ export function useFullShellChat({
     taskDecorations: localTaskDecorations,
     optimisticEvents: localOptimisticEvents,
     acknowledgeMessages: acknowledgeLocalMessages,
+    admissionSettledIds: localAdmissionSettledIds,
     runtimeStatusText: localRuntimeStatusText,
     isCompacting: localIsCompacting,
     activeToolCallId: localActiveToolCallId,
@@ -272,9 +262,12 @@ export function useFullShellChat({
     () => buildActivityTasks(threadActivityRecords, localTaskDecorations),
     [threadActivityRecords, localTaskDecorations],
   );
+  // The chat runs on pi-durable in the runtime (unless the engine is Claude
+  // Code) and renders from there; the journal bridge stays off.
+  const piChat = usePiChat(activeConversationId);
   const cloudChat = useCloudChatBridge({
     conversationId: activeConversationId,
-    enabled: cloudFeaturesEnabled,
+    enabled: cloudFeaturesEnabled && !piChat.enabled,
     localMessages: localPersistedMessages,
     localActivities,
     localFiles: localPersistedFiles,
@@ -286,7 +279,43 @@ export function useFullShellChat({
     enabled: cloudFeaturesEnabled && isLocalStorage && !cloudChat.isWebShell,
     onCancel: localCancelCurrentStream,
   });
-  const persistedMessages = cloudChat.persistedMessages;
+  // On pi the transcript and its agents are the conversation's record:
+  // Activity lists the agents, Files the links in replies and agents' results.
+  const piActivities = useMemo(
+    () => piChat.enabled ? piAgentActivityEvents(threadActivityRecords) : EMPTY_EVENTS,
+    [piChat.enabled, threadActivityRecords],
+  );
+  const piFiles = useMemo(
+    () => piChat.enabled
+      ? [...piChat.replyFiles, ...piActivities.filter((event) => event.type === "agent-completed")]
+        .sort((a, b) => a.timestamp - b.timestamp)
+      : EMPTY_EVENTS,
+    [piChat.enabled, piChat.replyFiles, piActivities],
+  );
+  const journalState = cloudChat.conversation.state;
+  // `ready` names the head before its replay arrives: the journal is current
+  // once its rows reach that head.
+  const journalReady = cloudFeaturesEnabled
+    ? (journalState.recordsSource === "canonical" &&
+        (journalState.records.at(-1)?.seq ?? -1) >= journalState.headSeq) ||
+      journalState.status === "offline" ||
+      journalState.status === "blocked"
+    : !localMessageFeed.isInitialLoading;
+  // A model pick can move the chat between pi and the journal; the screen
+  // keeps the transcript it shows until the incoming source is current.
+  const transcript = useTranscriptSourceHandoff({
+    conversationId: activeConversationId,
+    source: piChat.enabled ? "pi" : "journal",
+    ready: piChat.enabled ? piChat.isSynced : journalReady,
+    transcript: {
+      messages: piChat.enabled
+        ? piChat.messages
+        : cloudChat.persistedMessages,
+      activities: piChat.enabled ? piActivities : cloudChat.activities,
+      files: piChat.enabled ? piFiles : cloudChat.files,
+    },
+  });
+  const persistedMessages = transcript.messages;
   // Cloud placement can acknowledge IPC before its journal reaches this
   // window. Keep pending sends working until canonical history takes over,
   // and retire their overlays even when no SQLite write occurs on this device.
@@ -294,21 +323,25 @@ export function useFullShellChat({
     acknowledgeLocalMessages(persistedMessages);
   }, [acknowledgeLocalMessages, persistedMessages, localOptimisticEvents]);
   const awaitingMessageAdmission = useMemo(() => {
-    const persistedIds = new Set(persistedMessages.map((message) => message._id));
+    const persistedIds = acceptedUserMessageIds(persistedMessages);
     return localOptimisticEvents.some((event) =>
-      event.type === "user_message" && !persistedIds.has(event._id));
-  }, [localOptimisticEvents, persistedMessages]);
-  const activities = cloudChat.activities;
-  const persistedFiles = cloudChat.files;
+      event.type === "user_message" &&
+      !persistedIds.has(event._id) &&
+      !localAdmissionSettledIds.has(event._id));
+  }, [localAdmissionSettledIds, localOptimisticEvents, persistedMessages]);
+  const activities = transcript.activities;
+  const persistedFiles = transcript.files;
   const tasks = cloudChat.tasks;
   const optimisticEvents = cloudChat.isWebShell
     ? cloudChat.optimisticEvents
     : localOptimisticEvents;
   // The web shell has no in-memory overlay: a cloud reply becomes visible when
   // its journal row commits, not before.
-  const streamingAssistants = cloudChat.isWebShell
-    ? EMPTY_STREAMING_ASSISTANTS
-    : localStreamingAssistants;
+  const streamingAssistants = piChat.enabled
+    ? piChat.streamingAssistants
+    : cloudChat.isWebShell
+      ? EMPTY_STREAMING_ASSISTANTS
+      : localStreamingAssistants;
   // Desktop placement stops owning a run when the cloud accepts it.
   // Follow the canonical turn while no local execution owns the controls.
   // Remember the canonical turn this window executed. Its live-clear frame
@@ -323,31 +356,49 @@ export function useFullShellChat({
   const localTurnHandedOff = !localIsStreaming && Boolean(cloudLiveTurnId) &&
     locallyOwnedCloudTurnRef.current === cloudLiveTurnId;
   const useCloudRun = cloudChat.isWebShell || (!localIsStreaming && cloudChat.isStreaming);
-  const runtimeStatusText = useCloudRun
-    ? cloudChat.runtimeStatusText
-    : localRuntimeStatusText;
-  const isCompacting = useCloudRun ? false : localIsCompacting;
-  const activeToolCallId = useCloudRun ? cloudChat.activeToolCallId : localActiveToolCallId;
-  const activeToolName = useCloudRun
-    ? (localTurnHandedOff ? null : cloudChat.activeToolName)
-    : localActiveToolName;
-  const latestCompletedTool = useCloudRun
+  const runtimeStatusText = piChat.enabled
+    ? piChat.runtimeStatusText
+    : useCloudRun
+      ? cloudChat.runtimeStatusText
+      : localRuntimeStatusText;
+  const isCompacting = piChat.enabled
+    ? piChat.isCompacting
+    : useCloudRun ? false : localIsCompacting;
+  const activeToolCallId = piChat.enabled
+    ? piChat.activeToolCallId
+    : useCloudRun ? cloudChat.activeToolCallId : localActiveToolCallId;
+  const activeToolName = piChat.enabled
+    ? piChat.activeToolName
+    : useCloudRun
+      ? (localTurnHandedOff ? null : cloudChat.activeToolName)
+      : localActiveToolName;
+  const latestCompletedTool = useCloudRun || piChat.enabled
     ? null
     : localLatestCompletedTool;
-  const hasToolActivity = useCloudRun
-    ? Boolean(cloudChat.activeToolName)
-    : localHasToolActivity;
-  const isToolActive = useCloudRun
-    ? Boolean(activeToolName)
-    : localIsToolActive;
-  const reasoningText = useCloudRun ? "" : localReasoningText;
-  const isStreaming = cloudChat.isStreaming || localIsStreaming || awaitingMessageAdmission;
+  const hasToolActivity = piChat.enabled
+    ? piChat.hasToolActivity
+    : useCloudRun
+      ? Boolean(cloudChat.activeToolName)
+      : localHasToolActivity;
+  const isToolActive = piChat.enabled
+    ? piChat.isToolActive
+    : useCloudRun
+      ? Boolean(activeToolName)
+      : localIsToolActive;
+  const reasoningText = useCloudRun || piChat.enabled ? "" : localReasoningText;
+  const isStreaming = piChat.enabled
+    ? piChat.isStreaming || awaitingMessageAdmission
+    : cloudChat.isStreaming || localIsStreaming || awaitingMessageAdmission;
   // The committed reply hands off before the terminal turn frame arrives.
   const answerLanded = !awaitingMessageAdmission &&
-    (useCloudRun ? (cloudChat.answerLanded || localTurnHandedOff) : localAnswerLanded);
-  const pendingUserMessageId = cloudChat.isWebShell
-    ? cloudChat.pendingUserMessageId
-    : localPendingUserMessageId;
+    (piChat.enabled
+      ? piChat.answerLanded
+      : useCloudRun ? (cloudChat.answerLanded || localTurnHandedOff) : localAnswerLanded);
+  const pendingUserMessageId = piChat.enabled
+    ? piChat.pendingUserMessageId
+    : cloudChat.isWebShell
+      ? cloudChat.pendingUserMessageId
+      : localPendingUserMessageId;
   const queuedUserMessages = cloudChat.isWebShell
     ? []
     : localQueuedUserMessages;
@@ -357,32 +408,44 @@ export function useFullShellChat({
   const sendMessage = cloudChat.isWebShell
     ? cloudChat.sendMessage
     : localSendMessage;
-  const cancelCurrentStream = useCloudRun
-    ? cloudChat.cancelCurrentStream
-    : localCancelCurrentStream;
+  const cancelCurrentStream = piChat.enabled
+    ? piChat.cancelCurrentStream
+    : useCloudRun
+      ? cloudChat.cancelCurrentStream
+      : localCancelCurrentStream;
   // Page only the selected history; local and cloud cursors never mix.
-  const hasOlderMessages = storageMode === "local"
-    ? localMessageFeed.hasOlderMessages
-    : cloudChat.conversation.state.hasOlder;
-  const hasNewerMessages = storageMode === "local"
+  const hasOlderMessages = piChat.enabled
+    ? piChat.hasOlderMessages
+    : storageMode === "local"
+      ? localMessageFeed.hasOlderMessages
+      : cloudChat.conversation.state.hasOlder;
+  const hasNewerMessages = storageMode === "local" && !piChat.enabled
     ? localMessageFeed.hasNewerMessages
     : false;
-  const isLoadingOlderMessages = storageMode === "local"
-    ? localMessageFeed.isLoadingOlder
-    : cloudChat.conversation.state.loadingOlder;
-  const isLoadingNewerMessages = storageMode === "local"
+  const isLoadingOlderMessages = piChat.enabled
+    ? piChat.isLoadingOlder
+    : storageMode === "local"
+      ? localMessageFeed.isLoadingOlder
+      : cloudChat.conversation.state.loadingOlder;
+  const isLoadingNewerMessages = storageMode === "local" && !piChat.enabled
     ? localMessageFeed.isLoadingNewer
     : false;
-  const isInitialLoadingMessages = storageMode === "local"
-    ? localMessageFeed.isInitialLoading
-    : cloudChat.isInitialLoading;
-  const loadOlderMessages = storageMode === "local"
-    ? localMessageFeed.loadOlder
-    : cloudChat.conversation.loadOlder;
-  const loadNewerMessages = storageMode === "local"
+  const isInitialLoadingMessages = transcript.holding
+    ? false
+    : piChat.enabled
+    ? piChat.isInitialLoading
+    : storageMode === "local"
+      ? localMessageFeed.isInitialLoading
+      : cloudChat.isInitialLoading;
+  const loadOlderMessages = piChat.enabled
+    ? piChat.loadOlderMessages
+    : storageMode === "local"
+      ? localMessageFeed.loadOlder
+      : cloudChat.conversation.loadOlder;
+  const loadNewerMessages = storageMode === "local" && !piChat.enabled
     ? localMessageFeed.loadNewer
     : NO_NEWER_CLOUD_MESSAGES;
-  const loadLatestMessages = storageMode === "local"
+  const loadLatestMessages = storageMode === "local" && !piChat.enabled
     ? localMessageFeed.loadLatest
     : NO_NEWER_CLOUD_MESSAGES;
   const hasOlderActivity = storageMode === "local"
@@ -394,13 +457,20 @@ export function useFullShellChat({
   const loadOlderActivity = storageMode === "local"
     ? localActivityFeed.loadOlder
     : cloudChat.loadOlderActivity;
-  const hasOlderFiles = storageMode === "local"
+  // Older replies' files come with the transcript's older pages.
+  const hasOlderFiles = piChat.enabled
+    ? piChat.hasOlderMessages
+    : storageMode === "local"
     ? localFileFeed.hasOlderFiles
     : cloudChat.conversation.state.hasOlder;
-  const isLoadingOlderFiles = storageMode === "local"
+  const isLoadingOlderFiles = piChat.enabled
+    ? piChat.isLoadingOlder
+    : storageMode === "local"
     ? localFileFeed.isLoadingOlder
     : cloudChat.conversation.state.loadingOlder;
-  const loadOlderFiles = storageMode === "local"
+  const loadOlderFiles = piChat.enabled
+    ? piChat.loadOlderMessages
+    : storageMode === "local"
     ? localFileFeed.loadOlder
     : cloudChat.conversation.loadOlder;
   // Visible chat timeline: SQLite-backed `persistedMessages` plus the
@@ -517,6 +587,9 @@ export function useFullShellChat({
       displayMessages.length === 0 ||
       restoredConversationScrollRef.current === activeConversationId
     ) {
+      if (restoredConversationScrollRef.current === activeConversationId) {
+        markScrollSettled(activeConversationId);
+      }
       return;
     }
     const conversationId = activeConversationId;
@@ -534,6 +607,7 @@ export function useFullShellChat({
           top: Math.min(remembered.scrollTop, maximumScrollTop),
           behavior: "instant",
         });
+        markScrollSettled(conversationId);
       } else {
         scrollToBottom("instant");
         // Agent cards, activity cards, and images near the bottom can
@@ -543,19 +617,33 @@ export function useFullShellChat({
         // Keep re-pinning to the end through that post-open settling
         // (until the height stops changing, a short window elapses, or
         // the user takes over) so we always end at the actual bottom.
+        //
+        // The timeline stays hidden (`isOpeningScroll`) until the height has
+        // held still for a few frames, so a reload or relaunch shows the
+        // chat already at the bottom instead of drawing it at the top and
+        // then scrolling down.
         let lastHeight = element ? element.scrollHeight : 0;
+        let stableFrames = 0;
         const deadline = performance.now() + OPEN_BOTTOM_SETTLE_MS;
         const settle = () => {
           settleRaf = null;
           const node = listRef.current?.getScrollableNode();
           // Bail once the user has scrolled away — never yank them back.
-          if (!node || !getIsFollowing()) return;
+          if (!node || !getIsFollowing()) {
+            markScrollSettled(conversationId);
+            return;
+          }
           if (node.scrollHeight !== lastHeight) {
             lastHeight = node.scrollHeight;
+            stableFrames = 0;
             void listRef.current?.scrollToEnd({ animated: false });
+          } else if (++stableFrames === OPEN_BOTTOM_STABLE_FRAMES) {
+            markScrollSettled(conversationId);
           }
           if (performance.now() < deadline) {
             settleRaf = window.requestAnimationFrame(settle);
+          } else {
+            markScrollSettled(conversationId);
           }
         };
         settleRaf = window.requestAnimationFrame(settle);
@@ -572,8 +660,13 @@ export function useFullShellChat({
     getIsFollowing,
     isInitialLoadingMessages,
     listRef,
+    markScrollSettled,
     scrollToBottom,
   ]);
+  const isOpeningScroll =
+    Boolean(activeConversationId) &&
+    displayMessages.length > 0 &&
+    settledScrollConversationId !== activeConversationId;
   const handleSend = useCallback(async () => {
     // Follow the send to the bottom whenever the freshest turn is on
     // screen — near/at bottom OR meaningfully scrolled up but still within
@@ -720,279 +813,6 @@ export function useFullShellChat({
     activeConversationId,
     enabled: true,
   });
-  // Per-user-message quick actions (Fork / Rewind) exposed to the deeply
-  // nested action row. The callbacks are stable and read live state
-  // through this ref, so every user row can consume them without
-  // re-rendering as conversation state churns.
-  const messageActionsStateRef = useRef(null);
-  const conversationEditInFlightRef = useRef(false);
-  const conversationEditOperationRef = useRef(null);
-  const forkRequestRef = useRef(null);
-  const rewindRequestRef = useRef(null);
-  useEffect(() => {
-    conversationEditInFlightRef.current = false;
-    conversationEditOperationRef.current = null;
-    forkRequestRef.current = null;
-    rewindRequestRef.current = null;
-  }, [accountScope]);
-  messageActionsStateRef.current = {
-    activeConversationId,
-    accountScope,
-    storageMode,
-    isStreaming,
-    cloudRecords: cloudChat.records,
-    cloudState: cloudChat.conversation.state,
-    forkCloudConversation,
-    rewindCloudConversation,
-    setMessage,
-    setChatContext,
-    setSelectedText,
-    navigateToConversation,
-    requestFocus: () => setComposerFocusRequestId((id) => id + 1),
-  };
-  // Rewind changes the canonical DO epoch at the sequence immediately before
-  // the target prompt, then seeds that prompt back into the same composer.
-  // SQLite is neither read nor written as mutation authority.
-  const rewindToUserMessage = useCallback((row) => {
-    const state = messageActionsStateRef.current;
-    if (!state) return;
-    if (state.isStreaming || conversationEditInFlightRef.current) return;
-    const conversationId = state.activeConversationId;
-    if (!conversationId || !row?.id) return;
-    if (state.storageMode === "local") {
-      conversationEditInFlightRef.current = true;
-      const draft = composerDraftFromUserRow(row);
-      void truncateLocalConversation(conversationId, row.id).then(() => {
-        if (activeConversationIdRef.current !== conversationId) return;
-        state.setMessage(draft.message);
-        state.setChatContext(draft.chatContext);
-        state.setSelectedText(null);
-        state.requestFocus();
-      }).catch((error) => showToast({ title: "Couldn’t rewind this message", description: String(error), variant: "error" }))
-        .finally(() => { conversationEditInFlightRef.current = false; });
-      return;
-    }
-    const boundary = cloudPrefixBoundaryForUserMessage(
-      state.cloudRecords,
-      row.id,
-    );
-    const head = state.cloudState;
-    if (!boundary) {
-      showToast({
-        title: "Couldn’t rewind this message",
-        description:
-          "This prompt has not reached the canonical cloud history yet. Reconnect and try again.",
-        variant: "error",
-      });
-      return;
-    }
-    if (
-      head.status !== "live" ||
-      head.conversationId !== conversationId ||
-      !Number.isSafeInteger(head.epoch) ||
-      !Number.isSafeInteger(head.headSeq) ||
-      head.headSeq < boundary.targetSeq
-    ) {
-      showToast({
-        title: "Cloud history is reconnecting",
-        description:
-          "Wait for the conversation to finish reconnecting, then try Rewind again.",
-        variant: "error",
-      });
-      return;
-    }
-    const draft = composerDraftFromUserRow(row);
-    const requestKey = `${conversationId}:${head.epoch}:${head.headSeq}:${boundary.throughSeq}`;
-    const requestId =
-      rewindRequestRef.current?.key === requestKey
-        ? rewindRequestRef.current.requestId
-        : newConversationEditRequestId();
-    rewindRequestRef.current = { key: requestKey, requestId };
-    const operation = { accountScope: state.accountScope, requestId };
-    conversationEditOperationRef.current = operation;
-    conversationEditInFlightRef.current = true;
-    void (async () => {
-      try {
-        await state.rewindCloudConversation({
-          conversationId,
-          throughSeq: boundary.throughSeq,
-          expectedEpoch: head.epoch,
-          expectedLastSeq: head.headSeq,
-          requestId,
-          activeTurnPolicy: "conflict",
-        });
-        if (
-          conversationEditOperationRef.current !== operation ||
-          activeAccountScopeRef.current !== operation.accountScope
-        ) {
-          return;
-        }
-        rewindRequestRef.current = null;
-        scrollMemoryByConversationRef.current.delete(conversationId);
-        conversationStore(
-          conversationId,
-          operation.accountScope,
-        ).refreshAfterCanonicalMutation();
-        if (activeConversationIdRef.current !== conversationId) {
-          setBoundedTabMemory(
-            composerMemoryByConversationRef.current,
-            conversationId,
-            {
-              message: draft.message,
-              chatContext: draft.chatContext,
-              selectedText: null,
-            },
-          );
-          return;
-        }
-        state.setMessage(draft.message);
-        state.setChatContext(draft.chatContext);
-        state.setSelectedText(null);
-        state.requestFocus();
-      } catch (error) {
-        if (
-          conversationEditOperationRef.current !== operation ||
-          activeAccountScopeRef.current !== operation.accountScope
-        ) {
-          return;
-        }
-        showToast({
-          title: "Couldn’t rewind this conversation",
-          description: cloudConversationEditFailureMessage(
-            error,
-            "Cloud history changed before Rewind completed. Reconnect and try again.",
-          ),
-          variant: "error",
-        });
-      } finally {
-        if (conversationEditOperationRef.current === operation) {
-          conversationEditOperationRef.current = null;
-          conversationEditInFlightRef.current = false;
-        }
-      }
-    })();
-  }, []);
-  // Fork copies the canonical prefix into a fresh DO-backed conversation,
-  // then drops the selected prompt into the new tab's composer. The source
-  // remains untouched and no SQLite branch is minted.
-  const forkToNewConversation = useCallback((row) => {
-    const state = messageActionsStateRef.current;
-    if (!state) return;
-    if (state.isStreaming || conversationEditInFlightRef.current) return;
-    const conversationId = state.activeConversationId;
-    if (!conversationId || !row?.id) return;
-    // Never mint a branch we can't navigate to — that would strand the
-    // user on the original chat with an orphan conversation in the store.
-    if (!state.navigateToConversation) return;
-    if (state.storageMode === "local") {
-      conversationEditInFlightRef.current = true;
-      const draft = composerDraftFromUserRow(row);
-      void forkLocalConversation(conversationId, row.id).then((id) => {
-        if (!id || activeConversationIdRef.current !== conversationId) return;
-        state.navigateToConversation(id);
-        setBoundedTabMemory(composerMemoryByConversationRef.current, id, {
-          message: draft.message, chatContext: draft.chatContext, selectedText: null,
-        });
-      }).catch((error) => showToast({ title: "Couldn’t fork this message", description: String(error), variant: "error" }))
-        .finally(() => { conversationEditInFlightRef.current = false; });
-      return;
-    }
-    const boundary = cloudPrefixBoundaryForUserMessage(
-      state.cloudRecords,
-      row.id,
-    );
-    const head = state.cloudState;
-    if (!boundary) {
-      showToast({
-        title: "Couldn’t fork this message",
-        description:
-          "This prompt has not reached the canonical cloud history yet. Reconnect and try again.",
-        variant: "error",
-      });
-      return;
-    }
-    if (
-      head.status !== "live" ||
-      head.conversationId !== conversationId ||
-      !Number.isSafeInteger(head.epoch) ||
-      !Number.isSafeInteger(head.headSeq) ||
-      head.headSeq < boundary.targetSeq
-    ) {
-      showToast({
-        title: "Cloud history is reconnecting",
-        description:
-          "Wait for the conversation to finish reconnecting, then try Fork again.",
-        variant: "error",
-      });
-      return;
-    }
-    const draft = composerDraftFromUserRow(row);
-    const requestKey = `${conversationId}:${head.epoch}:${head.headSeq}:${boundary.throughSeq}`;
-    const requestId =
-      forkRequestRef.current?.key === requestKey
-        ? forkRequestRef.current.requestId
-        : newConversationEditRequestId();
-    forkRequestRef.current = { key: requestKey, requestId };
-    const operation = { accountScope: state.accountScope, requestId };
-    conversationEditOperationRef.current = operation;
-    conversationEditInFlightRef.current = true;
-    void (async () => {
-      try {
-        const result = await state.forkCloudConversation({
-          sourceConversationId: conversationId,
-          throughSeq: boundary.throughSeq,
-          expectedEpoch: head.epoch,
-          expectedLastSeq: head.headSeq,
-          requestId,
-        });
-        if (
-          conversationEditOperationRef.current !== operation ||
-          activeAccountScopeRef.current !== operation.accountScope
-        ) {
-          return;
-        }
-        forkRequestRef.current = null;
-        markCloudConversationCreated(result.conversationId, state.accountScope);
-        // Open + navigate first so the destination tab exists, THEN seed
-        // its composer memory. The restore effect consumes the seed when
-        // the active id changes on the next render.
-        state.navigateToConversation(result.conversationId);
-        setBoundedTabMemory(
-          composerMemoryByConversationRef.current,
-          result.conversationId,
-          {
-            message: draft.message,
-            chatContext: draft.chatContext,
-            selectedText: null,
-          },
-        );
-      } catch (error) {
-        if (
-          conversationEditOperationRef.current !== operation ||
-          activeAccountScopeRef.current !== operation.accountScope
-        ) {
-          return;
-        }
-        showToast({
-          title: "Couldn’t fork this conversation",
-          description: cloudConversationEditFailureMessage(
-            error,
-            "Cloud history changed before Fork completed. Reconnect and try again.",
-          ),
-          variant: "error",
-        });
-      } finally {
-        if (conversationEditOperationRef.current === operation) {
-          conversationEditOperationRef.current = null;
-          conversationEditInFlightRef.current = false;
-        }
-      }
-    })();
-  }, []);
-  const messageActions = useMemo(
-    () => ({ rewind: rewindToUserMessage, fork: forkToNewConversation }),
-    [rewindToUserMessage, forkToNewConversation],
-  );
   const chatColumnConversation = useMemo(
     () => ({
       conversationId: activeConversationId,
@@ -1000,7 +820,8 @@ export function useFullShellChat({
       extraTail: cloudChat.extraTail,
       activity: {
         activities,
-        hasOlder: hasOlderActivity,
+        // pi's agents come whole: there is no older activity to page in.
+        hasOlder: piChat.enabled ? false : hasOlderActivity,
         isLoadingOlder: isLoadingOlderActivity,
         loadOlder: loadOlderActivity,
       },
@@ -1042,6 +863,7 @@ export function useFullShellChat({
       latestCompletedTool,
       hasToolActivity,
       hasOlderActivity,
+      piChat.enabled,
       hasOlderFiles,
       hasOlderMessages,
       hasNewerMessages,
@@ -1104,8 +926,10 @@ export function useFullShellChat({
       getIsFollowing,
       scrollToBottom,
       thumbRef,
+      isOpeningScroll,
     }),
     [
+      isOpeningScroll,
       listRef,
       showScrollButton,
       isAtBottom,
@@ -1178,7 +1002,6 @@ export function useFullShellChat({
       conversation,
       composer,
       scroll: chatColumnScroll,
-      messageActions,
       showHomeContent,
       dismissHome,
       showHome,
@@ -1187,7 +1010,6 @@ export function useFullShellChat({
       conversation,
       composer,
       chatColumnScroll,
-      messageActions,
       showHomeContent,
       dismissHome,
       showHome,

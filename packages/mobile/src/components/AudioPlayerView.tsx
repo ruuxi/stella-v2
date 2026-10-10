@@ -11,7 +11,6 @@ import {
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { LinearGradient } from "expo-linear-gradient";
 import { Icon } from "./Icon";
-import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import { useColors } from "../theme/theme-context";
 import { fonts } from "../theme/fonts";
 import { configurePlaybackAudioSession } from "../lib/mobile-audio-session";
@@ -19,8 +18,6 @@ import { configurePlaybackAudioSession } from "../lib/mobile-audio-session";
 type AudioPlayerViewProps = {
   /** `file://` URI of the decoded clip — see `writeArtifactMediaFile`. */
   uri: string;
-  title: string;
-  subtitle: string;
 };
 
 /** Matches the `gobackward.15` / `goforward.15` glyphs on the skip buttons. */
@@ -42,14 +39,14 @@ const formatTime = (seconds: number): string => {
 };
 
 /**
- * Full-surface audio player for the artifact viewer: artwork tile, filename,
- * a draggable scrubber with elapsed/remaining times, and a transport row.
+ * Full-surface audio player for the artifact viewer: artwork tile, a
+ * draggable scrubber with elapsed/remaining times, and a transport row.
  *
  * Replaces the WebView `<audio controls>` bar the viewer used to show, which
  * rendered as a ~40px browser default control floating in an otherwise empty
  * dark screen.
  */
-export function AudioPlayerView({ uri, title, subtitle }: AudioPlayerViewProps) {
+export function AudioPlayerView({ uri }: AudioPlayerViewProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   // 200ms keeps the scrubber moving smoothly without churning the tree; the
@@ -163,25 +160,6 @@ export function AudioPlayerView({ uri, title, subtitle }: AudioPlayerViewProps) 
         >
           <Icon name="waveform" size={72} color={colors.textMuted} />
         </LinearGradient>
-
-        <View style={styles.meta}>
-          <Text
-            style={styles.title}
-            numberOfLines={2}
-            maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-          >
-            {title}
-          </Text>
-          {subtitle ? (
-            <Text
-              style={styles.subtitle}
-              numberOfLines={1}
-              maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-            >
-              {subtitle}
-            </Text>
-          ) : null}
-        </View>
 
         <View style={styles.scrubber}>
           <View
@@ -311,23 +289,6 @@ const makeStyles = (colors: ReturnType<typeof useColors>) =>
       justifyContent: "center",
       maxWidth: 200,
       width: "62%",
-    },
-    meta: {
-      alignItems: "center",
-      gap: 4,
-    },
-    title: {
-      color: colors.text,
-      fontFamily: fonts.sans.semiBold,
-      fontSize: 17,
-      letterSpacing: -0.3,
-      textAlign: "center",
-    },
-    subtitle: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 13,
-      textAlign: "center",
     },
     scrubber: {
       alignSelf: "stretch",

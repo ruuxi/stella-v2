@@ -1,10 +1,5 @@
 import { useEffect, useState } from "react";
-import { uiState } from "@/platform/ui-state";
 import "./home.css";
-const SIDEBAR_HINT_STORAGE_KEY = "stella.home.sidebarHintSeen";
-function shouldShowSidebarHint() {
-    return uiState.getItem(SIDEBAR_HINT_STORAGE_KEY) !== "1";
-}
 function getTimeBasedGreeting(date) {
     const hour = date.getHours();
     if (hour < 5)
@@ -84,46 +79,9 @@ function useGreeting() {
 }
 export function HomeContent({ children }) {
     const greeting = useGreeting();
-    const [showSidebarHint, setShowSidebarHint] = useState(shouldShowSidebarHint);
-    useEffect(() => {
-        if (!showSidebarHint)
-            return;
-        uiState.setItem(SIDEBAR_HINT_STORAGE_KEY, "1");
-    }, [showSidebarHint]);
-    // Dismiss the hint the moment the user actually right-clicks anywhere —
-    // waiting for the next mount felt broken because the cue lingered after
-    // its instruction was followed.
-    useEffect(() => {
-        if (!showSidebarHint)
-            return;
-        const dismiss = () => setShowSidebarHint(false);
-        window.addEventListener("contextmenu", dismiss, { once: true });
-        return () => window.removeEventListener("contextmenu", dismiss);
-    }, [showSidebarHint]);
     return (<div className="home-content">
       <h1 className="home-stella-title">{greeting}</h1>
 
       {children}
-
-      {showSidebarHint && (<div className="home-sidebar-hint" role="status">
-          <RightClickMouse className="home-sidebar-hint__mouse"/>
-          <span>Right-click to open the workspace panel</span>
-        </div>)}
     </div>);
-}
-function RightClickMouse({ className }) {
-    return (<svg className={className} width="18" height="26" viewBox="0 0 28 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
-      <defs>
-        <clipPath id="home-hint-mouse-body">
-          <rect x="1" y="1" width="26" height="38" rx="13" ry="13"/>
-        </clipPath>
-      </defs>
-      <g clipPath="url(#home-hint-mouse-body)">
-        <rect x="14" y="1" width="13" height="16" className="home-sidebar-hint__mouse-highlight"/>
-      </g>
-      <rect x="1" y="1" width="26" height="38" rx="13" ry="13" stroke="currentColor" strokeWidth="1.5"/>
-      <line x1="14" y1="1.5" x2="14" y2="17" stroke="currentColor" strokeWidth="1.5"/>
-      <line x1="1.75" y1="17" x2="26.25" y2="17" stroke="currentColor" strokeWidth="1.5"/>
-      <line x1="14" y1="7" x2="14" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-    </svg>);
 }

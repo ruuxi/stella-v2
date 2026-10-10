@@ -424,7 +424,8 @@ describe("computer command runner", () => {
         details: {
           timeoutMs: 5,
           afterStateId,
-          pollCount: 1,
+          // How many polls fit in the window depends on the machine.
+          pollCount: expect.any(Number),
         },
       },
     });

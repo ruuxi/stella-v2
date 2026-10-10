@@ -1,71 +1,18 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { Type } from "@sinclair/typebox";
-import { Agent } from "../agent-core/agent.js";
-import type {
-  AfterToolCallContext,
-  AfterToolCallResult,
-  AgentMessage,
-  AgentTool,
-  AgentTurnBoundaryContext,
-  ThinkingLevel,
-} from "../agent-core/types.js";
-import type { Message, ServiceTier } from "../../ai/types.js";
-import type { HookEmitter } from "../extensions/hook-emitter.js";
-import type { ResolvedLlmRoute } from "../model-routing.js";
-import {
-  getAgentFollowUpMode,
-  getAgentSteeringMode,
-  getLocalCliWorkingDirectory,
-} from "@stella/contracts/agent-runtime";
-import {
-  buildDefaultTransformContext,
-  resolveAgentThinkingLevel,
-} from "./run-shared.js";
-import { AGENT_RUN_MAX_ATTEMPTS } from "./run-retry.js";
-import { preflightProviderPayload } from "./context-budget.js";
+import type { AgentMessage } from "../agent-core/types.js";
+import { getLocalCliWorkingDirectory } from "@stella/contracts/agent-runtime";
 
 // Loop-adjacent helpers now live in the workerd-safe `run-shared.ts` so the
 // cloud DO and sandbox executor run the same code; re-exported here for the
 // desktop-side callers that always imported them from this module.
 export {
   assistantMessageHasToolCall,
-  buildDefaultTransformContext,
   extractAssistantText,
-  getAgentCompletion,
-  resolveAgentThinkingLevel,
 } from "./run-shared.js";
 
 const MAX_RESULT_PREVIEW = 200;
-
-export const DEFAULT_MAX_TURNS = 40;
-
-export const PI_AGENT_MESSAGE_FILTER = (messages: AgentMessage[]): Message[] =>
-  messages.flatMap((msg): Message[] => {
-    if (
-      msg.role === "user" ||
-      msg.role === "assistant" ||
-      msg.role === "toolResult"
-    ) {
-      return [msg];
-    }
-    if (msg.role === "runtimeInternal") {
-      return [
-        {
-          role: "user",
-          content: msg.content,
-          timestamp: msg.timestamp,
-        },
-      ];
-    }
-    return [];
-  });
-
-export const AnyToolArgsSchema = Type.Object(
-  {},
-  { additionalProperties: true },
-);
 
 export const now = () => Date.now();
 
@@ -206,152 +153,4 @@ export const toAgentMessages = (
         timestamp: now(),
       };
     });
-};
-
-export const createBeforeProviderPayloadTransform = (
-  hookEmitter: HookEmitter | undefined,
-  agentType: string,
-) =>
-  hookEmitter
-    ? async (payload: unknown, model: { id: string }) => {
-        const result = await hookEmitter.emit("before_provider_request", {
-          agentType,
-          model: model.id,
-          payload,
-        });
-        return result?.payload;
-      }
-    : undefined;
-
-export const createRuntimeAgent = (args: {
-  agentType: string;
-  systemPrompt: string;
-  resolvedLlm: ResolvedLlmRoute;
-  /**
-   * Optional dynamic resolver for the current `ResolvedLlmRoute`. When
-   * provided, the Agent's `getApiKey`/`refreshApiKey`/`transformContext`
-   * closures read from this getter on every call instead of capturing
-   * `args.resolvedLlm` at construction time. Long-lived sessions
-   * (`OrchestratorSession`) pass this so the user can switch models
-   * mid-conversation: update the ref + `agent.state.model`, and the next
-   * provider call uses the new credentials, base URL, and context-window
-   * budget. Per-turn callers can omit this and the static `resolvedLlm` is
-   * used for the lifetime of the run.
-   */
-  resolvedLlmOverride?: () => ResolvedLlmRoute;
-  reasoningEffort?: ThinkingLevel;
-  hookEmitter?: HookEmitter;
-  tools: AgentTool[];
-  historySource: AgentMessage[];
-  /**
-   * Stable identifier used for upstream prompt-cache routing affinity
-   * (Anthropic ephemeral cache, OpenAI/Fireworks `prompt_cache_key`, etc.).
-   * Pass the threadKey or agentType so repeated turns within the same
-   * conversation hit the same cache shard.
-   */
-  cacheSessionId?: string;
-  /**
-   * Stable per-conversation prompt-cache routing key forwarded to providers
-   * that support one (OpenAI/Fireworks `prompt_cache_key`). Distinct from
-   * `cacheSessionId`, which keys local session resources by thread.
-   */
-  promptCacheKey?: string;
-  /** Provider request tier, currently used for ChatGPT/Codex Fast mode. */
-  serviceTier?: ServiceTier;
-  afterToolCall?: (
-    context: AfterToolCallContext,
-    signal?: AbortSignal,
-  ) =>
-    | Promise<AfterToolCallResult | undefined>
-    | AfterToolCallResult
-    | undefined;
-  onTurnBoundary?: (
-    context: AgentTurnBoundaryContext,
-    signal?: AbortSignal,
-  ) => Promise<AgentMessage[] | undefined> | AgentMessage[] | undefined;
-  /**
-   * Surface a transient "trying again in X" status when the provider
-   * adapter retries a recoverable failure. Sessions wire this to a STATUS
-   * event so the desktop can show a brief retry toast.
-   */
-  onProviderRetry?: (info: {
-    attempt: number;
-    delayMs: number;
-    reason?: string;
-  }) => void;
-}): Agent => {
-  const resolveLlm = args.resolvedLlmOverride ?? (() => args.resolvedLlm);
-  const toolInactivityRaw = process.env.STELLA_TOOL_INACTIVITY_TIMEOUT_MS?.trim();
-  const toolInactivityParsed = toolInactivityRaw ? Number(toolInactivityRaw) : Number.NaN;
-  return new Agent({
-    initialState: {
-      systemPrompt: args.systemPrompt,
-      model: resolveLlm().model,
-      thinkingLevel:
-        args.reasoningEffort ??
-        resolveAgentThinkingLevel({ resolvedLlm: args.resolvedLlm }),
-      tools: args.tools,
-      messages: args.historySource,
-    },
-    sessionId: args.cacheSessionId ?? args.agentType,
-    promptCacheKey: args.promptCacheKey,
-    serviceTier: args.serviceTier,
-    // Per-tool inactivity bound (default 10 min in agent-core): a tool that
-    // goes fully silent is cancelled with an error tool result instead of
-    // tripping the run-level idle watchdog and killing the whole agent.
-    ...(Number.isFinite(toolInactivityParsed)
-      ? { toolInactivityTimeoutMs: toolInactivityParsed }
-      : {}),
-    convertToLlm: PI_AGENT_MESSAGE_FILTER,
-    // Only pass steering / follow-up modes when the agent opts out of
-    // the Pi default ("one-at-a-time").
-    ...(getAgentSteeringMode(args.agentType) === "all"
-      ? { steeringMode: "all" as const }
-      : {}),
-    ...(getAgentFollowUpMode(args.agentType) === "all"
-      ? { followUpMode: "all" as const }
-      : {}),
-    getApiKey: () => resolveLlm().getApiKey(),
-    // Always defined when an override is in play, since the *current*
-    // route may have a refresher even if the original didn't (and vice
-    // versa). The inner `?.()` returns `undefined` when the route lacks
-    // one, which the agent loop already handles.
-    refreshApiKey: () => resolveLlm().refreshApiKey?.(),
-    // Resolve the model on every provider round so a mid-session model swap
-    // immediately updates both its context budget and legacy code-history
-    // normalization at the provider edge.
-    transformContext: async (messages, signal) =>
-      buildDefaultTransformContext({ model: resolveLlm().model })(
-        messages,
-        signal,
-      ),
-    onPayload: async (payload, model) => {
-      const transform = createBeforeProviderPayloadTransform(
-        args.hookEmitter,
-        args.agentType,
-      );
-      const transformed = await transform?.(payload, model);
-      preflightProviderPayload(
-        args.cacheSessionId ?? args.agentType,
-        transformed ?? payload,
-        model,
-      );
-      return transformed;
-    },
-    onProviderRetry: args.onProviderRetry,
-    onTurnBoundary: args.onTurnBoundary
-      ? async (context, signal) => await args.onTurnBoundary?.(context, signal)
-      : undefined,
-    // The runtime's four-attempt policy owns empty completions. Leaving the
-    // Agent core's default one-shot enabled here would allow every outer
-    // attempt to make two provider calls.
-    degenerateResponseRetries: 0,
-    // Adapter continuations, outer recovery resumes, and provider SDK retries
-    // share the same physical-request ceiling for one logical model completion.
-    // A successful tool-use completion releases it before the next model round.
-    providerRequestLimit: AGENT_RUN_MAX_ATTEMPTS,
-    afterToolCall: args.afterToolCall
-      ? async (context, signal) => await args.afterToolCall?.(context, signal)
-      : undefined,
-  });
 };

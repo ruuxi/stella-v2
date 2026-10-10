@@ -178,6 +178,8 @@ export type AgentThreadCalls = {
       description: string;
       agentType: string;
       attemptGeneration: number;
+      /** The agent that started it, for a subagent; its conversation counts only its own agents. */
+      parentThreadId?: string;
     };
     result: { threadId: string };
   };
@@ -206,6 +208,15 @@ export type AgentThreadCalls = {
   "computerThreads.get": {
     args: { threadId: string; originDeviceId: string; ownerGeneration: string };
     result: ComputerThreadRecord | null;
+  };
+  /**
+   * The agents the owner's records say are running on this computer, for it
+   * to settle the ones it no longer runs (after a crash, or a pause that
+   * never reached the cloud).
+   */
+  "computerThreads.running": {
+    args: { originDeviceId: string; ownerGeneration: string };
+    result: Array<{ threadId: string; conversationId: string; attemptGeneration: number }>;
   };
 };
 

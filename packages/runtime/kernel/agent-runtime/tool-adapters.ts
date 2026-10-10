@@ -1,35 +1,26 @@
 import { promises as fs } from "node:fs";
 
 import type {
-  AgentTool,
   AgentToolResult,
   AgentToolUpdateCallback,
 } from "../agent-core/types.js";
-import { createToolExecutionSupervisor } from "./tool-lifecycle.js";
-import type { RunResourceRegistrar } from "./run-resources.js";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
-import type { ImageContent, TextContent } from "../../ai/types.js";
+import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { DEVICE_TOOL_NAMES } from "../tools/schemas.js";
 import type { AgentModelConfigSnapshot } from "@stella/contracts/agent-engine";
 import type {
   AuthorizedToolImage,
   ToolContext,
   ToolMetadata,
-  ToolReplayPolicy,
   ToolResult,
   ToolUpdateCallback,
 } from "../tools/types.js";
 import { TOOL_RESULT_AUTHORIZED_IMAGES } from "../tools/types.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
 import { TOOL_IDS } from "@stella/contracts/agent-runtime";
-import {
-  AnyToolArgsSchema,
-  resolveAgentWorkingDirectory,
-  textFromUnknown,
-} from "./shared.js";
+import { resolveAgentWorkingDirectory, textFromUnknown } from "./shared.js";
 import { dispatchLocalTool } from "../tools/local-tool-dispatch.js";
 import { runToolCallPipeline } from "../tools/tool-call-pipeline.js";
-import { getToolArgumentPreparer } from "../tools/argument-preparers.js";
 import {
   sanitizeToolError,
   sanitizeToolResult,
@@ -42,12 +33,12 @@ import {
   detectImageMediaType,
   isCompleteImage,
   MAX_IMAGE_BASE64_BYTES,
-} from "../../ai/utils/image-payload.js";
+} from "../shared/image-payload.js";
 import {
   maxInlineImageBase64Bytes,
   resolveImageCaps,
   type ImageCapTarget,
-} from "../../ai/utils/image-caps.js";
+} from "../shared/image-caps.js";
 import { decodeAndValidateImage } from "../tools/image-decode-validation.js";
 import { buildDemotedCodeSuffix } from "../tools/code-catalog.js";
 import {
@@ -133,17 +124,6 @@ const modelVisibleLimitsFor = (
   containsCommandOutput(toolName, toolResult)
     ? commandResultLimitsFor(toolResult)
     : undefined;
-
-const formatToolLabel = (toolName: string): string =>
-  toolName
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (letter) => letter.toUpperCase()) || toolName;
-
-const formatToolWorkingText = (metadata: ToolMetadata): string =>
-  metadata.workingText ??
-  `Running ${metadata.label ?? formatToolLabel(metadata.name)}`;
 
 export const getRequestedRuntimeToolNames = (
   toolsAllowlist?: string[],
@@ -643,9 +623,9 @@ export const collectDemotedToolNames = (
   );
 
 /**
- * External-engine parity for the code catalog: engines that build their
- * tool list through `getRuntimeToolMetadata` (never `createPiTools`) still
- * get the workflow text + signature catalog appended to code's
+ * The code catalog for external engines: engines that build their tool
+ * list through `getRuntimeToolMetadata` get the workflow text + signature
+ * catalog appended to code's
  * description, so demoted tools are discoverable there the same way. No-op
  * when code is absent from the metadata or nothing is demoted.
  */
@@ -673,8 +653,8 @@ export const appendDemotedCatalogToNodeRepl = appendDemotedCatalogToCode;
 /**
  * Provider-visible metadata with deferred-tool semantics applied.
  *
- * This is the metadata-only counterpart to createPiTools for external
- * engines: when code is active, demoted tools are removed from the eager
+ * The metadata external engines offer: when code is active, demoted tools
+ * are removed from the eager
  * function list and summarized in code's bounded catalog. Without code,
  * visible demoted tools retain their full direct schemas so a
  * profile can never strand them.
@@ -1112,33 +1092,8 @@ export const executeRuntimeToolCall = async (
   });
 };
 
-/**
- * A call's replay policy from the catalog (undeclared = `unsafe`). A
- * `multi_tool_use_parallel` batch is derived per call: replay-safe only when
- * every inner call names a `safe` tool.
- */
-export const resolveToolReplayPolicy = (
-  catalog: ReadonlyMap<string, Pick<ToolMetadata, "replay">>,
-  toolName: string,
-  args: unknown,
-): ToolReplayPolicy => {
-  if (toolName !== MULTI_TOOL_USE_PARALLEL_TOOL_NAME) {
-    return catalog.get(toolName)?.replay ?? "unsafe";
-  }
-  const uses = (args as { tool_uses?: unknown } | null)?.tool_uses;
-  if (!Array.isArray(uses) || uses.length === 0) return "unsafe";
-  return uses.every((use) => {
-    const recipient = (use as { recipient_name?: unknown } | null)
-      ?.recipient_name;
-    if (typeof recipient !== "string") return false;
-    const name = recipient.replace(/^functions\./, "");
-    return catalog.get(name)?.replay === "safe";
-  })
-    ? "safe"
-    : "unsafe";
-};
-
-export const createPiTools = (opts: {
+/** What one tool call needs from its run, and the names nested calls may reach. */
+export type ModelToolCallOptions = {
   executionHost: "device" | "sandbox";
   runId: string;
   rootRunId?: string;
@@ -1161,8 +1116,6 @@ export const createPiTools = (opts: {
     provider?: string;
     externalMessageId?: string;
   };
-  toolsAllowlist?: string[];
-  toolCatalog?: ToolMetadata[];
   store: RuntimeStore;
   toolExecutor: (
     toolName: string,
@@ -1178,280 +1131,131 @@ export const createPiTools = (opts: {
    * (e.g. Anthropic's 2576px high-res tier) instead of a blunt global cap.
    */
   imageCapTarget?: ImageCapTarget;
-  /**
-   * Registers each tool execution as a child resource of the owning run's
-   * supervision scope (fiber-derived abort, teardown-joining settlement,
-   * duplicate-execution guard). When absent, tools run without supervision.
-   */
-  superviseRunResource?: RunResourceRegistrar;
-}): AgentTool[] => {
-  const requested = getRequestedRuntimeToolNames(opts.toolsAllowlist);
-  const catalog = new Map<string, ToolMetadata>(
-    (opts.toolCatalog ?? []).map((tool) => [tool.name, tool]),
-  );
-  const runTasks = (opts.store as Partial<Pick<RuntimeStore, "runTasks">>)
-    ?.runTasks;
-  const superviseToolExecution = createToolExecutionSupervisor({
-    supervise: opts.superviseRunResource,
-    ...(runTasks
-      ? {
-          intents: {
-            store: runTasks,
-            runId: opts.runId,
-            replayOf: (toolName: string, args: unknown) =>
-              resolveToolReplayPolicy(catalog, toolName, args),
-          },
+  allowedToolNames: string[];
+};
+
+/**
+ * One model-issued Stella tool call: the tool pipeline (hooks, then the
+ * executor), then what the model sees of its result — formatted, truncated
+ * or spilled, with any images attached. The pi-durable harness runs it for
+ * its Stella tools (`runner/pi-tools.ts`).
+ */
+export const executeModelToolCall = async (
+  opts: ModelToolCallOptions,
+  call: {
+    toolName: string;
+    toolCallId: string;
+    params: unknown;
+    signal?: AbortSignal;
+    onUpdate?: AgentToolUpdateCallback;
+  },
+): Promise<AgentToolResult<unknown>> => {
+  const { toolName, toolCallId, params, signal, onUpdate } = call;
+  const args = (params as Record<string, unknown>) ?? {};
+  const toolResult = await executeRuntimeToolCall({
+    toolCallId,
+    executionHost: opts.executionHost,
+    toolName,
+    args,
+    runId: opts.runId,
+    rootRunId: opts.rootRunId,
+    agentId: opts.agentId,
+    conversationId: opts.conversationId,
+    storageMode: opts.storageMode,
+    ownerGeneration: opts.ownerGeneration,
+    agentType: opts.agentType,
+    deviceId: opts.deviceId,
+    stellaAppDir: opts.stellaAppDir,
+    stellaDataDir: opts.stellaDataDir,
+    toolWorkspaceRoot: opts.toolWorkspaceRoot,
+    parentAgentId: opts.parentAgentId,
+    agentDepth: opts.agentDepth,
+    maxAgentDepth: opts.maxAgentDepth,
+    modelConfigSnapshot: opts.modelConfigSnapshot,
+    connectorDeliveryTarget: opts.connectorDeliveryTarget,
+    allowedToolNames: opts.allowedToolNames,
+    store: opts.store,
+    toolExecutor: opts.toolExecutor,
+    hookEmitter: opts.hookEmitter,
+    signal,
+    onUpdate: onUpdate
+      ? (partialResult: ToolResult) => {
+          const formattedPartial = formatToolResult(partialResult, toolName);
+          const truncatedPartial = truncateModelVisibleToolText(
+            formattedPartial.text,
+            modelVisibleLimitsFor(toolName, partialResult),
+          );
+          onUpdate({
+            content: [{ type: "text", text: truncatedPartial.text }],
+            details: formattedPartial.details,
+          });
         }
-      : {}),
+      : undefined,
   });
-  const connectorProvider = opts.connectorDeliveryTarget?.provider;
-  // Never-strand rule: demoted tools leave the direct list ONLY when code is
-  // actually part of this turn's resolved active set. Profiles intentionally
-  // lacking code keep demoted tools as plain
-  // direct tools with full schemas.
-  const codeAvailable =
-    requested.includes(CODE_TOOL_NAME) && catalog.has(CODE_TOOL_NAME);
-  // Demoted reachability requires an explicit per-agent allowlist. The
-  // empty-allowlist STELLA_LOCAL_TOOLS fallback is a minimal device-tool
-  // surface that could never reach deferred tools before the clean cut,
-  // and it must not start direct-listing demoted tools now.
-  const hasExplicitAllowlist =
-    Array.isArray(opts.toolsAllowlist) && opts.toolsAllowlist.length > 0;
-  const visibleDemotedTools = hasExplicitAllowlist
-    ? collectVisibleDemotedTools([...catalog.values()], connectorProvider)
-    : [];
-  const demotedToolNames = new Set(
-    visibleDemotedTools.map((tool) => tool.name),
+  const formatted = formatToolResult(toolResult, toolName);
+  // Device tools retain their legacy path-marker bridge. Sandbox tool
+  // output is model-controlled and must never authorize the host adapter
+  // to reopen a pathname, so neutralize it without I/O there.
+  const { text: forwardedText, images: legacyImages } =
+    opts.executionHost === "sandbox"
+      ? {
+          text: neutralizeLegacyAttachImageMarkers(formatted.text),
+          images: [],
+        }
+      : await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
+  const codeImages =
+    opts.executionHost === "sandbox"
+      ? []
+      : await extractCodeImageBlocks(formatted.details, opts.imageCapTarget);
+  const authorizedImages = await prepareAuthorizedToolImageBlocks(
+    toolResult[TOOL_RESULT_AUTHORIZED_IMAGES],
+    opts.imageCapTarget,
   );
-  // Catalog section is generated fresh each turn from the live catalog
-  // snapshot; with no demoted tools in scope the code description
-  // stays byte-identical and the whole feature is inert.
-  const codeReachableDemotedTools = visibleDemotedTools.filter(
-    (tool) => !toolRequiresExplicitApproval(tool.approval),
+  const preservedText = await preserveModelVisibleToolText(
+    forwardedText,
+    {
+      stellaDataDir: opts.stellaDataDir,
+      runId: opts.runId,
+      toolCallId,
+    },
+    modelVisibleLimitsFor(toolName, toolResult),
   );
-  const codeDescriptionSuffix = codeAvailable
-    ? buildDemotedCodeSuffix(codeReachableDemotedTools)
-    : "";
-  const activeTools: AgentTool[] = [];
-  const activeToolNames = new Set<string>();
-  const contextAllowedToolNames = (): string[] =>
-    codeAvailable
-      ? [
-          ...new Set(
-            [
-              ...activeToolNames,
-              ...codeReachableDemotedTools.map((tool) => tool.name),
-            ].filter(
-              (name) =>
-                !toolRequiresExplicitApproval(catalog.get(name)?.approval),
-            ),
-          ),
-        ]
-      : [...activeToolNames];
-
-  const registerTool = (toolName: string): AgentTool => {
-    const entry = catalog.get(toolName);
-    const metadata: ToolMetadata = entry ?? {
-      name: toolName,
-      label: formatToolLabel(toolName),
-      description: `${toolName} tool`,
-      parameters: AnyToolArgsSchema as Record<string, unknown>,
-    };
-    const executeBody = async (
-      toolCallId: string,
-      params: unknown,
-      signal: AbortSignal | undefined,
-      onUpdate: AgentToolUpdateCallback | undefined,
-    ): Promise<AgentToolResult<unknown>> => {
-      const args = (params as Record<string, unknown>) ?? {};
-      const toolResult = await executeRuntimeToolCall({
-        toolCallId,
-        executionHost: opts.executionHost,
-        toolName,
-        args,
-        runId: opts.runId,
-        rootRunId: opts.rootRunId,
-        agentId: opts.agentId,
-        conversationId: opts.conversationId,
-        storageMode: opts.storageMode,
-        ownerGeneration: opts.ownerGeneration,
-        agentType: opts.agentType,
-        deviceId: opts.deviceId,
-        stellaAppDir: opts.stellaAppDir,
-        stellaDataDir: opts.stellaDataDir,
-        toolWorkspaceRoot: opts.toolWorkspaceRoot,
-        parentAgentId: opts.parentAgentId,
-        agentDepth: opts.agentDepth,
-        maxAgentDepth: opts.maxAgentDepth,
-        modelConfigSnapshot: opts.modelConfigSnapshot,
-        connectorDeliveryTarget: opts.connectorDeliveryTarget,
-        // Code-reachable union: nested dispatch (and
-        // multi_tool_use_parallel) must pass the host allowlist
-        // gate for demoted tools that are absent from the direct
-        // list. Without code the union collapses to the
-        // active set — demoted tools were registered directly.
-        allowedToolNames: contextAllowedToolNames(),
-        store: opts.store,
-        toolExecutor: opts.toolExecutor,
-        hookEmitter: opts.hookEmitter,
-        signal,
-        onUpdate: onUpdate
-          ? (partialResult: ToolResult) => {
-              const formattedPartial = formatToolResult(
-                partialResult,
-                toolName,
-              );
-              const truncatedPartial = truncateModelVisibleToolText(
-                formattedPartial.text,
-                modelVisibleLimitsFor(toolName, partialResult),
-              );
-              onUpdate({
-                content: [{ type: "text", text: truncatedPartial.text }],
-                details: formattedPartial.details,
-              });
-            }
-          : undefined,
-      });
-      const formatted = formatToolResult(toolResult, toolName);
-      // Device tools retain their legacy path-marker bridge. Sandbox tool
-      // output is model-controlled and must never authorize the host adapter
-      // to reopen a pathname, so neutralize it without I/O there.
-      const { text: forwardedText, images: legacyImages } =
-        opts.executionHost === "sandbox"
-          ? {
-              text: neutralizeLegacyAttachImageMarkers(formatted.text),
-              images: [],
-            }
-          : await extractAttachImageBlocks(formatted.text, opts.imageCapTarget);
-      const codeImages =
-        opts.executionHost === "sandbox"
-          ? []
-          : await extractCodeImageBlocks(
-              formatted.details,
-              opts.imageCapTarget,
-            );
-      const authorizedImages = await prepareAuthorizedToolImageBlocks(
-        toolResult[TOOL_RESULT_AUTHORIZED_IMAGES],
-        opts.imageCapTarget,
-      );
-      const preservedText = await preserveModelVisibleToolText(
-        forwardedText,
-        {
-          stellaDataDir: opts.stellaDataDir,
-          runId: opts.runId,
-          toolCallId,
-        },
-        modelVisibleLimitsFor(toolName, toolResult),
-      );
-      const truncatedText = preservedText.text;
-      const content: Array<TextContent | ImageBlock> = [];
-      const attachedImages = [
-        ...codeImages,
-        ...legacyImages,
-        ...authorizedImages,
-      ];
-      const screenshotNote =
-        attachedImages.length > 0
-          ? "\n\n[Image attached below. Inspect it directly. If it is a UI screenshot and the accessibility tree is sparse or missing a visible control, use screenshot x/y coordinates.]"
-          : "";
-      if (truncatedText || attachedImages.length === 0) {
-        content.push({
-          type: "text" as const,
-          text: `${truncatedText}${screenshotNote}`,
-        });
-      } else if (screenshotNote) {
-        content.push({
-          type: "text" as const,
-          text: screenshotNote.trim(),
-        });
-      }
-      content.push(...attachedImages);
-      return {
-        content,
-        details: preservedText.artifact
-          ? {
-              ...(formatted.details &&
-              typeof formatted.details === "object" &&
-              !Array.isArray(formatted.details)
-                ? (formatted.details as Record<string, unknown>)
-                : formatted.details === undefined
-                  ? {}
-                  : { result: formatted.details }),
-              toolOutputArtifact: preservedText.artifact,
-            }
-          : formatted.details,
-        isError: Boolean(toolResult.error),
-        ...(typeof toolResult.modelOutputTokens === "number"
-          ? { modelOutputTokens: toolResult.modelOutputTokens }
-          : {}),
-      };
-    };
-    const prepareArguments = getToolArgumentPreparer(toolName);
-    const tool: AgentTool & { replay?: ToolReplayPolicy } = {
-      name: toolName,
-      ...(metadata.replay ? { replay: metadata.replay } : {}),
-      label: metadata.label ?? formatToolLabel(toolName),
-      workingText: formatToolWorkingText(metadata),
-      description:
-        toolName === CODE_TOOL_NAME && codeDescriptionSuffix
-          ? `${metadata.description}${codeDescriptionSuffix}`
-          : metadata.description,
-      parameters: metadata.parameters as typeof AnyToolArgsSchema,
-      ...(prepareArguments
-        ? {
-            prepareArguments: prepareArguments as NonNullable<
-              AgentTool["prepareArguments"]
-            >,
-          }
-        : {}),
-      // Tool executions supervise as child fibers of the owning run: the
-      // body observes a child signal derived from the loop's per-tool
-      // signal, run cancel/shutdown interrupts it, and settlement joins
-      // the body's own cleanup.
-      execute: (toolCallId, params, signal, onUpdate) =>
-        superviseToolExecution({
-          toolCallId,
-          toolName,
-          args: params,
-          signal,
-          run: (toolSignal) =>
-            executeBody(toolCallId, params, toolSignal, onUpdate),
-        }),
-    };
-    return tool;
+  const truncatedText = preservedText.text;
+  const content: Array<TextContent | ImageBlock> = [];
+  const attachedImages = [...codeImages, ...legacyImages, ...authorizedImages];
+  const screenshotNote =
+    attachedImages.length > 0
+      ? "\n\n[Image attached below. Inspect it directly. If it is a UI screenshot and the accessibility tree is sparse or missing a visible control, use screenshot x/y coordinates.]"
+      : "";
+  if (truncatedText || attachedImages.length === 0) {
+    content.push({
+      type: "text" as const,
+      text: `${truncatedText}${screenshotNote}`,
+    });
+  } else if (screenshotNote) {
+    content.push({
+      type: "text" as const,
+      text: screenshotNote.trim(),
+    });
+  }
+  content.push(...attachedImages);
+  return {
+    content,
+    details: preservedText.artifact
+      ? {
+          ...(formatted.details &&
+          typeof formatted.details === "object" &&
+          !Array.isArray(formatted.details)
+            ? (formatted.details as Record<string, unknown>)
+            : formatted.details === undefined
+              ? {}
+              : { result: formatted.details }),
+          toolOutputArtifact: preservedText.artifact,
+        }
+      : formatted.details,
+    isError: Boolean(toolResult.error),
+    ...(typeof toolResult.modelOutputTokens === "number"
+      ? { modelOutputTokens: toolResult.modelOutputTokens }
+      : {}),
   };
-
-  for (const toolName of requested) {
-    if (activeToolNames.has(toolName)) continue;
-    const demotedMeta = catalog.get(toolName)?.demoted;
-    if (demotedMeta) {
-      // Connector-gated demoted tools that fail the gate are invisible
-      // everywhere, including the direct-list fallback.
-      if (!demotedToolNames.has(toolName)) continue;
-      // Code-only this turn unless an explicit top-level approval is required.
-      if (
-        codeAvailable &&
-        !toolRequiresExplicitApproval(catalog.get(toolName)?.approval)
-      ) {
-        continue;
-      }
-    }
-    activeToolNames.add(toolName);
-    activeTools.push(registerTool(toolName));
-  }
-  // Demoted tools outside the frontmatter allowlist surface directly when
-  // Approval-bearing tools stay direct so nested code cannot bypass their
-  // top-level approval flow. Without code, every visible demoted tool stays
-  // direct so nothing reachable becomes stranded.
-  const directlyAddedDemotedTools = codeAvailable
-    ? visibleDemotedTools.filter((tool) =>
-        toolRequiresExplicitApproval(tool.approval),
-      )
-    : visibleDemotedTools;
-  for (const tool of directlyAddedDemotedTools) {
-    if (activeToolNames.has(tool.name)) continue;
-    activeToolNames.add(tool.name);
-    activeTools.push(registerTool(tool.name));
-  }
-  return activeTools;
 };

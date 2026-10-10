@@ -19,22 +19,23 @@ teardown) is faster to drive headless:
   `agentThreads.running` backend calls the desktop renders, see
   `packages/desktop-ui/src/features/cloud/use-cloud-activity.ts`) and the
   worker tail: `bunx wrangler tail --format json` in
-  `workers/cloud-builder` (`sandbox_ready` means a container attached; its
-  absence on a completed turn means the work stayed in the Durable Object).
+  `workers/cloud-builder` (`sandbox_ready` means a BuildSession container
+  attached; an agent on Stella's models runs in its conversation as a pi
+  agent, logged as `pi_thread_attempt_started` and
+  `pi_thread_attempt_settled`).
   The tail samples under load and dies with the shell that started it, so
   scope it to the tested owner, conversation and turn.
 - Reproduce executor bugs before deploying. The worker tests already run the
   real BuildSession and real Sandbox containers in workerd
   (`workers/cloud-builder/tests/*-workerd.test.ts`, for example
-  `general-agent-resident-workerd.test.ts`,
-  `sandbox-lifecycle-workerd.test.ts`, and
+  `sandbox-lifecycle-workerd.test.ts` and
   `guarded-model-fetch-workerd.test.ts`), and the built sandbox image can run
   the attached tool host locally (`docker run --rm --entrypoint sh
   stella-v2-cloud-builder-dev-sandboxsmall:<version>`), where stderr is on the
   terminal instead of in a diagnostic event three minutes later.
 - A worker-only `bun run deploy:dev` takes about two minutes; one that
   rebuilds the image takes six. Never deploy while a cloud thread is
-  `running`: the deploy replaces the resident loop's isolate and the turn is
+  `running`: the deploy replaces the isolate running it and the turn is
   failed by the heartbeat about a minute later. Dev container rollouts keep
   serving the previous image for a few minutes after a deploy, so give an
   image deploy time before judging a container-side change.

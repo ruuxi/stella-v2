@@ -1,11 +1,11 @@
 /* Size lives on the dialog *container*, which reads these variables from
  * the root — setting width/height on the content itself does nothing, it
  * just gets clamped by the container. `size="xl"` gets us most of the way
- * (860x640); Settings is a dense multi-tab surface, so nudge it further
- * without changing `xl` for every other dialog. */
+ * (860x640); Settings is a dense multi-tab surface with its own left
+ * rail, so nudge it further without changing `xl` for every other dialog. */
 [data-component="dialog"]:has(.shell-settings-dialog) {
-  --dialog-width: 1040px;
-  --dialog-height: 760px;
+  --dialog-width: 1120px;
+  --dialog-height: 820px;
 }
 
 .shell-settings-dialog {
@@ -18,6 +18,8 @@
    * `height: 100%` keeps the frame stable across tabs; taller tabs scroll
    * internally via `.settings-panel` (`overflow-y: auto`) instead. */
   height: 100%;
+  /* Clip the rail's tinted background to the dialog's rounded corners. */
+  overflow: hidden;
 }
 
 .shell-settings-dialog__body {

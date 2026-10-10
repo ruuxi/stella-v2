@@ -6,12 +6,6 @@ import {
 
 export { DEFAULT_ESTIMATED_IMAGE_TOKENS, estimateModelVisibleImageTokens };
 
-const providerBudgets = new Map();
-const providerPayloadEstimates = new Map();
-const providerUsageTokens = new Map();
-const forcedCompactions = new Map();
-
-const MAX_INPUT_FRACTION = 0.7;
 const ESTIMATED_BYTES_PER_TOKEN = 3;
 /** Fallback when an image-bearing provider item does not expose dimensions. */
 const EXACT_INSPECTION_FRACTION = 0.75;
@@ -21,72 +15,6 @@ const JSON_ESCAPE_RE = /["\\\u0000-\u001f\ud800-\udfff]/;
 const JSON_SHORT_ESCAPE_RE = /["\\\b\f\n\r\t]/g;
 const JSON_UNICODE_ESCAPE_RE =
   /[\u0000-\u0007\u000b\u000e-\u001f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
-
-export const setProviderContextWindow = (threadKey, contextWindow) => {
-  const parsed = Number(contextWindow);
-  if (!threadKey || !Number.isFinite(parsed) || parsed <= 0) {
-    providerBudgets.delete(threadKey);
-    return;
-  }
-  providerBudgets.set(threadKey, Math.floor(parsed));
-};
-
-export const clearProviderContextWindow = (threadKey) => {
-  providerBudgets.delete(threadKey);
-  providerPayloadEstimates.delete(threadKey);
-  providerUsageTokens.delete(threadKey);
-};
-
-/**
- * Record what the provider billed for a thread's finished response: its prompt
- * (input plus cache reads and writes) and its output. Compaction decisions
- * trust this over any estimate, as Pi does, until a compaction makes it stale.
- */
-export const recordProviderUsage = (threadKey, usage) => {
-  if (!threadKey || !usage) return;
-  const prompt =
-    (Number(usage.input) || 0) +
-    (Number(usage.cacheRead) || 0) +
-    (Number(usage.cacheWrite) || 0);
-  if (prompt <= 0) return;
-  providerUsageTokens.set(threadKey, {
-    prompt,
-    output: Number(usage.output) || 0,
-  });
-};
-
-/** A compaction rewrote the thread: its last billed size no longer applies. */
-export const clearProviderUsage = (threadKey) => {
-  providerUsageTokens.delete(threadKey);
-};
-
-/** The prompt tokens the provider billed for the thread's last response. */
-export const getLastBilledPromptTokens = (threadKey) =>
-  providerUsageTokens.get(threadKey)?.prompt;
-
-/**
- * The thread's context size as the provider billed it (prompt plus output of
- * the last response since the last compaction), or undefined when unknown.
- * Compaction decisions prefer it to any estimate.
- */
-export const getBilledContextTokens = (threadKey) => {
-  const usage = providerUsageTokens.get(threadKey);
-  return usage ? usage.prompt + usage.output : undefined;
-};
-
-/**
- * Last full outbound-payload token estimate `preflightProviderPayload` measured for
- * a thread — system prompt + tool schemas + resident context + history, the same
- * bytes the provider receives. Compaction reads this so its trigger tracks the real
- * request size instead of the history-only estimate, which on large-toolset engines
- * (e.g. the Codex Responses path) runs ~2x smaller than the dispatched payload.
- */
-export const getLastProviderPayloadTokens = (threadKey) => {
-  const value = providerPayloadEstimates.get(threadKey);
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
-};
 
 /** Exact decoded size for ordinary padded or unpadded base64 payloads. */
 export const decodedBase64ByteLength = (value) => {
@@ -291,21 +219,9 @@ export const getProviderPayloadImageStats = (payload) => {
 };
 
 /**
- * Safe per-request input budget for a context window: the same ~70% bound
- * (with a small-window floor) that `preflightProviderPayload` enforces,
- * exported so overflow recovery can re-derive it when re-checking whether a
- * failed request was demonstrably over budget.
- */
-export const providerInputBudgetTokens = (contextWindow) => {
-  const parsed = Number(contextWindow);
-  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
-  return Math.max(8_000, Math.floor(parsed * MAX_INPUT_FRACTION));
-};
-
-/**
- * Estimate the model-visible tokens of an arbitrary provider payload (same
- * heuristic preflight uses: quick byte-based upper bound, exact JSON
- * measurement only when the quick pass lands near the budget).
+ * Estimate the model-visible tokens of an arbitrary provider payload: a quick
+ * byte-based upper bound, with exact JSON measurement only when the quick
+ * pass lands near the budget.
  */
 export const estimateProviderPayloadTokens = (payload, inputBudget) =>
   estimatePayloadTokens(
@@ -314,44 +230,3 @@ export const estimateProviderPayloadTokens = (payload, inputBudget) =>
       ? inputBudget
       : Number.POSITIVE_INFINITY,
   );
-
-export const preflightProviderPayload = (threadKey, payload, model) => {
-  const liveContextWindow = Number(model?.contextWindow);
-  const contextWindow =
-    Number.isFinite(liveContextWindow) && liveContextWindow > 0
-      ? Math.floor(liveContextWindow)
-      : providerBudgets.get(threadKey);
-  if (!contextWindow) return;
-
-  const inputBudget = Math.max(
-    8_000,
-    Math.floor(contextWindow * MAX_INPUT_FRACTION),
-  );
-  const estimatedTokens = estimatePayloadTokens(payload, inputBudget);
-  // Capture the measured full-payload size so proactive compaction and overflow
-  // recovery can reason about the real request rather than the history-only estimate.
-  if (threadKey) {
-    providerPayloadEstimates.set(threadKey, estimatedTokens);
-  }
-  if (estimatedTokens < inputBudget) return;
-
-  throw new Error(
-    `Context preflight context_length_exceeded before provider dispatch: ` +
-      `estimated ${estimatedTokens} model-visible tokens against a ${contextWindow}-token ` +
-      `window (${inputBudget}-token safe input budget) for ${model?.provider ?? "provider"}/${model?.id ?? "model"}.`,
-  );
-};
-
-export const withForcedThreadCompaction = async (threadKey, run) => {
-  forcedCompactions.set(threadKey, (forcedCompactions.get(threadKey) ?? 0) + 1);
-  try {
-    return await run();
-  } finally {
-    const remaining = (forcedCompactions.get(threadKey) ?? 1) - 1;
-    if (remaining > 0) forcedCompactions.set(threadKey, remaining);
-    else forcedCompactions.delete(threadKey);
-  }
-};
-
-export const isThreadCompactionForced = (threadKey) =>
-  (forcedCompactions.get(threadKey) ?? 0) > 0;

@@ -2,17 +2,14 @@
  * A deliberately narrow adapter around Cloudflare Code Mode.
  *
  * Generated code gets exactly one RPC-backed `codemode` namespace. The child
- * Worker gets no additional modules. By default it also gets no env bindings
- * and `globalOutbound` is `null`; the one widening is an agent's reach
- * (`CloudCodeAgentReach`), which names the egress entrypoint its fetches go
- * through and the read-only world loopback its `fs` reads. The orchestrator's
- * code never carries one.
+ * Worker gets no additional modules, no env bindings, and `globalOutbound` is
+ * `null`.
  *
  * The official `@cloudflare/codemode` child currently pins Cloudflare's
  * `nodejs_compat` compatibility flag internally. That is an implementation
  * detail of the official child Worker, not a custom Node/QuickJS evaluator in
  * this Durable Object: model-generated code receives no modules or secrets
- * from Stella, and only an agent's reach lets it make outbound requests.
+ * from Stella, and it can make no outbound requests of its own.
  *
  * Stella owns the WorkerLoader adapter rather than hiding it behind the
  * package executor. The Effect scope therefore owns both native handles and
@@ -185,36 +182,13 @@ export type CloudCodeExecutionRequest = Readonly<{
     error: unknown,
     context: CloudCodeToolCallContext,
   ) => Promise<void> | void;
-  /**
-   * What only an agent's code reaches; the orchestrator's never passes it.
-   * Absent, the Worker keeps `globalOutbound: null` and no bindings.
-   */
-  agentReach?: CloudCodeAgentReach;
 }>;
 
-/**
- * An agent's code reaches the network through `network`, an egress
- * entrypoint that applies the `web` tool's URL protections and the sandbox's
- * download budget, and, with `world`, the owner world through its read-only
- * loopback (writes still commit through the `$world` intrinsic).
- */
-export type CloudCodeAgentReach = Readonly<{
-  network: Fetcher;
-  world?: unknown;
+type LockedDynamicWorkerOptions = Readonly<{
+  loader: WorkerLoader;
+  timeout: number;
+  globalOutbound: null;
 }>;
-
-type LockedDynamicWorkerOptions =
-  | Readonly<{
-      loader: WorkerLoader;
-      timeout: number;
-      globalOutbound: null;
-    }>
-  | Readonly<{
-      loader: WorkerLoader;
-      timeout: number;
-      globalOutbound: Fetcher;
-      world?: unknown;
-    }>;
 
 export type CloudCodeExecutorFactory = (
   options: LockedDynamicWorkerOptions,
@@ -843,21 +817,12 @@ const createProductionExecutor: CloudCodeExecutorFactory = (options) =>
   new StellaDynamicWorkerExecutor({
     loader: options.loader,
     timeout: options.timeout,
-    ...(options.globalOutbound
-      ? {
-          globalOutbound: options.globalOutbound,
-          ...("world" in options && options.world !== undefined
-            ? { world: options.world }
-            : {}),
-        }
-      : {}),
   });
 
 /**
  * Production entry point. Each call creates a fresh Stella-owned Dynamic
- * Worker. `globalOutbound` is `null` and there are no bindings unless the
- * request carries an agent's reach, which names its egress entrypoint and
- * world loopback explicitly; there is no override for modules.
+ * Worker. `globalOutbound` is `null` and there are no bindings; there is no
+ * override for modules.
  */
 export const executeCloudCode = (
   request: CloudCodeExecutionRequest,
@@ -947,19 +912,12 @@ export const executeCloudCodeWithExecutorFactory = async (
           try {
             // The fixed literals are intentional. Do not spread caller
             // options: an omitted globalOutbound inherits the parent's full
-            // network, so only an agent's named egress entrypoint replaces
-            // the null.
-            const reach = request.agentReach;
-            const executor = executorFactory(
-              reach
-                ? {
-                    loader: request.loader,
-                    timeout,
-                    globalOutbound: reach.network,
-                    ...(reach.world !== undefined ? { world: reach.world } : {}),
-                  }
-                : { loader: request.loader, timeout, globalOutbound: null },
-            );
+            // network.
+            const executor = executorFactory({
+              loader: request.loader,
+              timeout,
+              globalOutbound: null,
+            });
             let disposal: Promise<CloudCodeCleanupStatus> | undefined;
             return {
               ok: true as const,

@@ -26,4 +26,5 @@ export const HARD_RESET_MUTABLE_HOME_PATHS = [
   "stella-runs.sqlite",
   "stella-runs.sqlite-shm",
   "stella-runs.sqlite-wal",
+  "agent",
 ] as const;

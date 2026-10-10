@@ -44,7 +44,9 @@ import {
 
 const BAR_WIDTH = 2;
 const BAR_GAP = 2;
-const WAVEFORM_HEIGHT = 28;
+const WAVEFORM_HEIGHT = 32;
+const CONTROL_SIZE = 38;
+const CONTROL_HIT_SLOP = (44 - CONTROL_SIZE) / 2;
 const MIN_BAR_HEIGHT = 1;
 const LEVEL_BUFFER_LENGTH = 64;
 const TIMER_TICK_MS = 250;
@@ -92,18 +94,17 @@ export const DictationRecordingBar = memo(function DictationRecordingBar({
       <View style={styles.recordingRow}>
         {/* Cancel takes the slot the composer's + occupies at rest, so the
             leading control is one place with one meaning: add something when
-            idle, back out when dictating. It carries the +'s footprint (32pt,
-            not the 26pt trailing controls) so the waveform starts at the same
-            x and the row does not shift as dictation begins or ends. */}
+            idle, back out when dictating. Every control in the row shares one
+            size, large enough to hit without aiming. */}
         <Pressable
           onPress={onCancel}
           accessibilityLabel="Cancel dictation"
-          hitSlop={6}
-          style={styles.leadingControl}
+          hitSlop={CONTROL_HIT_SLOP}
+          style={styles.control}
         >
           <Icon
             name="x"
-            size={15}
+            size={17}
             color={fadeHex(colors.text, 0.75)}
             weight="semibold"
           />
@@ -113,21 +114,21 @@ export const DictationRecordingBar = memo(function DictationRecordingBar({
         <Pressable
           onPress={onConfirm}
           accessibilityLabel="Stop dictation and transcribe"
-          hitSlop={6}
+          hitSlop={CONTROL_HIT_SLOP}
           style={styles.control}
         >
-          <Icon name="check" size={16} color={colors.text} weight="semibold" />
+          <Icon name="check" size={18} color={colors.text} weight="semibold" />
         </Pressable>
         {onSend ? (
           <Pressable
             onPress={onSend}
             accessibilityLabel="Stop dictation and send"
-            hitSlop={6}
+            hitSlop={CONTROL_HIT_SLOP}
             style={styles.sendControl}
           >
             <Icon
               name="arrow-up"
-              size={15}
+              size={17}
               color={colors.accentForeground}
               weight="heavy"
             />
@@ -369,6 +370,7 @@ const makeStyles = (colors: ColorMap) =>
       alignItems: "center",
       flexDirection: "row",
       gap: 8,
+      minHeight: CONTROL_SIZE + 6,
       minWidth: 0,
     },
     timer: {
@@ -379,32 +381,22 @@ const makeStyles = (colors: ColorMap) =>
       fontVariant: ["tabular-nums"],
       paddingHorizontal: 4,
     },
-    leadingControl: {
-      flexShrink: 0,
-      alignItems: "center",
-      justifyContent: "center",
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      backgroundColor: fadeHex(colors.text, 0.06),
-    },
     control: {
       flexShrink: 0,
       alignItems: "center",
       justifyContent: "center",
-      width: 26,
-      height: 26,
-      borderRadius: 13,
+      width: CONTROL_SIZE,
+      height: CONTROL_SIZE,
+      borderRadius: CONTROL_SIZE / 2,
       backgroundColor: fadeHex(colors.text, 0.07),
     },
     sendControl: {
       flexShrink: 0,
       alignItems: "center",
       justifyContent: "center",
-      width: 28,
-      height: 28,
-      marginLeft: 2,
-      borderRadius: 14,
+      width: CONTROL_SIZE,
+      height: CONTROL_SIZE,
+      borderRadius: CONTROL_SIZE / 2,
       backgroundColor: colors.accent,
     },
   });

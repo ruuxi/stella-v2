@@ -23,7 +23,6 @@ describe("task lifecycle deduping", () => {
     const context = {
       state: {
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
       },
       runtimeStore: {
@@ -85,7 +84,6 @@ describe("task lifecycle deduping", () => {
     const context = {
       state: {
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
       },
       runtimeStore: {
@@ -135,7 +133,6 @@ describe("task lifecycle deduping", () => {
     const context = {
       state: {
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
       },
       runtimeStore: {
@@ -194,7 +191,6 @@ describe("task lifecycle deduping", () => {
     const context = {
       state: {
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
       },
       runtimeStore: {
@@ -310,7 +306,6 @@ describe("task lifecycle deduping", () => {
     const context = {
       state: {
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
         supervisor: { adoptChild: vi.fn() },
       },

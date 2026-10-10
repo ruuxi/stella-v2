@@ -262,6 +262,12 @@ export type StellaAgentsHost = {
   /** Who an agent can reach beyond this conversation's own agents. */
   directory?: AgentDirectoryHost;
   /**
+   * Where a new agent whose tools run on this host starts working, when its
+   * caller named no directory: a fresh folder of its own rather than the
+   * user's home. Absent, it starts in the environment's default directory.
+   */
+  agentDirectory?(threadId: string): string;
+  /**
    * Where a conversation's tools can run apart from the conversation: an
    * agent started with a device destination keeps its brain here and runs
    * its tools there, and `switch_destination` moves them. Absent, an
@@ -613,6 +619,8 @@ export function stellaAgents(host: StellaAgentsHost) {
       threadId?: string;
       /** Started here for another host's orchestrator. */
       origin?: AgentOrigin;
+      /** The absolute directory its caller asked it to start in. */
+      cwd?: string;
     },
   ): Promise<{ threadId: string; existing: boolean }> => {
     const { parentConversationId, depth, description, runsOn, placement } = args;
@@ -626,7 +634,10 @@ export function stellaAgents(host: StellaAgentsHost) {
     });
     const child = await tx.createConversation({ ownership: { kind: "task", taskId: anchor } });
     const threadId = args.threadId && !state.agents[args.threadId] ? args.threadId : `${slug(description)}-${child.id}`;
+    // It starts there, not confined there: its tools still take any path.
+    const cwd = args.cwd ?? (placement.kind === "local" ? host.agentDirectory?.(threadId) : undefined);
     await configure(tx, child.id, {
+      ...(cwd ? { cwd } : {}),
       ...(runsOn.model ? { model: runsOn.model } : {}),
       ...(runsOn.thinkingLevel ? { thinkingLevel: runsOn.thinkingLevel } : {}),
       // An agent has file, shell and agent tools, not the orchestrator's
@@ -662,6 +673,9 @@ export function stellaAgents(host: StellaAgentsHost) {
     return { threadId, existing: false };
   };
 
+  /** POSIX or Windows absolute. */
+  const isAbsolutePath = (value: string) => value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
+
   const spawnAgent = defineTool({
     name: "spawn_agent",
     description:
@@ -689,6 +703,12 @@ export function stellaAgents(host: StellaAgentsHost) {
             "With a device_id destination: run the whole agent on that computer, on its own Stella there, for work that needs more than its shell and files (its Stella skills and apps, the user's signed-in browser, the app's preview, changing Stella itself). It waits for an offline computer to come back. Only Stella can do this.",
         }),
       ),
+      directory: Type.Optional(
+        Type.String({
+          description:
+            "Absolute path of the directory the agent starts in, such as the project the work is about, where its tools run (so not with destination). Its AGENTS.md, when there is one, is added to the agent's context. The agent can still work anywhere. Omit it to start the agent in a fresh folder of its own.",
+        }),
+      ),
     }),
     // A rerun finds this call's spawn in `calls` and does nothing again.
     replay: "safe",
@@ -697,9 +717,19 @@ export function stellaAgents(host: StellaAgentsHost) {
       const depth = caller.depth + 1;
       if (depth > MAX_AGENT_DEPTH) throw new Error("This agent is at the nesting limit and cannot start agents of its own.");
       const destination = parseSpawnDestination(args.destination, args.whole_agent);
+      const directory = args.directory?.trim() || undefined;
+      if (directory && !isAbsolutePath(directory)) {
+        throw new Error(`directory must be an absolute path; got "${directory}".`);
+      }
       const placed = host.place(destination, await callerPlacement(api, context));
       if ("error" in placed) throw new Error(placed.error);
       let placement: StellaPlacement = placed;
+      // Another computer's or the cloud's tools start in their own home.
+      if (directory && placed.kind !== "local") {
+        throw new Error(
+          "directory works only for an agent whose tools run where you are. Leave it out, and name the directory in the prompt instead.",
+        );
+      }
       const callerAgent = await api.agent(context);
       const requested = args.model?.trim();
       // Another Stella alias only for a caller on Stella's models: a turn on
@@ -768,6 +798,7 @@ export function stellaAgents(host: StellaAgentsHost) {
             prompt: args.prompt,
             runsOn,
             placement,
+            ...(directory ? { cwd: directory } : {}),
           }),
         context,
       );

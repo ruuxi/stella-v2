@@ -628,6 +628,7 @@ export function desktopChats(options: DesktopChatsOptions) {
                 ...(options.deviceId ? { deviceId: options.deviceId } : {}),
                 ...(cloud ? { cloud } : {}),
                 directory: directoryFor(conversationId),
+                dataDir: options.dataDir,
                 execution: execution.host,
                 ensureModel: (model) => ensureModel(model),
                 beginAgentRun: async (run) => {

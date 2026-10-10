@@ -61,12 +61,14 @@ import type { ConversationState } from "./conversation-store";
 import {
   activateCloudConversationClientAuthority,
   conversationStore,
+} from "./conversation-store";
+import {
+  cloudConversationOutboxStorageKey,
   pendingPrompts,
   type CloudConversationOutboxAuthority,
   type PendingCloudTurnSubmission,
   type PendingPrompt,
-} from "./conversation-store";
-import { cloudConversationOutboxStorageKey } from "./conversation-outbox";
+} from "./conversation-outbox";
 import type { SocketStatus } from "./conversation-socket";
 import { reportCloudReadiness } from "./cloud-readiness-timing";
 import { showToast } from "@/ui/toast";

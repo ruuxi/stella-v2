@@ -32,7 +32,8 @@ import { log } from "../build-session/shared/keys.js";
 import { sha256Hex } from "../hash.js";
 import { DictationUsageError, type MuseControl, type PreparedSession } from "../muse-transcribe-socket.js";
 import { RpcError, toBackendError, unwrapRpc } from "../owner-store/errors.js";
-import { verifyCaller } from "../owner-store/routes.js";
+import { readBodyText, readJsonObject } from "../http/body.js";
+import { requireCaller } from "../http/caller.js";
 import type { OwnerCaller } from "../owner-store/registry.js";
 import { ttsText } from "../owner-store/domains/voice.js";
 import { createPcmMp3Encoder, estimateTtsUsage, openTtsPcm, pcmToWav, resolveGeminiTtsVoice, ttsProvider } from "./tts.js";
@@ -120,25 +121,21 @@ const callOwner = async <T>(env: VoiceEnv, ownerId: string, name: string, args: 
   await voiceInternal<T>(env, ownerId, await ownerGeneration(env, ownerId), name, args);
 
 const authenticate = async (request: Request, env: VoiceEnv): Promise<OwnerCaller> => {
-  const header = request.headers.get("authorization") ?? "";
-  const verified = await verifyCaller(env, header.startsWith("Bearer ") ? header.slice(7).trim() : "");
+  const verified = await requireCaller(request, env, {
+    allowAnonymous: false,
+    anonymousMessage: "Sign in to Stella to use voice.",
+  });
   if (!verified.ok) throw verified.error;
-  if (verified.caller.isAnonymous) {
-    throw new RpcError("FORBIDDEN", "Sign in to Stella to use voice.");
-  }
   return verified.caller;
 };
 
 const readJson = async (request: Request): Promise<Record<string, unknown>> => {
-  const text = await request.text();
-  if (text.length > MAX_JSON_BYTES) throw new RpcError("BAD_REQUEST", "Request body is too large.");
-  try {
-    const body = JSON.parse(text) as unknown;
-    if (body && typeof body === "object" && !Array.isArray(body)) return body as Record<string, unknown>;
-  } catch {
-    // Falls through to the refusal below.
-  }
-  throw new RpcError("BAD_REQUEST", "Request body must be a JSON object.");
+  const body = await readJsonObject(request, MAX_JSON_BYTES);
+  if (body.ok) return body.value;
+  throw new RpcError(
+    "BAD_REQUEST",
+    body.status === 413 ? "Request body is too large." : "Request body must be a JSON object.",
+  );
 };
 
 /** Trim, bound and admit read-aloud text against the owner's allowance. */
@@ -155,8 +152,9 @@ const liveSdp = async (request: Request, env: VoiceEnv): Promise<Response> => {
   const caller = await authenticate(request, env);
   const leaseId = request.headers.get(VOICE_LEASE_HEADER)?.trim() ?? "";
   if (!leaseId) throw new RpcError("BAD_REQUEST", `${VOICE_LEASE_HEADER} is required.`);
-  const sdp = await request.text();
-  if (sdp.length < 10 || sdp.length > MAX_SDP_BYTES) throw new RpcError("BAD_REQUEST", "Missing or invalid SDP offer.");
+  const body = await readBodyText(request, MAX_SDP_BYTES);
+  const sdp = body.ok ? body.value : "";
+  if (sdp.length < 10) throw new RpcError("BAD_REQUEST", "Missing or invalid SDP offer.");
   const answer = await callOwner<{ sdp: string }>(env, caller.ownerId, "voice.sdp", { leaseId, sdp });
   return new Response(answer.sdp, {
     headers: { "content-type": "application/sdp", "cache-control": "no-store" },

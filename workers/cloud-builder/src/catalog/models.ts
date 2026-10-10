@@ -1,3 +1,4 @@
+import { rpcErrorStatus } from "@stella/contracts/backend/protocol";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 import { STELLA_MODELS_PATH } from "@stella/contracts/stella-api";
 import {
@@ -5,8 +6,9 @@ import {
   listStellaCatalogModels,
   listStellaDefaultSelections,
 } from "@stella/model-catalog/aliases";
+import { bearerCredential } from "../../../shared/bearer.js";
 import { sha256Hex } from "../hash.js";
-import { verifyCaller } from "../owner-store/routes.js";
+import { verifyCaller } from "../http/caller.js";
 import { readManagedModelPrices } from "./prices.js";
 
 /**
@@ -41,13 +43,11 @@ const audienceFor = async (
   request: Request,
   env: Cloudflare.Env,
 ): Promise<{ ok: true; audience: ManagedModelAudience } | { ok: false; response: Response }> => {
-  const header = request.headers.get("authorization") ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  const token = bearerCredential(request.headers.get("authorization"));
   if (!token) return { ok: true, audience: "anonymous" };
   const verified = await verifyCaller(env, token);
   if (!verified.ok) {
-    const status = verified.error.code === "UNAUTHENTICATED" ? 401 : 503;
-    return { ok: false, response: reply(status, { error: verified.error.message }) };
+    return { ok: false, response: reply(rpcErrorStatus(verified.error.code), { error: verified.error.message }) };
   }
   if (verified.caller.isAnonymous) return { ok: true, audience: "anonymous" };
   const access = await env.OWNER_GATES.getByName(verified.caller.ownerId).billingAccess({ isAnonymous: false });

@@ -32,10 +32,12 @@ const makeService = () => {
     webSearch: vi.fn(),
   };
   const chatStore = {
-    appendEvent: vi.fn((event) => {
-      localEvents.push(event);
-      return { _id: `event-${localEvents.length}`, ...event };
-    }),
+    chat: {
+      appendEvent: vi.fn((event) => {
+        localEvents.push(event);
+        return { _id: `event-${localEvents.length}`, ...event };
+      }),
+    },
   };
   const onLocalChatUpdated = vi.fn();
   const service = new VoiceRuntimeService({

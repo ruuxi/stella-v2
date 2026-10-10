@@ -16,7 +16,7 @@ import {
 } from "@stella/contracts/pi-chat";
 import type { EventRecord, MessageRecord } from "@stella/contracts/local-chat";
 import type { DesktopThreadActivityRecord } from "@/features/chat/thread-activity-types";
-import type { JournalRecord } from "@/features/cloud/conversation-protocol";
+import type { JournalRecord } from "@stella/contracts/conversation-protocol";
 import { journalRecordsToMessageRecords } from "@/features/cloud/journal-message-records";
 import {
   streamingAssistantOverlayId,

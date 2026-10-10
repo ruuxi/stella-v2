@@ -17,10 +17,17 @@ import {
 import type { Env } from "../build-session/shared/env.js";
 import { log } from "../build-session/shared/keys.js";
 import type { ConversationCaller } from "../build-session/shared/types.js";
+import { readJsonBody } from "../http/body.js";
 
 const REQUEST_ID = /^[A-Za-z0-9._:-]+$/u;
 /** What a computer's own requests are known by at the gate. */
 const OWN_PREFIX = "own:";
+/**
+ * The body bound before parsing. The call's own limit is checked on its
+ * re-serialized JSON below; a `\uXXXX` escape spends six body bytes on one
+ * character, so this never refuses a call that limit would accept.
+ */
+const MAX_BODY_BYTES = 6 * DEVICE_TOOL_LIMITS.callBytes + 4096;
 
 const refusal = (status: number, code: Extract<DeviceToolOutcome, { ok: false }>["code"], message: string): Response =>
   Response.json({ ok: false, code, message } satisfies DeviceToolOutcome, {
@@ -64,12 +71,13 @@ export const handleDeviceToolRoute = async (
   op: "call" | "cancel",
 ): Promise<Response> => {
   if (caller.isAnonymous) return refusal(401, "bad_request", "Sign in to reach your computers.");
-  let body: { requestId?: unknown; call?: unknown };
-  try {
-    body = (await request.json()) as typeof body;
-  } catch {
-    return refusal(400, "bad_request", "Malformed JSON request.");
+  const read = await readJsonBody(request, MAX_BODY_BYTES);
+  if (!read.ok) {
+    return read.status === 413
+      ? refusal(413, "too_large", "The call is too large.")
+      : refusal(400, "bad_request", "Malformed JSON request.");
   }
+  const body = read.value as { requestId?: unknown; call?: unknown } | null;
   const requestId = typeof body?.requestId === "string" ? body.requestId.trim() : "";
   if (!requestId || requestId.length > DEVICE_TOOL_LIMITS.requestId - OWN_PREFIX.length || !REQUEST_ID.test(requestId)) {
     return refusal(400, "bad_request", "A request id is required.");
@@ -80,7 +88,7 @@ export const handleDeviceToolRoute = async (
     await gate.cancelDeviceTool({ requestId: scoped });
     return Response.json({ ok: true }, { headers: { "cache-control": "no-store" } });
   }
-  const call = parseCall(body.call);
+  const call = parseCall(body?.call);
   if (!call) return refusal(400, "bad_request", "Malformed tool call.");
   if (JSON.stringify(call).length > DEVICE_TOOL_LIMITS.callBytes) return refusal(413, "too_large", "The call is too large.");
   const started = Date.now();

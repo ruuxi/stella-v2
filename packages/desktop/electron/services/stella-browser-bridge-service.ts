@@ -40,6 +40,7 @@ import {
   resolveStellaBrowserRoot,
 } from "../utils/stella-browser-paths.js";
 import { stopChildProcessTree } from "../process-runtime.js";
+import type { StellaBrowserExportedCookie } from "@stella/contracts/desktop/browser-view";
 
 const execFileAsync = promisify(execFile);
 
@@ -238,25 +239,6 @@ type DaemonResponse = {
   data?: unknown;
 };
 
-export type StellaBrowserExportedCookie = {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  secure: boolean;
-  httpOnly: boolean;
-  hostOnly: boolean;
-  session: boolean;
-  storeId: string;
-  sameSite: string;
-  expirationDate?: number;
-  partitionKey?: {
-    topLevelSite?: string;
-    hasCrossSiteAncestor?: boolean;
-  };
-  [key: string]: unknown;
-};
-
 export class StellaBrowserBridgeService {
   private readonly stellaAppDir: string;
   private readonly onUnexpectedExit?: (error: string) => void;
@@ -292,7 +274,8 @@ export class StellaBrowserBridgeService {
   private isLaunching = false;
   private stopped = false;
   /** Which bridge this instance runs (shared vs isolated) and how it claims it. */
-  private readonly namespace: BrowserBridgeNamespace = getBrowserBridgeNamespace();
+  private readonly namespace: BrowserBridgeNamespace =
+    getBrowserBridgeNamespace();
   private binaryIdentity: BrowserBridgeBinaryIdentity | null = null;
 
   constructor(options: StellaBrowserBridgeServiceOptions) {
@@ -577,7 +560,10 @@ export class StellaBrowserBridgeService {
     await this.killDaemonProcess();
     await this.stopOrphanedBundledDaemons();
     this.daemonProcess = null;
-    releaseBrowserBridgeOwner(this.namespace.socketDir, STELLA_BROWSER_BRIDGE_SESSION);
+    releaseBrowserBridgeOwner(
+      this.namespace.socketDir,
+      STELLA_BROWSER_BRIDGE_SESSION,
+    );
   }
 
   private async launchBridge() {
@@ -822,8 +808,7 @@ export class StellaBrowserBridgeService {
           ...process.env,
           STELLA_BROWSER_SOCKET_DIR: this.namespace.socketDir,
           STELLA_BROWSER_CONTROL_TOKEN: controlToken,
-          STELLA_BROWSER_EXTENSION_PROXY_SESSION:
-            STELLA_BROWSER_BRIDGE_SESSION,
+          STELLA_BROWSER_EXTENSION_PROXY_SESSION: STELLA_BROWSER_BRIDGE_SESSION,
           STELLA_BROWSER_EXTENSION_DELEGATE_TOKEN: extensionDelegateToken,
           STELLA_BROWSER_REQUIRED_OWNER_ID: input.ownerId,
           STELLA_BROWSER_REQUIRED_TURN_ID: input.turnId,
@@ -1020,7 +1005,10 @@ export class StellaBrowserBridgeService {
   private async closeExistingSession(replaceDaemonPid: number | null = null) {
     const daemonPort = getPortForSession(STELLA_BROWSER_BRIDGE_SESSION);
 
-    if (replaceDaemonPid != null && replaceDaemonPid !== this.daemonProcess?.pid) {
+    if (
+      replaceDaemonPid != null &&
+      replaceDaemonPid !== this.daemonProcess?.pid
+    ) {
       await this.stopRecordedDaemon(replaceDaemonPid);
     }
 

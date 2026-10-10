@@ -10,8 +10,9 @@
  * while the prompt is up.
  */
 
-import { ipcMain, type IpcMainInvokeEvent } from "electron";
+import type { IpcMainInvokeEvent } from "electron";
 import { IPC_EXECUTION_ANSWER_REMOTE_REQUEST } from "@stella/contracts/desktop/ipc-channels";
+import { handleIpc } from "./typed-ipc.js";
 
 type RemoteExecutionConsentOptions = {
   getStellaHostRunner: () => {
@@ -28,7 +29,7 @@ type RemoteExecutionConsentOptions = {
 export const registerRemoteExecutionConsentHandlers = (
   options: RemoteExecutionConsentOptions,
 ): void => {
-  ipcMain.handle(
+  handleIpc(
     IPC_EXECUTION_ANSWER_REMOTE_REQUEST,
     async (event, payload: unknown) => {
       if (

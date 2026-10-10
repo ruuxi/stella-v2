@@ -21,7 +21,6 @@
  */
 import {
   BrowserWindow,
-  ipcMain,
   Menu,
   screen,
   type IpcMainEvent,
@@ -69,6 +68,7 @@ import { t } from "../services/i18n-service.js";
 import { STELLA_CAPTURE_EXCLUDED_TITLE_PREFIXES } from "../window-capture.js";
 import { createSharedWebPreferences } from "./shared-window-preferences.js";
 import { loadWindow } from "./window-load.js";
+import { onIpc, offIpc } from "../ipc/typed-ipc.js";
 
 export type CompanionWindowOptions = {
   preloadPath: string;
@@ -163,16 +163,16 @@ export class CompanionWindowController {
 
   constructor(options: CompanionWindowOptions) {
     this.options = options;
-    ipcMain.on(IPC_COMPANION_HELLO, this.handleHello);
-    ipcMain.on(IPC_COMPANION_HOVER, this.handleHover);
-    ipcMain.on(IPC_COMPANION_PANEL_STATUS, this.handlePanelStatus);
-    ipcMain.on(IPC_COMPANION_TOGGLE_EXPANDED, this.handleToggleExpanded);
-    ipcMain.on(IPC_COMPANION_DRAG_START, this.handleDragStart);
-    ipcMain.on(IPC_COMPANION_DRAG_MOVE, this.handleDragMove);
-    ipcMain.on(IPC_COMPANION_DRAG_END, this.handleDragEnd);
-    ipcMain.on(IPC_COMPANION_FOCUS, this.handleFocus);
-    ipcMain.on(IPC_COMPANION_OPEN_MAIN, this.handleOpenMain);
-    ipcMain.on(IPC_COMPANION_SHOW_CONTEXT_MENU, this.handleShowContextMenu);
+    onIpc(IPC_COMPANION_HELLO, this.handleHello);
+    onIpc(IPC_COMPANION_HOVER, this.handleHover);
+    onIpc(IPC_COMPANION_PANEL_STATUS, this.handlePanelStatus);
+    onIpc(IPC_COMPANION_TOGGLE_EXPANDED, this.handleToggleExpanded);
+    onIpc(IPC_COMPANION_DRAG_START, this.handleDragStart);
+    onIpc(IPC_COMPANION_DRAG_MOVE, this.handleDragMove);
+    onIpc(IPC_COMPANION_DRAG_END, this.handleDragEnd);
+    onIpc(IPC_COMPANION_FOCUS, this.handleFocus);
+    onIpc(IPC_COMPANION_OPEN_MAIN, this.handleOpenMain);
+    onIpc(IPC_COMPANION_SHOW_CONTEXT_MENU, this.handleShowContextMenu);
   }
 
   // ── Public API ────────────────────────────────────────────────────────
@@ -284,22 +284,16 @@ export class CompanionWindowController {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
-    ipcMain.removeListener(IPC_COMPANION_HELLO, this.handleHello);
-    ipcMain.removeListener(IPC_COMPANION_HOVER, this.handleHover);
-    ipcMain.removeListener(IPC_COMPANION_PANEL_STATUS, this.handlePanelStatus);
-    ipcMain.removeListener(
-      IPC_COMPANION_TOGGLE_EXPANDED,
-      this.handleToggleExpanded,
-    );
-    ipcMain.removeListener(IPC_COMPANION_DRAG_START, this.handleDragStart);
-    ipcMain.removeListener(IPC_COMPANION_DRAG_MOVE, this.handleDragMove);
-    ipcMain.removeListener(IPC_COMPANION_DRAG_END, this.handleDragEnd);
-    ipcMain.removeListener(IPC_COMPANION_FOCUS, this.handleFocus);
-    ipcMain.removeListener(IPC_COMPANION_OPEN_MAIN, this.handleOpenMain);
-    ipcMain.removeListener(
-      IPC_COMPANION_SHOW_CONTEXT_MENU,
-      this.handleShowContextMenu,
-    );
+    offIpc(IPC_COMPANION_HELLO, this.handleHello);
+    offIpc(IPC_COMPANION_HOVER, this.handleHover);
+    offIpc(IPC_COMPANION_PANEL_STATUS, this.handlePanelStatus);
+    offIpc(IPC_COMPANION_TOGGLE_EXPANDED, this.handleToggleExpanded);
+    offIpc(IPC_COMPANION_DRAG_START, this.handleDragStart);
+    offIpc(IPC_COMPANION_DRAG_MOVE, this.handleDragMove);
+    offIpc(IPC_COMPANION_DRAG_END, this.handleDragEnd);
+    offIpc(IPC_COMPANION_FOCUS, this.handleFocus);
+    offIpc(IPC_COMPANION_OPEN_MAIN, this.handleOpenMain);
+    offIpc(IPC_COMPANION_SHOW_CONTEXT_MENU, this.handleShowContextMenu);
     this.resetInteraction();
     this.detachDisplayListeners();
     if (this.boundsRepairTimer) {

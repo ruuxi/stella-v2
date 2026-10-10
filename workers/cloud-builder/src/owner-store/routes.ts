@@ -19,7 +19,6 @@ import {
   rpcErrorStatus,
   type RpcResponse,
 } from "@stella/contracts/backend/protocol";
-import { verifyUserToken } from "../auth-jwt.js";
 import { stripStellaHeaders } from "../conversation-hub.js";
 import {
   HEADER_ANONYMOUS,
@@ -30,31 +29,15 @@ import {
   HEADER_TOKEN_EXP,
   HEADER_TOKEN_IAT,
 } from "../conversation-types.js";
+import { readJsonObject } from "../http/body.js";
+import { requireCaller, verifyCaller } from "../http/caller.js";
 import { ownerRegistry } from "./domains.js";
 import { RpcError, toBackendError } from "./errors.js";
-import type { OwnerCaller, OwnerRegistry } from "./registry.js";
+import type { OwnerRegistry } from "./registry.js";
 
 const MAX_RPC_BODY_BYTES = 1024 * 1024;
 
 type RouteEnv = Pick<Cloudflare.Env, "OWNER_GATES" | "CLOUD_BUILDER_PUBLIC_URL">;
-
-type Verified =
-  | { ok: true; caller: OwnerCaller }
-  | { ok: false; error: RpcError };
-
-export const verifyCaller = async (env: RouteEnv, token: string): Promise<Verified> => {
-  if (!token) {
-    return { ok: false, error: new RpcError("UNAUTHENTICATED", "Sign in to continue.") };
-  }
-  const verified = await verifyUserToken(token, env as unknown as Cloudflare.Env);
-  if (verified.ok) return { ok: true, caller: verified.token };
-  return {
-    ok: false,
-    error: verified.retryable
-      ? new RpcError("UNAVAILABLE", "Stella couldn't check your sign-in. Try again shortly.")
-      : new RpcError("UNAUTHENTICATED", "Your sign-in expired. Sign in again to continue."),
-  };
-};
 
 const rpcJson = (body: RpcResponse): Response =>
   Response.json(body, {
@@ -63,25 +46,10 @@ const rpcJson = (body: RpcResponse): Response =>
   });
 
 const readArgs = async (request: Request, maxBytes = MAX_RPC_BODY_BYTES): Promise<unknown> => {
-  const length = Number(request.headers.get("content-length") ?? "0");
-  if (length > maxBytes) {
-    throw new RpcError("BAD_REQUEST", "Request body is too large.");
-  }
-  const text = await request.text();
-  if (text.length > maxBytes) {
-    throw new RpcError("BAD_REQUEST", "Request body is too large.");
-  }
-  if (!text) return {};
-  let body: unknown;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    throw new RpcError("BAD_REQUEST", "Request body must be JSON.");
-  }
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    throw new RpcError("BAD_REQUEST", "Request body must be an object.");
-  }
-  return (body as { args?: unknown }).args ?? {};
+  const body = await readJsonObject(request, maxBytes, { allowEmpty: true });
+  // The RPC envelope has no 413: an oversized body is a BAD_REQUEST like any other.
+  if (!body.ok) throw new RpcError("BAD_REQUEST", body.error);
+  return body.value.args ?? {};
 };
 
 export const handleRpc = async (
@@ -103,8 +71,7 @@ export const handleRpc = async (
   if (!def) {
     return rpcJson({ ok: false, error: toBackendError(new RpcError("NOT_FOUND", `Unknown function ${name}.`)) });
   }
-  const header = request.headers.get("authorization") ?? "";
-  const verified = await verifyCaller(env, header.startsWith("Bearer ") ? header.slice(7).trim() : "");
+  const verified = await requireCaller(request, env, { allowAnonymous: true });
   if (!verified.ok) return rpcJson({ ok: false, error: toBackendError(verified.error) });
   const { caller } = verified;
   let args: unknown;

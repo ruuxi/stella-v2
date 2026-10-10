@@ -28,6 +28,7 @@ const harness = vi.hoisted(() => {
     setAuthToken: () => undefined,
     setHasConnectedAccount: () => undefined,
     setCloudSyncEnabled: () => undefined,
+    setPiReportDelivery: () => undefined,
     start: () => {
       state.order.push("runner.start");
     },

@@ -5,7 +5,7 @@ import type {
   MemoryWipeStatus,
 } from "@stella/contracts/backend/home";
 import { OWNER_GENERATION_STALE } from "@stella/contracts/backend/protocol";
-import { followsOwnerGeneration } from "./cloud-memory-preference";
+import { followsOwnerGeneration } from "@stella/contracts/cloud-memory-preference";
 
 export type StartCloudMemoryWipeArgs = HomeCalls["memory.startWipe"]["args"];
 

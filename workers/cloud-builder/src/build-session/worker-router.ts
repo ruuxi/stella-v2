@@ -39,6 +39,7 @@ import {
   TURN_OWNER_GENERATION_HEADER,
   TURN_OWNER_ID_HEADER,
 } from "@stella/contracts/turn-plane/turn-start";
+import { bearerCredential } from "../../../shared/bearer.js";
 import { classifyNetwork } from "../../../shared/network-class.js";
 import { verifyUserToken } from "../auth-jwt.js";
 import { noteOwnerIdentity } from "../owner-identity.js";
@@ -188,8 +189,7 @@ const authenticateConversationCaller = async (
     }
     token = offer.token;
   } else {
-    const header = request.headers.get("authorization") ?? "";
-    if (header.startsWith("Bearer ")) token = header.slice(7).trim();
+    token = bearerCredential(request.headers.get("authorization")) ?? "";
   }
   if (!token) {
     return deny(

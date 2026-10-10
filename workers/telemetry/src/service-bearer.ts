@@ -1,5 +1,6 @@
+import { bearerCredential, MAX_BEARER_CREDENTIAL_LENGTH as MAX_LENGTH } from "../../shared/bearer.js";
+
 const CREDENTIAL = /^[A-Za-z0-9._~+/-]+={0,}$/u;
-const MAX_LENGTH = 8_192;
 const INVALID_LEFT = "stella-invalid-left-secret";
 const INVALID_RIGHT = "stella-invalid-right-secret";
 
@@ -7,10 +8,8 @@ const bounded = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0 && value.length <= MAX_LENGTH;
 
 const parseBearer = (authorization: string | null): string | null => {
-  if (authorization === null || authorization.length > MAX_LENGTH + 7) return null;
-  const match = /^Bearer ([^\s]+)$/iu.exec(authorization);
-  const value = match?.[1];
-  return bounded(value) && CREDENTIAL.test(value) ? value : null;
+  const value = bearerCredential(authorization, MAX_LENGTH);
+  return value !== null && CREDENTIAL.test(value) ? value : null;
 };
 
 const fixedLengthEqual = (left: ArrayBuffer, right: ArrayBuffer): boolean => {

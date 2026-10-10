@@ -55,22 +55,18 @@ const saveCanvasLink = async (
   const auth = options.getCloudBackendAuth?.();
   if (!auth) return null;
   if (Buffer.byteLength(args.html, "utf8") > SHARE_MAX_HTML_BYTES) return null;
+  // One deadline for the whole save, including the 401 retry; aborting it
+  // also cancels the request instead of leaving it running.
+  const signal = AbortSignal.timeout(SAVE_LINK_TIMEOUT_MS);
   const client = new BackendClient({
     baseUrl: auth.baseUrl,
     getToken: async () => auth.authToken,
+    fetch: (input, init) => fetch(input, { ...init, signal }),
   });
-  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return await Promise.race([
-      client.call("shares.save", args),
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), SAVE_LINK_TIMEOUT_MS);
-      }),
-    ]);
+    return await client.call("shares.save", args);
   } catch {
     return null;
-  } finally {
-    if (timer) clearTimeout(timer);
   }
 };
 
@@ -117,7 +113,9 @@ export const createHtmlTool = (options: HtmlToolOptions): ToolDefinition => {
           title,
           createdAt,
           bytes: Buffer.byteLength(html, "utf8"),
-          ...(link ? { shareUrl: link.url, shareVisibility: link.visibility } : {}),
+          ...(link
+            ? { shareUrl: link.url, shareVisibility: link.visibility }
+            : {}),
         },
       };
     },

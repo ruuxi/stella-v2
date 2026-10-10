@@ -840,7 +840,6 @@
     },
     "integrations": {
       "connectStellaApp": "Connetti all'app Stella",
-      "connectStellaAppSub": "Abbina l'app Stella del tuo telefono a questo computer",
       "connectTitle": "Connetti",
       "connected": "Connesso",
       "credential": {
@@ -856,11 +855,16 @@
         "saving": "Salvataggio...",
         "title": "Connetti {provider}"
       },
-      "heroTagline": "Scrivi a Stella dalla piattaforma che preferisci: chiacchiera in modo naturale, o chiedile di fare le cose direttamente sul tuo computer.",
       "phoneTitle": "Il tuo telefono",
       "signInHeadline": "Accedi per iniziare",
       "signInSub": "Accedi al tuo account Stella per connettere {provider}.",
-      "signInToConnect": "Accedi a Stella per connettere"
+      "signInToConnect": "Accedi a Stella per connettere",
+      "getApp": {
+        "appStoreQrAlt": "Scansiona per scaricare Stella dall'App Store",
+        "platformLabel": "Scegli una piattaforma mobile",
+        "playStoreQrAlt": "Scansiona per scaricare Stella da Google Play",
+        "title": "Scarica l’app"
+      }
     },
     "legal": {
       "privacy": {
@@ -1029,7 +1033,6 @@
       "disconnectedLabel": "Computer disconnesso",
       "guestHeroBody": "Chiedi a Stella di fare cose sul tuo computer: navigare sul web, gestire file, eseguire attività e altro ancora.",
       "guestHeroTitle": "Il tuo computer a portata di mano",
-      "pairLabel": "Associa un computer",
       "statusAsleep": "In sospensione",
       "statusChecking": "Controllo…",
       "statusConnected": "Connesso"
@@ -1037,20 +1040,11 @@
     "desktop": {
       "connecting": "Connessione al desktop",
       "deviceUnreachable": "Il tuo {platform} non è raggiungibile",
-      "enterCode": "Inserisci il codice mostrato sul tuo computer.",
-      "guestBody": "Vedi l'app desktop di Stella direttamente sul telefono. Dopo l'associazione, il telefono si riconnetterà automaticamente.",
       "guestSignInPrompt": "Accedi per iniziare.",
       "limitedCapabilities": "Alcune cose richiedono il tuo computer",
       "linkInterrupted": "Il collegamento con il tuo computer è stato interrotto.",
-      "pairAnother": "Associa un altro computer",
-      "pairTitle": "Associa il tuo telefono",
-      "pairing": "Associazione di questo telefono",
       "reconnecting": "Riconnessione...",
-      "repairNeeded": "Questo telefono deve essere associato di nuovo al tuo computer.",
       "retryLabel": "Prova a connetterti di nuovo",
-      "startPairingLabel": "Inizia ad associare un computer",
-      "unavailableBodyPaired": "Assicurati che Stella sia aperta sul tuo computer e connessa a internet. Una volta connessa, la tua app desktop apparirà proprio qui, sul telefono.",
-      "unavailableBodyUnpaired": "Vedi l'app desktop di Stella direttamente sul telefono. Inquadra il codice QR mostrato in Stella sul tuo computer per iniziare: dopodiché il telefono si riconnetterà automaticamente.",
       "unreachable": "Impossibile raggiungere il desktop"
     },
     "engineAccounts": {
@@ -1163,26 +1157,17 @@
         "signInBody": "Porta con te conversazione, impostazioni e computer collegato su ogni dispositivo.",
         "signInTitle": "Accedi a Stella",
         "skip": "Per ora no",
-        "subscriptionsBody": "Paghi già Claude o ChatGPT? Collegalo e lo userò nel cloud. I tuoi computer usano i propri accessi.",
+        "subscriptionsBody": "Usare il tuo abbonamento Claude o ChatGPT esistente?",
         "subscriptionsLabel": "Facoltativo"
       },
       "composerPlaceholder": "Oppure chiedimi pure qualcosa",
       "computer": {
-        "body": "Associa questo telefono a Stella sul tuo computer e potrò eseguire compiti lì mentre sei in giro.",
-        "connectedBody": "Chiedi da dove vuoi e farò il lavoro sul tuo computer.",
+        "body": "Accedi sul computer e si collega automaticamente.",
         "connectedTo": "Collegato a {name}",
-        "guestHint": "L'abbinamento è legato al tuo account Stella, quindi accedi prima. Riprendo esattamente da qui.",
-        "hint": "Sul tuo computer apri Stella e scegli Associa telefono.",
+        "getDesktop": "Scarica Stella per computer",
         "later": "Più tardi",
-        "pair": "Associa il mio computer",
-        "point1": "Trovare un file e mandartelo",
-        "point2": "Completare un'esportazione o un download",
-        "point3": "Usare le app che hai già",
-        "settledConnectedDesc": "Posso eseguire compiti lì dal tuo telefono.",
-        "settledSkippedDesc": "Puoi associarne uno in qualsiasi momento da Impostazioni.",
         "settledSkippedTitle": "Ancora nessun computer",
-        "signInToPair": "Accedi per abbinare",
-        "title": "Il tuo computer, dalla tasca"
+        "title": "Stella sul tuo computer"
       },
       "gmail": {
         "body": "Trova email, recupera le conversazioni e fai bozze di risposta, basta chiedere.",
@@ -1401,7 +1386,6 @@
         "enableFailedTitle": "Impossibile abilitare quel computer",
         "enableLabel": "Abilita {name}",
         "enabling": "Abilitazione…",
-        "pairingCode": "Usa un codice di associazione",
         "sectionLabel": "Dove lavora Stella",
         "statusAwaitingConsent": "In attesa di autorizzazione su quel computer",
         "statusDeclined": "Rifiutato su quel computer",
@@ -1417,10 +1401,6 @@
       "deleteConfirmTitle": "Elimina account",
       "deleteFailedTitle": "Impossibile eliminare l'account",
       "deletingAccount": "Eliminazione dell'account…",
-      "forget": "Dimentica",
-      "forgetConfirmBody": "Questo telefono smetterà di riconnettersi a quel computer finché non lo associ di nuovo.",
-      "forgetConfirmTitle": "Dimenticare {name}?",
-      "forgetLabel": "Dimentica {name}",
       "hideEmailLabel": "Nascondi l'email",
       "loadingSession": "Caricamento della sessione…",
       "notificationsSection": "Notifiche",
@@ -1430,9 +1410,6 @@
       "paired": {
         "unnamedComputer": "Computer · {id}"
       },
-      "pairedEmpty": "Nessun computer associato.",
-      "pairedOn": "Associato il {date}",
-      "pairedSection": "Computer associati",
       "privacyPolicy": "Informativa sulla privacy",
       "pushToggleA11y": "Attiva o disattiva le notifiche push",
       "pushToggleLabel": "Consenti le notifiche push",
@@ -1610,6 +1587,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Gran parte della vita passa dall'email. Collega Gmail e ti aiuto con la tua.",
         "memory": "One more thing that makes me different.",
+        "phone": "Sono anche sul tuo telefono.",
         "quickstart": "È tutto. Un'ultima cosa, facoltativa: l'avvio rapido.",
         "quickstartDone": "Fatto. Ecco cosa ho capito di te, e alcune cose da cui potremmo iniziare.",
         "quickstartFailed": "Questa volta non sono riuscita a finire di leggere il tuo browser. Possiamo iniziare lo stesso, e imparerò strada facendo.",
@@ -2105,16 +2083,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Qui compaiono i computer collegati. Attivane uno per inviargli lavoro.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2252,48 +2225,6 @@
         "label": "Cattura schermo"
       },
       "title": "Autorizzazioni"
-    },
-    "phoneAccess": {
-      "copy": "Copia",
-      "deviceFallback": "Telefono",
-      "errors": {
-        "createPairing": "Impossibile creare un codice di abbinamento."
-      },
-      "expired": "Scaduto",
-      "getCode": "Ottieni codice",
-      "intro": {
-        "headline": "Collega il telefono al computer"
-      },
-      "pairedCount": {
-        "many": "{count} telefoni abbinati",
-        "one": "{count} telefono abbinato",
-        "other": "{count} telefoni abbinati"
-      },
-      "pairing": {
-        "body": "Scansiona il codice QR nell’app Stella sul telefono o inserisci il codice.",
-        "headline": "Scansiona o inserisci questo codice",
-        "qrAlt": "Scansiona per abbinare il telefono"
-      },
-      "preparing": "Preparazione...",
-      "remove": "Rimuovi",
-      "removing": "Rimozione...",
-      "signedOut": {
-        "body": "Accedi al tuo account Stella per abbinare l'app per telefono.",
-        "headline": "Accedi per iniziare"
-      },
-      "steps": {
-        "appStoreQrAlt": "Scansiona per scaricare Stella dall'App Store",
-        "connect": "Collega il telefono",
-        "download": "Scarica l'app",
-        "platformSelectorLabel": "Scegli una piattaforma mobile",
-        "playStoreQrAlt": "Scansiona per scaricare Stella da Google Play"
-      },
-      "timeLeft": "{time} rimanenti",
-      "toasts": {
-        "codeCopied": "Codice copiato negli appunti",
-        "phoneRemoved": "Telefono rimosso",
-        "removeFailed": "Rimozione del telefono non riuscita"
-      }
     },
     "power": {
       "description": "Impedisce al computer di andare in stop mentre Stella è aperta.",

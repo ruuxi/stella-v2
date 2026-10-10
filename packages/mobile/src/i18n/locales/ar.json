@@ -864,7 +864,6 @@
     },
     "integrations": {
       "connectStellaApp": "اتصل بتطبيق Stella",
-      "connectStellaAppSub": "اقرن تطبيق Stella على هاتفك بهذا الكمبيوتر",
       "connectTitle": "اتصال",
       "connected": "متصل",
       "credential": {
@@ -880,11 +879,16 @@
         "saving": "جارٍ الحفظ...",
         "title": "اتصل بـ {provider}"
       },
-      "heroTagline": "راسل Stella من أي منصة تحبها — تحدّث بشكل طبيعي، أو اطلب منها إنجاز الأمور مباشرة على حاسوبك.",
       "phoneTitle": "هاتفك",
       "signInHeadline": "سجّل الدخول للبدء",
       "signInSub": "سجّل الدخول إلى حساب Stella لتوصيل {provider}.",
-      "signInToConnect": "سجّل الدخول إلى Stella للاتصال"
+      "signInToConnect": "سجّل الدخول إلى Stella للاتصال",
+      "getApp": {
+        "appStoreQrAlt": "امسح لتنزيل Stella من App Store",
+        "platformLabel": "اختر منصة الهاتف المحمول",
+        "playStoreQrAlt": "امسح لتنزيل Stella من Google Play",
+        "title": "احصل على التطبيق"
+      }
     },
     "legal": {
       "privacy": {
@@ -1059,7 +1063,6 @@
       "disconnectedLabel": "انقطع الاتصال بالكمبيوتر",
       "guestHeroBody": "اطلب من Stella إنجاز أشياء على كمبيوترك — تصفّح الويب وإدارة الملفات وتنفيذ المهام والمزيد.",
       "guestHeroTitle": "كمبيوترك بين يديك",
-      "pairLabel": "إقران كمبيوتر",
       "statusAsleep": "في وضع السكون",
       "statusChecking": "جارٍ التحقق…",
       "statusConnected": "متصل"
@@ -1067,20 +1070,11 @@
     "desktop": {
       "connecting": "جارٍ الاتصال بسطح المكتب",
       "deviceUnreachable": "تعذّر الوصول إلى {platform}",
-      "enterCode": "أدخل الرمز الظاهر على كمبيوترك.",
-      "guestBody": "شاهد تطبيق Stella لسطح المكتب على هاتفك مباشرة. بعد الإقران، سيعيد هاتفك الاتصال تلقائيًا.",
       "guestSignInPrompt": "سجّل الدخول للبدء.",
       "limitedCapabilities": "بعض الأمور تحتاج إلى كمبيوترك",
       "linkInterrupted": "انقطع الاتصال بكمبيوترك.",
-      "pairAnother": "إقران كمبيوتر آخر",
-      "pairTitle": "إقران هاتفك",
-      "pairing": "جارٍ إقران هذا الهاتف",
       "reconnecting": "جارٍ إعادة الاتصال...",
-      "repairNeeded": "يحتاج هذا الهاتف إلى الإقران مع كمبيوترك من جديد.",
       "retryLabel": "إعادة محاولة الاتصال",
-      "startPairingLabel": "بدء إقران كمبيوتر",
-      "unavailableBodyPaired": "تأكد من أن Stella مفتوح على كمبيوترك ومتصل بالإنترنت. بمجرد الاتصال، سيظهر تطبيق سطح المكتب هنا على هاتفك.",
-      "unavailableBodyUnpaired": "شاهد تطبيق Stella لسطح المكتب على هاتفك مباشرة. امسح رمز QR الظاهر في Stella على كمبيوترك للبدء — وبعدها سيعيد هاتفك الاتصال تلقائيًا.",
       "unreachable": "تعذّر الوصول إلى سطح المكتب"
     },
     "engineAccounts": {
@@ -1193,26 +1187,17 @@
         "signInBody": "احتفظ بمحادثتك وإعداداتك وكمبيوترك المتصل على كل جهاز.",
         "signInTitle": "سجّل الدخول إلى Stella",
         "skip": "تخطَّ الآن",
-        "subscriptionsBody": "هل تدفع بالفعل مقابل Claude أو ChatGPT؟ اربطه وسأستخدمه في السحابة. تستخدم أجهزة الكمبيوتر لديك تسجيلات الدخول الخاصة بها.",
+        "subscriptionsBody": "هل تريد استخدام اشتراكك الحالي في Claude أو ChatGPT؟",
         "subscriptionsLabel": "اختياري"
       },
       "composerPlaceholder": "أو اسألني أي شيء",
       "computer": {
-        "body": "أقرِن هذا الهاتف بـ Stella على الكمبيوتر، وسأنفّذ المهام هناك وأنت بعيد.",
-        "connectedBody": "اطلب من أي مكان وسأنجز العمل على الكمبيوتر.",
+        "body": "سجّل الدخول على جهاز الكمبيوتر وسيتصل تلقائيًا.",
         "connectedTo": "متصل بـ {name}",
-        "guestHint": "الإقران مرتبط بحسابك في Stella، لذا سجّل الدخول أولًا. سأكمل من هنا تمامًا.",
-        "hint": "على الكمبيوتر، افتح Stella واختر إقران الهاتف.",
+        "getDesktop": "احصل على Stella لسطح المكتب",
         "later": "لاحقًا",
-        "pair": "أقرِن الكمبيوتر",
-        "point1": "أجد ملفًا وأرسله إليك",
-        "point2": "أُنهي عملية تصدير أو تنزيل",
-        "point3": "أستخدم التطبيقات التي لديك أصلًا",
-        "settledConnectedDesc": "يمكنني تنفيذ المهام هناك من هاتفك.",
-        "settledSkippedDesc": "يمكنك إقران كمبيوتر في أي وقت من الإعدادات.",
         "settledSkippedTitle": "لا كمبيوتر بعد",
-        "signInToPair": "سجّل الدخول للإقران",
-        "title": "الكمبيوتر في جيبك"
+        "title": "Stella على جهاز الكمبيوتر"
       },
       "gmail": {
         "body": "ابحث عن الرسائل، والحق بالمحادثات، واكتب مسودات الردود بمجرد أن تطلب.",
@@ -1431,7 +1416,6 @@
         "enableFailedTitle": "تعذّر تفعيل ذلك الكمبيوتر",
         "enableLabel": "تفعيل {name}",
         "enabling": "جارٍ التفعيل…",
-        "pairingCode": "استخدام رمز إقران",
         "sectionLabel": "مكان عمل Stella",
         "statusAwaitingConsent": "في انتظار الإذن على ذلك الكمبيوتر",
         "statusDeclined": "تم الرفض على ذلك الكمبيوتر",
@@ -1447,10 +1431,6 @@
       "deleteConfirmTitle": "حذف الحساب",
       "deleteFailedTitle": "تعذّر حذف الحساب",
       "deletingAccount": "جارٍ حذف الحساب…",
-      "forget": "نسيان",
-      "forgetConfirmBody": "سيتوقف هذا الهاتف عن إعادة الاتصال بذلك الكمبيوتر إلى أن تُقرِنه من جديد.",
-      "forgetConfirmTitle": "نسيان {name}؟",
-      "forgetLabel": "نسيان {name}",
       "hideEmailLabel": "إخفاء البريد الإلكتروني",
       "loadingSession": "جارٍ تحميل الجلسة…",
       "notificationsSection": "الإشعارات",
@@ -1460,9 +1440,6 @@
       "paired": {
         "unnamedComputer": "كمبيوتر · {id}"
       },
-      "pairedEmpty": "لا توجد أجهزة كمبيوتر مقترنة بعد.",
-      "pairedOn": "اقترن في {date}",
-      "pairedSection": "أجهزة الكمبيوتر المقترنة",
       "privacyPolicy": "سياسة الخصوصية",
       "pushToggleA11y": "تبديل الإشعارات الفورية",
       "pushToggleLabel": "السماح بالإشعارات الفورية",
@@ -1640,6 +1617,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "الكثير من الحياة يمر عبر البريد الإلكتروني. اربط Gmail وسأساعدك في بريدك.",
         "memory": "One more thing that makes me different.",
+        "phone": "أنا على هاتفك أيضًا.",
         "quickstart": "هذا كل شيء. بقي أمر أخير، وهو اختياري: بداية سريعة.",
         "quickstartDone": "تم. إليك ما تعلّمته، وبعض الأشياء التي يمكننا أن نبدأ بها.",
         "quickstartFailed": "لم أتمكن من إنهاء قراءة متصفحك هذه المرة. يمكننا أن نبدأ على أي حال، وسأتعلّم أثناء العمل.",
@@ -2135,16 +2113,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "تظهر هنا أجهزة الكمبيوتر المسجّل دخولها. فعّل أحدها لإرسال العمل إليه.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2282,51 +2255,6 @@
         "label": "تسجيل الشاشة"
       },
       "title": "الأذونات"
-    },
-    "phoneAccess": {
-      "copy": "نسخ",
-      "deviceFallback": "الهاتف",
-      "errors": {
-        "createPairing": "تعذّر إنشاء رمز اقتران."
-      },
-      "expired": "منتهي الصلاحية",
-      "getCode": "احصل على رمز",
-      "intro": {
-        "headline": "اربط هاتفك بحاسوبك"
-      },
-      "pairedCount": {
-        "few": "{count} هواتف مقترنة",
-        "many": "{count} هاتفًا مقترنًا",
-        "one": "{count} هاتف مقترن",
-        "other": "{count} هاتف مقترن",
-        "two": "{count} هاتفان مقترنان",
-        "zero": "{count} هاتف مقترن"
-      },
-      "pairing": {
-        "body": "امسح رمز QR في تطبيق Stella على الهاتف، أو أدخل الرمز.",
-        "headline": "امسح هذا الرمز أو أدخله",
-        "qrAlt": "امسح لإقران هاتفك"
-      },
-      "preparing": "جارٍ التجهيز...",
-      "remove": "إزالة",
-      "removing": "جارٍ الإزالة...",
-      "signedOut": {
-        "body": "سجّل الدخول إلى حساب Stella للاقتران مع تطبيق الجوال.",
-        "headline": "سجّل الدخول للبدء"
-      },
-      "steps": {
-        "appStoreQrAlt": "امسح لتنزيل Stella من App Store",
-        "connect": "اربط هاتفك",
-        "download": "نزّل التطبيق",
-        "platformSelectorLabel": "اختر منصة الهاتف المحمول",
-        "playStoreQrAlt": "امسح لتنزيل Stella من Google Play"
-      },
-      "timeLeft": "بقي {time}",
-      "toasts": {
-        "codeCopied": "تم نسخ الرمز إلى الحافظة",
-        "phoneRemoved": "تمت إزالة الهاتف",
-        "removeFailed": "تعذّرت إزالة الهاتف"
-      }
     },
     "power": {
       "description": "منع الكمبيوتر من الدخول في وضع السكون أثناء فتح Stella.",

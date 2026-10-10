@@ -824,7 +824,6 @@
     },
     "integrations": {
       "connectStellaApp": "เชื่อมต่อกับแอป Stella",
-      "connectStellaAppSub": "จับคู่แอป Stella บนโทรศัพท์ของคุณกับคอมพิวเตอร์เครื่องนี้",
       "connectTitle": "เชื่อมต่อ",
       "connected": "เชื่อมต่อแล้ว",
       "credential": {
@@ -840,11 +839,16 @@
         "saving": "กำลังบันทึก...",
         "title": "เชื่อมต่อ {provider}"
       },
-      "heroTagline": "ส่งข้อความหา Stella จากแพลตฟอร์มไหนก็ได้ที่คุณชอบ — คุยกันแบบธรรมชาติ หรือให้จัดการงานบนคอมพิวเตอร์ของคุณได้เลย",
       "phoneTitle": "โทรศัพท์ของคุณ",
       "signInHeadline": "ลงชื่อเข้าใช้เพื่อเริ่มต้น",
       "signInSub": "ลงชื่อเข้าใช้บัญชี Stella ของคุณเพื่อเชื่อมต่อ {provider}",
-      "signInToConnect": "ลงชื่อเข้าใช้ Stella เพื่อเชื่อมต่อ"
+      "signInToConnect": "ลงชื่อเข้าใช้ Stella เพื่อเชื่อมต่อ",
+      "getApp": {
+        "appStoreQrAlt": "สแกนเพื่อดาวน์โหลด Stella จาก App Store",
+        "platformLabel": "เลือกแพลตฟอร์มมือถือ",
+        "playStoreQrAlt": "สแกนเพื่อดาวน์โหลด Stella จาก Google Play",
+        "title": "ดาวน์โหลดแอป"
+      }
     },
     "legal": {
       "privacy": {
@@ -1009,7 +1013,6 @@
       "disconnectedLabel": "ตัดการเชื่อมต่อคอมพิวเตอร์แล้ว",
       "guestHeroBody": "สั่งให้ Stella ทำสิ่งต่าง ๆ บนคอมพิวเตอร์ของคุณ — เปิดเว็บ จัดการไฟล์ ทำงานต่าง ๆ และอีกมากมาย",
       "guestHeroTitle": "คอมพิวเตอร์ของคุณ แค่ปลายนิ้ว",
-      "pairLabel": "จับคู่คอมพิวเตอร์",
       "statusAsleep": "หลับอยู่",
       "statusChecking": "กำลังตรวจสอบ…",
       "statusConnected": "เชื่อมต่อแล้ว"
@@ -1017,20 +1020,11 @@
     "desktop": {
       "connecting": "กำลังเชื่อมต่อกับเดสก์ท็อป",
       "deviceUnreachable": "เข้าถึง {platform} ของคุณไม่ได้",
-      "enterCode": "กรอกรหัสที่แสดงบนคอมพิวเตอร์ของคุณ",
-      "guestBody": "ดูแอป Stella บนเดสก์ท็อปได้จากมือถือของคุณโดยตรง หลังจับคู่แล้ว มือถือจะเชื่อมต่อใหม่ให้เองโดยอัตโนมัติ",
       "guestSignInPrompt": "เข้าสู่ระบบเพื่อเริ่มต้น",
       "limitedCapabilities": "บางอย่างต้องใช้คอมพิวเตอร์ของคุณ",
       "linkInterrupted": "การเชื่อมต่อกับคอมพิวเตอร์ของคุณถูกขัดจังหวะ",
-      "pairAnother": "จับคู่คอมพิวเตอร์เครื่องอื่น",
-      "pairTitle": "จับคู่มือถือของคุณ",
-      "pairing": "กำลังจับคู่มือถือเครื่องนี้",
       "reconnecting": "กำลังเชื่อมต่อใหม่...",
-      "repairNeeded": "มือถือเครื่องนี้ต้องจับคู่กับคอมพิวเตอร์ของคุณอีกครั้ง",
       "retryLabel": "ลองเชื่อมต่ออีกครั้ง",
-      "startPairingLabel": "เริ่มจับคู่คอมพิวเตอร์",
-      "unavailableBodyPaired": "ตรวจสอบว่า Stella เปิดอยู่บนคอมพิวเตอร์และเชื่อมต่ออินเทอร์เน็ตแล้ว เมื่อเชื่อมต่อได้ แอปเดสก์ท็อปจะปรากฏบนมือถือของคุณตรงนี้",
-      "unavailableBodyUnpaired": "ดูแอป Stella บนเดสก์ท็อปได้จากมือถือของคุณโดยตรง สแกนคิวอาร์โค้ดที่แสดงใน Stella บนคอมพิวเตอร์เพื่อเริ่มต้น — หลังจากนั้นมือถือจะเชื่อมต่อใหม่ให้เองโดยอัตโนมัติ",
       "unreachable": "เข้าถึงเดสก์ท็อปของคุณไม่ได้"
     },
     "engineAccounts": {
@@ -1143,26 +1137,17 @@
         "signInBody": "เก็บการสนทนา การตั้งค่า และคอมพิวเตอร์ที่เชื่อมต่อไว้ได้ในทุกอุปกรณ์",
         "signInTitle": "เข้าสู่ระบบ Stella",
         "skip": "ข้ามไปก่อน",
-        "subscriptionsBody": "จ่ายค่า Claude หรือ ChatGPT อยู่แล้วใช่ไหม เชื่อมต่อแล้วฉันจะใช้ในคลาวด์ คอมพิวเตอร์ของคุณใช้การลงชื่อเข้าใช้ของตัวเอง",
+        "subscriptionsBody": "ใช้การสมัครสมาชิก Claude หรือ ChatGPT ที่คุณมีอยู่ไหม",
         "subscriptionsLabel": "ไม่บังคับ"
       },
       "composerPlaceholder": "หรือถามอะไรฉันก็ได้",
       "computer": {
-        "body": "จับคู่โทรศัพท์เครื่องนี้กับ Stella บนคอมพิวเตอร์ แล้วฉันจะทำงานบนเครื่องนั้นให้ ระหว่างที่คุณอยู่ข้างนอก",
-        "connectedBody": "สั่งจากที่ไหนก็ได้ แล้วฉันจะทำงานบนคอมพิวเตอร์ของคุณเอง",
+        "body": "ลงชื่อเข้าใช้บนคอมพิวเตอร์ แล้วระบบจะเชื่อมต่อให้อัตโนมัติ",
         "connectedTo": "เชื่อมต่อกับ {name} แล้ว",
-        "guestHint": "การจับคู่ผูกกับบัญชี Stella ของคุณ จึงต้องลงชื่อเข้าใช้ก่อน แล้วฉันจะทำต่อจากตรงนี้",
-        "hint": "บนคอมพิวเตอร์ ให้เปิด Stella แล้วเลือก จับคู่โทรศัพท์",
+        "getDesktop": "ดาวน์โหลด Stella สำหรับเดสก์ท็อป",
         "later": "ไว้ทีหลัง",
-        "pair": "จับคู่คอมพิวเตอร์ของฉัน",
-        "point1": "หาไฟล์แล้วส่งมาให้คุณ",
-        "point2": "ส่งออกหรือดาวน์โหลดให้เสร็จ",
-        "point3": "ใช้แอปที่คุณมีอยู่แล้ว",
-        "settledConnectedDesc": "ฉันสั่งงานบนเครื่องนั้นจากโทรศัพท์ของคุณได้",
-        "settledSkippedDesc": "จับคู่ได้ทุกเมื่อในการตั้งค่า",
         "settledSkippedTitle": "ยังไม่มีคอมพิวเตอร์",
-        "signInToPair": "ลงชื่อเข้าใช้เพื่อจับคู่",
-        "title": "คอมพิวเตอร์ของคุณ อยู่ในกระเป๋า"
+        "title": "Stella บนคอมพิวเตอร์ของคุณ"
       },
       "gmail": {
         "body": "ค้นหาอีเมล ตามอ่านเธรด และร่างคำตอบ แค่บอกมา",
@@ -1381,7 +1366,6 @@
         "enableFailedTitle": "เปิดใช้คอมพิวเตอร์เครื่องนั้นไม่ได้",
         "enableLabel": "เปิดใช้ {name}",
         "enabling": "กำลังเปิดใช้…",
-        "pairingCode": "ใช้รหัสจับคู่",
         "sectionLabel": "ที่ที่ Stella ทำงาน",
         "statusAwaitingConsent": "รอการอนุญาตบนคอมพิวเตอร์เครื่องนั้น",
         "statusDeclined": "ถูกปฏิเสธบนคอมพิวเตอร์เครื่องนั้น",
@@ -1397,10 +1381,6 @@
       "deleteConfirmTitle": "ลบบัญชี",
       "deleteFailedTitle": "ลบบัญชีไม่ได้",
       "deletingAccount": "กำลังลบบัญชี…",
-      "forget": "ลืมอุปกรณ์",
-      "forgetConfirmBody": "มือถือเครื่องนี้จะหยุดเชื่อมต่อกับคอมพิวเตอร์เครื่องนั้นจนกว่าคุณจะจับคู่ใหม่",
-      "forgetConfirmTitle": "ลืม {name} ไหม?",
-      "forgetLabel": "ลืม {name}",
       "hideEmailLabel": "ซ่อนอีเมล",
       "loadingSession": "กำลังโหลดเซสชัน…",
       "notificationsSection": "การแจ้งเตือน",
@@ -1410,9 +1390,6 @@
       "paired": {
         "unnamedComputer": "คอมพิวเตอร์ · {id}"
       },
-      "pairedEmpty": "ยังไม่ได้จับคู่คอมพิวเตอร์",
-      "pairedOn": "จับคู่เมื่อ {date}",
-      "pairedSection": "คอมพิวเตอร์ที่จับคู่แล้ว",
       "privacyPolicy": "นโยบายความเป็นส่วนตัว",
       "pushToggleA11y": "สลับการแจ้งเตือนแบบพุช",
       "pushToggleLabel": "อนุญาตการแจ้งเตือนแบบพุช",
@@ -1590,6 +1567,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "ชีวิตหลายอย่างผ่านทางอีเมล เชื่อมต่อ Gmail แล้วฉันจะช่วยจัดการอีเมลของคุณ",
         "memory": "One more thing that makes me different.",
+        "phone": "ฉันอยู่บนโทรศัพท์ของคุณด้วย",
         "quickstart": "เรียบร้อยแล้ว เหลืออีกอย่างเดียว และเป็นตัวเลือก: การเริ่มต้นด่วน",
         "quickstartDone": "เสร็จแล้ว นี่คือสิ่งที่ฉันได้เรียนรู้ และสิ่งที่เราเริ่มทำด้วยกันได้",
         "quickstartFailed": "ครั้งนี้ฉันอ่านเบราว์เซอร์ของคุณไม่จบ เราเริ่มกันเลยก็ได้ แล้วฉันจะเรียนรู้ไปเรื่อย ๆ",
@@ -2085,16 +2063,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "คอมพิวเตอร์ที่ลงชื่อเข้าใช้จะแสดงที่นี่ เปิดใช้เครื่องหนึ่งเพื่อส่งงานให้",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2232,46 +2205,6 @@
         "label": "การบันทึกหน้าจอ"
       },
       "title": "สิทธิ์"
-    },
-    "phoneAccess": {
-      "copy": "คัดลอก",
-      "deviceFallback": "โทรศัพท์",
-      "errors": {
-        "createPairing": "ไม่สามารถสร้างรหัสจับคู่ได้"
-      },
-      "expired": "หมดอายุแล้ว",
-      "getCode": "รับรหัส",
-      "intro": {
-        "headline": "เชื่อมต่อโทรศัพท์กับคอมพิวเตอร์ของคุณ"
-      },
-      "pairedCount": {
-        "other": "จับคู่แล้ว {count} เครื่อง"
-      },
-      "pairing": {
-        "body": "สแกนคิวอาร์โค้ดในแอป Stella บนโทรศัพท์ หรือป้อนรหัส",
-        "headline": "สแกนหรือป้อนรหัสนี้",
-        "qrAlt": "สแกนเพื่อจับคู่โทรศัพท์ของคุณ"
-      },
-      "preparing": "กำลังเตรียม...",
-      "remove": "นำออก",
-      "removing": "กำลังนำออก...",
-      "signedOut": {
-        "body": "ลงชื่อเข้าใช้บัญชี Stella ของคุณเพื่อจับคู่กับแอปบนมือถือ",
-        "headline": "ลงชื่อเข้าใช้เพื่อเริ่มต้น"
-      },
-      "steps": {
-        "appStoreQrAlt": "สแกนเพื่อดาวน์โหลด Stella จาก App Store",
-        "connect": "เชื่อมต่อโทรศัพท์ของคุณ",
-        "download": "ดาวน์โหลดแอป",
-        "platformSelectorLabel": "เลือกแพลตฟอร์มมือถือ",
-        "playStoreQrAlt": "สแกนเพื่อดาวน์โหลด Stella จาก Google Play"
-      },
-      "timeLeft": "เหลืออีก {time}",
-      "toasts": {
-        "codeCopied": "คัดลอกรหัสไปยังคลิปบอร์ดแล้ว",
-        "phoneRemoved": "นำโทรศัพท์ออกแล้ว",
-        "removeFailed": "นำโทรศัพท์ออกไม่สำเร็จ"
-      }
     },
     "power": {
       "description": "ป้องกันไม่ให้คอมพิวเตอร์เข้าสู่โหมดสลีปขณะที่ Stella เปิดอยู่",

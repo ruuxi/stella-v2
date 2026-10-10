@@ -86,6 +86,10 @@ const ANSWER_TEXT_KEYS: Record<
     done: "onboarding.chat.replies.extrasDone",
     skipped: "onboarding.chat.replies.extrasSkipped",
   },
+  phone: {
+    done: "onboarding.chat.replies.capabilitiesDone",
+    skipped: "onboarding.chat.replies.gmailSkipped",
+  },
   quickstart: {},
 };
 

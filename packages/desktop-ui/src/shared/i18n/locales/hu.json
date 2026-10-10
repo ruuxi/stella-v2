@@ -832,7 +832,6 @@
     },
     "integrations": {
       "connectStellaApp": "Csatlakozás a Stella alkalmazáshoz",
-      "connectStellaAppSub": "Párosítsd a telefonodon lévő Stella alkalmazást ezzel a számítógéppel",
       "connectTitle": "Csatlakozás",
       "connected": "Csatlakoztatva",
       "credential": {
@@ -848,11 +847,16 @@
         "saving": "Mentés...",
         "title": "Csatlakozás: {provider}"
       },
-      "heroTagline": "Írj a Stellának bármelyik platformról – csevegj vele természetesen, vagy kérd meg, hogy intézzen el dolgokat a számítógépeden.",
       "phoneTitle": "A telefonod",
       "signInHeadline": "Jelentkezz be a kezdéshez",
       "signInSub": "Jelentkezz be a Stella-fiókodba a csatlakoztatáshoz: {provider}.",
-      "signInToConnect": "Jelentkezz be a Stellába a csatlakoztatáshoz"
+      "signInToConnect": "Jelentkezz be a Stellába a csatlakoztatáshoz",
+      "getApp": {
+        "appStoreQrAlt": "Olvasd be a Stella letöltéséhez az App Store-ból",
+        "platformLabel": "Válassz mobilplatformot",
+        "playStoreQrAlt": "Olvasd be a Stella letöltéséhez a Google Playről",
+        "title": "Töltsd le az appot"
+      }
     },
     "legal": {
       "privacy": {
@@ -1019,7 +1023,6 @@
       "disconnectedLabel": "Számítógép leválasztva",
       "guestHeroBody": "Kérd meg a Stellát, hogy csináljon dolgokat a számítógépeden — böngésszen, kezelje a fájlokat, futtasson feladatokat és még sok mást.",
       "guestHeroTitle": "A számítógéped kéznyújtásnyira",
-      "pairLabel": "Számítógép párosítása",
       "statusAsleep": "Alvó állapotban",
       "statusChecking": "Ellenőrzés…",
       "statusConnected": "Csatlakoztatva"
@@ -1027,20 +1030,11 @@
     "desktop": {
       "connecting": "Csatlakozás az asztali alkalmazáshoz",
       "deviceUnreachable": "Nem érhető el: {platform}",
-      "enterCode": "Írd be a számítógépeden megjelenő kódot.",
-      "guestBody": "Lásd a Stella asztali alkalmazását közvetlenül a telefonodon. A párosítás után a telefonod automatikusan újracsatlakozik.",
       "guestSignInPrompt": "Jelentkezz be a kezdéshez.",
       "limitedCapabilities": "Néhány dologhoz kell a számítógéped",
       "linkInterrupted": "A számítógépeddel való kapcsolat megszakadt.",
-      "pairAnother": "Másik számítógép párosítása",
-      "pairTitle": "Párosítsd a telefonod",
-      "pairing": "Telefon párosítása",
       "reconnecting": "Újracsatlakozás...",
-      "repairNeeded": "Ezt a telefont újra párosítani kell a számítógépeddel.",
       "retryLabel": "Újbóli csatlakozás megkísérlése",
-      "startPairingLabel": "Számítógép párosításának indítása",
-      "unavailableBodyPaired": "Győződj meg róla, hogy a Stella nyitva van a számítógépeden, és csatlakozik az internethez. Ha létrejött a kapcsolat, az asztali alkalmazás itt jelenik meg a telefonodon.",
-      "unavailableBodyUnpaired": "Lásd a Stella asztali alkalmazását közvetlenül a telefonodon. A kezdéshez olvasd be a számítógépeden a Stellában megjelenő QR-kódot — utána a telefonod automatikusan újracsatlakozik.",
       "unreachable": "Nem érhető el az asztali alkalmazás"
     },
     "engineAccounts": {
@@ -1153,26 +1147,17 @@
         "signInBody": "Tartsd meg a beszélgetésedet, a beállításaidat és a csatlakoztatott számítógépedet minden eszközön.",
         "signInTitle": "Jelentkezz be a Stellába",
         "skip": "Most nem",
-        "subscriptionsBody": "Már fizetsz a Claude-ért vagy a ChatGPT-ért? Kapcsold össze, és a felhőben használom. A számítógépeid a saját bejelentkezésüket használják.",
+        "subscriptionsBody": "Használod a meglévő Claude- vagy ChatGPT-előfizetésedet?",
         "subscriptionsLabel": "Opcionális"
       },
       "composerPlaceholder": "Vagy kérdezz tőlem bármit",
       "computer": {
-        "body": "Párosítsd ezt a telefont a számítógépeden futó Stellával, és amíg úton vagy, ott futtathatok feladatokat.",
-        "connectedBody": "Kérj bárhonnan, és én elvégzem a munkát a számítógépeden.",
+        "body": "Jelentkezz be a számítógépen, és automatikusan csatlakozik.",
         "connectedTo": "Csatlakozva: {name}",
-        "guestHint": "A párosítás a Stella-fiókodhoz kötődik, ezért előbb jelentkezz be. Pontosan innen folytatom.",
-        "hint": "A számítógépeden nyisd meg a Stellát, és válaszd a Telefon párosítása lehetőséget.",
+        "getDesktop": "Stella letöltése számítógépre",
         "later": "Később",
-        "pair": "Számítógépem párosítása",
-        "point1": "Megkeresek egy fájlt, és elküldöm neked",
-        "point2": "Befejezek egy exportot vagy letöltést",
-        "point3": "A meglévő alkalmazásaidat használom",
-        "settledConnectedDesc": "A telefonodról ott tudok feladatokat futtatni.",
-        "settledSkippedDesc": "Bármikor párosíthatsz egyet a Beállításokban.",
         "settledSkippedTitle": "Még nincs számítógép",
-        "signInToPair": "Jelentkezz be a párosításhoz",
-        "title": "A számítógéped, a zsebedből"
+        "title": "Stella a számítógépeden"
       },
       "gmail": {
         "body": "Keress e-maileket, zárkózz fel a beszélgetésekre, és írass válaszvázlatokat, csak kérned kell.",
@@ -1391,7 +1376,6 @@
         "enableFailedTitle": "A számítógépet nem sikerült engedélyezni",
         "enableLabel": "{name} engedélyezése",
         "enabling": "Engedélyezés…",
-        "pairingCode": "Párosítási kód használata",
         "sectionLabel": "Hol dolgozik a Stella",
         "statusAwaitingConsent": "Engedélyre vár azon a számítógépen",
         "statusDeclined": "Elutasítva azon a számítógépen",
@@ -1407,10 +1391,6 @@
       "deleteConfirmTitle": "Fiók törlése",
       "deleteFailedTitle": "A fiókot nem sikerült törölni",
       "deletingAccount": "Fiók törlése…",
-      "forget": "Elfelejtés",
-      "forgetConfirmBody": "Ez a telefon nem csatlakozik újra ahhoz a számítógéphez, amíg újra nem párosítod.",
-      "forgetConfirmTitle": "Elfelejted ezt: {name}?",
-      "forgetLabel": "Elfelejtés: {name}",
       "hideEmailLabel": "E-mail elrejtése",
       "loadingSession": "Munkamenet betöltése…",
       "notificationsSection": "Értesítések",
@@ -1420,9 +1400,6 @@
       "paired": {
         "unnamedComputer": "Számítógép · {id}"
       },
-      "pairedEmpty": "Még nincs párosított számítógép.",
-      "pairedOn": "Párosítva: {date}",
-      "pairedSection": "Párosított számítógépek",
       "privacyPolicy": "Adatvédelmi szabályzat",
       "pushToggleA11y": "Push-értesítések be- és kikapcsolása",
       "pushToggleLabel": "Push-értesítések engedélyezése",
@@ -1600,6 +1577,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Az élet nagy része e-mailen zajlik. Csatlakoztasd a Gmailt, és segítek vele.",
         "memory": "One more thing that makes me different.",
+        "phone": "A telefonodon is ott vagyok.",
         "quickstart": "Ez minden. Még egy dolog, és az is opcionális: egy gyorsindítás.",
         "quickstartDone": "Kész. Ezt tanultam meg rólad, és néhány dolog, amivel kezdhetjük.",
         "quickstartFailed": "Ezúttal nem tudtam végigolvasni a böngésződet. Kezdhetjük így is, és menet közben tanulok.",
@@ -2095,16 +2073,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "A bejelentkezett gépek itt jelennek meg. Engedélyezz egyet, hogy munkát küldj neki.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2242,47 +2215,6 @@
         "label": "Képernyőrögzítés"
       },
       "title": "Engedélyek"
-    },
-    "phoneAccess": {
-      "copy": "Másolás",
-      "deviceFallback": "Telefon",
-      "errors": {
-        "createPairing": "Nem sikerült párosítási kódot létrehozni."
-      },
-      "expired": "Lejárt",
-      "getCode": "Kód kérése",
-      "intro": {
-        "headline": "Csatlakoztasd a telefonodat a számítógépedhez"
-      },
-      "pairedCount": {
-        "one": "{count} telefon párosítva",
-        "other": "{count} telefon párosítva"
-      },
-      "pairing": {
-        "body": "Olvasd be a QR-kódot a telefonos Stella alkalmazásban, vagy írd be a kódot.",
-        "headline": "Olvasd be vagy írd be ezt a kódot",
-        "qrAlt": "Olvasd be a telefonod párosításához"
-      },
-      "preparing": "Előkészítés...",
-      "remove": "Eltávolítás",
-      "removing": "Eltávolítás...",
-      "signedOut": {
-        "body": "Jelentkezz be a Stella-fiókodba a mobilalkalmazás párosításához.",
-        "headline": "Jelentkezz be a kezdéshez"
-      },
-      "steps": {
-        "appStoreQrAlt": "Olvasd be a Stella letöltéséhez az App Store-ból",
-        "connect": "Csatlakoztasd a telefonodat",
-        "download": "Töltsd le az alkalmazást",
-        "platformSelectorLabel": "Válassz mobilplatformot",
-        "playStoreQrAlt": "Olvasd be a Stella letöltéséhez a Google Playről"
-      },
-      "timeLeft": "Hátralévő idő: {time}",
-      "toasts": {
-        "codeCopied": "Kód a vágólapra másolva",
-        "phoneRemoved": "Telefon eltávolítva",
-        "removeFailed": "A telefon eltávolítása sikertelen"
-      }
     },
     "power": {
       "description": "Megakadályozza, hogy a számítógép alvó állapotba lépjen, amíg a Stella nyitva van.",

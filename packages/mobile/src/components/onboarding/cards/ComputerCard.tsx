@@ -1,13 +1,13 @@
 /**
- * "Your computer, from your pocket" — pairing inside the conversation.
+ * "Stella on your computer" — no pairing, just where to get it.
  *
- * A small illustration (a task hopping from the phone over to the computer)
- * explains the idea, and the button opens the same pairing sheet Settings
- * uses (QR scan or code). On success the card celebrates and settles to
- * "Connected to <computer>". Already paired, it starts out connected.
+ * A computer signed in to the same account connects to this phone on its
+ * own, so the card says so in a few words and links to the desktop app.
+ * While it is on screen it watches the account's computers, and settles to
+ * "Connected to <computer>" the moment one appears.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Linking, StyleSheet, Text, View } from "react-native";
 import Animated, {
   Easing,
   cancelAnimation,
@@ -19,21 +19,17 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import Svg, { Path } from "react-native-svg";
+import { env } from "../../../config/env";
 import { useT } from "../../../i18n";
 import { shouldRunContinuousAnimation } from "../../../lib/continuous-animation";
 import { tapLight } from "../../../lib/haptics";
 import { listExecutionDevices } from "../../../lib/execution-placement";
-import {
-  getPreferredPhoneAccess,
-  type StoredPhoneAccess,
-} from "../../../lib/phone-access";
 import { useAppVisible } from "../../../lib/use-app-visible";
 import { type Colors } from "../../../theme/colors";
 import { useColors } from "../../../theme/theme-context";
 import { StellaStarGlyph } from "../../AgentActivityGlyph";
 import { Icon } from "../../Icon";
-import { PairPhoneSheet } from "../../PairPhoneSheet";
-import { SPRING_SNAPPY, useSpringFlag, rowEntering } from "../motion";
+import { SPRING_SNAPPY, useSpringFlag } from "../motion";
 import {
   OnboardingCard,
   PrimaryAction,
@@ -53,17 +49,13 @@ const ARC_LIFT = 30;
 const ARC_Y = BASE_Y - 18;
 const HOP_MS = 2600;
 const CHIP = 18;
+/** How often the open card looks for a newly signed-in computer. */
+const DEVICE_POLL_MS = 8_000;
 
 type ComputerCardProps = {
   active: boolean;
   answered: "done" | "skipped" | undefined;
   onScreen: boolean;
-  /**
-   * Pairing belongs to an account, so a guest is offered sign-in first (the
-   * conversation resumes on this message when they come back).
-   */
-  canPair: boolean;
-  onSignIn: () => void;
   onAnswer: (answer: "done" | "skipped") => void;
 };
 
@@ -71,66 +63,36 @@ export function ComputerCard({
   active,
   answered,
   onScreen,
-  canPair,
-  onSignIn,
   onAnswer,
 }: ComputerCardProps) {
   const t = useT();
   const cardStyles = useCardStyles();
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [access, setAccess] = useState<StoredPhoneAccess | null>(null);
-  const [computerName, setComputerName] = useState<string | null>(null);
-  const [justPaired, setJustPaired] = useState(false);
-
-  const resolveName = useCallback(
-    async (next: StoredPhoneAccess) => {
-      try {
-        const devices = await listExecutionDevices();
-        const device = devices.find(
-          (entry) => entry.deviceId === next.desktopDeviceId,
-        );
-        setComputerName(device?.label?.trim() || null);
-      } catch {
-        setComputerName(null);
-      }
-    },
-    [],
+  const [computerName, setComputerName] = useState<string | null | undefined>(
+    undefined,
   );
 
   useEffect(() => {
+    if (!active || answered) return;
     let cancelled = false;
-    void getPreferredPhoneAccess()
-      .then((stored) => {
-        if (cancelled || !stored) return;
-        setAccess(stored);
-        void resolveName(stored);
-      })
-      .catch(() => undefined);
+    const read = () => {
+      void listExecutionDevices()
+        .then((devices) => {
+          if (cancelled || devices.length === 0) return;
+          const first = devices.find((device) => device.online) ?? devices[0]!;
+          setComputerName(first.label?.trim().replace(/\.local$/i, "") || null);
+        })
+        .catch(() => undefined);
+    };
+    read();
+    const timer = setInterval(read, DEVICE_POLL_MS);
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
-  }, [resolveName]);
+  }, [active, answered]);
 
-  const connected = access !== null;
+  const connected = computerName !== undefined;
   const name = computerName ?? t("mobile.computer.defaultDeviceLabel");
-
-  const handlePaired = useCallback(
-    (next: StoredPhoneAccess) => {
-      // `pairWithCode` already played the success notification.
-      setSheetOpen(false);
-      setAccess(next);
-      setJustPaired(true);
-      void resolveName(next);
-    },
-    [resolveName],
-  );
-
-  // Let the celebration land before the conversation moves on.
-  useEffect(() => {
-    if (!justPaired || !active) return;
-    const timer = setTimeout(() => onAnswer("done"), 1500);
-    return () => clearTimeout(timer);
-  }, [active, justPaired, onAnswer]);
 
   if (answered) {
     return connected ? (
@@ -138,13 +100,11 @@ export function ComputerCard({
         icon="monitor"
         tone="success"
         title={t("mobile.onboarding.computer.connectedTo", { name })}
-        description={t("mobile.onboarding.computer.settledConnectedDesc")}
       />
     ) : (
       <SettledCard
         icon="monitor"
         title={t("mobile.onboarding.computer.settledSkippedTitle")}
-        description={t("mobile.onboarding.computer.settledSkippedDesc")}
       />
     );
   }
@@ -160,21 +120,11 @@ export function ComputerCard({
           ? t("mobile.onboarding.computer.connectedTo", { name })
           : t("mobile.onboarding.computer.title")}
       </Text>
-      <Text style={cardStyles.body}>
-        {connected
-          ? t("mobile.onboarding.computer.connectedBody")
-          : t("mobile.onboarding.computer.body")}
-      </Text>
-      {!connected ? (
-        <View style={styles.points}>
-          {(["point1", "point2", "point3"] as const).map((key, index) => (
-            <Animated.View key={key} entering={rowEntering(index, 220)} style={styles.point}>
-              <StellaGlyphDot />
-              <Text style={cardStyles.body}>{t(`mobile.onboarding.computer.${key}`)}</Text>
-            </Animated.View>
-          ))}
-        </View>
-      ) : null}
+      {connected ? null : (
+        <Text style={cardStyles.body}>
+          {t("mobile.onboarding.computer.body")}
+        </Text>
+      )}
       <View style={cardStyles.actions}>
         {connected ? (
           <PrimaryAction
@@ -186,16 +136,11 @@ export function ComputerCard({
         ) : (
           <>
             <PrimaryAction
-              label={
-                canPair
-                  ? t("mobile.onboarding.computer.pair")
-                  : t("mobile.onboarding.computer.signInToPair")
-              }
-              icon={canPair ? "camera" : "user"}
+              label={t("mobile.onboarding.computer.getDesktop")}
+              icon="arrow-up-right"
               onPress={() => {
                 tapLight();
-                if (canPair) setSheetOpen(true);
-                else onSignIn();
+                void Linking.openURL(env.siteUrl).catch(() => undefined);
               }}
               disabled={!active}
               style={styles.flex}
@@ -208,26 +153,7 @@ export function ComputerCard({
           </>
         )}
       </View>
-      {!connected ? (
-        <Text style={[cardStyles.body, styles.hint]}>{canPair
-            ? t("mobile.onboarding.computer.hint")
-            : t("mobile.onboarding.computer.guestHint")}</Text>
-      ) : null}
-      <PairPhoneSheet
-        visible={sheetOpen}
-        onClose={() => setSheetOpen(false)}
-        onPaired={handlePaired}
-      />
     </OnboardingCard>
-  );
-}
-
-function StellaGlyphDot() {
-  const colors = useColors();
-  return (
-    <View style={styles.pointGlyph}>
-      <StellaStarGlyph size={11} color={colors.accent} />
-    </View>
   );
 }
 
@@ -351,14 +277,6 @@ function HopArt({ connected, running }: { connected: boolean; running: boolean }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  points: { gap: 8 },
-  point: { alignItems: "flex-start", flexDirection: "row", gap: 9 },
-  pointGlyph: { alignItems: "center", height: 21, justifyContent: "center", width: 14 },
-  hint: {
-    fontSize: 12.5,
-    lineHeight: 17,
-    textAlign: "center",
-  },
 });
 
 const makeArtStyles = (colors: Colors) =>

@@ -832,7 +832,6 @@
     },
     "integrations": {
       "connectStellaApp": "Anslut till Stella-appen",
-      "connectStellaAppSub": "Parkoppla Stella-appen på din telefon med den här datorn",
       "connectTitle": "Anslut",
       "connected": "Ansluten",
       "credential": {
@@ -848,11 +847,16 @@
         "saving": "Sparar...",
         "title": "Anslut {provider}"
       },
-      "heroTagline": "Skicka meddelanden till Stella från vilken plattform du vill — chatta naturligt, eller be henne få saker gjorda direkt på din dator.",
       "phoneTitle": "Din telefon",
       "signInHeadline": "Logga in för att komma igång",
       "signInSub": "Logga in på ditt Stella-konto för att ansluta {provider}.",
-      "signInToConnect": "Logga in på Stella för att ansluta"
+      "signInToConnect": "Logga in på Stella för att ansluta",
+      "getApp": {
+        "appStoreQrAlt": "Skanna för att ladda ner Stella från App Store",
+        "platformLabel": "Välj en mobilplattform",
+        "playStoreQrAlt": "Skanna för att ladda ner Stella från Google Play",
+        "title": "Hämta appen"
+      }
     },
     "legal": {
       "privacy": {
@@ -1019,7 +1023,6 @@
       "disconnectedLabel": "Datorn frånkopplad",
       "guestHeroBody": "Be Stella göra saker på din dator — surfa på webben, hantera filer, köra uppgifter och mycket mer.",
       "guestHeroTitle": "Din dator inom räckhåll",
-      "pairLabel": "Parkoppla en dator",
       "statusAsleep": "I viloläge",
       "statusChecking": "Kontrollerar…",
       "statusConnected": "Ansluten"
@@ -1027,20 +1030,11 @@
     "desktop": {
       "connecting": "Ansluter till datorn",
       "deviceUnreachable": "Din {platform} går inte att nå",
-      "enterCode": "Ange koden som visas på din dator.",
-      "guestBody": "Se Stellas datorapp direkt i telefonen. Efter parkopplingen återansluter telefonen automatiskt.",
       "guestSignInPrompt": "Logga in för att komma igång.",
       "limitedCapabilities": "Vissa saker kräver din dator",
       "linkInterrupted": "Kopplingen till din dator avbröts.",
-      "pairAnother": "Parkoppla en annan dator",
-      "pairTitle": "Parkoppla din telefon",
-      "pairing": "Parkopplar den här telefonen",
       "reconnecting": "Återansluter...",
-      "repairNeeded": "Den här telefonen behöver parkopplas med din dator igen.",
       "retryLabel": "Försök ansluta igen",
-      "startPairingLabel": "Börja parkoppla en dator",
-      "unavailableBodyPaired": "Se till att Stella är öppen på din dator och ansluten till internet. När den är ansluten dyker datorappen upp här i telefonen.",
-      "unavailableBodyUnpaired": "Se Stellas datorapp direkt i telefonen. Skanna QR-koden som visas i Stella på din dator för att komma igång — därefter återansluter telefonen automatiskt.",
       "unreachable": "Kan inte nå din dator"
     },
     "engineAccounts": {
@@ -1153,26 +1147,17 @@
         "signInBody": "Behåll din konversation, dina inställningar och din anslutna dator på alla enheter.",
         "signInTitle": "Logga in på Stella",
         "skip": "Hoppa över för nu",
-        "subscriptionsBody": "Betalar du redan för Claude eller ChatGPT? Anslut det så använder jag det i molnet. Dina datorer använder sina egna inloggningar.",
+        "subscriptionsBody": "Vill du använda ditt befintliga Claude- eller ChatGPT-abonnemang?",
         "subscriptionsLabel": "Valfritt"
       },
       "composerPlaceholder": "Eller fråga mig bara något",
       "computer": {
-        "body": "Parkoppla den här telefonen med Stella på din dator så kan jag köra uppgifter där medan du är ute.",
-        "connectedBody": "Fråga var du än är så gör jag jobbet på din dator.",
+        "body": "Logga in på datorn så ansluter den automatiskt.",
         "connectedTo": "Ansluten till {name}",
-        "guestHint": "Parkopplingen hör till ditt Stella-konto, så logga in först. Jag fortsätter precis här.",
-        "hint": "Öppna Stella på din dator och välj Parkoppla telefon.",
+        "getDesktop": "Hämta Stella för datorn",
         "later": "Senare",
-        "pair": "Parkoppla min dator",
-        "point1": "Hitta en fil och skicka den till dig",
-        "point2": "Slutföra en export eller en nedladdning",
-        "point3": "Använda apparna du redan har",
-        "settledConnectedDesc": "Jag kan köra uppgifter där från din telefon.",
-        "settledSkippedDesc": "Du kan parkoppla en när som helst i Inställningar.",
         "settledSkippedTitle": "Ingen dator än",
-        "signInToPair": "Logga in för att parkoppla",
-        "title": "Din dator, från fickan"
+        "title": "Stella på din dator"
       },
       "gmail": {
         "body": "Hitta mejl, kom ikapp med trådar och skriv utkast till svar, bara genom att fråga.",
@@ -1391,7 +1376,6 @@
         "enableFailedTitle": "Kunde inte aktivera den datorn",
         "enableLabel": "Aktivera {name}",
         "enabling": "Aktiverar…",
-        "pairingCode": "Använd en parkopplingskod",
         "sectionLabel": "Var Stella arbetar",
         "statusAwaitingConsent": "Väntar på tillåtelse på den datorn",
         "statusDeclined": "Nekad på den datorn",
@@ -1407,10 +1391,6 @@
       "deleteConfirmTitle": "Radera konto",
       "deleteFailedTitle": "Det gick inte att radera kontot",
       "deletingAccount": "Raderar kontot…",
-      "forget": "Glöm",
-      "forgetConfirmBody": "Den här telefonen slutar återansluta till den datorn tills du parkopplar den igen.",
-      "forgetConfirmTitle": "Glömma {name}?",
-      "forgetLabel": "Glöm {name}",
       "hideEmailLabel": "Dölj e-postadressen",
       "loadingSession": "Läser in sessionen…",
       "notificationsSection": "Aviseringar",
@@ -1420,9 +1400,6 @@
       "paired": {
         "unnamedComputer": "Dator · {id}"
       },
-      "pairedEmpty": "Inga datorer parkopplade än.",
-      "pairedOn": "Parkopplad {date}",
-      "pairedSection": "Parkopplade datorer",
       "privacyPolicy": "Integritetspolicy",
       "pushToggleA11y": "Slå på eller av push-aviseringar",
       "pushToggleLabel": "Tillåt push-aviseringar",
@@ -1600,6 +1577,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Mycket av livet går via mejl. Anslut Gmail så kan jag hjälpa dig med ditt.",
         "memory": "One more thing that makes me different.",
+        "phone": "Jag finns i din telefon också.",
         "quickstart": "Det var allt. En sista sak, och den är valfri: en snabbstart.",
         "quickstartDone": "Klart. Här är vad jag har lärt mig, och några saker vi kan börja med.",
         "quickstartFailed": "Jag kunde inte läsa klart din webbläsare den här gången. Vi kan börja ändå, så lär jag mig under tiden.",
@@ -2095,16 +2073,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Inloggade datorer visas här. Aktivera en för att skicka arbete till den.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2242,47 +2215,6 @@
         "label": "Skärminspelning"
       },
       "title": "Behörigheter"
-    },
-    "phoneAccess": {
-      "copy": "Kopiera",
-      "deviceFallback": "Telefon",
-      "errors": {
-        "createPairing": "Det går inte att skapa en parkopplingskod."
-      },
-      "expired": "Utgången",
-      "getCode": "Hämta kod",
-      "intro": {
-        "headline": "Anslut din telefon till din dator"
-      },
-      "pairedCount": {
-        "one": "{count} telefon parkopplad",
-        "other": "{count} telefoner parkopplade"
-      },
-      "pairing": {
-        "body": "Skanna QR-koden i Stella-appen på telefonen, eller ange koden.",
-        "headline": "Skanna eller ange den här koden",
-        "qrAlt": "Skanna för att parkoppla din telefon"
-      },
-      "preparing": "Förbereder...",
-      "remove": "Ta bort",
-      "removing": "Tar bort...",
-      "signedOut": {
-        "body": "Logga in på ditt Stella-konto för att parkoppla med mobilappen.",
-        "headline": "Logga in för att komma igång"
-      },
-      "steps": {
-        "appStoreQrAlt": "Skanna för att ladda ner Stella från App Store",
-        "connect": "Anslut din telefon",
-        "download": "Ladda ner appen",
-        "platformSelectorLabel": "Välj en mobilplattform",
-        "playStoreQrAlt": "Skanna för att ladda ner Stella från Google Play"
-      },
-      "timeLeft": "{time} kvar",
-      "toasts": {
-        "codeCopied": "Koden kopierad till urklipp",
-        "phoneRemoved": "Telefonen borttagen",
-        "removeFailed": "Det gick inte att ta bort telefonen"
-      }
     },
     "power": {
       "description": "Hindrar datorn från att gå i viloläge medan Stella är öppen.",

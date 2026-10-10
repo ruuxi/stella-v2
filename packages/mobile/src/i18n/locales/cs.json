@@ -848,7 +848,6 @@
     },
     "integrations": {
       "connectStellaApp": "Připojit k aplikaci Stella",
-      "connectStellaAppSub": "Spárujte aplikaci Stella v telefonu s tímto počítačem",
       "connectTitle": "Připojit",
       "connected": "Připojeno",
       "credential": {
@@ -864,11 +863,16 @@
         "saving": "Ukládání...",
         "title": "Připojit {provider}"
       },
-      "heroTagline": "Pište Stelle z jakékoli platformy, která vám vyhovuje — povídejte si přirozeně, nebo ji požádejte, ať věci vyřídí přímo ve vašem počítači.",
       "phoneTitle": "Váš telefon",
       "signInHeadline": "Přihlaste se a začněte",
       "signInSub": "Přihlaste se ke svému účtu Stella, abyste připojili {provider}.",
-      "signInToConnect": "Pro připojení se přihlaste ke Stelle"
+      "signInToConnect": "Pro připojení se přihlaste ke Stelle",
+      "getApp": {
+        "appStoreQrAlt": "Naskenujte pro stažení Stelly z App Store",
+        "platformLabel": "Vyberte mobilní platformu",
+        "playStoreQrAlt": "Naskenujte pro stažení Stelly z Google Play",
+        "title": "Stáhnout aplikaci"
+      }
     },
     "legal": {
       "privacy": {
@@ -1039,7 +1043,6 @@
       "disconnectedLabel": "Počítač odpojen",
       "guestHeroBody": "Požádejte Stellu, aby na vašem počítači něco udělala — prohlížela web, spravovala soubory, spouštěla úlohy a další.",
       "guestHeroTitle": "Váš počítač na dosah ruky",
-      "pairLabel": "Spárovat počítač",
       "statusAsleep": "Spí",
       "statusChecking": "Kontrola…",
       "statusConnected": "Připojeno"
@@ -1047,20 +1050,11 @@
     "desktop": {
       "connecting": "Připojování k počítači",
       "deviceUnreachable": "Zařízení {platform} je nedostupné",
-      "enterCode": "Zadejte kód zobrazený na vašem počítači.",
-      "guestBody": "Mějte desktopovou aplikaci Stella přímo v telefonu. Po spárování se telefon připojí automaticky.",
       "guestSignInPrompt": "Začněte přihlášením.",
       "limitedCapabilities": "Některé věci vyžadují váš počítač",
       "linkInterrupted": "Spojení s vaším počítačem bylo přerušeno.",
-      "pairAnother": "Spárovat další počítač",
-      "pairTitle": "Spárujte svůj telefon",
-      "pairing": "Párování tohoto telefonu",
       "reconnecting": "Připojování znovu...",
-      "repairNeeded": "Tento telefon je potřeba znovu spárovat s vaším počítačem.",
       "retryLabel": "Zkusit připojení znovu",
-      "startPairingLabel": "Zahájit párování počítače",
-      "unavailableBodyPaired": "Ujistěte se, že je Stella na vašem počítači otevřená a připojená k internetu. Jakmile se připojí, desktopová aplikace se objeví přímo tady v telefonu.",
-      "unavailableBodyUnpaired": "Mějte desktopovou aplikaci Stella přímo v telefonu. Naskenujte QR kód zobrazený ve Stelle na vašem počítači — potom se telefon bude připojovat automaticky.",
       "unreachable": "Počítač je nedostupný"
     },
     "engineAccounts": {
@@ -1173,26 +1167,17 @@
         "signInBody": "Mějte konverzaci, nastavení i připojený počítač na každém zařízení.",
         "signInTitle": "Přihlaste se ke Stelle",
         "skip": "Zatím přeskočit",
-        "subscriptionsBody": "Už platíte za Claude nebo ChatGPT? Připojte ho a budu ho používat v cloudu. Vaše počítače používají vlastní přihlášení.",
+        "subscriptionsBody": "Použít vaše stávající předplatné Claude nebo ChatGPT?",
         "subscriptionsLabel": "Volitelné"
       },
       "composerPlaceholder": "Nebo se mě prostě na něco zeptejte",
       "computer": {
-        "body": "Spárujte tento telefon se Stellou na počítači a můžu tam plnit úkoly, zatímco jste pryč.",
-        "connectedBody": "Ptejte se odkudkoli a práci udělám na vašem počítači.",
+        "body": "Přihlaste se na počítači a propojí se automaticky.",
         "connectedTo": "Připojeno: {name}",
-        "guestHint": "Párování patří k vašemu účtu Stella, proto se nejdřív přihlaste. Navážu přesně tady.",
-        "hint": "Na počítači otevřete Stellu a zvolte Spárovat telefon.",
+        "getDesktop": "Stáhnout Stella pro počítač",
         "later": "Později",
-        "pair": "Spárovat můj počítač",
-        "point1": "Najít soubor a poslat vám ho",
-        "point2": "Dokončit export nebo stahování",
-        "point3": "Použít aplikace, které už máte",
-        "settledConnectedDesc": "Můžu tam plnit úkoly z vašeho telefonu.",
-        "settledSkippedDesc": "Můžete ho spárovat kdykoli v Nastavení.",
         "settledSkippedTitle": "Zatím žádný počítač",
-        "signInToPair": "Přihlásit se a spárovat",
-        "title": "Váš počítač z kapsy"
+        "title": "Stella na vašem počítači"
       },
       "gmail": {
         "body": "Najdi e-maily, dožeň konverzace a nech si napsat odpovědi, stačí říct.",
@@ -1411,7 +1396,6 @@
         "enableFailedTitle": "Počítač se nepodařilo povolit",
         "enableLabel": "Povolit {name}",
         "enabling": "Povolování…",
-        "pairingCode": "Použít párovací kód",
         "sectionLabel": "Kde Stella pracuje",
         "statusAwaitingConsent": "Čeká se na povolení na tom počítači",
         "statusDeclined": "Na tom počítači odmítnuto",
@@ -1427,10 +1411,6 @@
       "deleteConfirmTitle": "Smazat účet",
       "deleteFailedTitle": "Účet se nepodařilo smazat",
       "deletingAccount": "Mazání účtu…",
-      "forget": "Zapomenout",
-      "forgetConfirmBody": "Tento telefon se k danému počítači přestane připojovat, dokud ho znovu nespárujete.",
-      "forgetConfirmTitle": "Zapomenout zařízení {name}?",
-      "forgetLabel": "Zapomenout zařízení {name}",
       "hideEmailLabel": "Skrýt e-mail",
       "loadingSession": "Načítání relace…",
       "notificationsSection": "Oznámení",
@@ -1440,9 +1420,6 @@
       "paired": {
         "unnamedComputer": "Počítač · {id}"
       },
-      "pairedEmpty": "Zatím není spárovaný žádný počítač.",
-      "pairedOn": "Spárováno {date}",
-      "pairedSection": "Spárované počítače",
       "privacyPolicy": "Zásady ochrany osobních údajů",
       "pushToggleA11y": "Přepnout push oznámení",
       "pushToggleLabel": "Povolit push oznámení",
@@ -1620,6 +1597,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Spousta života se odehrává v e-mailu. Připoj Gmail a pomůžu ti s ním.",
         "memory": "One more thing that makes me different.",
+        "phone": "Jsem i ve vašem telefonu.",
         "quickstart": "To je všechno. Ještě jedna věc, a je nepovinná: rychlý start.",
         "quickstartDone": "Hotovo. Tohle jsem se dozvěděla a tady je pár věcí, kterými bychom mohli začít.",
         "quickstartFailed": "Tentokrát jsem nestihla dočíst tvůj prohlížeč. Můžeme začít i tak a já se budu učit za pochodu.",
@@ -2115,16 +2093,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Zde se zobrazují přihlášené počítače. Povolte jeden a posílejte mu práci.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2262,49 +2235,6 @@
         "label": "Záznam obrazovky"
       },
       "title": "Oprávnění"
-    },
-    "phoneAccess": {
-      "copy": "Kopírovat",
-      "deviceFallback": "Telefon",
-      "errors": {
-        "createPairing": "Nelze vytvořit párovací kód."
-      },
-      "expired": "Vypršelo",
-      "getCode": "Získat kód",
-      "intro": {
-        "headline": "Připojte telefon k počítači"
-      },
-      "pairedCount": {
-        "few": "Spárovány {count} telefony",
-        "many": "Spárováno {count} telefonu",
-        "one": "Spárován {count} telefon",
-        "other": "Spárováno {count} telefonů"
-      },
-      "pairing": {
-        "body": "Naskenujte QR kód v aplikaci Stella v telefonu, nebo zadejte kód.",
-        "headline": "Naskenujte nebo zadejte tento kód",
-        "qrAlt": "Naskenujte pro spárování telefonu"
-      },
-      "preparing": "Příprava...",
-      "remove": "Odebrat",
-      "removing": "Odebírání...",
-      "signedOut": {
-        "body": "Přihlaste se ke svému účtu Stella, abyste ho spárovali s mobilní aplikací.",
-        "headline": "Přihlaste se a začněte"
-      },
-      "steps": {
-        "appStoreQrAlt": "Naskenujte pro stažení Stelly z App Store",
-        "connect": "Připojte telefon",
-        "download": "Stáhněte aplikaci",
-        "platformSelectorLabel": "Vyberte mobilní platformu",
-        "playStoreQrAlt": "Naskenujte pro stažení Stelly z Google Play"
-      },
-      "timeLeft": "zbývá {time}",
-      "toasts": {
-        "codeCopied": "Kód zkopírován do schránky",
-        "phoneRemoved": "Telefon odebrán",
-        "removeFailed": "Nepodařilo se odebrat telefon"
-      }
     },
     "power": {
       "description": "Zabrání počítači v přechodu do režimu spánku, když je Stella otevřená.",

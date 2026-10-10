@@ -840,7 +840,6 @@
     },
     "integrations": {
       "connectStellaApp": "Conectar ao app da Stella",
-      "connectStellaAppSub": "Pareie o app da Stella no seu telefone com este computador",
       "connectTitle": "Conectar",
       "connected": "Conectado",
       "credential": {
@@ -856,11 +855,16 @@
         "saving": "Salvando...",
         "title": "Conectar o {provider}"
       },
-      "heroTagline": "Fale com a Stella pela plataforma que você quiser — converse naturalmente, ou peça para ela resolver as coisas direto no seu computador.",
       "phoneTitle": "Seu telefone",
       "signInHeadline": "Entre para começar",
       "signInSub": "Entre na sua conta Stella para conectar o {provider}.",
-      "signInToConnect": "Entre na Stella para conectar"
+      "signInToConnect": "Entre na Stella para conectar",
+      "getApp": {
+        "appStoreQrAlt": "Escaneie para baixar a Stella na App Store",
+        "platformLabel": "Escolha uma plataforma móvel",
+        "playStoreQrAlt": "Escaneie para baixar a Stella no Google Play",
+        "title": "Baixe o app"
+      }
     },
     "legal": {
       "privacy": {
@@ -1029,7 +1033,6 @@
       "disconnectedLabel": "Computador desconectado",
       "guestHeroBody": "Peça à Stella para fazer coisas no seu computador — navegar na web, gerenciar arquivos, executar tarefas e muito mais.",
       "guestHeroTitle": "Seu computador na palma da mão",
-      "pairLabel": "Emparelhar um computador",
       "statusAsleep": "Em repouso",
       "statusChecking": "Verificando…",
       "statusConnected": "Conectado"
@@ -1037,20 +1040,11 @@
     "desktop": {
       "connecting": "Conectando ao desktop",
       "deviceUnreachable": "Seu {platform} não está acessível",
-      "enterCode": "Digite o código exibido no seu computador.",
-      "guestBody": "Veja o app de desktop da Stella direto no seu celular. Depois do pareamento, seu celular vai se reconectar automaticamente.",
       "guestSignInPrompt": "Entre para começar.",
       "limitedCapabilities": "Algumas coisas precisam do seu computador",
       "linkInterrupted": "A conexão com seu computador foi interrompida.",
-      "pairAnother": "Parear outro computador",
-      "pairTitle": "Pareie seu celular",
-      "pairing": "Pareando este celular",
       "reconnecting": "Reconectando...",
-      "repairNeeded": "Este celular precisa ser pareado novamente com seu computador.",
       "retryLabel": "Tentar conectar novamente",
-      "startPairingLabel": "Começar a parear um computador",
-      "unavailableBodyPaired": "Verifique se a Stella está aberta no seu computador e conectada à internet. Depois de conectar, seu app de desktop aparecerá aqui mesmo, no celular.",
-      "unavailableBodyUnpaired": "Veja o app de desktop da Stella direto no seu celular. Escaneie o QR code exibido na Stella no seu computador para começar — depois disso, seu celular vai se reconectar automaticamente.",
       "unreachable": "Não é possível acessar seu desktop"
     },
     "engineAccounts": {
@@ -1163,26 +1157,17 @@
         "signInBody": "Tenha sua conversa, suas configurações e seu computador conectado em todos os dispositivos.",
         "signInTitle": "Entre na Stella",
         "skip": "Pular por enquanto",
-        "subscriptionsBody": "Já paga pelo Claude ou pelo ChatGPT? Conecte e eu uso na nuvem. Seus computadores usam os próprios logins.",
+        "subscriptionsBody": "Usar sua assinatura atual do Claude ou do ChatGPT?",
         "subscriptionsLabel": "Opcional"
       },
       "composerPlaceholder": "Ou simplesmente me pergunte algo",
       "computer": {
-        "body": "Pareie este celular com a Stella no seu computador e eu posso executar tarefas lá enquanto você está fora.",
-        "connectedBody": "Peça de onde estiver e eu faço o trabalho no seu computador.",
+        "body": "Entre no seu computador e ele se conecta automaticamente.",
         "connectedTo": "Conectado a {name}",
-        "guestHint": "O pareamento fica ligado à sua conta Stella, então entre primeiro. Eu continuo daqui.",
-        "hint": "No seu computador, abra a Stella e escolha “Pareie seu celular”.",
+        "getDesktop": "Baixe o Stella para computador",
         "later": "Depois",
-        "pair": "Parear meu computador",
-        "point1": "Encontrar um arquivo e enviar para você",
-        "point2": "Concluir uma exportação ou um download",
-        "point3": "Usar os apps que você já tem",
-        "settledConnectedDesc": "Posso executar tarefas lá a partir do seu celular.",
-        "settledSkippedDesc": "Você pode parear um a qualquer momento em Configurações.",
         "settledSkippedTitle": "Nenhum computador ainda",
-        "signInToPair": "Entre para parear",
-        "title": "Seu computador, direto do bolso"
+        "title": "Stella no seu computador"
       },
       "gmail": {
         "body": "Encontre e-mails, acompanhe conversas e crie rascunhos de respostas, só pedindo.",
@@ -1401,7 +1386,6 @@
         "enableFailedTitle": "Não foi possível ativar esse computador",
         "enableLabel": "Ativar {name}",
         "enabling": "A ativar…",
-        "pairingCode": "Usar um código de emparelhamento",
         "sectionLabel": "Onde a Stella trabalha",
         "statusAwaitingConsent": "À espera de permissão nesse computador",
         "statusDeclined": "Recusado nesse computador",
@@ -1417,10 +1401,6 @@
       "deleteConfirmTitle": "Excluir conta",
       "deleteFailedTitle": "Não foi possível excluir a conta",
       "deletingAccount": "Excluindo a conta…",
-      "forget": "Esquecer",
-      "forgetConfirmBody": "Este celular vai parar de se reconectar àquele computador até você pareá-lo de novo.",
-      "forgetConfirmTitle": "Esquecer {name}?",
-      "forgetLabel": "Esquecer {name}",
       "hideEmailLabel": "Ocultar o e-mail",
       "loadingSession": "Carregando a sessão…",
       "notificationsSection": "Notificações",
@@ -1430,9 +1410,6 @@
       "paired": {
         "unnamedComputer": "Computador · {id}"
       },
-      "pairedEmpty": "Nenhum computador pareado ainda.",
-      "pairedOn": "Pareado em {date}",
-      "pairedSection": "Computadores pareados",
       "privacyPolicy": "Política de Privacidade",
       "pushToggleA11y": "Ativar ou desativar as notificações push",
       "pushToggleLabel": "Permitir notificações push",
@@ -1610,6 +1587,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Boa parte da vida passa pelo e-mail. Conecte o Gmail e eu ajudo com o seu.",
         "memory": "One more thing that makes me different.",
+        "phone": "Também estou no seu celular.",
         "quickstart": "É tudo. Falta só uma coisa, e é opcional: um início rápido.",
         "quickstartDone": "Pronto. Veja o que aprendi e algumas coisas com que podemos começar.",
         "quickstartFailed": "Desta vez não consegui terminar de ler o seu navegador. Podemos começar mesmo assim, e eu aprendo pelo caminho.",
@@ -2105,16 +2083,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Computadores conectados aparecem aqui. Ative um para enviar trabalho a ele.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2252,48 +2225,6 @@
         "label": "Captura de tela"
       },
       "title": "Permissões"
-    },
-    "phoneAccess": {
-      "copy": "Copiar",
-      "deviceFallback": "Celular",
-      "errors": {
-        "createPairing": "Não foi possível criar um código de pareamento."
-      },
-      "expired": "Expirado",
-      "getCode": "Obter código",
-      "intro": {
-        "headline": "Conecte seu celular ao seu computador"
-      },
-      "pairedCount": {
-        "many": "{count} celulares pareados",
-        "one": "{count} celular pareado",
-        "other": "{count} celulares pareados"
-      },
-      "pairing": {
-        "body": "Escaneie o QR code no app Stella do celular ou digite o código.",
-        "headline": "Escaneie ou digite este código",
-        "qrAlt": "Escaneie para parear seu celular"
-      },
-      "preparing": "Preparando...",
-      "remove": "Remover",
-      "removing": "Removendo...",
-      "signedOut": {
-        "body": "Entre na sua conta Stella para parear com o app para celular.",
-        "headline": "Entre para começar"
-      },
-      "steps": {
-        "appStoreQrAlt": "Escaneie para baixar a Stella na App Store",
-        "connect": "Conecte seu celular",
-        "download": "Baixe o app",
-        "platformSelectorLabel": "Escolha uma plataforma móvel",
-        "playStoreQrAlt": "Escaneie para baixar a Stella no Google Play"
-      },
-      "timeLeft": "Faltam {time}",
-      "toasts": {
-        "codeCopied": "Código copiado para a área de transferência",
-        "phoneRemoved": "Celular removido",
-        "removeFailed": "Não foi possível remover o celular"
-      }
     },
     "power": {
       "description": "Impede que o computador entre em suspensão enquanto a Stella está aberta.",

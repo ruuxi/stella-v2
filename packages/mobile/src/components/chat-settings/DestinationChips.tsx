@@ -19,7 +19,6 @@ import {
 import { tapLight } from "../../lib/haptics";
 import type { ComputerControl } from "../../lib/main-shell-store";
 import {
-  clearStoredPhoneAccess,
   ensurePhoneAccess,
   listStoredPairedPhoneAccess,
   type StoredPhoneAccess,
@@ -58,8 +57,7 @@ const STATUS_KEYS: Readonly<Record<ComputerRowStatusKind, string>> = {
  * The list is the account's device list rather than this phone's pairings, so
  * a computer the owner has never paired with this phone still appears. A chip
  * says whether that computer can take work right now; one that can't is not a
- * choice, so tapping it explains why and offers what this phone can do about
- * it (Enable, Forget). Running work on a computer is consent, and only the
+ * choice, so tapping it explains why and offers Enable when that would help. Running work on a computer is consent, and only the
  * Enable tap here (or the prompt on that computer's own screen) grants it.
  *
  * There is no pairing step: a computer signed in to the account is listed
@@ -82,7 +80,7 @@ export function DestinationChips({
   const [pairedDesktops, setPairedDesktops] = useState<StoredPhoneAccess[]>([]);
   const [busy, setBusy] = useState<{
     deviceId: string;
-    kind: "connecting" | "enabling" | "forgetting";
+    kind: "connecting" | "enabling";
   } | null>(null);
 
   const refreshPaired = useCallback(async () => {
@@ -233,27 +231,7 @@ export function DestinationChips({
       .finally(() => setBusy(null));
   };
 
-  const confirmForget = (access: StoredPhoneAccess, label: string) => {
-    Alert.alert(
-      t("mobile.settings.forgetConfirmTitle", { name: label }),
-      t("mobile.settings.forgetConfirmBody"),
-      [
-        { text: t("mobile.common.cancel"), style: "cancel" },
-        {
-          text: t("mobile.settings.forget"),
-          style: "destructive",
-          onPress: () => {
-            setBusy({ deviceId: access.desktopDeviceId, kind: "forgetting" });
-            void clearStoredPhoneAccess(access.desktopDeviceId)
-              .then(() => refreshPaired())
-              .finally(() => setBusy(null));
-          },
-        },
-      ],
-    );
-  };
-
-  /** What this phone can do about a computer: Enable, Forget, or nothing. */
+  /** What this phone can do about a computer: Enable, or nothing. */
   const explain = (row: ComputerRow) => {
     const label = labelFor(row);
     const buttons: AlertButton[] = [];
@@ -261,14 +239,6 @@ export function DestinationChips({
       buttons.push({
         text: t("mobile.settings.computer.enable"),
         onPress: () => enableComputer(row),
-      });
-    }
-    const access = row.access;
-    if (access) {
-      buttons.push({
-        text: t("mobile.settings.forget"),
-        style: "destructive",
-        onPress: () => confirmForget(access, label),
       });
     }
     buttons.push({

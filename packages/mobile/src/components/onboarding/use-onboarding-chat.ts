@@ -104,15 +104,15 @@ const buildEntries = (
 
 export function useOnboardingChat({
   started,
-  skipPairing,
+  skipComputer,
   skipGmail,
 }: {
   started: boolean;
   /**
-   * Pairing is already handled for this owner, so the computer message is left
-   * out of the script entirely (see `usePairingStepNeeded`).
+   * This owner already has a computer on the account, so the computer message
+   * is left out of the script entirely (see `useComputerStepNeeded`).
    */
-  skipPairing: boolean;
+  skipComputer: boolean;
   /** Gmail connects through a Stella account, so guests never see it. */
   skipGmail: boolean;
 }) {
@@ -148,10 +148,10 @@ export function useOnboardingChat({
       progress.answers[step] !== undefined;
     return ONBOARDING_STEPS.filter(
       (step) =>
-        (step !== "computer" || keep(step, skipPairing)) &&
+        (step !== "computer" || keep(step, skipComputer)) &&
         (step !== "gmail" || keep(step, skipGmail)),
     );
-  }, [progress.answers, progress.step, skipGmail, skipPairing]);
+  }, [progress.answers, progress.step, skipComputer, skipGmail]);
   const stepsRef = useRef(steps);
   stepsRef.current = steps;
 

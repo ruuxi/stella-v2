@@ -832,7 +832,6 @@
     },
     "integrations": {
       "connectStellaApp": "Connect to Stella App",
-      "connectStellaAppSub": "Pair the Stella app on your phone with this computer",
       "connectTitle": "Connect",
       "connected": "Connected",
       "credential": {
@@ -848,11 +847,16 @@
         "saving": "Saving...",
         "title": "Connect {provider}"
       },
-      "heroTagline": "Message Stella from any platform you like — chat naturally, or ask it to get things done right on your computer.",
       "phoneTitle": "Your phone",
       "signInHeadline": "Sign in to get started",
       "signInSub": "Sign in to your Stella account to connect {provider}.",
-      "signInToConnect": "Sign in to Stella to connect"
+      "signInToConnect": "Sign in to Stella to connect",
+      "getApp": {
+        "appStoreQrAlt": "Scan to download Stella from the App Store",
+        "platformLabel": "Choose a mobile platform",
+        "playStoreQrAlt": "Scan to download Stella from Google Play",
+        "title": "Get the app"
+      }
     },
     "legal": {
       "privacy": {
@@ -1019,7 +1023,6 @@
       "disconnectedLabel": "Computer disconnected",
       "guestHeroBody": "Ask Stella to do things on your computer — browse the web, manage files, run tasks, and more.",
       "guestHeroTitle": "Your computer, at your fingertips",
-      "pairLabel": "Pair a computer",
       "statusAsleep": "Asleep",
       "statusChecking": "Checking…",
       "statusConnected": "Connected"
@@ -1027,20 +1030,11 @@
     "desktop": {
       "connecting": "Connecting to desktop",
       "deviceUnreachable": "Your {platform} isn't reachable",
-      "enterCode": "Enter the code shown on your computer.",
-      "guestBody": "See your Stella desktop app right on your phone. After pairing, your phone will reconnect automatically.",
       "guestSignInPrompt": "Sign in to get started.",
       "limitedCapabilities": "Some things need your computer",
       "linkInterrupted": "The link to your computer was interrupted.",
-      "pairAnother": "Pair another computer",
-      "pairTitle": "Pair your phone",
-      "pairing": "Pairing this phone",
       "reconnecting": "Reconnecting...",
-      "repairNeeded": "This phone needs to be paired with your computer again.",
       "retryLabel": "Try connecting again",
-      "startPairingLabel": "Start pairing a computer",
-      "unavailableBodyPaired": "Make sure Stella is open on your computer and connected to the internet. Once connected, your desktop app will appear right here on your phone.",
-      "unavailableBodyUnpaired": "See your Stella desktop app right on your phone. Scan the QR code shown in Stella on your computer to get started — after that, your phone will reconnect automatically.",
       "unreachable": "Can't reach your desktop"
     },
     "engineAccounts": {
@@ -1153,26 +1147,17 @@
         "signInBody": "Keep your conversation, settings and connected computer on every device.",
         "signInTitle": "Sign in to Stella",
         "skip": "Skip for now",
-        "subscriptionsBody": "Already pay for Claude or ChatGPT? Connect it and I'll use it in the cloud. Your computers use their own sign-ins.",
+        "subscriptionsBody": "Use your existing Claude or ChatGPT subscription?",
         "subscriptionsLabel": "Optional"
       },
       "composerPlaceholder": "Or just ask me something",
       "computer": {
-        "body": "Pair this phone with Stella on your computer and I can run tasks there while you're out.",
-        "connectedBody": "Ask from anywhere and I'll do the work on your computer.",
+        "body": "Sign in on your computer and it connects automatically.",
         "connectedTo": "Connected to {name}",
-        "guestHint": "Pairing is tied to your Stella account, so sign in first. I'll pick up right here.",
-        "hint": "On your computer, open Stella and choose Pair phone.",
+        "getDesktop": "Get Stella for desktop",
         "later": "Later",
-        "pair": "Pair my computer",
-        "point1": "Find a file and send it to you",
-        "point2": "Finish an export or a download",
-        "point3": "Use the apps you already have",
-        "settledConnectedDesc": "I can run tasks there from your phone.",
-        "settledSkippedDesc": "You can pair one any time in Settings.",
         "settledSkippedTitle": "No computer yet",
-        "signInToPair": "Sign in to pair",
-        "title": "Your computer, from your pocket"
+        "title": "Stella on your computer"
       },
       "gmail": {
         "body": "Find emails, catch up on threads, and draft replies, just by asking.",
@@ -1391,7 +1376,6 @@
         "enableFailedTitle": "Couldn't enable that computer",
         "enableLabel": "Enable {name}",
         "enabling": "Enabling…",
-        "pairingCode": "Use a pairing code",
         "sectionLabel": "Where Stella works",
         "statusAwaitingConsent": "Waiting for permission on that computer",
         "statusDeclined": "Declined on that computer",
@@ -1407,10 +1391,6 @@
       "deleteConfirmTitle": "Delete account",
       "deleteFailedTitle": "Could not delete account",
       "deletingAccount": "Deleting account…",
-      "forget": "Forget",
-      "forgetConfirmBody": "This phone will stop reconnecting to that computer until you pair it again.",
-      "forgetConfirmTitle": "Forget {name}?",
-      "forgetLabel": "Forget {name}",
       "hideEmailLabel": "Hide email",
       "loadingSession": "Loading session…",
       "notificationsSection": "Notifications",
@@ -1420,9 +1400,6 @@
       "paired": {
         "unnamedComputer": "Computer · {id}"
       },
-      "pairedEmpty": "No computers paired yet.",
-      "pairedOn": "Paired {date}",
-      "pairedSection": "Paired computers",
       "privacyPolicy": "Privacy Policy",
       "pushToggleA11y": "Toggle push notifications",
       "pushToggleLabel": "Allow push notifications",
@@ -1600,6 +1577,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "So much of life runs through email. Connect Gmail and I can help with yours.",
         "memory": "One more thing that makes me different.",
+        "phone": "I'm on your phone too.",
         "quickstart": "That's everything. One last thing, and it's optional: a quickstart.",
         "quickstartDone": "Done. Here's what I picked up, and a few things we could start with.",
         "quickstartFailed": "I couldn't finish reading your browser this time. We can start anyway, and I'll learn as we go.",
@@ -2095,16 +2073,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signed-in computers show here. Enable one to send it work.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2242,47 +2215,6 @@
         "label": "Screen Capture"
       },
       "title": "Permissions"
-    },
-    "phoneAccess": {
-      "copy": "Copy",
-      "deviceFallback": "Phone",
-      "errors": {
-        "createPairing": "Unable to create a pairing code."
-      },
-      "expired": "Expired",
-      "getCode": "Get Code",
-      "intro": {
-        "headline": "Connect your phone to your computer"
-      },
-      "pairedCount": {
-        "one": "{count} phone paired",
-        "other": "{count} phones paired"
-      },
-      "pairing": {
-        "body": "Scan the QR code in the Stella phone app, or enter the code.",
-        "headline": "Scan or enter this code",
-        "qrAlt": "Scan to pair your phone"
-      },
-      "preparing": "Preparing...",
-      "remove": "Remove",
-      "removing": "Removing...",
-      "signedOut": {
-        "body": "Sign in to your Stella account to pair with the mobile app.",
-        "headline": "Sign in to get started"
-      },
-      "steps": {
-        "appStoreQrAlt": "Scan to download Stella from the App Store",
-        "connect": "Connect your phone",
-        "download": "Download the app",
-        "platformSelectorLabel": "Choose a mobile platform",
-        "playStoreQrAlt": "Scan to download Stella from Google Play"
-      },
-      "timeLeft": "{time} left",
-      "toasts": {
-        "codeCopied": "Code copied to clipboard",
-        "phoneRemoved": "Phone removed",
-        "removeFailed": "Failed to remove phone"
-      }
     },
     "power": {
       "description": "Stop your computer from sleeping while Stella is open.",

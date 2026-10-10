@@ -246,6 +246,11 @@ export type BaseRunOptions = {
   abortSignal?: AbortSignal;
   stellaAppDir?: string;
   toolWorkspaceRoot?: string;
+  /**
+   * Where a spawned agent starts: its own folder, or the directory its
+   * spawner named. Unlike `toolWorkspaceRoot` it confines nothing.
+   */
+  agentWorkingDirectory?: string;
   hookEmitter?: HookEmitter;
   /**
    * Registers run-owned resources (provider streams, tool calls) into the

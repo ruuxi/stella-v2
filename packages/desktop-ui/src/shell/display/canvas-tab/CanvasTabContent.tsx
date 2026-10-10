@@ -19,6 +19,7 @@ import { CanvasShareBar } from "./CanvasShareBar";
 import { PreviewProblem } from "../preview-states";
 import type { CanvasHtmlItem } from "./canvas-items";
 import { classifyCanvasNavigation } from "./canvas-navigation";
+import { useEmbeddedCanvasAssets } from "./use-embedded-canvas-assets";
 import { useT } from "@/shared/i18n";
 import "./canvas-tab.css";
 import type { ReactNode } from "react";
@@ -132,9 +133,11 @@ const HtmlCanvasHeroFrameContent = ({ item, html, error, loading, limited = fals
 };
 /** Bytes over the display bridge: a Drive file, or the website's device copies. */
 const BytesCanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
+    const fileSource = useContext(DisplayFileSourceContext);
     const { bytes, error, loading, truncated } = useDisplayFileBytes(item.filePath, "Canvas preview requires the Stella desktop app.", undefined, item.createdAt, CANVAS_HTML_MAX_BYTES);
     const html = useMemo(() => (bytes ? decoder.decode(bytes) : ""), [bytes]);
-    return <HtmlCanvasHeroFrameContent item={item} html={html} error={error} loading={loading} limited={truncated}/>;
+    const embedded = useEmbeddedCanvasAssets(html, item.filePath, !fileSource && !canvasUrlApi());
+    return <HtmlCanvasHeroFrameContent item={item} html={embedded.html} error={error} loading={loading || embedded.loading} limited={truncated}/>;
 };
 /** Cloud canvas: the html the cloud `html` tool wrote into the owner's drive. */
 const CloudCanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {

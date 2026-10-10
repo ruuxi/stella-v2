@@ -75,6 +75,8 @@ type AgentTask = {
   spawnReasoningEffort?: AgentToolRequest["spawnReasoningEffort"];
   modelConfigSnapshot?: AgentRecord["modelConfigSnapshot"];
   toolWorkspaceRoot?: string;
+  /** Where the agent starts; it is not confined there. */
+  workingDirectory?: string;
   attachments?: AgentToolRequest["attachments"];
   agentDepth: number;
   maxAgentDepth?: number;
@@ -168,6 +170,7 @@ type RunSubagentArgs = {
   agentId: string;
   rootRunId?: string;
   toolWorkspaceRoot?: string;
+  workingDirectory?: string;
   attachments?: AgentToolRequest["attachments"];
   taskDescription: string;
   taskPrompt: string;
@@ -187,6 +190,11 @@ export type LocalAgentManagerOptions = {
   maxConcurrent?: number;
   attemptTeardownTimeoutMs?: number;
   getMaxConcurrent?(): number | undefined;
+  /**
+   * The folder an agent starts in when its spawner named none, from its
+   * thread and the time it started. Absent, it starts in the home folder.
+   */
+  defaultWorkingDirectory?(threadId: string, startedAt: number): string;
   resolveTaskThread?(args: {
     conversationId: string;
     agentType: string;
@@ -1244,6 +1252,9 @@ export class LocalAgentManager {
       ...(task.toolWorkspaceRoot
         ? { toolWorkspaceRoot: task.toolWorkspaceRoot }
         : {}),
+      ...(task.workingDirectory
+        ? { workingDirectory: task.workingDirectory }
+        : {}),
       status: task.status === "pending" || isParked ? "running" : task.status,
       attemptGeneration: task.attemptGeneration,
       ...(task.rootRunId ? { rootRunId: task.rootRunId } : {}),
@@ -1600,6 +1611,11 @@ export class LocalAgentManager {
     prompt: string,
     statusText = prompt,
   ) {
+    // A thread from before agents had their own folder gets one dated by
+    // when it first started.
+    const workingDirectory =
+      record.workingDirectory ??
+      this.opts.defaultWorkingDirectory?.(record.threadId, record.startedAt);
     const task: AgentTask = {
       threadId: record.threadId,
       conversationId: record.conversationId,
@@ -1629,6 +1645,7 @@ export class LocalAgentManager {
       ...(record.toolWorkspaceRoot
         ? { toolWorkspaceRoot: record.toolWorkspaceRoot }
         : {}),
+      ...(workingDirectory ? { workingDirectory } : {}),
       recentActivity: [`Continuing thread: ${truncate(prompt, 200)}`],
       lastActivityAt: Date.now(),
       activeToolCount: 0,
@@ -2120,6 +2137,9 @@ export class LocalAgentManager {
         ...(task.toolWorkspaceRoot
           ? { toolWorkspaceRoot: task.toolWorkspaceRoot }
           : {}),
+        ...(task.workingDirectory
+          ? { workingDirectory: task.workingDirectory }
+          : {}),
         // Only with the opening prompt. They are named in the brief,
         // not re-announced on every later turn.
         ...(task.turnCount === 1 && task.attachments?.length
@@ -2566,6 +2586,10 @@ export class LocalAgentManager {
       );
     }
     const createdAt = Date.now();
+    // It starts there, not confined there: its tools still take any path.
+    const workingDirectory =
+      request.workingDirectory ??
+      this.opts.defaultWorkingDirectory?.(threadId, createdAt);
     const task: AgentTask = {
       threadId,
       conversationId: request.conversationId,
@@ -2586,6 +2610,7 @@ export class LocalAgentManager {
       ...(request.toolWorkspaceRoot
         ? { toolWorkspaceRoot: request.toolWorkspaceRoot }
         : {}),
+      ...(workingDirectory ? { workingDirectory } : {}),
       ...(request.attachments?.length
         ? { attachments: request.attachments }
         : {}),

@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { mkdirSync } from "node:fs";
 import {
   resolveLlmRoute,
   resolveLlmRouteForCatalogEnrichment,
@@ -16,6 +17,7 @@ import { persistThreadCustomMessage } from "../agent-runtime/thread-memory.js";
 import { resolvePlacedAgentModel } from "./placed-agent-model.js";
 import { resolveOrchestratorThreadKey } from "../thread-runtime.js";
 import { LocalAgentManager } from "../agents/local-agent-manager.js";
+import { defaultAgentDirectory } from "../agents/agent-directory.js";
 import { writeRestartInterruptedSnapshot } from "../restart-continuation.js";
 import type {
   AgentToolRequest,
@@ -597,6 +599,8 @@ export const createAgentOrchestration = (
       ? { attemptTeardownTimeoutMs: deps.attemptTeardownTimeoutMs }
       : {}),
     getMaxConcurrent: () => getMaxAgentConcurrency(context.stellaDataDir),
+    defaultWorkingDirectory: (threadId: string, startedAt: number) =>
+      defaultAgentDirectory(context.stellaDataDir, threadId, startedAt),
     resolveTaskThread: ({
       conversationId,
       agentType,
@@ -648,6 +652,7 @@ export const createAgentOrchestration = (
       agentId,
       rootRunId,
       toolWorkspaceRoot,
+      workingDirectory,
       agentContext,
       taskDescription,
       taskPrompt,
@@ -697,6 +702,15 @@ export const createAgentOrchestration = (
         null;
 
       const composedUserPrompt = `${taskDescription}\n\n${taskPrompt}`;
+      // An agent's own folder exists once it first works there; a CLI
+      // launched in a missing cwd fails to start.
+      if (workingDirectory) {
+        try {
+          mkdirSync(workingDirectory, { recursive: true });
+        } catch {
+          // A directory that cannot be made surfaces as the run's spawn error.
+        }
+      }
 
       const result = await runSubagentTask({
         executionHost: "device",
@@ -737,6 +751,7 @@ export const createAgentOrchestration = (
             settled: resource.settled,
           }),
         ...(toolWorkspaceRoot ? { toolWorkspaceRoot } : {}),
+        ...(workingDirectory ? { agentWorkingDirectory: workingDirectory } : {}),
         ...(steering ? { steering } : {}),
         compactionScheduler: context.state.compactionScheduler,
         onProgress,

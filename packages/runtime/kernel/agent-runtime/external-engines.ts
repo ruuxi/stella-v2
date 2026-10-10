@@ -1494,6 +1494,7 @@ const createClaudeToolRelay = (args: {
         stellaAppDir: opts.stellaAppDir,
         stellaDataDir: opts.stellaDataDir,
         toolWorkspaceRoot: opts.toolWorkspaceRoot,
+        agentWorkingDirectory: opts.agentWorkingDirectory,
         agentDepth: opts.agentContext.agentDepth ?? 0,
         maxAgentDepth: opts.agentContext.maxAgentDepth,
         parentAgentId: opts.agentContext.parentAgentId,
@@ -1836,7 +1837,8 @@ const runClaudeHostedTurn = async (
   const localCliCwd = resolveAgentWorkingDirectory({
     agentType: args.opts.agentType,
     stellaAppDir: args.opts.stellaAppDir,
-    workingDirectory: args.opts.toolWorkspaceRoot,
+    workingDirectory:
+      args.opts.toolWorkspaceRoot ?? args.opts.agentWorkingDirectory,
   });
   // General Claude runs are role-split at this boundary. A newly sampled
   // durable snapshot selects Stella's harness by default; false or a legacy
@@ -1988,6 +1990,9 @@ const runClaudeHostedTurn = async (
             stellaAppDir: args.opts.stellaAppDir,
             stellaDataDir: args.opts.stellaDataDir,
             toolWorkspaceRoot: args.opts.toolWorkspaceRoot,
+            ...(args.opts.agentWorkingDirectory
+              ? { agentWorkingDirectory: args.opts.agentWorkingDirectory }
+              : {}),
             ...(args.opts.agentId ? { agentId: args.opts.agentId } : {}),
           },
           // The CLI spawns in the process cwd when it has none of its own.

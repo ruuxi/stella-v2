@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { AgentMessage } from "../agent-core/types.js";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type {
@@ -138,20 +140,55 @@ export const createRuntimePromptAgentMessage = (
 
 export { renderSystemPrompt, type SystemPromptSection };
 
+/** How much of a project's AGENTS.md an agent is shown. */
+const AGENTS_MD_MAX_CHARS = 32_000;
+
+/** The directory's AGENTS.md as a startup doc, read fresh for each run. */
+const agentsMdText = (directory: string): string | undefined => {
+  const file = path.join(directory, "AGENTS.md");
+  let body: string;
+  try {
+    body = fs.readFileSync(file, "utf8").trim();
+  } catch {
+    return undefined;
+  }
+  if (!body) return undefined;
+  const shown =
+    body.length > AGENTS_MD_MAX_CHARS
+      ? `${body.slice(0, AGENTS_MD_MAX_CHARS)}\n\n[Truncated: read ${file} for the rest.]`
+      : body;
+  return `The project's instructions for agents, from ${file}:\n\n<startup_doc path="${file}">\n${shown}\n</startup_doc>`;
+};
+
 const workingDirectorySection = (
   opts: Pick<
     OrchestratorRunOptions,
-    "agentType" | "stellaAppDir" | "toolWorkspaceRoot"
+    "agentType" | "stellaAppDir" | "toolWorkspaceRoot" | "agentWorkingDirectory"
   >,
 ): SystemPromptSection[] => {
   const cwd = resolveAgentWorkingDirectory({
     agentType: opts.agentType,
     stellaAppDir: opts.stellaAppDir,
-    workingDirectory: opts.toolWorkspaceRoot,
+    workingDirectory: opts.toolWorkspaceRoot ?? opts.agentWorkingDirectory,
   });
-  return cwd
-    ? [{ id: "working-directory", text: `Current working directory: ${cwd}` }]
-    : [];
+  if (!cwd) return [];
+  // A spawned agent starts in its directory without being confined to it,
+  // and follows that directory's AGENTS.md.
+  const agentsMd =
+    !opts.toolWorkspaceRoot && opts.agentWorkingDirectory
+      ? agentsMdText(cwd)
+      : undefined;
+  return [
+    {
+      id: "working-directory",
+      text: [
+        opts.agentWorkingDirectory && !opts.toolWorkspaceRoot
+          ? `Current working directory: ${cwd}. Shell commands start there; you can still read and change files anywhere the work needs.`
+          : `Current working directory: ${cwd}`,
+        ...(agentsMd ? [agentsMd] : []),
+      ].join("\n\n"),
+    },
+  ];
 };
 
 /**

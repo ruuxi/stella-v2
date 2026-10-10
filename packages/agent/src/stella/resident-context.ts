@@ -35,6 +35,7 @@ export const RESIDENT_SECTION_KEYS: ReadonlySet<string> = new Set([
   "skills",
   "execution-devices",
   "execution-destination",
+  "working-directory",
   "media-access",
   "response-language",
 ]);

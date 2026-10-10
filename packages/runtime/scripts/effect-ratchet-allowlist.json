@@ -44,7 +44,7 @@
   "workers/cloud-builder/src/local-owner-model-grants.ts": {
     "new AbortController": 1
   },
-  "workers/cloud-builder/src/owner-gate.ts": {
+  "workers/cloud-builder/src/owner-gate/support.ts": {
     "setTimeout(": 1
   }
 }

@@ -15,6 +15,11 @@ import type {
   DesktopThreadActivityUpdatedPayload as ThreadActivityUpdatedPayload,
   ThreadActivityAssistantUpdate,
 } from "@/features/chat/thread-activity-types";
+import {
+  onPiChatEvents,
+  piChatAgents,
+  piChatEnabled,
+} from "@/features/chat/pi/pi-chat-store";
 
 // Absent outside Electron (plain-browser `bun run dev`): degrade to an
 // empty, update-free list instead of erroring.
@@ -28,7 +33,12 @@ const PUSH_REFRESH_DEBOUNCE_MS = 120;
 const LOAD_RETRY_MS = 1_000;
 const RETAINED_CONVERSATION_LIMIT = 10;
 
-export const listThreadActivity = async (
+/** While a pi agent runs, its row (status, latest prose) is re-read this often. */
+const PI_AGENT_POLL_MS = 2_000;
+/** Conversations whose last read had a pi agent running. */
+const piAgentsRunning = new Set<string>();
+
+const listLocalThreadActivity = async (
   conversationId: string,
 ): Promise<ThreadActivityRecord[]> => {
   const api = getLocalChatApi();
@@ -38,10 +48,58 @@ export const listThreadActivity = async (
   })) as ThreadActivityRecord[];
 };
 
+/**
+ * A chat on pi-durable lists its agents from the conversation's harness;
+ * they win over any older row with the same thread id.
+ */
+export const listThreadActivity = async (
+  conversationId: string,
+): Promise<ThreadActivityRecord[]> => {
+  if (!piChatEnabled()) return await listLocalThreadActivity(conversationId);
+  const [local, pi] = await Promise.all([
+    listLocalThreadActivity(conversationId),
+    piChatAgents(conversationId),
+  ]);
+  if (pi.some((record) => record.status === "running")) {
+    piAgentsRunning.add(conversationId);
+  } else {
+    piAgentsRunning.delete(conversationId);
+  }
+  if (pi.length === 0) return local;
+  const piThreadIds = new Set(pi.map((record) => record.threadId));
+  return [
+    ...local.filter((record) => !piThreadIds.has(record.threadId)),
+    ...pi,
+  ].sort(
+    (a, b) => a.startedAt - b.startedAt || a.threadId.localeCompare(b.threadId),
+  );
+};
+
 const subscribeToThreadActivityUpdates = (
   listener: (payload: ThreadActivityUpdatedPayload) => void,
-): (() => void) =>
-  getLocalChatApi()?.onThreadActivityUpdated?.(listener) ?? (() => {});
+): (() => void) => {
+  const local =
+    getLocalChatApi()?.onThreadActivityUpdated?.(listener) ?? (() => {});
+  if (!piChatEnabled()) return local;
+  // pi agents push no rows: a commit in the conversation (a spawn, a
+  // report, a message) is the cue to re-read them.
+  const pi = onPiChatEvents(({ conversationId, events }) => {
+    if (
+      events.some(
+        (event) =>
+          event.type === "entry_appended" ||
+          event.type === "message_end" ||
+          event.type === "tool_execution_end",
+      )
+    ) {
+      listener({ conversationId });
+    }
+  });
+  return () => {
+    local();
+    pi();
+  };
+};
 
 export type ThreadActivitySnapshot = {
   records: ThreadActivityRecord[];
@@ -332,6 +390,17 @@ const refreshEntry = (entry: ThreadActivityEntry): Promise<void> => {
         applyRecordWatermarks(entry, records),
       );
       entry.hasHydrated = true;
+      if (
+        piAgentsRunning.has(entry.conversationId) &&
+        entry.refreshTimer === null
+      ) {
+        entry.refreshTimer = window.setTimeout(() => {
+          entry.refreshTimer = null;
+          if (entry.listeners.size > 0 || entry.recordListeners.size > 0) {
+            void refreshEntry(entry);
+          }
+        }, PI_AGENT_POLL_MS);
+      }
       if (
         entry.snapshot.hasLoaded &&
         !entry.snapshot.error &&

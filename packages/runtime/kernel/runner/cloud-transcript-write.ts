@@ -4,6 +4,7 @@ import type {
   RuntimeStore,
 } from "../storage/runtime-store.js";
 import { forkDelayedCall } from "./cloud-effect-runtime.js";
+import { parseJournalCheckpoint, type JournalCheckpoint } from "@stella/contracts/journal-checkpoint";
 
 export type CloudTranscriptBeginRequest = {
   conversationId: string;
@@ -36,7 +37,7 @@ export type CloudTranscriptBeginRequest = {
   /**
    * Replay the durable begin a previous process left for this exact turn id
    * (its stored payload, byte for byte) instead of writing a new one: a
-   * resumed turn reacquires the lease its dead process held. Rejects when
+   * resumed pi turn reacquires the lease its dead process held. Rejects when
    * that begin no longer exists.
    */
   adoptExisting?: boolean;
@@ -59,6 +60,8 @@ export type CloudTranscriptHistory = {
   history: string[];
   contextStartSeq: number;
   contextEndSeq: number;
+  /** The conversation's latest compaction checkpoint, when a host published one. */
+  checkpoint?: JournalCheckpoint;
 };
 
 /**
@@ -155,7 +158,7 @@ export type CloudTranscriptWriterOptions = {
     fields: Record<string, unknown>,
   ) => void;
   /**
-   * True for a local turn the runtime resumes this boot (`run-task.ts`). Its
+   * True for a local turn that resumes this boot (a pi-durable turn). Its
    * orphaned begin is left for that resume to replay instead of being
    * recovered as an interrupted (canceled) finish.
    */
@@ -497,10 +500,12 @@ export const createCloudTranscriptWriter = (
     ) {
       throw new Error("Cloud conversation history response is malformed.");
     }
+    const checkpoint = parseJournalCheckpoint(body.checkpoint);
     return {
       history: body.history,
       contextStartSeq: body.contextStartSeq,
       contextEndSeq: body.contextEndSeq,
+      ...(checkpoint ? { checkpoint } : {}),
     };
   };
 

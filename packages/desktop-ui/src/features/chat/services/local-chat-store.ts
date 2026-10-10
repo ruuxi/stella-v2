@@ -70,34 +70,6 @@ export const deleteLocalConversation = async (
   });
   return result.deleted;
 };
-/**
- * Truncate the current conversation at (and including) a user message —
- * backs the desktop "Rewind here" action. Removes the anchor event and
- * every event after it; returns the number of removed events.
- */
-export const truncateLocalConversation = async (
-  conversationId: string | null | undefined,
-  eventId: string | null | undefined,
-): Promise<{ removed: number }> => {
-  if (!conversationId || !eventId) return { removed: 0 };
-  return getLocalChatApi().truncateConversation({ conversationId, eventId });
-};
-/**
- * Branch a conversation's prefix (everything before a user message) into a
- * brand-new conversation — backs the desktop "Fork to new chat" action.
- * Resolves to the new conversation id (or null when the anchor is gone).
- */
-export const forkLocalConversation = async (
-  conversationId: string | null | undefined,
-  eventId: string | null | undefined,
-): Promise<string | null> => {
-  if (!conversationId || !eventId) return null;
-  const result = await getLocalChatApi().forkConversation({
-    conversationId,
-    eventId,
-  });
-  return result?.conversationId ?? null;
-};
 /** Derives a tab-title update only from a complete persisted chat message. */
 export const conversationTitleFromUpdate = (
   payload: LocalChatUpdatedPayload | null | undefined,

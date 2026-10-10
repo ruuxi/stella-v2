@@ -3,6 +3,11 @@ import { builtinCloudAppSkill } from "./builtin-cloud-app-skill.js";
 import { OwnerHomeContextCache, type OwnerHomeContext } from "./owner-home-context.js";
 import { chatTurnFingerprintSource, cloudChatHandoffKey, cloudChatTurnKey, type CloudChatHandoff, type CloudChatPreparation, type AdmittedCloudChat } from "./cloud-chat-admission.js";
 import { turnStartErrorResponse } from "./turn-start-request.js";
+import {
+  cancelCloudAgentAttempt,
+  runsAsPiAgent,
+  type PiAgentExecution,
+} from "./cloud-agent-dispatch.js";
 import type { ModelGatewayControl } from "./managed-request-cancellation.js";
 import { verifyUserToken } from "./auth-jwt.js";
 import { OwnerStore } from "./owner-store/store.js";
@@ -11,7 +16,11 @@ import type { OwnerCaller, OwnerHost, OwnerPurgeMode, OwnerRegistry } from "./ow
 import { createGateHost, parseDeviceAgentDispatchKey } from "./owner-store/gate-host.js";
 import { RpcError, toBackendError } from "./owner-store/errors.js";
 import { applyOwnerEventsToStore } from "./owner-store/owner-events.js";
-import type { RpcResponse } from "@stella/contracts/backend/protocol";
+import {
+  SOCKET_KEEPALIVE_PING,
+  SOCKET_KEEPALIVE_PONG,
+  type RpcResponse,
+} from "@stella/contracts/backend/protocol";
 import {
   HEADER_ANONYMOUS,
   HEADER_IDENTITY_LEVEL,
@@ -42,6 +51,7 @@ import {
   GATEWAY_CAPABILITY_ISSUERS,
   GATEWAY_SESSION_CAPABILITY_TTL_MS,
   isManagedModelAudience,
+  type ManagedModelAudience,
 } from "@stella/contracts/gateway/capability";
 import { signCapability } from "@stella/contracts/gateway/jwt";
 import type { GatewaySessionCapabilityResponse } from "@stella/contracts/gateway/api";
@@ -94,6 +104,12 @@ import {
 import { handleMobileRoute, snapshotDevices, type MobileRouteInput } from "./owner-store/domains/devices.js";
 import { handleUserAskRoute, type UserAskRouteInput } from "./owner-store/domains/user-asks.js";
 import { DeviceRequestRelay, deviceRequestErrorResponse } from "./device-request-relay.js";
+import type { DeviceToolRelay } from "./device-tool-relay.js";
+import type {
+  DeviceToolCall,
+  DeviceToolDeviceFrame,
+  DeviceToolOutcome,
+} from "@stella/contracts/turn-plane/device-tools";
 import {
   DEVICE_REQUEST_LIMITS,
   isDeviceRequestMethod,
@@ -809,8 +825,32 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     (outcome: AgentMessageDeviceOutcome) => void
   >();
   private deviceRequestRelayState?: DeviceRequestRelay;
+  /** Loaded with the first device tool call; until then no call is pending. */
+  private deviceToolRelayState?: DeviceToolRelay;
   private ownerStoreState?: OwnerStore;
   private ownerHostState?: OwnerHost;
+
+  constructor(ctx: DurableObjectState, env: OwnerGateEnv) {
+    super(ctx, env);
+    // Keepalives from the live socket and device presence sockets are
+    // answered by the platform, so a connected but idle owner can hibernate.
+    // A JSON heartbeat ran this object every 10 seconds, which never let it
+    // go idle long enough to hibernate and billed it around the clock. Set on
+    // every cold start, as the conversation hub does, so whether the pair
+    // survives eviction never matters.
+    try {
+      ctx.setWebSocketAutoResponse(
+        new WebSocketRequestResponsePair(
+          SOCKET_KEEPALIVE_PING,
+          SOCKET_KEEPALIVE_PONG,
+        ),
+      );
+    } catch (error) {
+      log("error", "owner_gate_autoresponse_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   /** The domains this object serves. Test fixtures substitute their own. */
   protected backendRegistry(): OwnerRegistry {
     return ownerRegistry;
@@ -830,7 +870,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       homeChanged: (ownerGeneration, revision) =>
         this.homeContextCache().changed(ownerGeneration, revision),
       changeMemoryPolicy: (change) => this.changeMemoryPolicyForCall(change),
-      fence: (path, body) => this.ownerFenceCall(path, body),
       applyOwnerEvents: (events) => this.applyOwnerEvents(events),
       purgeOwner: (mode, requestId) => this.purgeOwnerPass(mode, requestId),
       log,
@@ -1900,6 +1939,23 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     }
   }
 
+  /**
+   * When a proven device was last heard from. Current devices' keepalives
+   * are answered by the platform without waking this object, so the time of
+   * the last auto-response counts alongside the last frame handled here.
+   */
+  private lastSeenAt(socket: WebSocket, attachment: PresenceAttachment): number {
+    let seen = attachment.lastSeenAtMs;
+    if (attachment.phase !== "connected") return seen;
+    try {
+      const answered = this.ctx.getWebSocketAutoResponseTimestamp(socket);
+      if (answered) seen = Math.max(seen, answered.getTime());
+    } catch {
+      // No timestamp; the last handled frame stands.
+    }
+    return seen;
+  }
+
   private send(socket: WebSocket, frame: DevicePresenceServerFrame): void {
     try {
       socket.send(JSON.stringify(frame));
@@ -2076,8 +2132,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     message: string | ArrayBuffer,
   ): Promise<void> {
     if (this.ownerStore().isLiveSocket(socket)) {
-      await this.ownerStore().onLiveMessage(socket, message);
-      await this.scheduleAlarm(Date.now());
+      const deadlinesMayHaveMoved = await this.ownerStore().onLiveMessage(
+        socket,
+        message,
+      );
+      if (deadlinesMayHaveMoved) await this.scheduleAlarm(Date.now());
       return;
     }
     const text =
@@ -2229,6 +2288,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       for (const other of this.sockets(attachment.deviceId)) {
         if (other === socket) continue;
         this.deviceRequestRelay().onDeviceGone(attachment.deviceId, other);
+        this.deviceToolRelayState?.onDeviceGone(attachment.deviceId, other);
         this.closeSocket(other, DEVICE_PRESENCE_CLOSE.replaced, "replaced");
       }
       attachment.phase = "connected";
@@ -2240,6 +2300,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         presenceSessionId: attachment.presenceSessionId,
         serverTimeMs: now,
       });
+      this.deviceToolRelayState?.onDeviceConnected(attachment.deviceId, socket);
       const flushed = await this.ownerStore().internalCall(
         "agentThreads.flushDeviceMessages",
         { deviceId: attachment.deviceId },
@@ -2263,8 +2324,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     }
     attachment.lastSeenAtMs = now;
     if (frame.type === "ping") {
+      // Older devices' JSON keepalive. The attachment is where it lands:
+      // `presenceRow` reads last-seen from the socket, so this costs no write.
       socket.serializeAttachment(attachment);
-      this.touchPresence(attachment.deviceId, now);
       this.send(socket, { type: "pong", serverTimeMs: now });
       return;
     }
@@ -2318,6 +2380,17 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         socket,
         attachment.deviceId,
         frame as DeviceRequestDeviceFrame,
+      );
+      return;
+    }
+    if (
+      frame.type === "tool.accepted" ||
+      frame.type === "tool.result" ||
+      frame.type === "tool.error"
+    ) {
+      this.deviceToolRelayState?.onFrame(
+        attachment.deviceId,
+        frame as DeviceToolDeviceFrame,
       );
       return;
     }
@@ -2395,7 +2468,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     if (attachment?.phase === "connected") {
       this.markDisconnected(attachment, now);
     }
-    if (attachment) this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
+    if (attachment) {
+      this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
+      this.deviceToolRelayState?.onDeviceGone(attachment.deviceId, socket);
+    }
     this.closeSocket(socket, code >= 3000 && code <= 4999 ? code : 1000, "");
     await this.scheduleAlarm(now);
   }
@@ -2410,7 +2486,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     if (attachment?.phase === "connected") {
       this.markDisconnected(attachment, now);
     }
-    if (attachment) this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
+    if (attachment) {
+      this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
+      this.deviceToolRelayState?.onDeviceGone(attachment.deviceId, socket);
+    }
     this.closeSocket(socket, 1011, "socket_error");
   }
 
@@ -2425,6 +2504,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       this.markDisconnected(attachment, now);
     }
     this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
+    this.deviceToolRelayState?.onDeviceGone(attachment.deviceId, socket);
     this.closeSocket(socket, code, reason);
     await this.scheduleAlarm(now);
   }
@@ -2470,15 +2550,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     );
   }
 
-  private touchPresence(deviceId: string, now: number): void {
-    this.ctx.storage.sql.exec(
-      `UPDATE device_presence SET last_seen_at = ?, updated_at = ? WHERE device_id = ?`,
-      now,
-      now,
-      deviceId,
-    );
-  }
-
   /**
    * A device that goes away keeps its row (so the destinations list can say
    * "offline" rather than "unknown") but is immediately ineligible.
@@ -2503,7 +2574,27 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         deviceId,
       )
       .toArray()[0];
-    return row ? presenceState(row) : undefined;
+    if (!row) return undefined;
+    const state = presenceState(row);
+    if (!state.connected) return state;
+    // The row's `last_seen_at` is only written when presence changes; between
+    // changes the socket knows when the device was last heard from.
+    for (const socket of this.sockets(deviceId)) {
+      const attachment = this.attachment(socket);
+      if (
+        attachment?.phase === "connected" &&
+        attachment.connectionId === row.connection_id
+      ) {
+        return {
+          ...state,
+          lastSeenAt: Math.max(
+            state.lastSeenAt,
+            this.lastSeenAt(socket, attachment),
+          ),
+        };
+      }
+    }
+    return state;
   }
 
   private selectedDeviceRefusal(args: {
@@ -3320,6 +3411,12 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       clientMsgId: row.dispatch_id,
       ...(row.parent_turn_id ? { parentTurnId: row.parent_turn_id } : {}),
     };
+    if (runsAsPiAgent(request.execution)) {
+      return await this.startPiPlacedAgent(row, {
+        ...request,
+        execution: request.execution,
+      }, now);
+    }
     const response = await sessions
       .getByName(threadId)
       .fetch("https://build-session/turn", {
@@ -3343,6 +3440,55 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         error_code: null,
         error_message: null,
         cloud_thread_id: started.threadId ?? threadId,
+        payload_json: null,
+        payload_expires_at: null,
+        lease_expires_at: null,
+        started_at: now,
+      },
+      now,
+    );
+  }
+
+  /**
+   * A placed agent on pi (Stella's models or the owner's ChatGPT plan) runs
+   * in its conversation as a pi agent, started at once; pi admits each of
+   * its runs itself, so this dispatch's own hold goes back once the
+   * conversation has it. Its report settles the dispatch by its id, as a
+   * BuildSession agent's terminal does.
+   */
+  private async startPiPlacedAgent(
+    row: DispatchRow,
+    request: CloudAgentTurnStartRequest & { execution: PiAgentExecution },
+    now: number,
+  ): Promise<DispatchRow> {
+    const sessions = this.env.ORCHESTRATOR_SESSIONS;
+    if (!sessions) throw new Error("Orchestrator sessions unavailable.");
+    await sessions.getByName(row.conversation_id).startPiThread({
+      ownerId: request.ownerId,
+      ownerGeneration: request.ownerGeneration,
+      conversationId: row.conversation_id,
+      audience: request.audience as ManagedModelAudience,
+      budgetMicroCents: request.budgetMicroCents,
+      execution: request.execution,
+      prompt: request.prompt,
+      attempt: {
+        threadId: request.threadId,
+        description: request.description,
+        turnId: row.dispatch_id,
+        attemptGeneration: 1,
+      },
+    });
+    await this.releaseGate(row);
+    return await this.patchDispatch(
+      row,
+      {
+        state: "cloud_running",
+        placement: "cloud",
+        cloud_turn_id: row.dispatch_id,
+        cloud_retry_at: null,
+        error_code: null,
+        error_message: null,
+        cloud_thread_id: request.threadId,
         payload_json: null,
         payload_expires_at: null,
         lease_expires_at: null,
@@ -3918,6 +4064,75 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     return { outcome: await acknowledged };
   }
 
+  /**
+   * One tool call of a cloud agent whose tools run on `deviceId`
+   * (`@stella/contracts/turn-plane/device-tools`), relayed over the device's
+   * presence socket. The device must be enabled for remote execution, online
+   * and ready, checked on every call. Resolves when the device answers, or
+   * with why it did not; never rejects.
+   */
+  async deviceTool(input: {
+    deviceId: string;
+    requestId: string;
+    call: DeviceToolCall;
+  }): Promise<DeviceToolOutcome> {
+    this.ensureSchema();
+    const deviceId = input.deviceId?.trim() ?? "";
+    if (!deviceId || deviceId.length > MAX_DEVICE_ID_CHARS) {
+      return { ok: false, code: "bad_request", message: "A device id is required." };
+    }
+    const device = (await this.devices()).devices.find(
+      (candidate) => candidate.deviceId === deviceId,
+    );
+    if (!device) {
+      return {
+        ok: false,
+        code: "bad_request",
+        message: `No connected device has device_id ${deviceId}.`,
+      };
+    }
+    // Consent first, as for dispatched work: it is what the owner can fix.
+    if (device.remoteExecution !== "enabled") {
+      return {
+        ok: false,
+        code: "not_enabled",
+        message:
+          device.remoteExecution === "declined"
+            ? "That computer is set not to accept work from your other devices."
+            : "That computer has not been enabled to accept work from other devices.",
+      };
+    }
+    if (!device.online) {
+      return { ok: false, code: "device_offline", message: "That computer is offline." };
+    }
+    if (device.availability?.ready !== true) {
+      return {
+        ok: false,
+        code: "not_ready",
+        message: "That computer is online but isn't accepting work right now.",
+      };
+    }
+    if (!this.deviceToolRelayState) {
+      const { DeviceToolRelay } = await import("./device-tool-relay.js");
+      this.deviceToolRelayState ??= new DeviceToolRelay({
+        liveSocket: (id) => this.liveSocket(id),
+        send: (socket, frame) => this.send(socket, frame),
+        log: (level, event, fields) =>
+          log(level, event, { ownerId: this.ownerId(), ...fields }),
+      });
+    }
+    return await this.deviceToolRelayState.call({
+      deviceId,
+      requestId: input.requestId,
+      call: input.call,
+    });
+  }
+
+  /** The caller of a device tool call stopped waiting: the device is told to stop it. */
+  async cancelDeviceTool(input: { requestId: string }): Promise<void> {
+    this.deviceToolRelayState?.cancel(input.requestId);
+  }
+
   async cancelDispatch(
     input: OwnerGateCancelInput,
   ): Promise<OwnerGateStatusResult> {
@@ -4018,15 +4233,18 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
         });
-      } else if (row.cloud_thread_id) {
-        await this.env.BUILD_SESSIONS?.getByName(row.cloud_thread_id).fetch(
-          "https://build-session/cancel",
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(body),
-          },
-        );
+      } else if (row.cloud_thread_id && row.cloud_turn_id) {
+        await cancelCloudAgentAttempt({
+          env: this.env as unknown as Cloudflare.Env,
+          conversationId: row.conversation_id,
+          threadId: row.cloud_thread_id,
+          ownerId: this.ownerId(),
+          ownerGeneration: row.owner_generation,
+          turnId: row.cloud_turn_id,
+          attemptGeneration: 1,
+          cancelRequestId,
+          reason,
+        });
       }
     } catch (error) {
       // The dispatch stays `cancel_pending`; the executing side's terminal
@@ -4371,11 +4589,17 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     for (const socket of this.sockets()) {
       const attachment = this.attachment(socket);
       if (!attachment) continue;
-      next = Math.min(
-        next,
-        attachment.lastSeenAtMs + DEVICE_PRESENCE_STALE_AFTER_MS,
-        attachment.authExpiresAtMs,
-      );
+      next = Math.min(next, attachment.authExpiresAtMs);
+      // A proven device going quiet needs no wake of its own: every reader
+      // checks staleness against `presenceRow`, in-flight device calls have
+      // their own deadlines, and waking to re-check would undo hibernation.
+      // Only a handshake that never finishes is reaped on a timer.
+      if (attachment.phase !== "connected") {
+        next = Math.min(
+          next,
+          attachment.lastSeenAtMs + DEVICE_PRESENCE_STALE_AFTER_MS,
+        );
+      }
     }
     // Each column is one `MIN` seek into a partial index, so a wake reads a
     // handful of rows no matter how many terminal dispatches this object has
@@ -4470,7 +4694,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         );
         continue;
       }
-      if (attachment.lastSeenAtMs + DEVICE_PRESENCE_STALE_AFTER_MS <= now) {
+      if (
+        this.lastSeenAt(socket, attachment) + DEVICE_PRESENCE_STALE_AFTER_MS <=
+        now
+      ) {
         await this.dropSocket(
           socket,
           attachment,

@@ -7,7 +7,6 @@
  * when it stops); everything that runs without a sandbox reads and writes the
  * drive itself through this module, under the turn's owner generation:
  *
- *  - a resident agent's `Read`, `Write`, `Edit`, `Grep` and `apply_patch`;
  *  - the cloud orchestrator's `Read`.
  *
  * So the same absolute path names the same bytes in every placement, and a

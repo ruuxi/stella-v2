@@ -583,7 +583,24 @@ export const runAttachedToolHost = (
         }).catch((error) => {
           console.error(`world pull failed: ${asError(error).message}`);
         });
-        await pushWorldProjection({ root: workspaceRoot, access: input.world });
+        // A failed world push must not cost the turn its drive changes: the
+        // container is released after this, so write the drive back first and
+        // only then surface the world failure.
+        const worldPushError = await pushWorldProjection({
+          root: workspaceRoot,
+          access: input.world,
+        }).then(
+          () => null,
+          (error: unknown) => asError(error),
+        );
+        const report = await deliverDrive(linkedPaths);
+        if (worldPushError) throw worldPushError;
+        return report;
+      };
+
+      const deliverDrive = async (
+        linkedPaths: readonly string[],
+      ): Promise<AttachedToolHostReport> => {
         // The drive copy is not part of the world: what this turn created,
         // changed or deleted under drive/ reaches the drive only from here.
         const writeBack = await writeBackDrive({
@@ -665,7 +682,7 @@ export const runAttachedToolHost = (
         // The container path announces its deliverables with an
         // `output_files` event, which is what the outbox turns into the
         // conversation's files card. The attached path must announce them
-        // the same way, or a resident turn's files stay drive-only.
+        // the same way, or an attached agent's files stay drive-only.
         await postJson("/api/cloud/events", {
           turnId: input.turnId,
           attemptGeneration: input.attemptGeneration,

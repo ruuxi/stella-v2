@@ -7,6 +7,7 @@ import {
   IPC_DISPLAY_CANVAS_FILE_URL,
   IPC_DISPLAY_CANVAS_HTML_URL,
   IPC_DISPLAY_LIST_CANVAS_HTML,
+  IPC_DISPLAY_MEDIA_SOURCE,
   IPC_DISPLAY_OPEN_SHARED_CANVAS,
   IPC_DISPLAY_READ_FILE,
   IPC_DISPLAY_TRASH_FORCE_DELETE,
@@ -35,7 +36,16 @@ import { resolveJwtOwnerScope } from "@stella/runtime/kernel/runner/computer-age
 import { resolveCanonicalConversationFilePaths } from "../services/canonical-conversation-file-paths.js";
 import type { CloudConversationFileGrants } from "../services/cloud-conversation-file-grants.js";
 import type { DeviceFileLocator } from "../services/device-file-locator.js";
-import { deviceFileElsewhereMessage } from "@stella/contracts/device-files";
+import {
+  deviceFileMissingMessage,
+  deviceFileUnavailableMessage,
+  type DeviceFileSource,
+} from "@stella/contracts/device-files";
+import { describeMediaSource } from "../source/media-protocol.js";
+import {
+  resolveDeviceFileSource,
+  type DeviceFileSourceDeps,
+} from "../services/device-file-source.js";
 
 type DisplayHandlersOptions = {
   getStellaAppDir: () => string | null;
@@ -46,6 +56,8 @@ type DisplayHandlersOptions = {
   cloudFileGrants?: CloudConversationFileGrants;
   deviceFileLocator?: DeviceFileLocator;
   getDeviceId?: () => string | null;
+  /** On pi-durable: the local files Stella linked in a conversation's transcript. */
+  piLinkedFiles?: (conversationId: string) => Promise<readonly string[]>;
   assertPrivilegedSender: (
     event: IpcMainEvent | IpcMainInvokeEvent,
     channel: string,
@@ -289,34 +301,56 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
    * paired phone's `file.read` relayed through the cloud (`remote: true`),
    * which is held to Stella's own outputs and the conversation's files.
    */
+  const deviceFileDeps = (): DeviceFileSourceDeps | null =>
+    options.deviceFileLocator
+      ? {
+          locator: options.deviceFileLocator,
+          getDeviceId: () => options.getDeviceId?.() ?? null,
+        }
+      : null;
+
   const readFromOwningDevice = async (
     requestedPath: string,
+    resolvedPath: string,
     maxBytes: unknown,
     mimeType: string,
   ) => {
-    const locator = options.deviceFileLocator;
-    if (!locator) return null;
-    const location = await locator.locate(
-      requestedPath,
-      options.getDeviceId?.() ?? null,
-    );
-    if (!location) return null;
-    if (location.drivePath) {
-      const plan = planDisplayFileRead(location.sizeBytes, maxBytes);
-      if (!plan.ok) {
-        throw new Error(plan.error);
+    const source = await resolveDeviceFileSource(requestedPath, deviceFileDeps());
+    switch (source.kind) {
+      case "drive": {
+        const locator = options.deviceFileLocator!;
+        const plan = planDisplayFileRead(source.sizeBytes, maxBytes);
+        if (!plan.ok) {
+          throw new Error(plan.error);
+        }
+        const copy = await locator.readCopy(source.drivePath, plan.readBytes);
+        return {
+          bytes: copy.bytes,
+          sizeBytes: copy.sizeBytes,
+          mimeType,
+          truncated: copy.bytes.byteLength < copy.sizeBytes,
+          missing: false as const,
+        };
       }
-      const copy = await locator.readCopy(location.drivePath, plan.readBytes);
-      return {
-        bytes: copy.bytes,
-        sizeBytes: copy.sizeBytes,
-        mimeType,
-        truncated: copy.bytes.byteLength < copy.sizeBytes,
-        missing: false as const,
-      };
+      case "local":
+      case "missing":
+        return {
+          missing: true as const,
+          mimeType,
+          path: resolvedPath,
+          reason: "deleted" as const,
+        };
+      case "unshared":
+        return {
+          missing: true as const,
+          mimeType,
+          path: resolvedPath,
+          reason: "unshared" as const,
+        };
+      case "elsewhere":
+      case "unreachable":
+        throw new Error(deviceFileUnavailableMessage(source, requestedPath));
     }
-    if (location.deviceId === options.getDeviceId?.()) return null;
-    throw new Error(deviceFileElsewhereMessage(location.deviceName));
   };
 
   const readDisplayFile = async (
@@ -387,10 +421,20 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
             : await resolveCanonicalConversationFilePaths(
                 await options.cloudFileGrants.listPaths(conversationId),
               );
+        const piPaths =
+          allowedByLocalHistory ||
+          canonicalPaths.has(resolved) ||
+          cloudPaths.has(resolved) ||
+          !options.piLinkedFiles
+            ? new Set<string>()
+            : await resolveCanonicalConversationFilePaths(
+                await options.piLinkedFiles(conversationId).catch(() => []),
+              );
         if (
           !allowedByLocalHistory &&
           !canonicalPaths.has(resolved) &&
-          !cloudPaths.has(resolved)
+          !cloudPaths.has(resolved) &&
+          !piPaths.has(resolved)
         ) {
           throw new Error(
             `${REMOTE_VIEW_DENIAL_PREFIX}reading this file needs your computer. Only Stella's own outputs and files from the current conversation can load here.`,
@@ -422,13 +466,12 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
         typeof caught === "object" &&
         (caught as NodeJS.ErrnoException).code === "ENOENT"
       ) {
-        const elsewhere = await readFromOwningDevice(
+        return await readFromOwningDevice(
           requestedPath,
+          resolved,
           payload?.maxBytes,
           mimeType,
         );
-        if (elsewhere) return elsewhere;
-        return { missing: true as const, mimeType, path: resolved };
       }
       throw caught;
     }
@@ -486,6 +529,32 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
         throw new Error(`Blocked untrusted ${IPC_DISPLAY_READ_FILE} request.`);
       }
       return await readDisplayFile(payload, { remote: false });
+    },
+  );
+
+  ipcMain.handle(
+    IPC_DISPLAY_MEDIA_SOURCE,
+    async (
+      event,
+      payload?: { filePath?: unknown },
+    ): Promise<DeviceFileSource> => {
+      if (!options.assertPrivilegedSender(event, IPC_DISPLAY_MEDIA_SOURCE)) {
+        throw new Error(`Blocked untrusted ${IPC_DISPLAY_MEDIA_SOURCE} request.`);
+      }
+      const filePath =
+        typeof payload?.filePath === "string" ? payload.filePath.trim() : "";
+      if (!filePath) {
+        throw new Error(`${IPC_DISPLAY_MEDIA_SOURCE} requires a filePath.`);
+      }
+      try {
+        assertNotCloudWorkspacePath(filePath);
+      } catch (caught) {
+        return {
+          kind: "unreachable",
+          message: caught instanceof Error ? caught.message : String(caught),
+        };
+      }
+      return await describeMediaSource(filePath);
     },
   );
 
@@ -575,7 +644,12 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
         { filePath, maxBytes: MAX_CANVAS_HTML_BYTES },
         { remote: false },
       );
-      if (read.missing) return { missing: true as const };
+      if (read.missing) {
+        return {
+          missing: true as const,
+          message: deviceFileMissingMessage(read.reason, filePath),
+        };
+      }
       if (read.truncated) {
         throw new Error(
           `Canvas too large to display (${read.sizeBytes} bytes, limit ${MAX_CANVAS_HTML_BYTES}).`,

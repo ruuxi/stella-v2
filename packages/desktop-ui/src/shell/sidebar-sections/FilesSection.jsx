@@ -48,7 +48,13 @@ import {
 } from "@/features/workspace-display/media-files";
 import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
 import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
-import { useActiveSidebarSection } from "@/features/workspace-display/sidebar-sections";
+import {
+  fileNameFromDisplayTabId,
+  sidebarSections,
+  useActiveSidebarSection,
+  useSidebarFileUnavailable,
+  useSidebarTab,
+} from "@/features/workspace-display/sidebar-sections";
 import {
   useDisplayPanelOpen,
   useDisplayTabList,
@@ -62,7 +68,13 @@ import {
 import { removeGeneratedMediaItem } from "@/shell/display/payload-to-tab-spec";
 import { bucketByRecency } from "@/shared/lib/recency-buckets";
 import { ChevronRight, Eye, LayoutList, Search, X } from "@/ui/icons";
+import { EmptyState } from "@/ui/empty-state/EmptyState";
 import { DeferredDisplayContent } from "./DeferredDisplayContent";
+import {
+  payloadFileUnavailableMessage,
+  restorablePayloadFor,
+  unrestorableFileMessage,
+} from "./file-tab-restore";
 import "./files-section.css";
 /**
  * Keep the Work panel cheap to open even after a long-running conversation.
@@ -471,29 +483,23 @@ export function WorkList({ section = "files", idleContent = null }) {
       {!query && idleContent ? (
         idleContent
       ) : items.length === 0 ? (
-        <div className="sidebar-section__empty">
-          <span className="sidebar-section__empty-icon" aria-hidden="true">
-            {query ? (
-              <Search size={17} strokeWidth={1.75} />
-            ) : (
-              <LayoutList size={17} strokeWidth={1.75} />
-            )}
-          </span>
-          <p className="sidebar-section__empty-title">
-            {query
-              ? searchingOlderActivity
-                ? "Searching…"
-                : "No matches"
-              : "Nothing here yet"}
-          </p>
-          <p className="sidebar-section__empty-body">
-            {query
-              ? searchingOlderActivity
-                ? "Looking through older agent activity."
-                : "No agents or files match that search."
-              : "Files you work on with Stella will show up here."}
-          </p>
-        </div>
+        query ? (
+          <EmptyState
+            motif="search"
+            title={searchingOlderActivity ? "Searching…" : "No matches"}
+            body={
+              searchingOlderActivity
+                ? "Looking through older activity."
+                : "Try a different word."
+            }
+          />
+        ) : (
+          <EmptyState
+            motif="files"
+            title="No files yet"
+            body="Files from Stella show up here."
+          />
+        )
       ) : (
         <div ref={scrollRef} className="sidebar-section__scroll">
           <ul className="files-list__items">
@@ -566,31 +572,92 @@ export function WorkList({ section = "files", idleContent = null }) {
     </div>
   );
 }
-/**
- * One Files tab: the browsable list (no `location`) or a single file/agent
- * viewer (`location` = a display-tab id). Prop-driven so multiple file tabs can
- * coexist, each keeping its own mounted viewer.
- *
- * @param {{ location?: string | null }} props
- */
-export function FilesSection({ location = null }) {
+function UnavailableFile({ name, message }) {
+  return (
+    <EmptyState
+      motif="unavailable"
+      title="File unavailable"
+      detail={name}
+      body={message}
+      action={{
+        label: "Browse files",
+        icon: LayoutList,
+        onClick: () => sidebarSections.clearLocation("files"),
+      }}
+    />
+  );
+}
+
+export function FilesSection({ tabId, location = null, active = false }) {
   const { tabs } = useDisplayTabList();
+  const panelOpen = useDisplayPanelOpen();
+  const sidebarTab = useSidebarTab(tabId);
+  const unavailable = useSidebarFileUnavailable(tabId, location);
   const openTab = location
     ? (tabs.find((tab) => tab.id === location) ?? null)
     : null;
-  // The Models control now lives globally in the shell (GlobalModelsControl),
-  // so there is no per-section footer here.
+  const shown = active && panelOpen;
+  const needsRestore = Boolean(location && !openTab && !unavailable);
+
+  useEffect(() => {
+    if (!tabId || !location || !openTab) return;
+    sidebarSections.rememberFile(
+      tabId,
+      location,
+      openTab.title,
+      openTab.kind,
+      openTab.payload,
+    );
+  }, [location, openTab, tabId]);
+
+  useEffect(() => {
+    if (!shown || !needsRestore || !tabId || !location) return;
+    const tab = sidebarSections
+      .getSnapshot()
+      .tabs.find((item) => item.id === tabId);
+    const payload = tab ? restorablePayloadFor(tab) : null;
+    if (!payload) {
+      sidebarSections.markFileUnavailable(
+        tabId,
+        location,
+        unrestorableFileMessage(location),
+      );
+      return;
+    }
+    let cancelled = false;
+    void payloadFileUnavailableMessage(payload).then((message) => {
+      if (cancelled) return;
+      if (message) {
+        sidebarSections.markFileUnavailable(tabId, location, message);
+        return;
+      }
+      const openedId = openDisplayPayloadTab(payload, { activate: false });
+      if (openedId !== location) {
+        sidebarSections.retargetFile(tabId, location, openedId);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [location, needsRestore, shown, tabId]);
+
   return (
     <div className="work-section">
       <div className="work-section__body">
-        {/* The drill-back to the list lives in the top bar now (browser-tab
-            model), so no in-body viewer header here. */}
-        {!openTab ? (
+        {!location ? (
           <WorkList section="files" />
-        ) : (
+        ) : openTab ? (
           <div className="sidebar-section__viewer-body">
             <DeferredDisplayContent key={openTab.id} render={openTab.render} />
           </div>
+        ) : unavailable ? (
+          <UnavailableFile
+            name={sidebarTab?.file?.title || fileNameFromDisplayTabId(location)}
+            kind={sidebarTab?.file?.kind ?? "text"}
+            message={unavailable}
+          />
+        ) : (
+          <div className="sidebar-section__viewer-body" aria-busy="true" />
         )}
       </div>
     </div>

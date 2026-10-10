@@ -83,6 +83,7 @@ type LocalAgentStreamOptions = {
 type StreamingAssistantsUpdate =
   | StreamingAssistantOverlay[]
   | ((current: StreamingAssistantOverlay[]) => StreamingAssistantOverlay[]);
+import { piChatEnabled, submitPiChat } from "@/features/chat/pi/pi-chat-store";
 export function useLocalAgentStream({
   activeConversationId,
   storageMode,
@@ -357,6 +358,53 @@ export function useLocalAgentStream({
         await Promise.resolve();
         if (attemptId !== startAttemptRef.current) {
           return false;
+        }
+        // On pi-durable the message goes to the conversation's harness;
+        // its timeline and run state come from the pi chat store, keyed
+        // by this request id. The runtime prepares the rest of the send
+        // (attachments, chat context) as it does for the agent loops.
+        if (piChatEnabled()) {
+          const placed = await submitPiChat(
+            activeConversationId,
+            args.userMessageEventId || crypto.randomUUID(),
+            args.userPrompt ?? "",
+            {
+              ...(typeof args.selectedText !== "undefined"
+                ? { selectedText: args.selectedText }
+                : {}),
+              ...(startChatContext ? { chatContext: startChatContext } : {}),
+              ...(startChatAttachments?.length
+                ? { attachments: startChatAttachments }
+                : {}),
+              deviceId: args.deviceId,
+              platform: args.platform,
+              timezone: args.timezone,
+              ...(args.locale ? { locale: args.locale } : {}),
+              mode: args.mode,
+              ...(args.messageMetadata
+                ? { messageMetadata: args.messageMetadata }
+                : {}),
+              // The composer's destination: the cloud or another
+              // computer runs it, and its turn comes back through the
+              // conversation's journal.
+              ...(storageMode ? { storageMode } : {}),
+              executionTarget: getExecutionTargetSnapshot(),
+            },
+          );
+          // The cloud journals a placed message under its dispatch id.
+          if (
+            placed &&
+            args.userMessageEventId &&
+            placed.userMessageId !== args.userMessageEventId
+          ) {
+            args.onUserMessageAccepted?.(placed.userMessageId);
+            setPendingUserMessageId((current) =>
+              current === args.userMessageEventId
+                ? placed.userMessageId
+                : current,
+            );
+          }
+          return true;
         }
         const { requestId, userMessageId } =
           await window.electronAPI.agent.startChat({

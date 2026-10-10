@@ -695,7 +695,7 @@ describe("LocalAgentManager Exec fs locking", () => {
     __privateTaskDecorationStore.resetForTests();
   });
 
-  it("steers a live Pi turn without aborting or starting a replacement run", async () => {
+  it("steers a running turn without aborting or starting a replacement run", async () => {
     const events: AgentLifecycleEvent[] = [];
     let runCount = 0;
     let firstRunWasAborted = false;
@@ -725,11 +725,11 @@ describe("LocalAgentManager Exec fs locking", () => {
       runSubagent: async (args) => {
         runCount += 1;
         if (runCount === 1) {
-          Object.defineProperty(args.subagentSession, "canSteer", {
+          Object.defineProperty(args.steering, "canSteer", {
             configurable: true,
             get: () => true,
           });
-          Object.defineProperty(args.subagentSession, "steer", {
+          Object.defineProperty(args.steering, "steer", {
             configurable: true,
             value: (text: string) => {
               steeringPrompt = text;

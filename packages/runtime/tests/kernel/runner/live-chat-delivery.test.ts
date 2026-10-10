@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   prunePendingFollowUpReplies,
   recordPendingFollowUpReplyEntry,
-  resolveLiveChatMessageDelivery,
 } from "@stella/runtime/kernel/runner/shared";
 import {
   buildRuntimeSendPromptMessage,
@@ -13,35 +12,6 @@ import type {
   ActiveOrchestratorSession,
   PendingFollowUpReply,
 } from "@stella/runtime/kernel/runner/types";
-
-describe("resolveLiveChatMessageDelivery", () => {
-  it("steers user messages on the native engine", () => {
-    expect(
-      resolveLiveChatMessageDelivery({ role: "user", engine: "native" }),
-    ).toBe("steer");
-  });
-
-  it("steers user messages on external engines", () => {
-    expect(
-      resolveLiveChatMessageDelivery({ role: "user", engine: "external" }),
-    ).toBe("steer");
-  });
-
-  it("always steers runtime-internal injections", () => {
-    expect(
-      resolveLiveChatMessageDelivery({
-        role: "runtimeInternal",
-        engine: "native",
-      }),
-    ).toBe("steer");
-    expect(
-      resolveLiveChatMessageDelivery({
-        role: "runtimeInternal",
-        engine: "external",
-      }),
-    ).toBe("steer");
-  });
-});
 
 describe("matchesSteerableOrchestratorSession", () => {
   it("keeps a hidden lifecycle turn eligible for an in-order user steer", () => {

@@ -35,10 +35,6 @@ type ThreadMessageRecord = ReturnType<
 type ThreadPayload = PersistedRuntimeThreadPayload;
 type AssistantPayload = Extract<ThreadPayload, { role: "assistant" }>;
 type ToolResultPayload = Extract<ThreadPayload, { role: "toolResult" }>;
-type RuntimeInternalMessage = Extract<
-  AgentMessage,
-  { role: "runtimeInternal" }
->;
 type HistoryEntry = RuntimeThreadMessage | ThreadMessageRecord;
 type ToolGuidanceContext = { toolsAllowlist?: readonly string[] };
 type SystemPromptSection = { id: string; text: string };
@@ -238,15 +234,16 @@ const contentPreviewFromTextAndImages = (
   >,
 ) =>
   content
-    .map((block) =>
-      block.type === "text"
-        ? block.text
-        : `[Image receipt: ${block.mimeType}${block.sourcePath ? ` path=${block.sourcePath}` : ""}]`,
-    )
+    .map((block) => {
+      if (block.type === "text") return block.text;
+      // Image blocks persisted by the runtime may carry the saved file path.
+      const { sourcePath } = block as { sourcePath?: string };
+      return `[Image receipt: ${block.mimeType}${sourcePath ? ` path=${sourcePath}` : ""}]`;
+    })
     .join("\n")
     .trim();
 export const buildThreadMessagePreview = (
-  payload: ThreadPayload | RuntimeInternalMessage,
+  payload: ThreadPayload | AgentMessage,
 ): string => {
   if (payload.role === "user") {
     return typeof payload.content === "string"
@@ -311,42 +308,6 @@ export const persistThreadPayloadMessage = (
     payload,
     ...(args.preservePayloadExactly ? { preservePayloadExactly: true } : {}),
   });
-};
-export const persistThreadPayloadMessages = (
-  store: RuntimeStore,
-  args: {
-    threadKey: string;
-    payloads: ThreadPayload[];
-    runId?: string;
-    attemptGeneration?: number;
-    preservePayloadExactly?: boolean;
-  },
-) => {
-  const timestamp = now();
-  const messages = args.payloads.map((rawPayload, index) => {
-    const payload: ThreadPayload =
-      rawPayload.role === "assistant"
-        ? {
-            ...rawPayload,
-            ...(args.runId ? { stellaRunId: args.runId } : {}),
-            ...(typeof args.attemptGeneration === "number"
-              ? { stellaAttemptGeneration: args.attemptGeneration }
-              : {}),
-          }
-        : rawPayload;
-    const toolCallId =
-      payload.role === "toolResult" ? payload.toolCallId : undefined;
-    return {
-      threadKey: args.threadKey,
-      timestamp: timestamp + index,
-      role: payload.role,
-      content: buildThreadMessagePreview(payload),
-      ...(toolCallId ? { toolCallId } : {}),
-      payload,
-      ...(args.preservePayloadExactly ? { preservePayloadExactly: true } : {}),
-    };
-  });
-  store.appendThreadMessages(messages);
 };
 export const persistThreadCustomMessage = (
   store: RuntimeStore,
@@ -449,10 +410,7 @@ const buildFileEditingPrompt = (context: ToolGuidanceContext) => {
     "- Do not use shell heredocs or `cat > file` for source edits when `apply_patch` can express the change.",
   ].join("\n");
 };
-/**
- * The system prompt as named sections, in order. Sections let a resident
- * thread announce only the parts that changed (see `pi-session-core`).
- */
+/** The system prompt as named sections, in order. */
 export const buildSystemPromptSections = (
   context: ToolGuidanceContext & {
     systemPrompt: string;

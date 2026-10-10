@@ -84,9 +84,10 @@ export const BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE = "bootstrap.startup_doc";
 export const BOOTSTRAP_SKILLS_CUSTOM_TYPE = "bootstrap.skills_catalog";
 /**
  * Custom-type namespace for mid-thread resident-context change notices
- * (e.g. the frozen-tools delta note). Persisted by `run-execution` so store
- * rebuilds reproduce what the model saw, and swept wholesale by the
- * compaction fold-in once the canonical blocks have been re-rendered.
+ * (e.g. the frozen-tools delta note). Older threads keep the ones their
+ * agent loop persisted, so store rebuilds reproduce what the model saw; the
+ * compaction fold-in sweeps them wholesale once the canonical blocks have
+ * been re-rendered.
  */
 export const CONTEXT_DELTA_CUSTOM_TYPE_PREFIX = "runtime.context_delta.";
 
@@ -127,8 +128,8 @@ const buildStartupDocText = (displayPath: string, content: string) =>
  *
  *   - `id`          stable identity used in logs and fold bookkeeping;
  *   - `customType`  the persisted custom-message type (all `bootstrap.*`
- *                   so compaction head-protection and run-execution
- *                   persistence keep working unchanged);
+ *                   so compaction head-protection and prompt persistence
+ *                   keep working unchanged);
  *   - `docPath`     display path when the block renders as a
  *                   `<startup_doc>` wrapper (absent for the skills block,
  *                   which carries its own `<skills>` envelope);

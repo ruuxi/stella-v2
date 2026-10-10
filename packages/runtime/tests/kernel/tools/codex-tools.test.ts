@@ -680,10 +680,9 @@ describe("general agent tools", () => {
 
     const result = await handleExecCommand(
       shellState,
-      {
-        cmd: 'node -e "process.stdout.write(String(6 * 7))"',
-        yield_time_ms: 500,
-      },
+      // Bash waits for exit by default; a fixed short wait flakes whenever
+      // `node` takes longer than it to start under load.
+      { cmd: 'node -e "process.stdout.write(String(6 * 7))"' },
       {
         conversationId: "c-node",
         deviceId: "d-node",
@@ -709,9 +708,9 @@ describe("general agent tools", () => {
     try {
       const result = await host.executeTool(
         "Bash",
+        // Wait for exit (the default) rather than a fixed short yield.
         {
           cmd: 'node -e "process.stdout.write(JSON.stringify({runtime: process.release.name}))"',
-          yield_time_ms: 500,
         },
         {
           conversationId: "c-general-node",

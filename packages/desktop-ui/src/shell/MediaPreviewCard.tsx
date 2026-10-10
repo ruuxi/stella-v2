@@ -15,7 +15,10 @@ import { copyImageBlob } from "@/shell/media-clipboard";
 import { displayTabs } from "@/features/workspace-display/tab-store";
 import { AudioPlayer } from "@/shell/AudioPlayer";
 import { localMediaUrl } from "@/shared/hooks/local-media-url";
+import { useLocalMediaFailure } from "@/shared/hooks/use-local-media-failure";
 import { useT } from "@/shared/i18n";
+import { EmptyState } from "@/ui/empty-state/EmptyState";
+import { ZoomableImage, type SwipeDirection } from "@/shell/ZoomableImage";
 
 type MediaPreviewCardProps = {
   asset: MediaAsset;
@@ -23,6 +26,8 @@ type MediaPreviewCardProps = {
   madeBy?: string;
   inDialog?: boolean;
   initialIndex?: number;
+  /** In the sidebar viewer: a drag across the image steps to another file. */
+  onSwipe?: (direction: SwipeDirection) => void;
 };
 
 const filenameOf = (filePath: string): string =>
@@ -129,15 +134,17 @@ const ImageGallery = ({
   madeBy,
   inDialog,
   initialIndex,
+  onSwipe,
 }: {
   filePaths: string[];
   prompt?: string;
   madeBy?: string;
   inDialog?: boolean;
   initialIndex?: number;
+  onSwipe?: (direction: SwipeDirection) => void;
 }) => {
   const t = useT();
-  const { files, error, missing } = useDisplayFileBlobs(
+  const { files, error, missing, missingMessages } = useDisplayFileBlobs(
     filePaths,
     "Media preview requires the Electron host runtime.",
   );
@@ -153,7 +160,7 @@ const ImageGallery = ({
   return (
     <div className="display-media display-media--image">
       <PromptHeader prompt={prompt} madeBy={madeBy} />
-      {error && <p className="display-media__error">{error}</p>}
+      {error && active && <p className="display-media__error">{error}</p>}
       <MediaActions
         filePath={filePaths[safeIndex]}
         copyImage={active}
@@ -169,11 +176,18 @@ const ImageGallery = ({
           ) : undefined
         }
       />
-      {active ? (
+      {active && inDialog ? (
+        <ZoomableImage
+          src={active.url}
+          alt={prompt ?? filenameOf(filePaths[safeIndex])}
+          ariaLabel={t("shell.display.media.zoom")}
+          {...(onSwipe ? { onSwipe } : {})}
+        />
+      ) : active ? (
         <button
           type="button"
           className="display-media__primary-btn"
-          onClick={inDialog ? undefined : expandDisplayPanel}
+          onClick={expandDisplayPanel}
           aria-label={t("shell.display.media.expandPanel")}
         >
           <img
@@ -183,12 +197,22 @@ const ImageGallery = ({
           />
         </button>
       ) : missing[safeIndex] ? (
-        <div className="display-media__missing">
-          File no longer available — {filenameOf(filePaths[safeIndex])} was
-          moved or deleted.
-        </div>
+        <EmptyState
+          motif="unavailable"
+          title={t("shell.display.media.imageUnavailable")}
+          body={
+            missingMessages[safeIndex] ??
+            `${filenameOf(filePaths[safeIndex])} was moved or deleted.`
+          }
+        />
+      ) : error ? (
+        <EmptyState
+          motif="preview"
+          title={t("shell.display.preview.failedTitle")}
+          body={error}
+        />
       ) : (
-        !error && <div className="display-media__loading">Loading…</div>
+        <div className="display-media__loading">Loading…</div>
       )}
       {files.length > 1 && (
         <div className="display-media__strip" role="tablist">
@@ -229,16 +253,17 @@ const VideoCard = ({
   inDialog?: boolean;
 }) => {
   const t = useT();
-  const [unavailable, setUnavailable] = useState(false);
+  const { failure, onError } = useLocalMediaFailure(filePath, "video");
   const streamUrl = localMediaUrl(filePath);
   return (
     <div className="display-media display-media--video">
       <PromptHeader prompt={prompt} madeBy={madeBy} />
-      {unavailable ? (
-        <div className="display-media__missing">
-          File no longer available — {filenameOf(filePath)} was moved or
-          deleted.
-        </div>
+      {failure ? (
+        <EmptyState
+          motif="unavailable"
+          title={t("shell.display.media.videoUnavailable")}
+          body={failure}
+        />
       ) : (
         <video
           src={streamUrl}
@@ -247,7 +272,7 @@ const VideoCard = ({
           playsInline
           preload="metadata"
           className="display-media__video"
-          onError={() => setUnavailable(true)}
+          onError={onError}
         />
       )}
       <MediaActions
@@ -282,22 +307,21 @@ const AudioCard = ({
   inDialog?: boolean;
 }) => {
   const t = useT();
-  const [unavailable, setUnavailable] = useState(false);
+  const { failure, onError } = useLocalMediaFailure(filePath, "audio file");
   const streamUrl = localMediaUrl(filePath);
   return (
     <div className="display-media display-media--audio">
       <PromptHeader prompt={prompt} madeBy={madeBy} />
       <div className="display-media__audio-card">
-        {unavailable ? (
-          <div className="display-media__missing">
-            {t("shell.display.media.missing")}
-          </div>
-        ) : (
-          <AudioPlayer
-            key={streamUrl}
-            src={streamUrl}
-            onError={() => setUnavailable(true)}
+        {failure ? (
+          <EmptyState
+            motif="unavailable"
+            size="compact"
+            title={t("shell.display.media.audioUnavailable")}
+            body={failure}
           />
+        ) : (
+          <AudioPlayer key={streamUrl} src={streamUrl} onError={onError} />
         )}
         <div className="display-media__audio-name">{filenameOf(filePath)}</div>
       </div>
@@ -406,6 +430,7 @@ export const MediaPreviewCard = ({
   madeBy,
   inDialog,
   initialIndex,
+  onSwipe,
 }: MediaPreviewCardProps) => {
   switch (asset.kind) {
     case "image":
@@ -416,6 +441,7 @@ export const MediaPreviewCard = ({
           {...(madeBy ? { madeBy } : {})}
           {...(inDialog ? { inDialog } : {})}
           {...(initialIndex !== undefined ? { initialIndex } : {})}
+          {...(onSwipe ? { onSwipe } : {})}
         />
       );
     case "video":

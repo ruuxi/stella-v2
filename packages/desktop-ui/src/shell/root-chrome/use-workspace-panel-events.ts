@@ -14,8 +14,8 @@ type UseWorkspacePanelEventsOptions = {
   latestDisplayPayloadRef: RefObject<DisplayTabPayload | null>;
   openChatPanel: (detail?: StellaOpenPanelChatDetail) => void;
   /**
-   * Route-aware default surface for a manual panel open (right-click /
-   * keyboard). Opens the Home launcher on home and the chat viewer
+   * Route-aware default surface for a manual panel open (keyboard /
+   * toggle). Opens the Home launcher on home and the chat viewer
    * elsewhere; reopens an already-active artifact viewer as-is.
    */
   openDefaultPanelSurface: () => void;

@@ -24,6 +24,13 @@ import { ProtocolMismatchError } from "./errors.js";
 import * as HostBus from "./host-bus.js";
 import * as ModelCatalog from "./model-catalog.js";
 import * as RunnerModule from "./runner-module.js";
+import {
+  closePiChats,
+  piChatsBusy,
+  piDeliverReport,
+  reconcileComputerAgents,
+  resumePiChats,
+} from "./pi-chats.js";
 import * as SessionConfig from "./session/config.js";
 import * as SessionStorage from "./session/storage.js";
 import * as RunEventBus from "./session/run-events.js";
@@ -321,6 +328,15 @@ export const layer = Layer.effect(
       if (patch.authToken !== undefined) {
         runner?.setAuthToken(patch.authToken);
         updateRuntimeTelemetryAuth(patch.authToken);
+        // Back in touch with the cloud: settle what it thinks runs here and does not.
+        if (patch.authToken && runner) {
+          void reconcileComputerAgents(session, hostBus).catch((error) => {
+            console.warn(
+              "[runtime-worker] computer agent reconcile failed:",
+              (error as Error).message,
+            );
+          });
+        }
       }
       if (patch.hasConnectedAccount !== undefined) {
         runner?.setHasConnectedAccount(patch.hasConnectedAccount);
@@ -339,7 +355,12 @@ export const layer = Layer.effect(
       const session = currentSession;
       currentSession = null;
       if (!session) return Effect.void;
-      return Scope.close(session.scope, Exit.void);
+      // pi's chats run on the runner's tools: they close first.
+      return Effect.promise(() =>
+        closePiChats(session).catch((error) => {
+          console.warn("[runtime-worker] pi chat close failed:", (error as Error).message);
+        }),
+      ).pipe(Effect.andThen(Scope.close(session.scope, Exit.void)));
     });
 
     // The whole initialize path holds the session lock and runs under an
@@ -530,6 +551,9 @@ export const layer = Layer.effect(
                     const builtRunner =
                       await session.runner.awaitBuildSettled();
                     if (!builtRunner) runnerOutcome = "failure";
+                    builtRunner?.setPiReportDelivery((report) =>
+                      piDeliverReport(session, hostBus, report),
+                    );
                     // The initialize-time warm below no-ops while the runner
                     // is still building; warm once it exists, as before.
                     if (builtRunner && currentSession === session) {
@@ -542,15 +566,21 @@ export const layer = Layer.effect(
                         (error as Error).message,
                       );
                     });
-                    // Durable runs the previous worker process left running
-                    // resume now that the runner can launch them (off the
-                    // boot report: a resumed run lasts as long as it lasts).
+                    // Conversations on pi-durable resume their own work;
+                    // then whatever the cloud still thinks runs here and
+                    // does not is settled.
                     if (builtRunner && currentSession === session) {
-                      void session.agentRuns
-                        .resumeInterruptedRuns()
+                      void resumePiChats(session, hostBus)
                         .catch((error) => {
                           console.warn(
-                            "[runtime-worker] Durable run resume pass failed:",
+                            "[runtime-worker] pi chat resume failed:",
+                            (error as Error).message,
+                          );
+                        })
+                        .then(() => reconcileComputerAgents(session, hostBus))
+                        .catch((error) => {
+                          console.warn(
+                            "[runtime-worker] computer agent reconcile failed:",
                             (error as Error).message,
                           );
                         });
@@ -608,8 +638,8 @@ export const layer = Layer.effect(
       });
 
     const hasSessionWork = () => {
-      // Keep this in sync with host-side shouldKeepWorkerAlive plus
-      // worker-only work that the host cannot observe after disconnect.
+      // Everything a worker shutdown would interrupt, the work the host
+      // cannot observe after a disconnect included.
       const session = currentSession;
       const voicePinned =
         (session?.voice.isBusy() ?? false) ||
@@ -619,6 +649,7 @@ export const layer = Layer.effect(
       return Boolean(
         runner?.getActiveOrchestratorRun() ||
           (runner?.getActiveAgentCount() ?? 0) > 0 ||
+          (session ? piChatsBusy(session) : false) ||
           requestPinned ||
           voicePinned,
       );

@@ -390,12 +390,9 @@ export const mergeConversationDisplayMessageSources = (args: {
     persistedAssistantSlots,
     getSortTimestamp = defaultSortTimestamp,
   } = args;
-  // Rewind drops the canonical suffix, including the owning user row, but
-  // locked streaming overlays stay in renderer memory until the next
+  // Locked streaming overlays stay in renderer memory until the next
   // conversation switch. Drop assistant overlays whose user turn is gone so
-  // they cannot paint after the truncate. On cloud this runs when
-  // `refreshAfterCanonicalMutation` republishes the shortened window, which
-  // also busts the caller's structural-sharing cache.
+  // they cannot paint without it.
   const liveUserIds = collectLiveUserMessageIds(
     persistedMessages,
     overlayMessagesInput,

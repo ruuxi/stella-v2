@@ -12,7 +12,7 @@
 // different resolver, or the wrong credential directory), this fails loudly.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Model } from "@stella/runtime/ai/types";
+import type { Model } from "@earendil-works/pi-ai";
 import { createSyncTempDirTracker } from "../helpers/temp.js";
 
 const credentials = new Map<string, string>();
@@ -46,11 +46,12 @@ const model = (
   maxTokens: 8_192,
 });
 
-vi.mock("@stella/runtime/ai/models", () => ({
+vi.mock("@stella/runtime/kernel/model-catalog", () => ({
   getAllModels: () => [
     model("anthropic", "claude-opus-4-8", "anthropic"),
     model("openrouter", "openai/gpt-5.5"),
   ],
+  getModelProviders: () => ["anthropic", "openrouter"],
   getModels: (provider: string) => {
     switch (provider) {
       case "anthropic":

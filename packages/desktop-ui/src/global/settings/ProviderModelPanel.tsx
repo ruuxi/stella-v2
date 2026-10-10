@@ -285,21 +285,41 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
             return next;
         });
     }, [activeSectionKey]);
-    const toggleSection = useCallback((sectionKey: string, isExtra: boolean) => {
-        const opening = !openSections.has(sectionKey);
+    const toggleSection = useCallback((sectionKey: string) => {
         setOpenSections((current) => {
             const next = new Set(current);
-            if (opening) {
-                next.add(sectionKey);
+            if (next.has(sectionKey)) {
+                next.delete(sectionKey);
             }
             else {
-                next.delete(sectionKey);
+                next.add(sectionKey);
             }
             return next;
         });
-        if (isExtra)
-            onExtraSectionExpanded?.(sectionKey, opening);
-    }, [onExtraSectionExpanded, openSections]);
+    }, []);
+    /**
+     * An extra section's owner loads its rows only while it is open, so it
+     * hears every change of what is open: a header click, and a section that
+     * opened because it holds the selection. Picking elsewhere leaves that
+     * section open, and its rows must stay.
+     */
+    const extraSectionKeys = extraSections.map((extra) => extra.key).join("\0");
+    const reportedOpenExtrasRef = useRef<Set<string>>(new Set());
+    useEffect(() => {
+        if (!onExtraSectionExpanded)
+            return;
+        const reported = reportedOpenExtrasRef.current;
+        for (const key of extraSectionKeys ? extraSectionKeys.split("\0") : []) {
+            const open = openSections.has(key);
+            if (open === reported.has(key))
+                continue;
+            if (open)
+                reported.add(key);
+            else
+                reported.delete(key);
+            onExtraSectionExpanded(key, open);
+        }
+    }, [extraSectionKeys, onExtraSectionExpanded, openSections]);
     const handlePick = useCallback((modelId: string, anchor?: HTMLElement) => {
         if (disabled)
             return;
@@ -641,7 +661,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
                 ? disabledProviderReason
                 : undefined}>
           {collapsibleGroups ? (<button type="button" className="model-picker-group-toggle" aria-expanded={open} onClick={() => {
-                toggleSection(tab.key, false);
+                toggleSection(tab.key);
                 if (!open && requiresAuth && models.length === 0) {
                     // An unconnected provider with no catalog rows would
                     // expand to nothing — open its connect form with it.
@@ -773,7 +793,7 @@ export function ProviderModelPanel({ value, defaultLabel, currentLabel, groups, 
         const open = openSections.has(extra.key);
         return (<div key={extra.key} className="model-picker-group" role="group" aria-label={extra.label} data-open={open || undefined}>
         <div className="model-picker-group-head" data-collapsible>
-          <button type="button" className="model-picker-group-toggle" aria-expanded={open} onClick={() => toggleSection(extra.key, true)}>
+          <button type="button" className="model-picker-group-toggle" aria-expanded={open} onClick={() => toggleSection(extra.key)}>
             <span className="model-picker-group-icon" aria-hidden>
               <BrandIcon brand={extra.brandKey ?? extra.key} size={13}/>
             </span>

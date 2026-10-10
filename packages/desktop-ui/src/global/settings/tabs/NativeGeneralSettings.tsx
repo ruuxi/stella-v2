@@ -39,14 +39,6 @@ export function NativeDesktopGeneralSettings() {
   const [preventSleepError, setPreventSleepError] = useState<string | null>(
     null,
   );
-  const [lockedComputerUseStatus, setLockedComputerUseStatus] =
-    useState<LockedComputerUseStatus | null>(null);
-  const [lockedComputerUseLoaded, setLockedComputerUseLoaded] = useState(false);
-  const [isSavingLockedComputerUse, setIsSavingLockedComputerUse] =
-    useState(false);
-  const [lockedComputerUseError, setLockedComputerUseError] = useState<
-    string | null
-  >(null);
   const [soundNotificationsEnabled, setSoundNotificationsEnabled] =
     useState(true);
   const [soundNotificationsLoaded, setSoundNotificationsLoaded] =
@@ -81,37 +73,6 @@ export function NativeDesktopGeneralSettings() {
         }
       } finally {
         if (!cancelled) setPreventSleepLoaded(true);
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [t]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const status =
-          await window.electronAPI?.system?.getLockedComputerUseStatus?.();
-        if (!cancelled) {
-          setLockedComputerUseStatus(status ?? null);
-          setLockedComputerUseError(
-            status && !status.ok ? status.message : null,
-          );
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setLockedComputerUseError(
-            getSettingsErrorMessage(
-              error,
-              t("settings.errors.loadLockedComputerUse"),
-            ),
-          );
-        }
-      } finally {
-        if (!cancelled) setLockedComputerUseLoaded(true);
       }
     };
     void load();
@@ -174,49 +135,6 @@ export function NativeDesktopGeneralSettings() {
       }
     },
     [preventComputerSleep, t],
-  );
-
-  const handleLockedComputerUseChange = useCallback(
-    async (checked: boolean) => {
-      const systemApi = window.electronAPI?.system;
-      if (!systemApi?.setLockedComputerUseEnabled) {
-        setLockedComputerUseError(
-          t("settings.errors.lockedComputerUseUnavailable"),
-        );
-        return;
-      }
-
-      const previous = lockedComputerUseStatus;
-      if (previous) {
-        setLockedComputerUseStatus({ ...previous, enabled: checked });
-      }
-      setLockedComputerUseError(null);
-      setIsSavingLockedComputerUse(true);
-      try {
-        const result = await systemApi.setLockedComputerUseEnabled(checked);
-        setLockedComputerUseStatus(result);
-        setLockedComputerUseError(
-          result.ok
-            ? null
-            : result.message || t("settings.errors.saveLockedComputerUse"),
-        );
-      } catch (error) {
-        setLockedComputerUseStatus(previous);
-        if (isMacAdminPromptCancelled(error)) {
-          setLockedComputerUseError(null);
-          return;
-        }
-        setLockedComputerUseError(
-          getSettingsErrorMessage(
-            error,
-            t("settings.errors.saveLockedComputerUse"),
-          ),
-        );
-      } finally {
-        setIsSavingLockedComputerUse(false);
-      }
-    },
-    [lockedComputerUseStatus, t],
   );
 
   const handleResetCustomizations = useCallback(async () => {
@@ -295,23 +213,6 @@ export function NativeDesktopGeneralSettings() {
 
   return (
     <>
-      <div className="settings-card">
-        <div className="settings-card-header">
-          <h3 className="settings-card-title">
-            {t("settings.developerPreviews.title")}
-          </h3>
-          <Switch
-            checked={developerResourcePreviewsEnabled}
-            onCheckedChange={(checked) =>
-              setDeveloperResourcePreviewsEnabled(Boolean(checked))
-            }
-            hideLabel
-          />
-        </div>
-        <p className="settings-card-desc">
-          {t("settings.developerPreviews.description")}
-        </p>
-      </div>
       {platform === "darwin" ? (
         <SettingsToggleCard
           title={t("settings.nativeFontSmoothing.title")}
@@ -338,22 +239,43 @@ export function NativeDesktopGeneralSettings() {
         disabled={!preventSleepLoaded || isSavingPreventSleep}
         onChange={(checked) => void handlePreventSleepChange(checked)}
       />
-      <SettingsToggleCard
-        title={t("settings.lockedComputerUse.title")}
-        description={
-          platform === "darwin"
-            ? t("settings.lockedComputerUse.description")
-            : t("settings.lockedComputerUse.unsupported")
-        }
-        error={lockedComputerUseError}
-        checked={lockedComputerUseStatus?.enabled === true}
-        disabled={
-          platform !== "darwin" ||
-          !lockedComputerUseLoaded ||
-          isSavingLockedComputerUse
-        }
-        onChange={(checked) => void handleLockedComputerUseChange(checked)}
-      />
+      <div className="settings-card">
+        <div className="settings-card-header">
+          <h3 className="settings-card-title">
+            {t("settings.browserExtension.title")}
+          </h3>
+          <Button
+            type="button"
+            variant="ghost"
+            className="pill-btn"
+            onClick={() => openExternalUrl(STELLA_BROWSER_EXTENSION_STORE_URL)}
+          >
+            {t("settings.browserExtension.action")}
+          </Button>
+        </div>
+        <p className="settings-card-desc">
+          {t("settings.browserExtension.description")}
+        </p>
+      </div>
+      <div className="settings-card">
+        <div className="settings-card-header">
+          <h3 className="settings-card-title">
+            {t("settings.developerPreviews.title")}
+          </h3>
+          <Switch
+            checked={developerResourcePreviewsEnabled}
+            onCheckedChange={(checked) =>
+              setDeveloperResourcePreviewsEnabled(Boolean(checked))
+            }
+            hideLabel
+          />
+        </div>
+        <p className="settings-card-desc">
+          {t("settings.developerPreviews.description")}
+        </p>
+      </div>
+      <PromptPresetCard />
+      <OnboardingReplayCard />
       <div className="settings-card">
         <div className="settings-card-header">
           <h3 className="settings-card-title">
@@ -383,26 +305,113 @@ export function NativeDesktopGeneralSettings() {
             t("settings.resetCustomizations.description")}
         </p>
       </div>
-      <OnboardingReplayCard />
-      <div className="settings-card">
-        <div className="settings-card-header">
-          <h3 className="settings-card-title">
-            {t("settings.browserExtension.title")}
-          </h3>
-          <Button
-            type="button"
-            variant="ghost"
-            className="pill-btn"
-            onClick={() => openExternalUrl(STELLA_BROWSER_EXTENSION_STORE_URL)}
-          >
-            {t("settings.browserExtension.action")}
-          </Button>
-        </div>
-        <p className="settings-card-desc">
-          {t("settings.browserExtension.description")}
-        </p>
-      </div>
-      <PromptPresetCard />
     </>
+  );
+}
+
+/** Locked computer use (macOS): lives under Privacy, beside permissions. */
+export function NativeLockedComputerUseCard() {
+  const t = useT();
+  const platform = window.electronAPI?.platform;
+  const [lockedComputerUseStatus, setLockedComputerUseStatus] =
+    useState<LockedComputerUseStatus | null>(null);
+  const [lockedComputerUseLoaded, setLockedComputerUseLoaded] = useState(false);
+  const [isSavingLockedComputerUse, setIsSavingLockedComputerUse] =
+    useState(false);
+  const [lockedComputerUseError, setLockedComputerUseError] = useState<
+    string | null
+  >(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const status =
+          await window.electronAPI?.system?.getLockedComputerUseStatus?.();
+        if (!cancelled) {
+          setLockedComputerUseStatus(status ?? null);
+          setLockedComputerUseError(
+            status && !status.ok ? status.message : null,
+          );
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLockedComputerUseError(
+            getSettingsErrorMessage(
+              error,
+              t("settings.errors.loadLockedComputerUse"),
+            ),
+          );
+        }
+      } finally {
+        if (!cancelled) setLockedComputerUseLoaded(true);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
+
+  const handleLockedComputerUseChange = useCallback(
+    async (checked: boolean) => {
+      const systemApi = window.electronAPI?.system;
+      if (!systemApi?.setLockedComputerUseEnabled) {
+        setLockedComputerUseError(
+          t("settings.errors.lockedComputerUseUnavailable"),
+        );
+        return;
+      }
+
+      const previous = lockedComputerUseStatus;
+      if (previous) {
+        setLockedComputerUseStatus({ ...previous, enabled: checked });
+      }
+      setLockedComputerUseError(null);
+      setIsSavingLockedComputerUse(true);
+      try {
+        const result = await systemApi.setLockedComputerUseEnabled(checked);
+        setLockedComputerUseStatus(result);
+        setLockedComputerUseError(
+          result.ok
+            ? null
+            : result.message || t("settings.errors.saveLockedComputerUse"),
+        );
+      } catch (error) {
+        setLockedComputerUseStatus(previous);
+        if (isMacAdminPromptCancelled(error)) {
+          setLockedComputerUseError(null);
+          return;
+        }
+        setLockedComputerUseError(
+          getSettingsErrorMessage(
+            error,
+            t("settings.errors.saveLockedComputerUse"),
+          ),
+        );
+      } finally {
+        setIsSavingLockedComputerUse(false);
+      }
+    },
+    [lockedComputerUseStatus, t],
+  );
+
+  return (
+    <SettingsToggleCard
+      title={t("settings.lockedComputerUse.title")}
+      description={
+        platform === "darwin"
+          ? t("settings.lockedComputerUse.description")
+          : t("settings.lockedComputerUse.unsupported")
+      }
+      error={lockedComputerUseError}
+      checked={lockedComputerUseStatus?.enabled === true}
+      disabled={
+        platform !== "darwin" ||
+        !lockedComputerUseLoaded ||
+        isSavingLockedComputerUse
+      }
+      onChange={(checked) => void handleLockedComputerUseChange(checked)}
+    />
   );
 }

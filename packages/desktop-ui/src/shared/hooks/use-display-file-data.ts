@@ -5,6 +5,10 @@ import {
 import { useContext, useEffect, useMemo, useState } from "react";
 import { useOptionalUiState } from "@/context/ui-state";
 import { readDeviceFileCopy } from "@/features/cloud/device-file-copy";
+import {
+  deviceFileMissingMessage,
+  type DeviceFileMissingReason,
+} from "@stella/contracts/device-files";
 
 export type DisplayFileBlob = {
   url: string;
@@ -19,7 +23,12 @@ type DisplayFileRead =
       truncated?: boolean;
       missing?: false;
     }
-  | { missing: true; mimeType: string; path: string };
+  | {
+      missing: true;
+      mimeType: string;
+      path: string;
+      reason?: DeviceFileMissingReason;
+    };
 
 type CacheEntry = {
   promise: Promise<DisplayFileRead>;
@@ -29,7 +38,6 @@ type CacheEntry = {
   refCount: number;
   evictionTimer: ReturnType<typeof setTimeout> | null;
 };
-
 const isDisplayFileApiAvailable = () =>
   typeof window !== "undefined" &&
   typeof window.electronAPI?.display?.readFile === "function";
@@ -244,6 +252,7 @@ export function useDisplayFileBytes(
         if (cancelled) return;
         if (result.missing) {
           setMissing(true);
+          setError(deviceFileMissingMessage(result.reason, filePath));
           return;
         }
         setBytes(result.bytes);
@@ -264,7 +273,11 @@ export function useDisplayFileBytes(
   return { bytes, error, loading, missing, truncated };
 }
 
-type BlobResult = { blob: DisplayFileBlob | null; missing: boolean };
+type BlobResult = {
+  blob: DisplayFileBlob | null;
+  missing: boolean;
+  message?: string;
+};
 
 export function useDisplayFileBlobs(
   filePaths: string[],
@@ -275,6 +288,8 @@ export function useDisplayFileBlobs(
   error: string | null;
   loading: boolean;
   missing: boolean[];
+  /** Why each missing file can't be shown, in words a viewer can display. */
+  missingMessages: Array<string | null>;
 } {
   const source = useContext(DisplayFileSourceContext);
   const uiState = useOptionalUiState();
@@ -288,6 +303,10 @@ export function useDisplayFileBlobs(
   );
   const [missing, setMissing] = useState<boolean[]>(() =>
     filePaths.map(() => false),
+  );
+  /** Why each missing file can't be shown, in words a viewer can display. */
+  const [missingMessages, setMissingMessages] = useState<Array<string | null>>(
+    () => filePaths.map(() => null),
   );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -342,17 +361,25 @@ export function useDisplayFileBlobs(
       setFiles(filePaths.map(() => null));
     }
     void Promise.all(
-      acquired.map(async ({ entry }): Promise<BlobResult> => {
+      acquired.map(async ({ entry }, index): Promise<BlobResult> => {
+        let result: DisplayFileRead | undefined;
         try {
-          await entry.promise;
+          result = await entry.promise;
         } catch (caught) {
           if (!cancelled) {
             setError(caught instanceof Error ? caught.message : String(caught));
           }
           return { blob: null, missing: false };
         }
-        if (entry.resolved?.missing) {
-          return { blob: null, missing: true };
+        if (result?.missing || entry.resolved?.missing) {
+          return {
+            blob: null,
+            missing: true,
+            message: deviceFileMissingMessage(
+              result?.missing ? result.reason : undefined,
+              filePaths[index],
+            ),
+          };
         }
         const url = objectUrlFor(entry);
         const blob = entry.blob;
@@ -370,6 +397,7 @@ export function useDisplayFileBlobs(
       if (cancelled) return;
       setFiles(results.map((r) => r.blob));
       setMissing(results.map((r) => r.missing));
+      setMissingMessages(results.map((r) => r.message ?? null));
       setLoading(false);
     });
     return () => {
@@ -381,5 +409,5 @@ export function useDisplayFileBlobs(
       for (const { cacheKey, entry } of acquired) release(cacheKey, entry);
     };
   }, [key, unavailableMessage, source]);
-  return { files, error, loading, missing };
+  return { files, error, loading, missing, missingMessages };
 }

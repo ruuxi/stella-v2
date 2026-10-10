@@ -4,13 +4,8 @@ import {
   type RuntimeErrorEvent,
   type RuntimeRunCallbacks,
 } from "../agent-runtime.js";
-import type {
-  DurableRunResume,
-  OrchestratorRunOptions,
-  RuntimeInterruptedEvent,
-} from "../agent-runtime/types.js";
+import type { RuntimeInterruptedEvent } from "../agent-runtime/types.js";
 import type { LocalAgentContext } from "../agents/local-agent-manager.js";
-import { getOrCreateOrchestratorSession } from "../agent-runtime/orchestrator-session.js";
 import {
   createFileAttachmentPromptInput,
   createRuntimePromptAgentMessage,
@@ -19,6 +14,7 @@ import {
 import { buildThreadMessagePreview } from "../agent-runtime/thread-memory.js";
 import { executionContextHistoryEntries } from "../agent-runtime/execution-context-history.js";
 import { hasResidentHead } from "../agent-runtime/resident-context.js";
+import { resolveOrchestratorThreadKey } from "../thread-runtime.js";
 import { renderAgentRoster } from "@stella/contracts/agent-directory";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
@@ -29,7 +25,6 @@ import { isReportedOrchestratorError } from "../agent-runtime/run-completion.js"
 import { ensureRunCoordinator } from "./run-coordinator.js";
 import type { RunnerContext } from "./types.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
-import { createRunnerImageDescriptionService } from "./model-selection.js";
 import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
@@ -533,10 +528,6 @@ export type PreparedOrchestratorRun = {
   agentContext: LocalAgentContext;
   resolvedLlm: ResolvedLlmRoute;
   abortController: AbortController;
-  /** Keep a durable `run_task` row (resumable after process loss). */
-  durable?: NonNullable<OrchestratorRunOptions["durable"]>;
-  /** Resume this durable run instead of prompting. */
-  resume?: DurableRunResume;
 };
 
 export const prepareOrchestratorRun = async (args: {
@@ -565,8 +556,6 @@ export const prepareOrchestratorRun = async (args: {
   /** Current turn's user-message id; excludes the just-appended display
    * event from the legacy pre-transition history shim. */
   userMessageId?: string;
-  durable?: PreparedOrchestratorRun["durable"];
-  resume?: DurableRunResume;
 }): Promise<PreparedOrchestratorRun> => {
   // Run admission is owned by the Effect run coordinator: it claims the
   // lane (throwing the canonical already-running error on a double
@@ -648,8 +637,6 @@ export const prepareOrchestratorRun = async (args: {
       agentContext: agentRoster ? { ...agentContext, agentRoster } : agentContext,
       resolvedLlm,
       abortController,
-      ...(args.durable ? { durable: args.durable } : {}),
-      ...(args.resume ? { resume: args.resume } : {}),
     };
     return prepared;
   } catch (error) {
@@ -673,11 +660,7 @@ export const launchPreparedOrchestratorRun = (args: {
   onFatalError: (error: unknown) => void;
 }): void => {
   const { prepared, context } = args;
-
-  const orchestratorSession = getOrCreateOrchestratorSession(
-    context.state.orchestratorSessions,
-    prepared.conversationId,
-  );
+  const threadKey = resolveOrchestratorThreadKey(prepared.conversationId);
 
   // The turn promise still owns run cleanup exactly as before (the catch
   // below is behavior-identical), but it is no longer fire-and-forget: the
@@ -741,17 +724,16 @@ export const launchPreparedOrchestratorRun = (args: {
               );
             },
             signal: prepared.abortController.signal,
-            // A resumed turn reacquires the lease its dead process held by
-            // replaying that exact begin (same turn id and payload).
-            ...(prepared.resume ? { adoptExisting: true } : {}),
           });
         const seedCloudHistory = (window: CloudTranscriptHistory): void => {
           const canonicalHistory = parseCanonicalCloudHistory(window.history);
           // While nothing but this device's own last turn reached the journal,
           // keep the thread that turn ran, hidden prompt rows included, so the
           // request extends the last one byte for byte and the cache holds.
+          const remembered =
+            context.state.cloudThreads.get(prepared.conversationId) ?? null;
           const kept = cloudThreadExtendingCanonical(
-            orchestratorSession.cloudThread,
+            remembered,
             canonicalHistory,
           );
           const threadHistory = kept ?? canonicalHistory;
@@ -761,37 +743,23 @@ export const launchPreparedOrchestratorRun = (args: {
             threadHistory,
           };
           context.runtimeStore.beginEphemeralThreadCapture({
-            threadKey: orchestratorSession.threadKey,
+            threadKey,
             captureId: prepared.runId,
             seedMessages: threadHistory,
           });
           ephemeralCaptureStarted = true;
-          // Otherwise the long-lived native session may hold state from local
-          // SQLite or another device's turns are missing from it. Force its
-          // next turn to replace that state with the Durable Object's
-          // canonical history. External engines read the overwritten
-          // agentContext directly.
-          if (!kept) {
-            if (orchestratorSession.cloudThread) {
-              logger.info("cloud-thread.reseeded", {
-                conversationId: prepared.conversationId,
-                canonicalRows: canonicalHistory.length,
-                keptRows: orchestratorSession.cloudThread.length,
-              });
-            }
-            orchestratorSession.notifyHistoryChanged();
+          if (!kept && remembered) {
+            logger.info("cloud-thread.reseeded", {
+              conversationId: prepared.conversationId,
+              canonicalRows: canonicalHistory.length,
+              keptRows: remembered.length,
+            });
           }
-          // Claude Code and Codex otherwise resume their own locally persisted
-          // CLI transcript and skip Stella's supplied history. A cloud turn must
+          // Claude Code otherwise resumes its own locally persisted CLI
+          // transcript and skips Stella's supplied history. A cloud turn must
           // instead seed a fresh CLI session from the Durable Object window.
-          context.runtimeStore.setThreadExternalSessionId(
-            orchestratorSession.threadKey,
-            null,
-          );
-          context.runtimeStore.setThreadExternalDeliveredEntryId(
-            orchestratorSession.threadKey,
-            null,
-          );
+          context.runtimeStore.setThreadExternalSessionId(threadKey, null);
+          context.runtimeStore.setThreadExternalDeliveredEntryId(threadKey, null);
         };
         // A different device can advance the canonical journal while this
         // computer is idle. Acquire its lease and authoritative history before
@@ -862,16 +830,13 @@ export const launchPreparedOrchestratorRun = (args: {
             signal,
             onUpdate,
           ),
+        buildAgentShellEnvironment: context.toolHost.buildAgentShellEnvironment,
         deviceId: context.deviceId,
         stellaDataDir: context.stellaDataDir,
         ...(context.cliBridgeSocketPath
           ? { cliBridgeSocketPath: context.cliBridgeSocketPath }
           : {}),
         resolvedLlm: prepared.resolvedLlm,
-        describeImages: createRunnerImageDescriptionService(
-          context,
-          prepared.resolvedLlm,
-        ),
         store: context.runtimeStore,
         abortSignal: prepared.abortController.signal,
         stellaAppDir: context.stellaAppDir,
@@ -880,9 +845,6 @@ export const launchPreparedOrchestratorRun = (args: {
           : {}),
         hookEmitter: context.hookEmitter,
         onExecutionSessionCreated: args.onExecutionSessionCreated,
-        orchestratorSession,
-        ...(prepared.durable ? { durable: prepared.durable } : {}),
-        ...(prepared.resume ? { resume: prepared.resume } : {}),
         // Provider streams and tool calls opened by this turn supervise as
         // child fibers of the run's scope, so cancelRun/shutdown interrupts
         // them and joins their teardown.
@@ -925,27 +887,12 @@ export const launchPreparedOrchestratorRun = (args: {
       }
     }
 
-    // A graceful stop suspended this run for resume: leave its cloud begin
-    // in place (the next worker replays it to reacquire the lease) and
-    // publish no terminal.
-    const suspended = context.runtimeStore.runTasks?.isSuspended(
-      prepared.runId,
-    );
-    if (suspended) {
-      if (isCloudTurn && ephemeralCaptureStarted) {
-        context.runtimeStore.endEphemeralThreadCapture({
-          threadKey: orchestratorSession.threadKey,
-          captureId: prepared.runId,
-        });
-      }
-      return;
-    }
     if (isCloudTurn && leaseToken) {
       try {
         const captured = !ephemeralCaptureStarted
           ? []
           : context.runtimeStore.readEphemeralThreadCapture({
-              threadKey: orchestratorSession.threadKey,
+              threadKey,
               captureId: prepared.runId,
             });
         const records = captured
@@ -991,24 +938,30 @@ export const launchPreparedOrchestratorRun = (args: {
         // turn can extend; anything else reseeds from canonical history.
         // `deferredTerminal` is assigned from the run's callbacks.
         const terminal = deferredTerminal as DeferredTerminalCallback | null;
-        orchestratorSession.cloudThread =
+        if (
           finishStatus.queued &&
           runError === undefined &&
           (terminal === null || terminal.kind === "end")
-            ? [...seededCloudThread, ...captured]
-            : null;
+        ) {
+          context.state.cloudThreads.set(prepared.conversationId, [
+            ...seededCloudThread,
+            ...captured,
+          ]);
+        } else {
+          context.state.cloudThreads.delete(prepared.conversationId);
+        }
         flushDeferredTerminal(args.runtimeCallbacks, deferredTerminal);
       } finally {
         if (ephemeralCaptureStarted) {
           context.runtimeStore.endEphemeralThreadCapture({
-            threadKey: orchestratorSession.threadKey,
+            threadKey,
             captureId: prepared.runId,
           });
         }
       }
     } else if (isCloudTurn && ephemeralCaptureStarted) {
       context.runtimeStore.endEphemeralThreadCapture({
-        threadKey: orchestratorSession.threadKey,
+        threadKey,
         captureId: prepared.runId,
       });
     }
@@ -1026,14 +979,6 @@ export const launchPreparedOrchestratorRun = (args: {
       return;
     }
     args.cleanupRun(prepared.runId);
-    if (context.runtimeStore.runTasks?.isSuspended(prepared.runId)) return;
-    // Settle a durable row the session never reached (e.g. a resumed cloud
-    // turn whose lease could not be reacquired). No-op once settled.
-    try {
-      context.runtimeStore.runTasks?.finish(prepared.runId, "failed");
-    } catch {
-      /* the run's recovery plan settles it next boot */
-    }
     args.onFatalError(error);
   });
 
@@ -1073,8 +1018,6 @@ export const startPreparedOrchestratorRun = async (args: {
   cleanupRun: (runId: string, onCleanup?: () => void) => void;
   onFatalError: (error: unknown) => void;
   onPrepared?: (prepared: PreparedOrchestratorRun) => void | Promise<void>;
-  durable?: PreparedOrchestratorRun["durable"];
-  resume?: DurableRunResume;
   onExecutionSessionCreated?: NonNullable<
     Parameters<typeof runOrchestratorTurn>[0]["onExecutionSessionCreated"]
   >;
@@ -1101,8 +1044,6 @@ export const startPreparedOrchestratorRun = async (args: {
       ? { connectorDeliveryTarget: args.connectorDeliveryTarget }
       : {}),
     userMessageId: args.userMessageId,
-    ...(args.durable ? { durable: args.durable } : {}),
-    ...(args.resume ? { resume: args.resume } : {}),
   });
 
   try {

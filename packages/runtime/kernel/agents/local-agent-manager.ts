@@ -4,29 +4,23 @@
  * Two layers stacked on top of each other for every subagent thread, easy to
  * conflate:
  *
- *   1. Conversation layer — `subagentSession`, keyed by durable `threadId`,
- *      holds the long-lived `Agent` + message array. Lives across many
- *      runs and is only disposed when the task reaches a real terminal
- *      state (see end of `executeTask`) or `cancelAgent` is called.
+ *   1. Conversation layer — the durable thread, keyed by `threadId`. Its
+ *      messages live in the thread store and the agent's Claude Code
+ *      session, across many runs.
  *
  *   2. Run-loop layer — `executeTask` / `runSubagent`. Each call to
  *      `runSubagent` is one user-turn → assistant-resolution cycle: a
  *      user message goes in, the assistant streams + uses tools until it
  *      decides to stop, then `runSubagent` returns.
  *
- * What this file historically called a "restart" only happens at layer 2.
- * Layer 1 is untouched: the session's message array is preserved across
- * the re-entry, so the LLM sees `[system, original user, prior turns,
- * follow-up user]` — i.e. the same conversation continuing with a new
- * user turn. The cached prefix doesn't change, prompt cache is preserved.
+ * What this file historically called a "restart" only happens at layer 2:
+ * the thread continues with a new user turn.
  *
- * `send_message` steers a live native Pi agent at its next safe boundary. The
- * current provider response and any issued tools finish first, then the new
- * user message is appended and the same loop continues. If input lands before
- * a live Pi agent exists, it remains queued for the next natural turn.
+ * `send_message` steers a running agent through its thread's `AgentSteering`:
+ * the running Claude Code turn takes the message at its next step. Input
+ * that lands while no turn runs stays queued for the next natural turn.
  */
 import path from "path";
-import { randomUUID } from "crypto";
 import {
   Cause,
   Deferred,
@@ -40,10 +34,7 @@ import {
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { AGENT_CONTROL_TOOL_NAMES } from "../tools/defs/task.js";
 import { sanitizeForLogs, truncate } from "../tools/utils.js";
-import {
-  getOrCreateSubagentSession,
-  type SubagentSession,
-} from "../agent-runtime/subagent-session.js";
+import { AgentSteering } from "../agent-runtime/agent-steering.js";
 import { isCloudAgentStartAdmissionError } from "../runner/computer-agent-cloud-records.js";
 import type { PersistedAgentRecord } from "../storage/agent-registry.js";
 import type {
@@ -53,10 +44,7 @@ import type {
   ToolResult,
   ToolUpdateCallback,
 } from "../tools/types.js";
-import type {
-  DurableRunResume,
-  SubagentRunResult,
-} from "../agent-runtime/types.js";
+import type { SubagentRunResult } from "../agent-runtime/types.js";
 /**
  * The per-run agent context `fetchAgentContext` builds (`buildAgentContext`
  * in runner/context.ts). Still an open bag, as it was while this module was JS.
@@ -125,9 +113,6 @@ type AgentTask = {
   terminalLifecycleReceiptGeneration?: number;
   cloudStartAdmissionRejectedGeneration?: number;
   cloudStartAdmissionPendingGeneration?: number;
-  currentRunId?: string;
-  resume?: DurableRunResume;
-  suspended?: boolean;
 };
 /** What both a live task and a durable row say about a thread. */
 type AgentStateView = Pick<
@@ -150,7 +135,6 @@ type AttemptFiber = {
   fiber: Fiber.Fiber<void, never>;
 };
 type BootThread = { threadId: string; conversationId: string };
-type ResumableAgent = { record: AgentRecord; runId: string };
 type RecoveryLedger = { attempts?: number; outcome?: string };
 type CloudAgentStart = {
   agentId: string;
@@ -178,8 +162,6 @@ type ToolStartEvent = {
 };
 type ToolEndEvent = { toolCallId: string; toolName: string; details?: unknown };
 type RunSubagentArgs = {
-  durableRunId?: string;
-  resume?: DurableRunResume;
   conversationId: string;
   userMessageId: string;
   agentType: string;
@@ -190,7 +172,7 @@ type RunSubagentArgs = {
   taskDescription: string;
   taskPrompt: string;
   agentContext: LocalAgentContext;
-  subagentSession: SubagentSession;
+  steering?: AgentSteering;
   persistToCloud: boolean;
   ownerGeneration?: string;
   enableRemoteTools: boolean;
@@ -254,16 +236,6 @@ export type LocalAgentManagerOptions = {
   persistBootInterruptionSnapshot?(
     threads: BootThread[],
   ): string | null | undefined;
-  findResumableAgentRun?(
-    record: AgentRecord,
-  ): { runId: string } | null | undefined;
-  claimAgentResume?(runId: string): DurableRunResume | null | undefined;
-  abandonAgentRun?(runId: string): void;
-  abandonUnclaimedAgentRuns?(claimedRunIds: string[]): void;
-  requestRunAbort?(runId: string): void;
-  finishAgentRun?(runId: string, status: "failed" | "canceled"): void;
-  isRunSuspended?(runId: string): boolean;
-  isCloudAgentAdmissionReady?(): boolean;
   awaitTerminalLifecycleRecoveryReady?():
     | Promise<boolean | void>
     | boolean
@@ -469,8 +441,6 @@ export const AGENT_ORPHANED_RESTART_CANCEL_REASON =
 // otherwise replace the user-facing reply with an empty silence.
 export const AGENT_PAUSE_CANCEL_REASON = "Paused by orchestrator.";
 export const DEFAULT_AGENT_ATTEMPT_TEARDOWN_TIMEOUT_MS = 5_000;
-/** How long a durable resume of a cloud-transcript agent waits for cloud auth. */
-const DURABLE_RESUME_CLOUD_READY_TIMEOUT_MS = 60_000;
 /**
  * Requirements-free runtime for the manager's supervisory fibers (house
  * convention: ONE module-level ManagedRuntime, context rides in closures —
@@ -531,12 +501,10 @@ export class LocalAgentManager {
   activeFsLocks: Array<{ id: string; threadId: string; key: string }> = [];
   fsLockWaiters: Array<() => void> = [];
   /**
-   * Long-lived per-task subagent sessions keyed by durable threadId (E2).
-   * Created lazily on first `executeTask` for a thread, reused across
-   * restart-on-input attempts within the same thread, disposed when the
-   * task reaches a terminal status. Paused tasks keep their session.
+   * Steering per agent thread, keyed by threadId: created on the thread's
+   * first attempt, dropped when the task reaches a terminal status.
    */
-  subagentSessions = new Map<string, SubagentSession>();
+  steerings = new Map<string, AgentSteering>();
   static MAX_QUEUE_MESSAGES = 32;
   static MAX_LOG_MESSAGES = 80;
   nextId = 0;
@@ -554,13 +522,6 @@ export class LocalAgentManager {
   terminalReceiptRecoveries = new Set<Promise<void>>();
   /** Latest updatedAt among rows still `running` at boot, read before the flip. */
   bootPreviousActivityAt = 0;
-  /**
-   * Threads still `running` at boot whose durable run (`run_task`) the
-   * recovery plan kept resumable: they resume instead of being canceled.
-   */
-  bootResumableAgents: ResumableAgent[] = [];
-  /** Deferred durable-resume pass (see startDurableAgentResume). */
-  durableResumeFiber: Fiber.Fiber<void, never> | null = null;
   /** Deferred local terminal-receipt sweep (see startTerminalLifecycleRecovery). */
   terminalLifecycleRecoveryFiber: Fiber.Fiber<void, never> | null = null;
   terminalLifecycleRecoverySettled: Promise<void> = Promise.resolve();
@@ -579,7 +540,6 @@ export class LocalAgentManager {
     const orphanedRecords = this.recoverOrCancelOrphanedPersistedAgents();
     this.recoverPersistedCloudTerminalReceipts(orphanedRecords);
     this.startTerminalLifecycleRecovery(orphanedRecords);
-    this.startDurableAgentResume();
   }
   /** Threads that were running at the previous shutdown (pre-sweep snapshot). */
   getBootInterruptedThreads() {
@@ -605,33 +565,11 @@ export class LocalAgentManager {
         this.bootPreviousActivityAt,
         record.updatedAt ?? 0,
       );
-      // A thread whose durable run is resumable resumes on this boot
-      // (bounded by the run's resume cap and freshness window) instead of
-      // being canceled; restart-continuation is only for the rest.
-      let durable: { runId: string } | null = null;
-      try {
-        durable = this.opts.findResumableAgentRun?.(record) ?? null;
-      } catch {
-        durable = null;
-      }
-      if (durable) {
-        this.bootResumableAgents.push({ record, runId: durable.runId });
-        continue;
-      }
       runningRecords.push(record);
       this.bootInterruptedThreads.push({
         threadId: record.threadId,
         conversationId: record.conversationId,
       });
-    }
-    try {
-      // Resumable agent runs whose thread is not running anymore have no
-      // owner to resume them.
-      this.opts.abandonUnclaimedAgentRuns?.(
-        this.bootResumableAgents.map((entry) => entry.runId),
-      );
-    } catch {
-      // Next boot's recovery plan settles them.
     }
     if (this.bootInterruptedThreads.length > 0) {
       // Persist the snapshot BEFORE any row below is flipped: after the
@@ -824,128 +762,6 @@ export class LocalAgentManager {
     if (!done) {
       this.terminalLifecycleRecoveryFiber = fiber;
     }
-  }
-  /**
-   * Resume the threads `recoverOrCancelOrphanedPersistedAgents` kept for a
-   * durable resume. Parks on the same readiness gate as the receipt sweep
-   * (the resumed attempt needs an initialized runtime to resolve its model),
-   * then re-enqueues each thread as a new attempt that continues its dead
-   * run (same run id, same thread) instead of starting a new turn.
-   */
-  startDurableAgentResume() {
-    if (this.bootResumableAgents.length === 0 || this.supervisoryScopeClosed)
-      return;
-    const manager = this;
-    const program = Effect.gen(function* () {
-      const awaitReady = manager.opts.awaitTerminalLifecycleRecoveryReady;
-      if (awaitReady) {
-        const ready = yield* Effect.promise(() =>
-          Promise.resolve()
-            .then(() => awaitReady())
-            .then(
-              (value) => value !== false,
-              () => false,
-            ),
-        );
-        if (!ready) return;
-      }
-      // A cloud-transcript agent's attempt is admitted by the cloud before
-      // it may run; wait (bounded) for the signed-in cloud session the
-      // admission needs instead of failing the resume on a cold boot.
-      if (
-        manager.bootResumableAgents.some(
-          (entry) => (entry.record.storageMode ?? "local") === "cloud",
-        ) &&
-        manager.opts.isCloudAgentAdmissionReady
-      ) {
-        const deadline = Date.now() + DURABLE_RESUME_CLOUD_READY_TIMEOUT_MS;
-        while (
-          !manager.opts.isCloudAgentAdmissionReady() &&
-          Date.now() < deadline
-        ) {
-          yield* Effect.sleep(250);
-        }
-      }
-      const entries = manager.bootResumableAgents.splice(0);
-      for (const entry of entries) {
-        try {
-          manager.resumeDurableAgent(entry);
-        } catch (error) {
-          console.warn(
-            "[runtime] durable agent resume failed",
-            error instanceof Error ? error.message : error,
-          );
-        }
-      }
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.sync(() => {
-          if (Cause.hasInterruptsOnly(cause)) return;
-          console.warn(
-            "[runtime] durable agent resume pass failed",
-            Cause.pretty(cause),
-          );
-        }),
-      ),
-      Effect.ensuring(
-        Effect.sync(() => {
-          this.durableResumeFiber = null;
-        }),
-      ),
-    );
-    this.durableResumeFiber = managerRuntime.runSync(
-      Effect.forkIn(program, this.supervisoryScope, { startImmediately: true }),
-    );
-  }
-  resumeDurableAgent(entry: ResumableAgent) {
-    const current =
-      this.opts.getAgentRecord?.(entry.record.threadId) ?? entry.record;
-    if (current.status !== "running" || this.tasks.has(current.threadId)) {
-      this.opts.abandonAgentRun?.(entry.runId);
-      return;
-    }
-    const resume = this.opts.claimAgentResume?.(entry.runId) ?? null;
-    if (!resume) {
-      this.opts.abandonAgentRun?.(entry.runId);
-      return;
-    }
-    const statusText = "Resuming after Stella restarted";
-    const task = this.hydrateTaskFromRecord(
-      current,
-      current.prompt ?? current.description,
-      statusText,
-    );
-    if (current.rootRunId) task.rootRunId = current.rootRunId;
-    // No predecessor attempt survives a process restart, so there is
-    // nothing to fence: start from the record's generation and let the
-    // scheduler take exactly the next one (the cloud admits only the
-    // next attempt generation).
-    task.attemptGeneration = Number.isInteger(current.attemptGeneration)
-      ? Math.max(0, current.attemptGeneration)
-      : 0;
-    // The resumed attempt continues a turn already in the thread; later
-    // updates are follow-ups, never the initial prompt again.
-    task.turnCount = 1;
-    task.resume = resume;
-    console.warn("[runtime] durable agent run resuming", {
-      threadId: task.threadId,
-      runId: entry.runId,
-      resumeCount: resume.record.resumeCount,
-      intents: resume.intents.length,
-    });
-    this.enqueueTask(task, true);
-  }
-  /** Active tasks with the durable run their live attempt is executing. */
-  listActiveAttemptRuns() {
-    const attempts: Array<{ threadId: string; runId: string | null }> = [];
-    for (const task of this.tasks.values()) {
-      if (!this.isActiveAgentState(task)) continue;
-      attempts.push({
-        threadId: task.threadId,
-        runId: task.status === "running" ? (task.currentRunId ?? null) : null,
-      });
-    }
-    return attempts;
   }
   /**
    * Resolve once the boot sweep has finished (or was interrupted) and every
@@ -1839,26 +1655,20 @@ export class LocalAgentManager {
     }
     return task;
   }
-  enqueueTask(task: AgentTask, prioritize = false) {
+  enqueueTask(task: AgentTask) {
     this.tasks.set(task.threadId, task);
-    if (prioritize) {
-      this.pendingQueue.unshift(task.threadId);
-    } else {
-      this.pendingQueue.push(task.threadId);
-    }
+    this.pendingQueue.push(task.threadId);
     this.persistTask(task);
     this.tryStartNext();
   }
   /**
    * Re-enter the run-loop layer with the queued follow-up as the next
-   * user turn on the existing long-lived `subagentSession`. Despite
-   * being implemented as "reset + re-enqueue", this is NOT a fresh run
-   * of the task — the session's accumulated message array (system +
-   * original user prompt + prior assistant/tool turns) is preserved,
-   * and the synthesized "Task update: …" string is
-   * just the next user message that gets appended on top.
+   * user turn on the agent's thread. Despite being implemented as
+   * "reset + re-enqueue", this is NOT a fresh run of the task — the
+   * thread keeps its history, and the synthesized "Task update: …"
+   * string is just the next user message that gets appended on top.
    *
-   * Reached when input could not be steered into a live native Pi loop and
+   * Reached when input could not be steered into a running turn and
    * remained queued until the current run finished naturally.
    */
   deliverFollowUpAsNextTurn(task: AgentTask) {
@@ -1985,7 +1795,7 @@ export class LocalAgentManager {
         );
         return;
       }
-      // Cancellation has disposed the live Pi session and fenced durable
+      // Cancellation has aborted the attempt and fenced its durable
       // writes, but that is not physical quiescence. Release only the
       // global slot; retain this exact attempt as the same-thread and
       // placement-ACK barrier until its provider/tool promise settles.
@@ -2252,22 +2062,11 @@ export class LocalAgentManager {
         this.persistTask(task);
       }
       const runId = `run:${task.threadId}:${++this.nextId}`;
-      // The durable run this attempt executes: a resumed attempt continues
-      // its dead run under the same id (same row, same tool intents).
-      const resume = task.resume;
-      task.resume = undefined;
-      const durableRunId = resume?.record.runId ?? `local:sub:${randomUUID()}`;
-      task.currentRunId = durableRunId;
-      // Create the session before the context load. A managed-child report
-      // can persist while that async load (or prompt hooks) is in flight;
-      // the session then retains `notifyHistoryChanged()` even before its Pi
-      // Agent exists and reloads SQLite immediately after creation.
-      const subagentSession = getOrCreateSubagentSession(
-        this.subagentSessions,
-        task.threadId,
-        task.conversationId,
-        task.agentType,
-      );
+      let steering = this.steerings.get(task.threadId);
+      if (!steering) {
+        steering = new AgentSteering(task.threadId);
+        this.steerings.set(task.threadId, steering);
+      }
       const context = await this.opts.fetchAgentContext({
         conversationId: task.conversationId,
         agentType: task.agentType,
@@ -2310,12 +2109,9 @@ export class LocalAgentManager {
         );
       }
       context.attemptGeneration = attempt.generation;
-      // A resume sends no prompt: its turn is already in the thread.
-      const taskPrompt = resume ? "" : this.buildTaskPrompt(task);
-      if (!resume) task.turnCount += 1;
+      const taskPrompt = this.buildTaskPrompt(task);
+      task.turnCount += 1;
       const runSubagentArgs: RunSubagentArgs = {
-        durableRunId,
-        ...(resume ? { resume } : {}),
         conversationId: task.conversationId,
         userMessageId: runId,
         agentType: task.agentType,
@@ -2325,15 +2121,14 @@ export class LocalAgentManager {
           ? { toolWorkspaceRoot: task.toolWorkspaceRoot }
           : {}),
         // Only with the opening prompt. They are named in the brief,
-        // not re-announced on every later turn, and a resume already
-        // has that turn in its thread.
-        ...(!resume && task.turnCount === 1 && task.attachments?.length
+        // not re-announced on every later turn.
+        ...(task.turnCount === 1 && task.attachments?.length
           ? { attachments: task.attachments }
           : {}),
         taskDescription: task.description,
         taskPrompt,
         agentContext: context,
-        subagentSession,
+        steering,
         persistToCloud: task.storageMode === "cloud",
         ownerGeneration: task.ownerGeneration,
         enableRemoteTools: true,
@@ -2494,9 +2289,6 @@ export class LocalAgentManager {
           task.activeToolCount = 0;
         }
       }
-      // A graceful stop suspended this attempt for resume: its row and
-      // thread stay exactly as a crash would leave them.
-      if (task.suspended) return;
       if (!isCurrentAttempt()) return;
       task.completedAt = Date.now();
       if (attempt.controller.signal.aborted || task.status === "canceled") {
@@ -2513,7 +2305,6 @@ export class LocalAgentManager {
         task.result = result.result;
       }
     } catch (error) {
-      if (task.suspended) return;
       if (!isCurrentAttempt()) return;
       task.completedAt = Date.now();
       if (attempt.controller.signal.aborted) {
@@ -2542,18 +2333,6 @@ export class LocalAgentManager {
           task.error = (error as Error).message ?? "Task failed";
         }
       }
-      // The attempt ended before (or outside) its session's own
-      // settlement: settle its durable row so it is not resumed.
-      if (task.currentRunId) {
-        try {
-          this.opts.finishAgentRun?.(
-            task.currentRunId,
-            task.status === "canceled" ? "canceled" : "failed",
-          );
-        } catch {
-          // The next boot's recovery plan settles it.
-        }
-      }
     }
     if (!isCurrentAttempt()) return;
     const cloudStartAdmissionRejected =
@@ -2576,20 +2355,11 @@ export class LocalAgentManager {
       this.deliverFollowUpAsNextTurn(task);
       return;
     }
-    // Task has reached a terminal status (completed/error/canceled). Drop
-    // the long-lived SubagentSession so its Agent + message array can be
-    // reclaimed; future tasks for this threadId would build a fresh
-    // session if the runtime ever re-enqueues this thread (rare — terminal
-    // is sticky). Done before persistTask + lifecycle emit so any
-    // listener-triggered work (e.g. cloud sync) doesn't see stale state.
-    const session = this.subagentSessions.get(task.threadId);
-    if (session && !task.descendantFinalParked) {
-      this.subagentSessions.delete(task.threadId);
-      try {
-        session.dispose();
-      } catch {
-        // Best-effort: dispose just aborts the agent and frees the ref.
-      }
+    // Task has reached a terminal status (completed/error/canceled): drop
+    // its steering. A re-enqueued thread (rare — terminal is sticky)
+    // builds a fresh one.
+    if (!task.descendantFinalParked) {
+      this.steerings.delete(task.threadId);
     }
     this.persistTask(task);
     if (cloudStartAdmissionPending) {
@@ -2874,71 +2644,52 @@ export class LocalAgentManager {
       runId: args.agentId,
       threadId: args.agentId,
     });
-    const session = getOrCreateSubagentSession(
-      this.subagentSessions,
-      args.agentId,
-      args.conversationId,
+    const outcome = await this.opts.runSubagent({
+      conversationId: args.conversationId,
+      userMessageId: args.agentId,
       agentType,
-    );
-    try {
-      const outcome = await this.opts.runSubagent({
-        conversationId: args.conversationId,
-        userMessageId: args.agentId,
-        agentType,
-        agentId: args.agentId,
-        ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}),
-        taskDescription: args.description,
-        taskPrompt: args.prompt,
-        agentContext,
-        subagentSession: session,
-        persistToCloud: false,
-        enableRemoteTools: true,
-        abortSignal: args.signal,
-        toolExecutor: async (toolName, toolArgs, toolContext, signal) => {
-          const scopedContext = {
-            ...toolContext,
-            agentId: args.agentId,
-            agentDepth: 1,
-            maxAgentDepth: agentContext.maxAgentDepth,
-          };
-          const lockKey = getFsLockKey(toolName, toolArgs, scopedContext);
-          if (!lockKey) {
-            return await this.opts.toolExecutor(
-              toolName,
-              toolArgs,
-              scopedContext,
-              signal,
-            );
-          }
-          const release = await this.acquireFsLock(args.agentId, lockKey);
-          try {
-            return await this.opts.toolExecutor(
-              toolName,
-              toolArgs,
-              scopedContext,
-              signal,
-            );
-          } finally {
-            release();
-          }
-        },
-      });
-      return {
-        result: outcome.result,
-        ...(outcome.error ? { error: outcome.error } : {}),
-        ...(outcome.interrupted ? { interrupted: true } : {}),
-      };
-    } finally {
-      const liveSession = this.subagentSessions.get(args.agentId);
-      if (liveSession) {
-        this.subagentSessions.delete(args.agentId);
-        try {
-          liveSession.dispose();
-        } catch {
-          // Best-effort.
+      agentId: args.agentId,
+      ...(args.rootRunId ? { rootRunId: args.rootRunId } : {}),
+      taskDescription: args.description,
+      taskPrompt: args.prompt,
+      agentContext,
+      persistToCloud: false,
+      enableRemoteTools: true,
+      abortSignal: args.signal,
+      toolExecutor: async (toolName, toolArgs, toolContext, signal) => {
+        const scopedContext = {
+          ...toolContext,
+          agentId: args.agentId,
+          agentDepth: 1,
+          maxAgentDepth: agentContext.maxAgentDepth,
+        };
+        const lockKey = getFsLockKey(toolName, toolArgs, scopedContext);
+        if (!lockKey) {
+          return await this.opts.toolExecutor(
+            toolName,
+            toolArgs,
+            scopedContext,
+            signal,
+          );
         }
-      }
-    }
+        const release = await this.acquireFsLock(args.agentId, lockKey);
+        try {
+          return await this.opts.toolExecutor(
+            toolName,
+            toolArgs,
+            scopedContext,
+            signal,
+          );
+        } finally {
+          release();
+        }
+      },
+    });
+    return {
+      result: outcome.result,
+      ...(outcome.error ? { error: outcome.error } : {}),
+      ...(outcome.interrupted ? { interrupted: true } : {}),
+    };
   }
   /**
    * Cancel every descendant thread of a parent. Member discovery comes
@@ -3047,26 +2798,10 @@ export class LocalAgentManager {
     // v2 performs a graceful Effect shutdown first, which durably cancels
     // those rows. Capture every resumable task before that cancellation so the
     // episode-stamped sidecar remains the authoritative recovery evidence.
-    // Attempts whose durable run the stop suspended are left exactly as a
-    // crash would leave them (running row, open intents): the next worker
-    // resumes them, so they are neither canceled nor snapshotted for
-    // restart-continuation.
-    this.durableResumeFiber?.interruptUnsafe();
-    for (const task of this.tasks.values()) {
-      if (
-        task.status === "running" &&
-        task.currentRunId &&
-        this.opts.isRunSuspended?.(task.currentRunId)
-      ) {
-        task.suspended = true;
-      }
-    }
     this.persistInterruptionSnapshot(
       [...this.tasks.values()]
         .filter(
-          (task) =>
-            !task.suspended &&
-            (task.status === "pending" || task.status === "running"),
+          (task) => task.status === "pending" || task.status === "running",
         )
         .map(({ threadId, conversationId }) => ({
           threadId,
@@ -3076,10 +2811,6 @@ export class LocalAgentManager {
     const cancels: Promise<unknown>[] = [];
     for (const task of this.tasks.values()) {
       if (!this.isActiveAgentState(task)) continue;
-      if (task.suspended) {
-        this.suspendTaskAttempt(task);
-        continue;
-      }
       cancels.push(
         this.cancelAgent(task.threadId, reason).catch(() => undefined),
       );
@@ -3092,23 +2823,6 @@ export class LocalAgentManager {
     // This never touches the run loops themselves — those were cancelled
     // cooperatively above and are joined by the kernel run supervisor.
     await this.closeSupervisoryScope();
-  }
-  /**
-   * Stop a suspended attempt without any durable transition: abort its
-   * loop (every write it would make on the way out is fenced by the
-   * suspension) and drop its live session.
-   */
-  suspendTaskAttempt(task: AgentTask) {
-    task.controller.abort(new Error(AGENT_SHUTDOWN_CANCEL_REASON));
-    const session = this.subagentSessions.get(task.threadId);
-    if (session) {
-      this.subagentSessions.delete(task.threadId);
-      try {
-        session.dispose();
-      } catch {
-        // Best-effort.
-      }
-    }
   }
   /** Effect facade over `shutdown` for Effect-native callers. */
   shutdownEffect(reason = AGENT_SHUTDOWN_CANCEL_REASON) {
@@ -3129,12 +2843,6 @@ export class LocalAgentManager {
   }
   async cancelAgent(agentId: string, reason?: string) {
     const local = this.tasks.get(agentId);
-    if (local?.suspended) {
-      // Shutdown suspended this attempt for resume; a supervisor abort
-      // must not turn that into a durable cancel.
-      this.suspendTaskAttempt(local);
-      return { canceled: true };
-    }
     if (local) {
       const wasParked =
         local.status === "completed" && local.descendantFinalParked;
@@ -3180,41 +2888,14 @@ export class LocalAgentManager {
         attemptGeneration: canceledGeneration,
         statusText: "Pausing",
       });
-      // Durable abort mark before the signal: a worker lost during the
-      // teardown below never resumes this run.
-      if (local.currentRunId) {
-        try {
-          this.opts.requestRunAbort?.(local.currentRunId);
-        } catch {
-          // The cancel still proceeds; the boot sweep cancels the row.
-        }
-      }
       local.controller.abort(new Error(local.error));
       const activeAttempt = this.inFlightAttempts.get(agentId);
       if (activeAttempt) {
         this.scheduleCanceledAttemptRelease(local, activeAttempt);
       }
-      // Dispose the long-lived `SubagentSession` eagerly here too.
-      // `executeTask` disposes at the end of the run, which is the
-      // happy path for normal cancellation (abort propagates into
-      // `runTurn`, the interrupted finalize fires, executeTask
-      // reaches its dispose block). But if the abort gets swallowed
-      // mid-flight (e.g. a tool executor doesn't honor the signal,
-      // or executeTask isn't running yet because the task was still
-      // pending), the session's Pi `Agent` would stay allocated
-      // forever — the canceled task never re-enters `executeTask`.
-      // `PiSessionCore.dispose` is idempotent and guarded against
-      // already-null state, so calling it from both paths is safe;
-      // the second call is a no-op.
-      const session = this.subagentSessions.get(agentId);
-      if (session) {
-        this.subagentSessions.delete(agentId);
-        try {
-          session.dispose();
-        } catch {
-          // Best-effort.
-        }
-      }
+      // Drop its steering here too: a task canceled while still pending
+      // never re-enters `executeTask`, which drops it at the end.
+      this.steerings.delete(agentId);
       let cancellationEvent: AgentLifecycleEvent | undefined;
       if (
         (!local.terminalEventEmitted || wasParked) &&
@@ -3557,12 +3238,6 @@ export class LocalAgentManager {
       this.enqueueTask(resumedTask);
       return { delivered: true, resumed: true };
     }
-    if (isChildReport) {
-      // The orchestration layer persisted the report before calling us. Make
-      // that durable row the only report source; a live session refreshes it
-      // at the next turn instead of receiving a duplicate prompt copy.
-      this.subagentSessions.get(agentId)?.notifyHistoryChanged();
-    }
     if (
       deliveryEventId &&
       task.consumedDescendantEventIds.includes(deliveryEventId)
@@ -3652,11 +3327,11 @@ export class LocalAgentManager {
     });
     let steered = false;
     if (task.status === "running" && !task.controller.signal.aborted) {
-      const session = this.subagentSessions.get(task.threadId);
-      if (session?.canSteer) {
+      const steering = this.steerings.get(task.threadId);
+      if (steering?.canSteer) {
         const queued = [...task.toSubagentQueue];
         const steeringPrompt = this.formatTaskPrompt(task, queued, "steering");
-        if (session.steer(steeringPrompt)) {
+        if (steering.steer(steeringPrompt)) {
           steered = true;
           task.toSubagentQueue.splice(0, queued.length);
           task.pendingStartStatusText = undefined;

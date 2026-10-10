@@ -26,6 +26,7 @@ export const IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE =
 
 export const IPC_DISPLAY_UPDATE = "display:update" as const;
 export const IPC_DISPLAY_READ_FILE = "display:readFile" as const;
+export const IPC_DISPLAY_MEDIA_SOURCE = "display:mediaSource" as const;
 export const IPC_DISPLAY_LIST_CANVAS_HTML = "display:listCanvasHtml" as const;
 export const IPC_DISPLAY_OPEN_SHARED_CANVAS =
   "display:openSharedCanvas" as const;
@@ -176,6 +177,13 @@ export const IPC_AGENT_SEND_INPUT = "agent:sendInput" as const;
 export const IPC_AGENT_CANCEL_CHAT = "agent:cancelChat" as const;
 export const IPC_AGENT_RESUME = "agent:resume" as const;
 export const IPC_AGENT_EVENT = "agent:event" as const;
+/** The pi-durable chat: requests (`PiChatRequest`), and a watched conversation's events. */
+export const IPC_PI_CHAT_REQUEST = "piChat:request" as const;
+export const IPC_PI_CHAT_EVENTS = "piChat:events" as const;
+/** Whether the desktop chat runs on pi-durable: unless the user's engine is Claude Code. */
+export const IPC_PI_CHAT_ENABLED = "piChat:enabled" as const;
+/** Sent to every window when the user's engine moves the chat onto or off pi-durable. */
+export const IPC_PI_CHAT_ENABLED_CHANGED = "piChat:enabledChanged" as const;
 /**
  * Fired by the main process whenever the runtime client transitions
  * between connected and disconnected — most importantly after the
@@ -381,14 +389,6 @@ export const IPC_LOCAL_CHAT_LIST_CONVERSATIONS =
   "localChat:listConversations" as const;
 export const IPC_LOCAL_CHAT_DELETE_CONVERSATION =
   "localChat:deleteConversation" as const;
-// Truncate a conversation at (and including) a user message — the desktop
-// "Rewind here" action. Removes the target event and every event after it.
-export const IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION =
-  "localChat:truncateConversation" as const;
-// Branch a conversation's prefix (everything BEFORE a user message) into a
-// brand-new conversation — the desktop "Fork to new chat" action.
-export const IPC_LOCAL_CHAT_FORK_CONVERSATION =
-  "localChat:forkConversation" as const;
 export const IPC_LOCAL_CHAT_LIST_EVENTS = "localChat:listEvents" as const;
 export const IPC_LOCAL_CHAT_LIST_MESSAGES = "localChat:listMessages" as const;
 export const IPC_LOCAL_CHAT_LIST_MESSAGES_BEFORE =

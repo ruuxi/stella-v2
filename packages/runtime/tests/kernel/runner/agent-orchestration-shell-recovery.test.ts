@@ -11,15 +11,6 @@ vi.mock("@stella/runtime/kernel/agent-runtime", () => ({
   shutdownSubagentRuntimes: vi.fn(),
 }));
 
-vi.mock("@stella/runtime/kernel/runner/model-selection", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@stella/runtime/kernel/runner/model-selection")
-  >()),
-  createRunnerImageDescriptionService: vi.fn(() =>
-    vi.fn(async () => "described image"),
-  ),
-}));
-
 import { createAgentOrchestration } from "@stella/runtime/kernel/runner/agent-orchestration";
 
 describe("subagent shell recovery scope", () => {
@@ -34,7 +25,6 @@ describe("subagent shell recovery scope", () => {
         backendUrl: "https://example.test",
         hasConnectedAccount: false,
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
         conversationCallbacks: new Map(),
         compactionScheduler: {},
@@ -108,7 +98,6 @@ describe("subagent shell recovery scope", () => {
         isRunning: true,
         backgroundExitWake: { arm, disarm },
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
       },
       runtimeStore: {},
@@ -177,7 +166,6 @@ describe("subagent shell recovery scope", () => {
         isRunning: false,
         backgroundExitWake: { arm, disarm },
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
       },
       runtimeStore: {},
@@ -222,7 +210,6 @@ describe("subagent shell recovery scope", () => {
         isRunning: true,
         backgroundExitWake: { arm: vi.fn(), disarm },
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
       },
       runtimeStore: {
@@ -272,7 +259,6 @@ describe("subagent shell recovery scope", () => {
         isRunning: true,
         backgroundExitWake: null,
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
         conversationCallbacks: new Map(),
       },
@@ -307,7 +293,6 @@ describe("subagent shell recovery scope", () => {
       state: {
         ...context.state,
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
         conversationCallbacks: new Map(),
       },
@@ -362,7 +347,6 @@ describe("subagent shell recovery scope", () => {
         isRunning: true,
         backgroundExitWake: null,
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
         conversationCallbacks: new Map(),
       },

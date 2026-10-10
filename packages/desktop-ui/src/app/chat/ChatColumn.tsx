@@ -25,6 +25,7 @@ import {
 } from "react";
 import { ChevronDown } from "@/ui/icons";
 import { ConnectorConnectCard } from "./ConnectorConnectCard";
+import { AppSourceOffers } from "@/features/app-source/AppSourceCards";
 import { ComposerNotice } from "./ComposerNotice";
 import { CloudBrowserInterventionCard } from "@/features/cloud/CloudBrowserInterventionCard";
 import { CloudConnectorConnectCard } from "@/features/cloud/CloudConnectorConnectCard";
@@ -363,6 +364,20 @@ export const ChatColumn = memo(function ChatColumn({
     [dismissReplyPeek, replyPeekText, replyPeekVisible, scrollToBottom],
   );
 
+  // Changes to Stella no agent here made (the user's other computers, drafts
+  // made by hand) are Stella's latest messages in the chat. Agents' changes
+  // show on their own messages; new versions are the top bar's.
+  const extraTail = conversation.extraTail;
+  const chatTail = useMemo(
+    () => (
+      <>
+        {extraTail}
+        <AppSourceOffers />
+      </>
+    ),
+    [extraTail],
+  );
+
   // Home content is an overlay ON TOP of the always-mounted chat, not a
   // replacement for it — so navigating home and back never unmounts the
   // LegendList. That preserves the user's scroll position and removes the
@@ -397,7 +412,13 @@ export const ChatColumn = memo(function ChatColumn({
             strip — instead of sitting at the inside edge of the
             centered chat column. */}
           <div className="chat-viewport-region">
-            <div style={{ height: "100%" }} inert={Boolean(focus) || undefined}>
+            <div
+              style={{
+                height: "100%",
+                visibility: scroll.isOpeningScroll ? "hidden" : undefined,
+              }}
+              inert={Boolean(focus) || undefined}
+            >
               <MessageReplyContext.Provider value={handleReplyToMessage}>
                 <ConversationEvents
                   messages={messages}
@@ -416,7 +437,7 @@ export const ChatColumn = memo(function ChatColumn({
                   className="session-content"
                   contentContainerStyle={FULL_CHAT_CONTENT_STYLE}
                   estimatedItemSize={140}
-                  extraTail={conversation.extraTail}
+                  extraTail={chatTail}
                 />
               </MessageReplyContext.Provider>
 
@@ -484,7 +505,10 @@ export const ChatColumn = memo(function ChatColumn({
               inert={showHomeContent ? undefined : true}
             >
               {showHomeContent ? (
-                <ComposerNotice conversationId={conversationId} />
+                <>
+                  <AppSourceOffers />
+                  <ComposerNotice conversationId={conversationId} />
+                </>
               ) : null}
               {renderComposer("home", null)}
             </div>

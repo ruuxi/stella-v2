@@ -372,6 +372,9 @@ const trimDuplicatedTransitionUserEvent = (
 ): LocalContextEvent[] => {
   const leadingStoredUserPreviews: string[] = [];
   for (const message of storedThreadMessages) {
+    if (message.role === "runtimeInternal") {
+      continue;
+    }
     if (message.role !== "user") {
       break;
     }

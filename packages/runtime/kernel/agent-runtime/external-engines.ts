@@ -1,4 +1,6 @@
 import crypto from "crypto";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import type {
   AssistantMessage,
   ImageContent,
@@ -53,6 +55,7 @@ import {
   resolveInterruptionReason,
 } from "./run-completion.js";
 import { superviseExternalEngineTurn } from "./external-engine-lifecycle.js";
+import { createRuntimeLogger } from "../debug.js";
 import {
   createExternalOrchestratorRunSession,
   createExternalSubagentRunSession,
@@ -480,6 +483,40 @@ const buildStellaHistoryBlock = (
   };
 };
 
+const toStellaHistoryEntries = (
+  history: readonly AgentMessage[],
+): StellaHistoryEntry[] =>
+  history
+    .map((message, index): StellaHistoryEntry | null => {
+      if (
+        message.role === "runtimeInternal" &&
+        message.customType === STELLA_HISTORY_CUSTOM_TYPE
+      ) {
+        return null;
+      }
+      const text = contentToText(message.content);
+      if (!text) return null;
+      return {
+        hash: hashHistoryEntry(message.role, text),
+        line: `<history_message index="${index + 1}" role="${message.role}">\n${text}\n</history_message>`,
+      };
+    })
+    .filter((entry): entry is StellaHistoryEntry => entry !== null);
+
+const historyEntryHashesWrittenSince = (args: {
+  opts: BaseRunOptions;
+  threadKey: string;
+  since: number;
+}): string[] =>
+  toStellaHistoryEntries(
+    buildHistorySource({
+      memoryEnabled: args.opts.agentContext.memoryEnabled,
+      threadHistory: args.opts.store
+        .loadThreadMessages(args.threadKey)
+        .filter((row) => row.timestamp >= args.since),
+    }),
+  ).map((entry) => entry.hash);
+
 export type ExternalStellaHistoryDelivery = {
   entryHashes: string[];
   full: RuntimePromptMessage | null;
@@ -513,22 +550,7 @@ export const buildExternalStellaHistoryDelivery = (args: {
   ) {
     trimmedHistory.pop();
   }
-  const entries = trimmedHistory
-    .map((message, index): StellaHistoryEntry | null => {
-      if (
-        message.role === "runtimeInternal" &&
-        message.customType === STELLA_HISTORY_CUSTOM_TYPE
-      ) {
-        return null;
-      }
-      const text = contentToText(message.content);
-      if (!text) return null;
-      return {
-        hash: hashHistoryEntry(message.role, text),
-        line: `<history_message index="${index + 1}" role="${message.role}">\n${text}\n</history_message>`,
-      };
-    })
-    .filter((entry): entry is StellaHistoryEntry => entry !== null);
+  const entries = toStellaHistoryEntries(trimmedHistory);
   if (entries.length === 0) {
     return empty;
   }
@@ -562,11 +584,86 @@ type ClaudeHistoryDelivery = {
 
 const claudeHistoryDeliveries = new Map<string, ClaudeHistoryDelivery>();
 
+const historyDeliveryLogger = createRuntimeLogger(
+  "claude-code-history-delivery",
+);
+
+const claudeHistoryDeliveryFile = (
+  stellaDataDir: string,
+  sessionKey: string,
+): string =>
+  path.join(
+    stellaDataDir,
+    "cache",
+    "claude-code-history",
+    `${crypto.createHash("sha1").update(sessionKey).digest("hex")}.json`,
+  );
+
+const loadClaudeHistoryDelivery = (
+  stellaDataDir: string | undefined,
+  sessionKey: string,
+): ClaudeHistoryDelivery | undefined => {
+  const cached = claudeHistoryDeliveries.get(sessionKey);
+  if (cached || !stellaDataDir) {
+    return cached;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(
+      readFileSync(
+        claudeHistoryDeliveryFile(stellaDataDir, sessionKey),
+        "utf8",
+      ),
+    );
+  } catch {
+    return undefined;
+  }
+  const record = parsed as Partial<ClaudeHistoryDelivery> | null;
+  if (
+    !record ||
+    typeof record.sessionId !== "string" ||
+    !Array.isArray(record.hashes) ||
+    !record.hashes.every((hash) => typeof hash === "string")
+  ) {
+    return undefined;
+  }
+  const state: ClaudeHistoryDelivery = {
+    sessionId: record.sessionId,
+    hashes: record.hashes,
+    staleAfterCompaction: record.staleAfterCompaction === true,
+  };
+  claudeHistoryDeliveries.set(sessionKey, state);
+  return state;
+};
+
+const saveClaudeHistoryDelivery = (
+  stellaDataDir: string | undefined,
+  sessionKey: string,
+  state: ClaudeHistoryDelivery,
+): void => {
+  claudeHistoryDeliveries.set(sessionKey, state);
+  if (!stellaDataDir) {
+    return;
+  }
+  const file = claudeHistoryDeliveryFile(stellaDataDir, sessionKey);
+  const temporary = `${file}.${process.pid}.tmp`;
+  try {
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(temporary, JSON.stringify(state));
+    renameSync(temporary, file);
+  } catch (error) {
+    historyDeliveryLogger.warn("claude-code-history-delivery.save-failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
 const readClaudeHistoryDelivery = (
+  stellaDataDir: string | undefined,
   sessionKey: string,
   resumableSessionId: string | undefined,
 ): Set<string> | undefined => {
-  const state = claudeHistoryDeliveries.get(sessionKey);
+  const state = loadClaudeHistoryDelivery(stellaDataDir, sessionKey);
   if (!state) {
     return undefined;
   }
@@ -581,12 +678,16 @@ const readClaudeHistoryDelivery = (
 };
 
 const recordClaudeHistoryDelivery = (args: {
+  stellaDataDir: string | undefined;
   sessionKey: string;
   sessionId: string;
   entryHashes: readonly string[];
   staleAfterCompaction: boolean;
 }): void => {
-  const previous = claudeHistoryDeliveries.get(args.sessionKey);
+  const previous = loadClaudeHistoryDelivery(
+    args.stellaDataDir,
+    args.sessionKey,
+  );
   const merged =
     previous && previous.sessionId === args.sessionId
       ? [...previous.hashes, ...args.entryHashes]
@@ -601,7 +702,7 @@ const recordClaudeHistoryDelivery = (args: {
     if (newest.length >= CLAUDE_HISTORY_DELIVERY_LIMIT) break;
   }
   newest.reverse();
-  claudeHistoryDeliveries.set(args.sessionKey, {
+  saveClaudeHistoryDelivery(args.stellaDataDir, args.sessionKey, {
     sessionId: args.sessionId,
     hashes: newest,
     staleAfterCompaction: args.staleAfterCompaction,
@@ -1285,14 +1386,26 @@ const buildClaudeHostedPrompt = (args: {
   deliversHistoryIncrementally: boolean;
   /** False when the CLI compacted its transcript since the last delivery. */
   reuseDeliveredHistory: boolean;
+  deliveredThisRun?: readonly string[];
   watermarkTracker: ReturnType<typeof createExternalDeltaWatermarkTracker>;
   initialDeliveredEntryId: string | undefined;
   alwaysCarryReseedDelta: boolean;
 }): ClaudeHostedPrompt => {
-  const deliveredHistoryHashes =
+  const recordedHistoryHashes =
     args.deliversHistoryIncrementally && args.reuseDeliveredHistory
-      ? readClaudeHistoryDelivery(args.sessionKey, args.sessionId)
+      ? readClaudeHistoryDelivery(
+          args.opts.stellaDataDir,
+          args.sessionKey,
+          args.sessionId,
+        )
       : undefined;
+  const deliveredHistoryHashes =
+    args.deliversHistoryIncrementally &&
+    args.reuseDeliveredHistory &&
+    args.sessionId &&
+    args.deliveredThisRun?.length
+      ? new Set([...(recordedHistoryHashes ?? []), ...args.deliveredThisRun])
+      : recordedHistoryHashes;
   const history = buildExternalStellaHistoryDelivery({
     opts: args.opts,
     promptMessages: args.promptMessages,
@@ -1587,6 +1700,7 @@ const runClaudeTurnsUntilDrained = async (args: {
     promptMessages: RuntimePromptMessage[];
     activeSessionId: string | undefined;
     compactedSincePromptBuild: boolean;
+    deliveredThisRun: readonly string[];
   }) => ClaudeHostedPrompt;
   assistantUpdateBuffer: ReturnType<typeof createExternalAssistantUpdateBuffer>;
   watermarkTracker: ReturnType<typeof createExternalDeltaWatermarkTracker>;
@@ -1785,8 +1899,11 @@ const runClaudeTurnsUntilDrained = async (args: {
       promptMessages: queued.map(formatQueuedClaudeMessage),
       activeSessionId,
       compactedSincePromptBuild,
+      deliveredThisRun: historyEntryHashes,
     });
-    historyEntryHashes = queuedPrompt.historyEntryHashes;
+    historyEntryHashes = compactedSincePromptBuild
+      ? queuedPrompt.historyEntryHashes
+      : [...historyEntryHashes, ...queuedPrompt.historyEntryHashes];
     compactedSincePromptBuild = false;
     nextPrompt = queuedPrompt.prompt;
     nextResumeFallbackPrompt = queuedPrompt.resumeFallbackPrompt;
@@ -1817,6 +1934,7 @@ const runClaudeHostedTurn = async (
   };
   const { runId, threadKey, runEvents } = args.session;
 
+  const turnStartedAt = now();
   persistExternalPromptMessages(args.opts, threadKey, args.promptMessages);
 
   if (args.opts.abortSignal?.aborted) {
@@ -2054,6 +2172,7 @@ const runClaudeHostedTurn = async (
       promptMessages,
       activeSessionId,
       compactedSincePromptBuild,
+      deliveredThisRun,
     }) =>
       buildClaudeHostedPrompt({
         ...promptContext,
@@ -2062,6 +2181,7 @@ const runClaudeHostedTurn = async (
           activeSessionId ??
           (deliversHistoryIncrementally ? resumableSessionId : undefined),
         reuseDeliveredHistory: !compactedSincePromptBuild,
+        deliveredThisRun,
         alwaysCarryReseedDelta: true,
       }),
     assistantUpdateBuffer,
@@ -2083,9 +2203,17 @@ const runClaudeHostedTurn = async (
       const reseeded =
         resumesExistingSession && finalResult.sessionId !== resumableSessionId;
       recordClaudeHistoryDelivery({
+        stellaDataDir: args.opts.stellaDataDir,
         sessionKey,
         sessionId: finalResult.sessionId,
-        entryHashes: drained.historyEntryHashes,
+        entryHashes: [
+          ...drained.historyEntryHashes,
+          ...historyEntryHashesWrittenSince({
+            opts: args.opts,
+            threadKey,
+            since: turnStartedAt,
+          }),
+        ],
         staleAfterCompaction: drained.compactedSincePromptBuild || reseeded,
       });
     }

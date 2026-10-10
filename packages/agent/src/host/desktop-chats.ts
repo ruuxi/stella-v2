@@ -95,6 +95,7 @@ import { journalMirror, type DesktopJournal, type JournalMirror } from "./deskto
 import { localLogMirror, writtenReply, type DesktopLocalLog, type LocalLogMirror } from "./desktop-local-log.ts";
 import { desktopGatewayAccess, resolveStellaModels } from "./desktop-gateway.ts";
 import { desktopContextSources } from "./desktop-sources.ts";
+import { stopStella } from "../stella/stop.ts";
 
 /** The newest entries a client gets when it attaches, and per older page. */
 const HISTORY_PAGE = 200;
@@ -989,7 +990,7 @@ export function desktopChats(options: DesktopChatsOptions) {
   const stopPlacement = async ({ chat, submission }: Placement) => {
     if (!chat || !submission) return;
     const withdrawn = await chat.harness.abortSubmission(submission.id, context, chat.root.id);
-    if (withdrawn === "already_placed") await chat.root.abort(context);
+    if (withdrawn === "already_placed") await stopStella(chat.harness, chat.root, context);
   };
 
   /**
@@ -1312,9 +1313,11 @@ export function desktopChats(options: DesktopChatsOptions) {
       switch (request.op) {
         case "submit":
           return submit(request.conversationId, request.requestId, request.text);
-        case "abort":
-          await (await open(request.conversationId)).root.abort(context);
+        case "abort": {
+          const chat = await open(request.conversationId);
+          await stopStella(chat.harness, chat.root, context);
           return { ok: true };
+        }
         case "watch":
           return watch(request.conversationId);
         case "unwatch":

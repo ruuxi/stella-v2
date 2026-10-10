@@ -32,6 +32,7 @@ import {
   type JournalStart,
   type JournalSyncState,
 } from "../stella/journal-sync.ts";
+import { stopStella } from "../stella/stop.ts";
 
 /** One journal record as `history.read` returns it; only messages are imported. */
 export type JournalReadRecord = {
@@ -217,7 +218,7 @@ export async function journalMirror(args: {
       if (page.complete || through <= after) break;
       after = through;
     }
-    if (stoppedElsewhere) await root.abort(context);
+    if (stoppedElsewhere) await stopStella(harness, root, context);
     const turns = remoteTurns();
     const seen = JSON.stringify(turns);
     if (seen !== remoteSeen) {

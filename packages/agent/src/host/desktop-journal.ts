@@ -20,6 +20,7 @@ import { piJournalUserMessage, type PiRemoteTurn, type PiUserMessage } from "@st
 import { CLIENT_MSG_ID_PATTERN } from "@stella/contracts/turn-plane/turn-start";
 import {
   importJournal,
+  journalImportAfter,
   journalSeqOf,
   JournalSyncDoc,
   type JournalAgentReport,
@@ -167,11 +168,11 @@ export async function journalMirror(args: {
     }, context);
 
   const importNow = async () => {
-    const imported = (await doc()).importedSeq;
-    let after: number = imported ?? (await journal.contextStartSeq()) - 1;
+    const start = await journalImportAfter(await doc(), journal.contextStartSeq);
+    let after: number = start.after;
     // A first import starts at a prompt: a window may open mid-turn, on tool
     // results whose calls it no longer holds.
-    let atPrompt = imported !== undefined;
+    let atPrompt = start.seededFromSeq === undefined;
     let stoppedElsewhere = false;
     for (;;) {
       const page = await journal.read(after);
@@ -205,7 +206,7 @@ export async function journalMirror(args: {
         messages.push(message);
       }
       const through: number = page.records.at(-1)?.seq ?? after;
-      await importJournal(harness, root, messages, through, context);
+      await importJournal(harness, root, messages, through, context, start.seededFromSeq);
       if (page.complete || through <= after) break;
       after = through;
     }

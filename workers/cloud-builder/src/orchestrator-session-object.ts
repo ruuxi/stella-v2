@@ -5612,6 +5612,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           storage: this.ctx.storage,
           env: this.env,
           gatewayOrigin,
+          contextStartSeq: () =>
+            this.journal.contextStartSeq("", CLOUD_HISTORY_TOKEN_BUDGET),
           waitUntil: (work) => this.ctx.waitUntil(work),
           report: (error) =>
             log("error", "pi_runtime_report", { message: errorMessage(error) }),

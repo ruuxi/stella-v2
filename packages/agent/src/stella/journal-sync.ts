@@ -9,7 +9,15 @@
  */
 import type { Context } from "@earendil-works/chord";
 import type { Message } from "@earendil-works/pi-ai";
-import { defineDoc, type Conversation, type EntryRecord, type Harness } from "@earendil-works/pi-durable";
+import {
+  defineDoc,
+  defineEntry,
+  type Conversation,
+  type Cursor,
+  type EntryId,
+  type EntryRecord,
+  type Harness,
+} from "@earendil-works/pi-durable";
 import { noteRemoteReport } from "./agents.ts";
 
 /** One journaled message, as a reader of the journal gets it. */
@@ -48,6 +56,12 @@ export type JournalSyncState = {
   syncId?: string;
   /** The newest journal seq written into the transcript. */
   importedSeq?: number;
+  /**
+   * The journal's context start the transcript was seeded from
+   * (`journalImportAfter`). Absent on one seeded before that rule, which may
+   * have read the whole journal.
+   */
+  seededFromSeq?: number;
   /** The newest transcript entry mirrored into the journal. */
   mirrored?: number;
   open?: JournalOpenTurn;
@@ -69,6 +83,72 @@ export const JournalSyncDoc = defineDoc<JournalSyncState>({
 });
 
 const ENTRY_KIND = { user: "pi.user", assistant: "pi.assistant", toolResult: "pi.tool-result" } as const;
+
+/**
+ * Where a transcript's context starts after `alignJournalContext` cut it to
+ * the journal's context start. It carries no message; its `head` is the
+ * first entry kept, or itself when nothing after the cut is a prompt.
+ */
+export const JournalContextStartEntry = defineEntry("stella.journal-context-start");
+
+const ALIGN_SCAN_PAGE = 64;
+
+/**
+ * The journal seq a transcript's import reads after: where it left off, or,
+ * for one that never imported, just before the journal's context start (the
+ * window the journal keeps for a turn, `contextStartSeq`). Every host seeds
+ * a transcript there, so a long conversation is never replayed whole; from
+ * then on the transcript's own compaction keeps its context in bounds.
+ */
+export const journalImportAfter = async (
+  state: Readonly<JournalSyncState> | undefined,
+  contextStartSeq: () => number | Promise<number>,
+): Promise<{ after: number; seededFromSeq?: number }> => {
+  if (state?.importedSeq !== undefined) return { after: state.importedSeq };
+  const start = await contextStartSeq();
+  return { after: start - 1, seededFromSeq: start };
+};
+
+/**
+ * Bring a transcript seeded before `journalImportAfter`, which read the whole
+ * journal, to the same start: a head marker at its first prompt from
+ * `contextStartSeq` on, so older entries stay in it but out of context. One
+ * that compaction or a reset already bounds is left as it is. Runs once per
+ * transcript; returns whether it cut.
+ */
+export async function alignJournalContext(
+  harness: Harness,
+  root: Conversation,
+  contextStartSeq: number,
+  context: Context,
+): Promise<boolean> {
+  return await harness.commit(async (tx) => {
+    const doc = await tx.doc(JournalSyncDoc, root.id);
+    if (doc.importedSeq === undefined || doc.seededFromSeq !== undefined) return false;
+    doc.seededFromSeq = contextStartSeq;
+    const marker = await tx.latestHeadMarker(root.id);
+    let firstKept: EntryId | undefined;
+    let older: EntryId | undefined;
+    let cursor: Cursor | undefined;
+    do {
+      const page = await tx.scanEntries({ conversationId: root.id, order: "descending" }, ALIGN_SCAN_PAGE, cursor);
+      for (const entry of page.items) {
+        const seq = journalSeqOf(entry);
+        if (seq !== undefined && seq < contextStartSeq) {
+          older = entry.id;
+          break;
+        }
+        if (entry.kind === ENTRY_KIND.user) firstKept = entry.id;
+      }
+      cursor = page.next;
+    } while (older === undefined && cursor !== undefined);
+    // Nothing older than the start, or a compaction already opens the context after it.
+    if (older === undefined || (marker && marker.head > older)) return false;
+    await tx.appendEntry(root.id, { kind: JournalContextStartEntry.kind, head: firstKept ?? "self" });
+    doc.importedSeq = Math.max(doc.importedSeq, contextStartSeq - 1);
+    return true;
+  }, context);
+}
 
 /** The journal seq of an entry written from the journal, which is never mirrored back. */
 export const journalSeqOf = (entry: Pick<EntryRecord, "data"> | undefined): number | undefined => {
@@ -107,6 +187,8 @@ export async function importJournal(
   messages: readonly (JournalMessage | JournalAgentReport)[],
   throughSeq: number,
   context: Context,
+  /** The context start a first import began at (`journalImportAfter`). */
+  seededFromSeq?: number,
 ): Promise<number> {
   const state = await harness.snapshot(JournalSyncDoc, root.id, context);
   const imported = state?.importedSeq ?? -1;
@@ -140,6 +222,7 @@ export async function importJournal(
   if (throughSeq > imported) {
     await harness.commit(async (tx) => {
       const doc = await tx.doc(JournalSyncDoc, root.id);
+      if (doc.importedSeq === undefined && seededFromSeq !== undefined) doc.seededFromSeq = seededFromSeq;
       doc.importedSeq = Math.max(doc.importedSeq ?? -1, throughSeq);
       return undefined;
     }, context);

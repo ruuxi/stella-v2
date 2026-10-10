@@ -12,9 +12,11 @@
  */
 
 import { WEB_RENDERER_UPLOAD_PREFIX } from "@stella/contracts/backend/app-source";
-import { rpcErrorStatus, type RpcResponse } from "@stella/contracts/backend/protocol";
+import type { RpcResponse } from "@stella/contracts/backend/protocol";
+import { readBodyBytes } from "./http/body.js";
+import { requireCaller } from "./http/caller.js";
+import { fail, failRpcError } from "./http/response.js";
 import { TREE_SHA_PATTERN, webRendererPrefix } from "./owner-store/domains/app-source.js";
-import { verifyCaller } from "./owner-store/routes.js";
 
 export const WEB_RENDERER_PUBLIC_PREFIX = "/web-renderer/";
 
@@ -55,9 +57,6 @@ const CONTENT_TYPES: Record<string, string> = {
 
 const contentTypeOf = (path: string) =>
   CONTENT_TYPES[path.slice(path.lastIndexOf(".") + 1).toLowerCase()] ?? "application/octet-stream";
-
-const fail = (status: number, error: string) =>
-  Response.json({ error }, { status, headers: { "cache-control": "no-store" } });
 
 /** A safe relative path, or null. */
 const cleanPath = (raw: string): string | null => {
@@ -126,19 +125,16 @@ const upload = async (
   treeSha: string,
   waitUntil: (promise: Promise<unknown>) => void,
 ): Promise<Response> => {
-  const header = request.headers.get("authorization") ?? "";
-  const verified = await verifyCaller(env, header.startsWith("Bearer ") ? header.slice(7).trim() : "");
-  if (!verified.ok) return fail(rpcErrorStatus(verified.error.code), verified.error.message);
+  const verified = await requireCaller(request, env, { allowAnonymous: false });
+  if (!verified.ok) return failRpcError(verified.error);
   const { caller } = verified;
-  if (caller.isAnonymous) return fail(403, "Sign in with an account to use this.");
-  if (Number(request.headers.get("content-length") ?? "0") > MAX_TAR_BYTES) {
-    return fail(413, "The renderer is too large.");
+  const archive = await readBodyBytes(request, MAX_TAR_BYTES);
+  if (!archive.ok) {
+    return fail(archive.status, archive.status === 413 ? "The renderer is too large." : archive.error);
   }
-  const archive = new Uint8Array(await request.arrayBuffer());
-  if (archive.byteLength > MAX_TAR_BYTES) return fail(413, "The renderer is too large.");
   let files: Array<{ path: string; bytes: Uint8Array }>;
   try {
-    files = readTar(archive);
+    files = readTar(archive.value);
   } catch (error) {
     return fail(400, error instanceof Error ? error.message : String(error));
   }

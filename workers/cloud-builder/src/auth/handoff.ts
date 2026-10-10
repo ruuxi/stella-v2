@@ -32,6 +32,7 @@ import { isAppIntegrityPurpose } from "@stella/contracts/app-integrity";
 import type { BetterAuthPlugin } from "better-auth";
 import { createAuthEndpoint, getSessionFromCtx } from "better-auth/api";
 import { makeSignature, symmetricDecrypt, symmetricEncrypt } from "better-auth/crypto";
+import { bearerCredential } from "../../../shared/bearer.js";
 import { verifyUserToken } from "../auth-jwt.js";
 import { isDisposableEmail } from "./disposable-email-domains.js";
 import { issueIntegrityNonce } from "./integrity.js";
@@ -200,7 +201,7 @@ const anonymousCaller = async (
   requireAnonymous: boolean,
 ): Promise<{ userId?: string; bearer?: string } | Response> => {
   const authorization = ctx.headers?.get("authorization")?.trim() ?? "";
-  const bearer = /^Bearer\s+(\S+)$/i.exec(authorization)?.[1];
+  const bearer = bearerCredential(authorization);
   if (authorization && !bearer) return fail(401, "The anonymous session could not be verified.");
   const session = bearer ? await bearerSession(ctx, config, bearer) : null;
   if (bearer && !session) return fail(401, "The anonymous session could not be verified.");

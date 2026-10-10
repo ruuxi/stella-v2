@@ -25,6 +25,7 @@ import {
   type TurnStateNativeCheckpoint,
   type TurnStateObjectStore,
 } from "./turn-state-registry.js";
+import { json } from "./http/response.js";
 
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_STORAGE_KEY_BYTES = 4_096;
@@ -152,12 +153,6 @@ class TurnStateOwnerRouteError extends Error {
     this.name = "TurnStateOwnerRouteError";
   }
 }
-
-const json = (body: unknown, status = 200): Response =>
-  Response.json(body, {
-    status,
-    headers: { "cache-control": "no-store" },
-  });
 
 const exactText = (value: unknown, max = 512): value is string =>
   typeof value === "string" &&

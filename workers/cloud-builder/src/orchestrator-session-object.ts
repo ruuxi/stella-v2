@@ -333,7 +333,7 @@ export class OrchestratorSessionObject extends OrchestratorTurnStart {
     if (!ownerId || !hostTurnId || !slackUserId) return json({ error: "Malformed stop." }, 400);
     if (this.journal.meta().owner_id !== ownerId) return json({ error: "owner_mismatch" }, 403);
     const relay = this.slack();
-    const agents = await relay.runningAgentIds();
+    const tracked = await relay.runningAgentIds();
     relay.stopped(hostTurnId, slackUserId);
     const turnIds = new Set<string>();
     const current = await this.ctx.storage.get<{ turnId: string; ownerId: string }>("turn");
@@ -350,21 +350,28 @@ export class OrchestratorSessionObject extends OrchestratorTurnStart {
         log("error", "slack_stop_turn_failed", { turnId, message: errorMessage(error) });
       }
     }
-    const paused: string[] = [];
-    if (agents.length) {
-      const runtime = await this.openPiRuntime(this.piGatewayOrigin());
-      const { contextFor } = await import("./pi-runtime.js");
-      for (const threadId of agents) {
+    // Every agent running here, the request's own and any it started in
+    // turn, then once more for one that was starting while the first pass ran.
+    const paused = new Set<string>();
+    const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+    const { contextFor } = await import("./pi-runtime.js");
+    const pauseRunning = async (extra: string[]): Promise<void> => {
+      const running = await runtime.runningAgents(contextFor()).catch(() => []);
+      for (const threadId of new Set([...extra, ...running.map((agent) => agent.agentId)])) {
+        if (paused.has(threadId)) continue;
         try {
           await runtime.pauseThreadAgent(threadId, contextFor());
-          paused.push(threadId);
+          paused.add(threadId);
         } catch (error) {
           log("error", "slack_stop_agent_failed", { threadId, message: errorMessage(error) });
         }
       }
-    }
-    log("info", "slack_stop", { conversationId: this.conversationId(), canceled, paused });
-    return json({ stopped: true, canceled, paused });
+    };
+    await pauseRunning(tracked);
+    await scheduler.wait(2_000);
+    await pauseRunning([]);
+    log("info", "slack_stop", { conversationId: this.conversationId(), canceled, paused: [...paused] });
+    return json({ stopped: true, canceled, paused: [...paused] });
   }
 
   async fetch(request: Request): Promise<Response> {

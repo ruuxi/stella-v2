@@ -66,7 +66,7 @@ const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 const STALE_TURN_MS = 20 * 60_000;
 const SETTLE_DELAY_MS = 6_000;
 /** Give Stella's first words a head start over the checklist. */
-const PROGRESS_GRACE_MS = 6_000;
+const PROGRESS_GRACE_MS = 25_000;
 const STALE_AGENT_MS = 3 * 60 * 60_000;
 const AGENT_TOOLS = new Set(["spawn_agent", "send_message", "agent_status", "pause_agent"]);
 
@@ -96,8 +96,11 @@ const assistantText = (payload: unknown): string | null => {
       .map((part) => part.text);
     text = parts.length ? parts.join("\n\n") : null;
   }
-  return text === null ? null : forSlack(stripMessageRefTag(splitReplyRefs(text).text));
+  return text === null ? null : forSlack(stripMessageRefTag(withoutRefs(splitReplyRefs(text).text)));
 };
+
+/** A trailing `refs` fence the model glued to its last line, closed or not. */
+const withoutRefs = (text: string): string => text.replace(/\s*`{3}[ \t]*refs\b[^`]*(?:`{3})?\s*$/u, "");
 
 /**
  * Links Slack can't open (drive and workspace paths, which Stella's own apps
@@ -313,8 +316,10 @@ export class SlackRelay {
       if (record.role === "assistant" && !record.hidden) {
         const text = assistantText(record.payload)?.trim();
         if (!text) return;
-        await this.postText(text);
         const host = await this.hostOf(record.turnId);
+        const turns = await this.loadTurns();
+        if (host && turns[host]?.stopped && !turns[record.turnId]?.triggerTs) return;
+        await this.postText(text);
         if (host) {
           const state = await this.turn(host);
           if (!state.acked) {

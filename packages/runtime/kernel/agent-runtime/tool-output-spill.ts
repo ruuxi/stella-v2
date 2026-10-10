@@ -6,7 +6,9 @@ export const TOOL_OUTPUT_SPILL_DIR = "tool-output-artifacts";
 export const DEFAULT_TOOL_OUTPUT_SPILL_MAX_AGE_MS = 48 * 60 * 60 * 1_000;
 export const DEFAULT_TOOL_OUTPUT_SPILL_QUOTA_BYTES = 32 * 1024 * 1024;
 
-const safeSegment = (value, fallback) => {
+type SpillArtifactFile = { filePath: string; size: number; mtimeMs: number };
+
+const safeSegment = (value: unknown, fallback: string) => {
   const normalized = String(value ?? "")
     .replace(/[^a-zA-Z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "")
@@ -14,9 +16,9 @@ const safeSegment = (value, fallback) => {
   return normalized || fallback;
 };
 
-const collectArtifacts = async (root) => {
-  const files = [];
-  const visit = async (directory) => {
+const collectArtifacts = async (root: string) => {
+  const files: SpillArtifactFile[] = [];
+  const visit = async (directory: string): Promise<void> => {
     let entries;
     try {
       entries = await fs.readdir(directory, { withFileTypes: true });
@@ -43,10 +45,15 @@ export const cleanupToolOutputSpills = async ({
   now = Date.now(),
   maxAgeMs = DEFAULT_TOOL_OUTPUT_SPILL_MAX_AGE_MS,
   quotaBytes = DEFAULT_TOOL_OUTPUT_SPILL_QUOTA_BYTES,
+}: {
+  stellaDataDir?: string;
+  now?: number;
+  maxAgeMs?: number;
+  quotaBytes?: number;
 } = {}) => {
-  const root = path.join(stellaDataDir, TOOL_OUTPUT_SPILL_DIR);
+  const root = path.join(stellaDataDir!, TOOL_OUTPUT_SPILL_DIR);
   const files = await collectArtifacts(root);
-  const retained = [];
+  const retained: SpillArtifactFile[] = [];
   for (const file of files) {
     if (now - file.mtimeMs > maxAgeMs) {
       await fs.rm(file.filePath, { force: true }).catch(() => undefined);
@@ -69,11 +76,16 @@ export const spillSanitizedToolOutput = async ({
   stellaDataDir,
   runId,
   toolCallId,
+}: {
+  text: string;
+  stellaDataDir: string | undefined;
+  runId: string;
+  toolCallId: string;
 }) => {
   const bytes = Buffer.byteLength(text, "utf8");
   const sha256 = createHash("sha256").update(text, "utf8").digest("hex");
   const runDirectory = path.join(
-    stellaDataDir,
+    stellaDataDir!,
     TOOL_OUTPUT_SPILL_DIR,
     safeSegment(runId, "unscoped-run"),
   );
@@ -89,10 +101,12 @@ export const spillSanitizedToolOutput = async ({
   });
   // Linking is atomic and, unlike POSIX rename, cannot replace an existing
   // artifact from a concurrent identical spill.
-  await fs.link(temporaryPath, filePath).catch(async (error) => {
-    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
-    if (error?.code !== "EEXIST") throw error;
-  });
+  await fs
+    .link(temporaryPath, filePath)
+    .catch(async (error: NodeJS.ErrnoException) => {
+      await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+      if (error?.code !== "EEXIST") throw error;
+    });
   await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
   await fs.chmod(filePath, 0o600);
   void cleanupToolOutputSpills({ stellaDataDir }).catch(() => undefined);

@@ -6,10 +6,28 @@ import {
 
 export { DEFAULT_ESTIMATED_IMAGE_TOKENS, estimateModelVisibleImageTokens };
 
-const providerBudgets = new Map();
-const providerPayloadEstimates = new Map();
-const providerUsageTokens = new Map();
-const forcedCompactions = new Map();
+/** An arbitrary provider payload node, walked field by field. */
+type PayloadObject = Record<string, any>;
+type MeasureState = {
+  maxBytes: number;
+  imageTokens: number;
+  imageCount: number;
+  imageDecodedBytes: number;
+};
+type ProviderUsage = {
+  input?: unknown;
+  output?: unknown;
+  cacheRead?: unknown;
+  cacheWrite?: unknown;
+};
+
+const providerBudgets = new Map<string, number>();
+const providerPayloadEstimates = new Map<string, number>();
+const providerUsageTokens = new Map<
+  string,
+  { prompt: number; output: number }
+>();
+const forcedCompactions = new Map<string, number>();
 
 const MAX_INPUT_FRACTION = 0.7;
 const ESTIMATED_BYTES_PER_TOKEN = 3;
@@ -22,7 +40,10 @@ const JSON_SHORT_ESCAPE_RE = /["\\\b\f\n\r\t]/g;
 const JSON_UNICODE_ESCAPE_RE =
   /[\u0000-\u0007\u000b\u000e-\u001f]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
 
-export const setProviderContextWindow = (threadKey, contextWindow) => {
+export const setProviderContextWindow = (
+  threadKey: string,
+  contextWindow: unknown,
+) => {
   const parsed = Number(contextWindow);
   if (!threadKey || !Number.isFinite(parsed) || parsed <= 0) {
     providerBudgets.delete(threadKey);
@@ -31,7 +52,7 @@ export const setProviderContextWindow = (threadKey, contextWindow) => {
   providerBudgets.set(threadKey, Math.floor(parsed));
 };
 
-export const clearProviderContextWindow = (threadKey) => {
+export const clearProviderContextWindow = (threadKey: string) => {
   providerBudgets.delete(threadKey);
   providerPayloadEstimates.delete(threadKey);
   providerUsageTokens.delete(threadKey);
@@ -42,7 +63,10 @@ export const clearProviderContextWindow = (threadKey) => {
  * (input plus cache reads and writes) and its output. Compaction decisions
  * trust this over any estimate, as Pi does, until a compaction makes it stale.
  */
-export const recordProviderUsage = (threadKey, usage) => {
+export const recordProviderUsage = (
+  threadKey: string,
+  usage: ProviderUsage | null | undefined,
+) => {
   if (!threadKey || !usage) return;
   const prompt =
     (Number(usage.input) || 0) +
@@ -56,12 +80,12 @@ export const recordProviderUsage = (threadKey, usage) => {
 };
 
 /** A compaction rewrote the thread: its last billed size no longer applies. */
-export const clearProviderUsage = (threadKey) => {
+export const clearProviderUsage = (threadKey: string) => {
   providerUsageTokens.delete(threadKey);
 };
 
 /** The prompt tokens the provider billed for the thread's last response. */
-export const getLastBilledPromptTokens = (threadKey) =>
+export const getLastBilledPromptTokens = (threadKey: string) =>
   providerUsageTokens.get(threadKey)?.prompt;
 
 /**
@@ -69,7 +93,7 @@ export const getLastBilledPromptTokens = (threadKey) =>
  * the last response since the last compaction), or undefined when unknown.
  * Compaction decisions prefer it to any estimate.
  */
-export const getBilledContextTokens = (threadKey) => {
+export const getBilledContextTokens = (threadKey: string) => {
   const usage = providerUsageTokens.get(threadKey);
   return usage ? usage.prompt + usage.output : undefined;
 };
@@ -81,7 +105,7 @@ export const getBilledContextTokens = (threadKey) => {
  * request size instead of the history-only estimate, which on large-toolset engines
  * (e.g. the Codex Responses path) runs ~2x smaller than the dispatched payload.
  */
-export const getLastProviderPayloadTokens = (threadKey) => {
+export const getLastProviderPayloadTokens = (threadKey: string) => {
   const value = providerPayloadEstimates.get(threadKey);
   return typeof value === "number" && Number.isFinite(value)
     ? value
@@ -89,7 +113,7 @@ export const getLastProviderPayloadTokens = (threadKey) => {
 };
 
 /** Exact decoded size for ordinary padded or unpadded base64 payloads. */
-export const decodedBase64ByteLength = (value) => {
+export const decodedBase64ByteLength = (value: unknown) => {
   if (typeof value !== "string" || value.length === 0) return 0;
   const comma = value.startsWith("data:") ? value.indexOf(",") : -1;
   const encoded = (comma >= 0 ? value.slice(comma + 1) : value).replace(
@@ -101,7 +125,7 @@ export const decodedBase64ByteLength = (value) => {
   return Math.max(0, Math.floor((encoded.length * 3) / 4) - padding);
 };
 
-const binaryByteLength = (value) => {
+const binaryByteLength = (value: unknown) => {
   if (typeof value === "string") return decodedBase64ByteLength(value);
   if (ArrayBuffer.isView(value)) return value.byteLength;
   if (value instanceof ArrayBuffer) return value.byteLength;
@@ -114,22 +138,27 @@ const binaryByteLength = (value) => {
  * their generic object/string fields. This prevents Google inlineData and
  * Bedrock source.bytes from being charged as enormous text/number arrays.
  */
-const normalizeImageValue = (key, value, parent) => {
+const normalizeImageValue = (
+  key: string,
+  value: unknown,
+  parent?: PayloadObject,
+): { metadata: unknown; decodedBytes: number } | null => {
   const normalizedKey = key.toLowerCase();
   if (value && typeof value === "object" && !Array.isArray(value)) {
+    const object = value as PayloadObject;
     if (
-      value.type === "image" ||
-      value.type === "input_image" ||
-      value.type === "image_url"
+      object.type === "image" ||
+      object.type === "input_image" ||
+      object.type === "image_url"
     ) {
       return {
-        metadata: value,
+        metadata: object,
         decodedBytes: binaryByteLength(
-          value.data ?? value.image_url ?? value.url,
+          object.data ?? object.image_url ?? object.url,
         ),
       };
     }
-    const inlineData = value.inlineData ?? value.inline_data;
+    const inlineData = object.inlineData ?? object.inline_data;
     if (
       inlineData &&
       typeof inlineData === "object" &&
@@ -138,11 +167,11 @@ const normalizeImageValue = (key, value, parent) => {
         inlineData.data instanceof ArrayBuffer)
     ) {
       return {
-        metadata: { ...value, ...inlineData },
+        metadata: { ...object, ...inlineData },
         decodedBytes: binaryByteLength(inlineData.data),
       };
     }
-    const bedrockBytes = value.image?.source?.bytes;
+    const bedrockBytes = object.image?.source?.bytes;
     if (
       typeof bedrockBytes === "string" ||
       ArrayBuffer.isView(bedrockBytes) ||
@@ -150,12 +179,12 @@ const normalizeImageValue = (key, value, parent) => {
       Array.isArray(bedrockBytes)
     ) {
       return {
-        metadata: value.image,
+        metadata: object.image,
         decodedBytes: binaryByteLength(bedrockBytes),
       };
     }
     if (normalizedKey.includes("image_url")) {
-      return { metadata: value, decodedBytes: 0 };
+      return { metadata: object, decodedBytes: 0 };
     }
   }
   if (typeof value !== "string") return null;
@@ -177,7 +206,7 @@ const normalizeImageValue = (key, value, parent) => {
   return null;
 };
 
-const addQuickString = (value, state) => {
+const addQuickString = (value: string, state: MeasureState) => {
   state.maxBytes += Buffer.byteLength(value, "utf8") + 2;
   if (!JSON_ESCAPE_RE.test(value)) return;
   state.maxBytes +=
@@ -185,7 +214,12 @@ const addQuickString = (value, state) => {
     5 * (value.match(JSON_UNICODE_ESCAPE_RE)?.length ?? 0);
 };
 
-const measureQuick = (value, key, state, parent) => {
+const measureQuick = (
+  value: unknown,
+  key: string,
+  state: MeasureState,
+  parent?: PayloadObject,
+) => {
   if (typeof value === "string") {
     const image = normalizeImageValue(key, value, parent);
     if (image) {
@@ -216,7 +250,8 @@ const measureQuick = (value, key, state, parent) => {
     return;
   }
   if (typeof value === "object") {
-    const image = normalizeImageValue(key, value, parent);
+    const object = value as PayloadObject;
+    const image = normalizeImageValue(key, object, parent);
     if (image) {
       state.imageCount += 1;
       state.imageDecodedBytes += image.decodedBytes;
@@ -224,15 +259,15 @@ const measureQuick = (value, key, state, parent) => {
       addQuickString("[model-visible image]", state);
       return;
     }
-    if (typeof value.toJSON === "function") {
+    if (typeof object.toJSON === "function") {
       state.maxBytes = Number.POSITIVE_INFINITY;
       return;
     }
     state.maxBytes += 2;
     let fields = 0;
-    for (const field in value) {
-      if (!Object.prototype.hasOwnProperty.call(value, field)) continue;
-      const item = value[field];
+    for (const field in object) {
+      if (!Object.prototype.hasOwnProperty.call(object, field)) continue;
+      const item = object[field];
       if (
         typeof item === "undefined" ||
         typeof item === "function" ||
@@ -244,13 +279,13 @@ const measureQuick = (value, key, state, parent) => {
       fields += 1;
       addQuickString(field, state);
       state.maxBytes += 1;
-      measureQuick(item, field, state, value);
+      measureQuick(item, field, state, object);
     }
   }
 };
 
-const estimatePayloadTokens = (payload, inputBudget) => {
-  const quick = {
+const estimatePayloadTokens = (payload: unknown, inputBudget: number) => {
+  const quick: MeasureState = {
     maxBytes: 0,
     imageTokens: 0,
     imageCount: 0,
@@ -264,20 +299,23 @@ const estimatePayloadTokens = (payload, inputBudget) => {
   }
 
   let imageTokens = 0;
-  const json = JSON.stringify(payload, function (key, value) {
-    const image = normalizeImageValue(key, value, this);
-    if (image) {
-      imageTokens += estimateModelVisibleImageTokens(image.metadata);
-      return "[model-visible image]";
-    }
-    return value;
-  });
+  const json = JSON.stringify(
+    payload,
+    function (this: PayloadObject, key, value) {
+      const image = normalizeImageValue(key, value, this);
+      if (image) {
+        imageTokens += estimateModelVisibleImageTokens(image.metadata);
+        return "[model-visible image]";
+      }
+      return value;
+    },
+  );
   const bytes = Buffer.byteLength(json ?? "", "utf8");
   return Math.ceil(bytes / ESTIMATED_BYTES_PER_TOKEN) + imageTokens;
 };
 
-export const getProviderPayloadImageStats = (payload) => {
-  const state = {
+export const getProviderPayloadImageStats = (payload: unknown) => {
+  const state: MeasureState = {
     maxBytes: 0,
     imageTokens: 0,
     imageCount: 0,
@@ -296,7 +334,7 @@ export const getProviderPayloadImageStats = (payload) => {
  * exported so overflow recovery can re-derive it when re-checking whether a
  * failed request was demonstrably over budget.
  */
-export const providerInputBudgetTokens = (contextWindow) => {
+export const providerInputBudgetTokens = (contextWindow: unknown) => {
   const parsed = Number(contextWindow);
   if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
   return Math.max(8_000, Math.floor(parsed * MAX_INPUT_FRACTION));
@@ -307,15 +345,22 @@ export const providerInputBudgetTokens = (contextWindow) => {
  * heuristic preflight uses: quick byte-based upper bound, exact JSON
  * measurement only when the quick pass lands near the budget).
  */
-export const estimateProviderPayloadTokens = (payload, inputBudget) =>
+export const estimateProviderPayloadTokens = (
+  payload: unknown,
+  inputBudget: number | undefined,
+) =>
   estimatePayloadTokens(
     payload,
-    Number.isFinite(inputBudget) && inputBudget > 0
+    inputBudget !== undefined && Number.isFinite(inputBudget) && inputBudget > 0
       ? inputBudget
       : Number.POSITIVE_INFINITY,
   );
 
-export const preflightProviderPayload = (threadKey, payload, model) => {
+export const preflightProviderPayload = (
+  threadKey: string,
+  payload: unknown,
+  model?: { contextWindow?: unknown; provider?: string; id?: string },
+) => {
   const liveContextWindow = Number(model?.contextWindow);
   const contextWindow =
     Number.isFinite(liveContextWindow) && liveContextWindow > 0
@@ -342,7 +387,10 @@ export const preflightProviderPayload = (threadKey, payload, model) => {
   );
 };
 
-export const withForcedThreadCompaction = async (threadKey, run) => {
+export const withForcedThreadCompaction = async <T>(
+  threadKey: string,
+  run: () => Promise<T>,
+): Promise<T> => {
   forcedCompactions.set(threadKey, (forcedCompactions.get(threadKey) ?? 0) + 1);
   try {
     return await run();
@@ -353,5 +401,5 @@ export const withForcedThreadCompaction = async (threadKey, run) => {
   }
 };
 
-export const isThreadCompactionForced = (threadKey) =>
+export const isThreadCompactionForced = (threadKey: string) =>
   (forcedCompactions.get(threadKey) ?? 0) > 0;

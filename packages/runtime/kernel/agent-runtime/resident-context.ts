@@ -46,6 +46,39 @@ import {
 } from "@stella/contracts/execution-context";
 import { wrapSystemReminder } from "@stella/contracts/system-reminders";
 import { AGENT_ROSTER_DOC_PATH } from "@stella/contracts/agent-directory";
+import type { ExecutionContextSnapshot } from "@stella/contracts/execution-context";
+import type { RuntimePromptMessage } from "@stella/contracts/protocol";
+
+type CustomMessage = {
+  customType: string;
+  content: string | Array<{ type: string; text?: string }>;
+};
+type HistoryEntry = { role: string; customMessage?: CustomMessage };
+export type ResidentContext = {
+  personality?: string;
+  coreMemory?: string;
+  userProfile?: string;
+  memoryIndex?: string;
+  skillsCatalog?: string;
+  executionContext?: ExecutionContextSnapshot;
+  /** The orchestrator's agent list (`renderAgentRoster`); boundary-only. */
+  agentRoster?: string;
+  threadHistory?: HistoryEntry[];
+};
+type ResidentBlock = {
+  id: string;
+  customType: string;
+  docPath?: string;
+  diskFile?: string;
+  memoryDoc?: boolean;
+  boundaryOnly?: boolean;
+  resolve: (context: ResidentContext) => string | undefined;
+  renderDiskBody?: (raw: string) => string | undefined;
+  changeReminder?: (context: ResidentContext) => string;
+};
+type ResidentFoldDoc = { customType: string; text: string };
+type ResidentFold = { docs: ResidentFoldDoc[] };
+type ResidentMemoryField = "coreMemory" | "userProfile" | "memoryIndex";
 
 export const BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE = "bootstrap.startup_doc";
 export const BOOTSTRAP_SKILLS_CUSTOM_TYPE = "bootstrap.skills_catalog";
@@ -85,7 +118,7 @@ export const RETIRED_MEMORY_DISPLAY_PATHS = [
   "~/.stella/memories/raw_memories.md",
 ];
 
-const buildStartupDocText = (displayPath, content) =>
+const buildStartupDocText = (displayPath: string, content: string) =>
   [`<startup_doc path="${displayPath}">`, content, "</startup_doc>"].join("\n");
 
 /**
@@ -108,7 +141,7 @@ const buildStartupDocText = (displayPath, content) =>
  *                   compaction fold), never as a per-turn delta: for state
  *                   that changes too often to append every time it moves.
  */
-export const RESIDENT_BLOCKS = [
+export const RESIDENT_BLOCKS: ResidentBlock[] = [
   {
     id: "personality",
     customType: BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE,
@@ -126,7 +159,10 @@ export const RESIDENT_BLOCKS = [
     memoryDoc: true,
     resolve: (context) =>
       context.coreMemory
-        ? shapeResidentMemoryDoc(context.coreMemory, CORE_MEMORY_INJECTED_MAX_CHARS)
+        ? shapeResidentMemoryDoc(
+            context.coreMemory,
+            CORE_MEMORY_INJECTED_MAX_CHARS,
+          )
         : undefined,
     renderDiskBody: (raw) =>
       shapeResidentMemoryDoc(raw, CORE_MEMORY_INJECTED_MAX_CHARS),
@@ -139,7 +175,10 @@ export const RESIDENT_BLOCKS = [
     memoryDoc: true,
     resolve: (context) =>
       context.userProfile
-        ? shapeResidentMemoryDoc(context.userProfile, USER_PROFILE_INJECTED_MAX_CHARS)
+        ? shapeResidentMemoryDoc(
+            context.userProfile,
+            USER_PROFILE_INJECTED_MAX_CHARS,
+          )
         : undefined,
     renderDiskBody: (raw) =>
       shapeResidentMemoryDoc(raw, USER_PROFILE_INJECTED_MAX_CHARS),
@@ -155,7 +194,10 @@ export const RESIDENT_BLOCKS = [
     memoryDoc: true,
     resolve: (context) =>
       context.memoryIndex
-        ? shapeResidentMemoryDoc(context.memoryIndex, MEMORY_INDEX_INJECTED_MAX_CHARS)
+        ? shapeResidentMemoryDoc(
+            context.memoryIndex,
+            MEMORY_INDEX_INJECTED_MAX_CHARS,
+          )
         : undefined,
     renderDiskBody: (raw) =>
       shapeResidentMemoryDoc(raw, MEMORY_INDEX_INJECTED_MAX_CHARS),
@@ -185,7 +227,7 @@ export const RESIDENT_BLOCKS = [
         : undefined,
     changeReminder: (context) =>
       wrapSystemReminder(
-        `The execution destination changed. ${renderExecutionDestination(context.executionContext)} Existing agents keep their own execution locations.`,
+        `The execution destination changed. ${renderExecutionDestination(context.executionContext!)} Existing agents keep their own execution locations.`,
       ),
   },
   {
@@ -201,7 +243,7 @@ export const RESIDENT_BLOCKS = [
         : undefined,
     changeReminder: (context) =>
       wrapSystemReminder(
-        `What the user can generate changed:\n${renderMediaAccess(context.executionContext)}`,
+        `What the user can generate changed:\n${renderMediaAccess(context.executionContext!)}`,
       ),
   },
   {
@@ -217,20 +259,23 @@ export const RESIDENT_BLOCKS = [
 ];
 
 /** Full message text for a block, or undefined when the block is absent. */
-export const renderResidentBlockText = (block, context) => {
+export const renderResidentBlockText = (
+  block: ResidentBlock,
+  context: ResidentContext,
+): string | undefined => {
   const body = block.resolve(context);
   if (!body) return undefined;
   return block.docPath ? buildStartupDocText(block.docPath, body) : body;
 };
 
 /** The memory documents kept resident, by the display path the model sees. */
-export const RESIDENT_MEMORY_DISPLAY_PATHS = [
+export const RESIDENT_MEMORY_DISPLAY_PATHS: string[] = [
   LIFE_CORE_MEMORY_DISPLAY_PATH,
   LIFE_USER_PROFILE_DISPLAY_PATH,
   LIFE_MEMORY_INDEX_DISPLAY_PATH,
 ];
 
-const MEMORY_FIELD_BY_DISPLAY_PATH = new Map([
+const MEMORY_FIELD_BY_DISPLAY_PATH = new Map<string, ResidentMemoryField>([
   [LIFE_CORE_MEMORY_DISPLAY_PATH, "coreMemory"],
   [LIFE_USER_PROFILE_DISPLAY_PATH, "userProfile"],
   [LIFE_MEMORY_INDEX_DISPLAY_PATH, "memoryIndex"],
@@ -241,8 +286,10 @@ const MEMORY_FIELD_BY_DISPLAY_PATH = new Map([
  * path the model sees (`~/.stella/core-memory.md`, ...). Documents at any
  * other path are not resident; they are read on demand.
  */
-export const residentMemoryFromDocs = (docs) => {
-  const fields = {};
+export const residentMemoryFromDocs = (
+  docs: ReadonlyArray<{ displayPath: string; content: string }>,
+): Pick<ResidentContext, ResidentMemoryField> => {
+  const fields: Pick<ResidentContext, ResidentMemoryField> = {};
   for (const doc of docs) {
     const field = MEMORY_FIELD_BY_DISPLAY_PATH.get(doc.displayPath);
     if (field && doc.content.trim()) fields[field] = doc.content;
@@ -250,7 +297,9 @@ export const residentMemoryFromDocs = (docs) => {
   return fields;
 };
 
-export const customMessageContentText = (content) => {
+export const customMessageContentText = (
+  content: CustomMessage["content"],
+): string => {
   if (typeof content === "string") {
     return content;
   }
@@ -260,7 +309,9 @@ export const customMessageContentText = (content) => {
 };
 
 /** Startup messages for retired automatic-memory artifacts must never replay. */
-export const isRetiredMemoryCustomMessage = (customMessage) => {
+export const isRetiredMemoryCustomMessage = (
+  customMessage?: CustomMessage | null,
+): boolean => {
   if (!customMessage) return false;
   const text = customMessageContentText(customMessage.content);
   return RETIRED_MEMORY_DISPLAY_PATHS.some((displayPath) =>
@@ -268,7 +319,7 @@ export const isRetiredMemoryCustomMessage = (customMessage) => {
   );
 };
 
-const latestResidentText = (context, block) => {
+const latestResidentText = (context: ResidentContext, block: ResidentBlock) => {
   const identity = block.docPath ? `doc:${block.docPath}` : block.id;
   const history = context.threadHistory ?? [];
   for (let index = history.length - 1; index >= 0; index -= 1) {
@@ -278,20 +329,25 @@ const latestResidentText = (context, block) => {
       residentIdentityForCustomMessage(entry.customMessage) !== identity
     )
       continue;
-    return customMessageContentText(entry.customMessage.content).trim();
+    return customMessageContentText(entry.customMessage!.content).trim();
   }
   return undefined;
 };
 
 /** Whether the thread already carries any resident block (its head was sent). */
-export const hasResidentHead = (context) =>
+export const hasResidentHead = (
+  context: Pick<ResidentContext, "threadHistory">,
+): boolean =>
   (context.threadHistory ?? []).some(
     (entry) =>
       entry.role === "runtimeInternal" &&
       residentIdentityForCustomMessage(entry.customMessage) !== null,
   );
 
-const createInternalPromptMessage = (text, customType) => ({
+const createInternalPromptMessage = (
+  text: string,
+  customType: string,
+): RuntimePromptMessage => ({
   text,
   uiVisibility: "hidden",
   messageType: "message",
@@ -304,8 +360,10 @@ const createInternalPromptMessage = (text, customType) => ({
  * exact bytes are not already present in the thread. First turn → the full
  * canonical head; later turns → only the blocks that actually changed.
  */
-export const buildResidentContextMessages = (context) => {
-  const messages = [];
+export const buildResidentContextMessages = (
+  context: ResidentContext,
+): RuntimePromptMessage[] => {
+  const messages: RuntimePromptMessage[] = [];
   const freshHead = !hasResidentHead(context);
   for (const block of RESIDENT_BLOCKS) {
     if (block.boundaryOnly && !freshHead) continue;
@@ -333,12 +391,12 @@ const STARTUP_DOC_BODY_RE =
   /^<startup_doc path="[^"]+">\n([\s\S]*)\n<\/startup_doc>$/;
 
 /** Display path from a rendered `<startup_doc>` body, or null. */
-export const parseStartupDocPath = (text) => {
+export const parseStartupDocPath = (text: string): string | null => {
   const match = STARTUP_DOC_PATH_RE.exec(text.trim());
   return match?.[1] ?? null;
 };
 
-const parseStartupDocBody = (text) =>
+const parseStartupDocBody = (text: string) =>
   STARTUP_DOC_BODY_RE.exec(text.trim())?.[1] ?? null;
 
 /**
@@ -348,7 +406,9 @@ const parseStartupDocBody = (text) =>
  * registry.md doc — they still fold as themselves). Null for anything that
  * is not a resident block.
  */
-export const residentIdentityForCustomMessage = (customMessage) => {
+export const residentIdentityForCustomMessage = (
+  customMessage?: CustomMessage | null,
+): string | null => {
   if (!customMessage) return null;
   if (isRetiredMemoryCustomMessage(customMessage)) return null;
   if (customMessage.customType === BOOTSTRAP_SKILLS_CUSTOM_TYPE) {
@@ -363,14 +423,14 @@ export const residentIdentityForCustomMessage = (customMessage) => {
   return null;
 };
 
-const blockByDocIdentity = new Map(
+const blockByDocIdentity = new Map<string, ResidentBlock>(
   RESIDENT_BLOCKS.filter((block) => block.docPath).map((block) => [
     `doc:${block.docPath}`,
     block,
   ]),
 );
 
-const canonicalizeInThreadDocText = (identity, text) => {
+const canonicalizeInThreadDocText = (identity: string, text: string) => {
   const block = blockByDocIdentity.get(identity);
   if (!block?.docPath || !block.renderDiskBody) return text;
   const body = parseStartupDocBody(text);
@@ -403,9 +463,16 @@ const MAX_FOLD_DOCS = 16;
  * resident blocks. The result rides the compaction entry's `details` and is
  * applied by the overlay materializer in `storage/session-store.js`.
  */
-export const buildResidentFold = (args) => {
-  const newestByIdentity = new Map();
-  const firstSeenOrder = [];
+export const buildResidentFold = (args: {
+  messages: readonly HistoryEntry[];
+  /** Reads a data-dir-relative file (e.g. `memories/profile.md`), or null. */
+  readDiskFile?: (relativePath: string) => string | null;
+  refreshMemoryDocsFromDisk?: boolean;
+  /** Fresh values for boundary-only blocks; without one, the block is dropped. */
+  fresh?: Pick<ResidentContext, "agentRoster">;
+}): ResidentFold | null => {
+  const newestByIdentity = new Map<string, ResidentFoldDoc>();
+  const firstSeenOrder: string[] = [];
   for (const message of args.messages) {
     if (message.role !== "runtimeInternal" || !message.customMessage) {
       continue;
@@ -421,8 +488,10 @@ export const buildResidentFold = (args) => {
       text: customMessageContentText(message.customMessage.content).trim(),
     });
   }
-  const freshText = (block) => {
-    const text = args.fresh ? renderResidentBlockText(block, args.fresh) : undefined;
+  const freshText = (block: ResidentBlock) => {
+    const text = args.fresh
+      ? renderResidentBlockText(block, args.fresh)
+      : undefined;
     return text?.trim() || undefined;
   };
   const boundaryDocs = RESIDENT_BLOCKS.filter((block) => block.boundaryOnly);
@@ -435,9 +504,9 @@ export const buildResidentFold = (args) => {
 
   const readDiskFile = args.readDiskFile;
   const refreshMemoryDocs = args.refreshMemoryDocsFromDisk === true;
-  const docs = [];
-  const emitted = new Set();
-  const emit = (identity) => {
+  const docs: ResidentFoldDoc[] = [];
+  const emitted = new Set<string>();
+  const emit = (identity: string) => {
     if (emitted.has(identity) || docs.length >= MAX_FOLD_DOCS) return;
     const boundaryBlock = blockByDocIdentity.get(identity);
     if (boundaryBlock?.boundaryOnly) {
@@ -459,7 +528,7 @@ export const buildResidentFold = (args) => {
       const raw = readDiskFile(block.diskFile);
       const body = raw === null ? undefined : block.renderDiskBody(raw);
       if (body) {
-        text = buildStartupDocText(block.docPath, body);
+        text = buildStartupDocText(block.docPath!, body);
       }
     }
     emitted.add(identity);
@@ -480,18 +549,22 @@ export const buildResidentFold = (args) => {
  * Validate a `residentFold` recovered from a persisted compaction entry's
  * `details`. Returns `{ docs, identities }` or null when malformed.
  */
-export const parseResidentFold = (details) => {
+export const parseResidentFold = (
+  details: unknown,
+): (ResidentFold & { identities: Set<string> }) | null => {
   const fold =
     details && typeof details === "object" && !Array.isArray(details)
-      ? details.residentFold
+      ? (details as { residentFold?: unknown }).residentFold
       : undefined;
-  const rawDocs =
-    fold && typeof fold === "object" && Array.isArray(fold.docs)
-      ? fold.docs
+  const rawDocs: Array<Partial<ResidentFoldDoc> | null> | null =
+    fold &&
+    typeof fold === "object" &&
+    Array.isArray((fold as { docs?: unknown }).docs)
+      ? (fold as { docs: Array<Partial<ResidentFoldDoc> | null> }).docs
       : null;
   if (!rawDocs || rawDocs.length === 0) return null;
-  const docs = [];
-  const identities = new Set();
+  const docs: ResidentFoldDoc[] = [];
+  const identities = new Set<string>();
   for (const doc of rawDocs.slice(0, MAX_FOLD_DOCS)) {
     if (
       !doc ||

@@ -13,8 +13,59 @@ import { classifyAgentRunFailure } from "./agent-run-retry.js";
 import { runCompactionWithHooks } from "./run-completion.js";
 import { getThreadTokenEstimate } from "../thread-runtime.js";
 import { resetSkillReadDedup } from "../tools/skill-read-dedup.js";
+import type { TextContent } from "../../ai/types.js";
+import type { Agent } from "../agent-core/agent.js";
+import type { AgentMessage } from "../agent-core/types.js";
+import type { ResolvedLlmRoute } from "../model-routing.js";
+import type { RuntimeStore } from "../storage/runtime-store.js";
+import type { BackgroundCompactionScheduler } from "./compaction-scheduler.js";
+import type { RuntimeRunEventRecorder } from "./run-events.js";
+import type { OrchestratorRunOptions, SubagentRunOptions } from "./types.js";
 
-const generatedContent = (message) =>
+type ThreadMessageRecord = ReturnType<
+  RuntimeStore["loadThreadMessages"]
+>[number];
+type AttemptExecution = {
+  finalText: string;
+  errorMessage?: string;
+  retryAfterMs?: number;
+};
+type RecoveryRunOptions = OrchestratorRunOptions | SubagentRunOptions;
+type RecoverySession = { notifyCompacted(): void };
+type HandoffArgs = {
+  store: RuntimeStore;
+  threadKey: string;
+  conversationId: string;
+  resolvedLlm: ResolvedLlmRoute;
+  runId: string;
+  session?: RecoverySession;
+  reason?: string;
+  history?: ThreadMessageRecord[];
+};
+type RecoverArgs = HandoffArgs & {
+  execution: { errorMessage?: string } | null | undefined;
+  agent: Agent;
+  compactionScheduler?: BackgroundCompactionScheduler;
+  opts: RecoveryRunOptions;
+  previousRecoveryProgressMarker?: string;
+};
+type OverflowRecovery =
+  | { kind: "not-overflow" }
+  | { kind: "handoff"; text: string; historyReset: boolean }
+  | { kind: "compacted"; progressMarker: string };
+type RecoverableAttemptArgs = {
+  execute: (resume?: boolean) => Promise<AttemptExecution>;
+  agent: Agent;
+  opts: RecoveryRunOptions;
+  threadKey: string;
+  runId: string;
+  runEvents: RuntimeRunEventRecorder;
+  session?: RecoverySession;
+};
+
+const generatedContent = (message: {
+  content?: ReadonlyArray<{ type: string; text?: string; thinking?: string }>;
+}) =>
   message.content?.some((block) => {
     if (block.type === "toolCall") return true;
     if (block.type === "text") return Boolean(block.text?.trim());
@@ -22,7 +73,7 @@ const generatedContent = (message) =>
     return true;
   }) ?? false;
 
-const recoveryProgressMarker = (messages) => {
+const recoveryProgressMarker = (messages: readonly AgentMessage[]) => {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (
@@ -36,13 +87,17 @@ const recoveryProgressMarker = (messages) => {
       index,
       message?.role ?? "unknown",
       message?.timestamp ?? 0,
-      message?.toolCallId ?? "",
+      (message?.role === "toolResult" ? message.toolCallId : undefined) ?? "",
     ].join(":");
   }
   return "empty";
 };
 
-const isSafePreGenerationOverflow = (execution, agent, contextWindow) => {
+const isSafePreGenerationOverflow = (
+  execution: { errorMessage?: string } | null | undefined,
+  agent: Agent,
+  contextWindow: number,
+): boolean => {
   if (!execution?.errorMessage) return false;
   const preflightRejected = execution.errorMessage.includes(
     "Context preflight context_length_exceeded before provider dispatch",
@@ -74,7 +129,11 @@ const isSafePreGenerationOverflow = (execution, agent, contextWindow) => {
  * Retryable categories (transport/rate-limit/5xx) and clearly attributable
  * ones (auth, invalid model, canceled) never reach this fallback.
  */
-const isOverBudgetHardFailure = (execution, agent, contextWindow) => {
+const isOverBudgetHardFailure = (
+  execution: { errorMessage?: string },
+  agent: Agent,
+  contextWindow: number,
+) => {
   const inputBudget = providerInputBudgetTokens(contextWindow);
   if (!inputBudget) return false;
   const failure = classifyAgentRunFailure(execution.errorMessage);
@@ -91,7 +150,7 @@ const isOverBudgetHardFailure = (execution, agent, contextWindow) => {
   return estimatedTokens >= inputBudget;
 };
 
-const errorMessage = (error) => {
+const errorMessage = (error: unknown) => {
   if (error instanceof Error) return error.message || error.name;
   if (typeof error === "string") return error;
   try {
@@ -101,7 +160,10 @@ const errorMessage = (error) => {
   }
 };
 
-const executeRecoverableAttempt = async (args, resume = false) => {
+const executeRecoverableAttempt = async (
+  args: RecoverableAttemptArgs,
+  resume = false,
+): Promise<AttemptExecution> => {
   try {
     return await (resume ? args.execute(true) : args.execute());
   } catch (error) {
@@ -115,28 +177,28 @@ const executeRecoverableAttempt = async (args, resume = false) => {
   }
 };
 
-const messageText = (message) => {
+const messageText = (message: ThreadMessageRecord) => {
   if (message.payload?.role === "user") {
     return typeof message.payload.content === "string"
       ? message.payload.content
       : message.payload.content
-          .filter((block) => block.type === "text")
+          .filter((block): block is TextContent => block.type === "text")
           .map((block) => block.text)
           .join("\n");
   }
   return typeof message.content === "string" ? message.content : "";
 };
 
-const truncate = (value, maxChars) => {
+const truncate = (value: string | undefined, maxChars: number) => {
   const text = value?.trim() ?? "";
   return text.length <= maxChars
     ? text
     : `${text.slice(0, maxChars)}\n[truncated; full record remains durable]`;
 };
 
-const buildRecoverableHandoff = (args) => {
+const buildRecoverableHandoff = (args: HandoffArgs) => {
   let history = args.history ?? [];
-  let children = [];
+  let children: Array<Record<string, unknown>> = [];
   if (!args.history) {
     try {
       history = args.store.loadThreadMessages(args.threadKey);
@@ -164,7 +226,7 @@ const buildRecoverableHandoff = (args) => {
         message.content.startsWith("[[THREAD_CHECKPOINT]]"),
     );
   const childLines = children.map((child) => {
-    const detail = truncate(child.result || child.error || "", 600);
+    const detail = truncate((child.result || child.error || "") as string, 600);
     return `- ${child.threadId}: ${child.status}${detail ? ` - ${detail}` : ""}`;
   });
 
@@ -195,7 +257,7 @@ const buildRecoverableHandoff = (args) => {
   ].join("\n");
 };
 
-const isBootstrapMessage = (message) =>
+const isBootstrapMessage = (message: ThreadMessageRecord) =>
   message?.role === "runtimeInternal" &&
   message.customMessage?.customType?.startsWith("bootstrap.");
 
@@ -205,7 +267,11 @@ const isBootstrapMessage = (message) =>
  * General turn a bounded handoff projection so it cannot loop on the same
  * oversized payload when normal model-authored compaction is unavailable.
  */
-const resetThreadToRecoverableHandoff = (args, text, history) => {
+const resetThreadToRecoverableHandoff = (
+  args: HandoffArgs,
+  text: string,
+  history: ThreadMessageRecord[],
+) => {
   if (typeof args.store.compactThread !== "function") return false;
   const compactable = history.filter(
     (message) => message?.entryId && !isBootstrapMessage(message),
@@ -231,8 +297,10 @@ const resetThreadToRecoverableHandoff = (args, text, history) => {
   return true;
 };
 
-const persistRecoverableHandoff = (args) => {
-  let history = [];
+const persistRecoverableHandoff = (
+  args: HandoffArgs,
+): Extract<OverflowRecovery, { kind: "handoff" }> => {
+  let history: ThreadMessageRecord[] = [];
   try {
     history = args.store.loadThreadMessages(args.threadKey);
   } catch {
@@ -259,7 +327,9 @@ const persistRecoverableHandoff = (args) => {
   return { kind: "handoff", text, historyReset };
 };
 
-const getThreadTokenEstimateSafely = (storedMessages) => {
+const getThreadTokenEstimateSafely = (
+  storedMessages: ThreadMessageRecord[],
+) => {
   try {
     return getThreadTokenEstimate(storedMessages);
   } catch {
@@ -276,9 +346,9 @@ const getThreadTokenEstimateSafely = (storedMessages) => {
  * split preserve that anchor, so the refreshed history ends on a `continue()`-able
  * message instead of a lone checkpoint summary. Best-effort and leaf-guarded.
  */
-const dropFailedOverflowTailFromStore = (args) => {
+const dropFailedOverflowTailFromStore = (args: HandoffArgs) => {
   if (typeof args.store.removeThreadMessageEntry !== "function") return;
-  let stored;
+  let stored: ThreadMessageRecord[];
   try {
     stored = args.store.loadThreadMessages(args.threadKey);
   } catch {
@@ -312,7 +382,14 @@ const dropFailedOverflowTailFromStore = (args) => {
  * estimate (omits tool schemas, so it undercounts; a still-oversized retry is caught
  * by the recovery loop guard). Unknown window ⇒ let the retry + loop guard decide.
  */
-const compactedPayloadFitsBudget = (args) => {
+const compactedPayloadFitsBudget = (args: {
+  inputBudget: number | undefined;
+  lastPayloadTokens: number | undefined;
+  historyBefore: number | undefined;
+  historyAfter: number | undefined;
+  agent?: Agent;
+  refreshed: AgentMessage[];
+}) => {
   const budget = args.inputBudget;
   if (!budget) return true;
   if (
@@ -333,7 +410,9 @@ const compactedPayloadFitsBudget = (args) => {
   return estimate < budget;
 };
 
-export const recoverContextOverflow = async (args) => {
+export const recoverContextOverflow = async (
+  args: RecoverArgs,
+): Promise<OverflowRecovery> => {
   const contextWindow = Number(args.resolvedLlm.model.contextWindow);
   if (!isSafePreGenerationOverflow(args.execution, args.agent, contextWindow)) {
     return { kind: "not-overflow" };
@@ -367,7 +446,7 @@ export const recoverContextOverflow = async (args) => {
   // copy was already popped above) so the forced compaction preserves the real resume
   // anchor instead of summarizing it and leaving a lone checkpoint-summary tail.
   dropFailedOverflowTailFromStore(args);
-  let threadTokenEstimate;
+  let threadTokenEstimate: number | undefined;
   try {
     threadTokenEstimate = getThreadTokenEstimate(
       args.store.loadThreadMessages(args.threadKey),
@@ -438,11 +517,13 @@ export const recoverContextOverflow = async (args) => {
   };
 };
 
-export const executeWithContextOverflowRecovery = async (args) => {
+export const executeWithContextOverflowRecovery = async (
+  args: RecoverableAttemptArgs,
+): Promise<AttemptExecution> => {
   let execution = await executeRecoverableAttempt(args);
-  let previousRecoveryProgressMarker;
+  let previousRecoveryProgressMarker: string | undefined;
   while (true) {
-    let overflowRecovery;
+    let overflowRecovery: OverflowRecovery;
     try {
       overflowRecovery = await recoverContextOverflow({
         execution,

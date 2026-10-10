@@ -16,104 +16,145 @@
  * stream hooks instead — don't reach for `listLocalEvents` to render
  * messages.
  */
-import {} from "@/features/chat/lib/event-transforms";
+import type {
+  ConversationSummaryPage,
+  EventRecord,
+  LocalChatUpdatedPayload,
+} from "@stella/contracts/local-chat";
+import type { ElectronLocalChatApi } from "@/shared/types/electron";
+
 /**
  * Absent outside Electron (plain-browser `bun run dev`): chat persistence
  * lives in main-process SQLite. Reads degrade to empty, the update
  * subscription no-ops, and conversation creation fails loudly — a browser
  * tab has no chat backend to create against.
  */
-export const isLocalChatApiAvailable = () => Boolean(window.electronAPI?.localChat);
-const getLocalChatApi = () => {
-    const api = window.electronAPI?.localChat;
-    if (!api) {
-        throw new Error("[local-chat-store] Electron local chat API is unavailable.");
-    }
-    return api;
+export const isLocalChatApiAvailable = () =>
+  Boolean(window.electronAPI?.localChat);
+const getLocalChatApi = (): ElectronLocalChatApi => {
+  const api = window.electronAPI?.localChat;
+  if (!api) {
+    throw new Error(
+      "[local-chat-store] Electron local chat API is unavailable.",
+    );
+  }
+  return api;
 };
-export const getOrCreateLocalConversationId = async () => getLocalChatApi().getOrCreateDefaultConversationId();
+export const getOrCreateLocalConversationId = async (): Promise<string> =>
+  getLocalChatApi().getOrCreateDefaultConversationId();
 /**
  * Record `conversationId` as the durable active-conversation pointer. This
  * is the single source of truth the app restores from on boot, so it's
  * written whenever the router's active conversation changes.
  */
-export const setActiveLocalConversationId = async (conversationId) => {
-    if (!conversationId)
-        return;
-    const api = window.electronAPI?.localChat;
-    if (!api)
-        return;
-    await api.setActiveConversationId({ conversationId });
+export const setActiveLocalConversationId = async (
+  conversationId: string | null | undefined,
+): Promise<void> => {
+  if (!conversationId) return;
+  const api = window.electronAPI?.localChat;
+  if (!api) return;
+  await api.setActiveConversationId({ conversationId });
 };
-export const listLocalConversations = async (args) => {
-    const api = window.electronAPI?.localChat;
-    if (!api)
-        return { conversations: [], hasMore: false };
-    return api.listConversations(args);
+export const listLocalConversations = async (
+  args: Parameters<ElectronLocalChatApi["listConversations"]>[0],
+): Promise<ConversationSummaryPage> => {
+  const api = window.electronAPI?.localChat;
+  if (!api) return { conversations: [], hasMore: false };
+  return api.listConversations(args);
 };
-export const deleteLocalConversation = async (conversationId) => {
-    const result = await getLocalChatApi().deleteConversation({ conversationId });
-    return result.deleted;
+export const deleteLocalConversation = async (
+  conversationId: string,
+): Promise<boolean> => {
+  const result = await getLocalChatApi().deleteConversation({
+    conversationId,
+  });
+  return result.deleted;
 };
 /**
  * Truncate the current conversation at (and including) a user message —
  * backs the desktop "Rewind here" action. Removes the anchor event and
  * every event after it; returns the number of removed events.
  */
-export const truncateLocalConversation = async (conversationId, eventId) => {
-    if (!conversationId || !eventId)
-        return { removed: 0 };
-    return getLocalChatApi().truncateConversation({ conversationId, eventId });
+export const truncateLocalConversation = async (
+  conversationId: string | null | undefined,
+  eventId: string | null | undefined,
+): Promise<{ removed: number }> => {
+  if (!conversationId || !eventId) return { removed: 0 };
+  return getLocalChatApi().truncateConversation({ conversationId, eventId });
 };
 /**
  * Branch a conversation's prefix (everything before a user message) into a
  * brand-new conversation — backs the desktop "Fork to new chat" action.
  * Resolves to the new conversation id (or null when the anchor is gone).
  */
-export const forkLocalConversation = async (conversationId, eventId) => {
-    if (!conversationId || !eventId)
-        return null;
-    const result = await getLocalChatApi().forkConversation({ conversationId, eventId });
-    return result?.conversationId ?? null;
+export const forkLocalConversation = async (
+  conversationId: string | null | undefined,
+  eventId: string | null | undefined,
+): Promise<string | null> => {
+  if (!conversationId || !eventId) return null;
+  const result = await getLocalChatApi().forkConversation({
+    conversationId,
+    eventId,
+  });
+  return result?.conversationId ?? null;
 };
 /** Derives a tab-title update only from a complete persisted chat message. */
-export const conversationTitleFromUpdate = (payload) => {
-    const conversationId = payload?.conversationId?.trim();
-    const event = payload?.event;
-    if (!conversationId || !event)
-        return null;
-    if (event.type !== "user_message" && event.type !== "assistant_message")
-        return null;
-    const metadata = event.payload?.metadata && typeof event.payload.metadata === "object"
-        ? event.payload.metadata
-        : null;
-    const ui = metadata?.ui && typeof metadata.ui === "object" ? metadata.ui : null;
-    const trigger = metadata?.trigger && typeof metadata.trigger === "object"
-        ? metadata.trigger
-        : null;
-    if (ui?.visibility === "hidden" ||
-        trigger?.kind === "workspace_creation_request") {
-        return null;
-    }
-    const title = typeof event.payload?.text === "string"
-        ? event.payload.text.replace(/\s+/g, " ").trim().slice(0, 240)
-        : "";
-    return title
-        ? {
-            conversationId,
-            title,
-            latestMessageAt: event.timestamp,
-            latestMessageId: event._id,
-        }
-        : null;
-};
-export const listLocalEvents = async (conversationId, maxItems = 200) => {
-    const api = window.electronAPI?.localChat;
-    if (!api)
-        return [];
-    return api.listEvents({
+export const conversationTitleFromUpdate = (
+  payload: LocalChatUpdatedPayload | null | undefined,
+): {
+  conversationId: string;
+  title: string;
+  latestMessageAt: number;
+  latestMessageId: string;
+} | null => {
+  const conversationId = payload?.conversationId?.trim();
+  const event = payload?.event;
+  if (!conversationId || !event) return null;
+  if (event.type !== "user_message" && event.type !== "assistant_message")
+    return null;
+  const metadata =
+    event.payload?.metadata && typeof event.payload.metadata === "object"
+      ? (event.payload.metadata as Record<string, unknown>)
+      : null;
+  const ui =
+    metadata?.ui && typeof metadata.ui === "object"
+      ? (metadata.ui as Record<string, unknown>)
+      : null;
+  const trigger =
+    metadata?.trigger && typeof metadata.trigger === "object"
+      ? (metadata.trigger as Record<string, unknown>)
+      : null;
+  if (
+    ui?.visibility === "hidden" ||
+    trigger?.kind === "workspace_creation_request"
+  ) {
+    return null;
+  }
+  const title =
+    typeof event.payload?.text === "string"
+      ? event.payload.text.replace(/\s+/g, " ").trim().slice(0, 240)
+      : "";
+  return title
+    ? {
         conversationId,
-        maxItems,
-    });
+        title,
+        latestMessageAt: event.timestamp,
+        latestMessageId: event._id,
+      }
+    : null;
 };
-export const subscribeToLocalChatUpdates = (listener) => window.electronAPI?.localChat?.onUpdated(listener) ?? (() => { });
+export const listLocalEvents = async (
+  conversationId: string,
+  maxItems = 200,
+): Promise<EventRecord[]> => {
+  const api = window.electronAPI?.localChat;
+  if (!api) return [];
+  return api.listEvents({
+    conversationId,
+    maxItems,
+  });
+};
+export const subscribeToLocalChatUpdates = (
+  listener: (payload: LocalChatUpdatedPayload | null) => void,
+): (() => void) =>
+  window.electronAPI?.localChat?.onUpdated(listener) ?? (() => {});

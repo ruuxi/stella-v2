@@ -1,4 +1,6 @@
 import { spawn } from "child_process";
+import type { ChildProcess, ChildProcessByStdio } from "child_process";
+import type { Readable, Writable } from "stream";
 import { StringDecoder } from "node:string_decoder";
 import crypto from "crypto";
 import fs from "fs";
@@ -18,8 +20,200 @@ import {
   buildExternalCliChildEnv,
   resolveExternalCliPath,
 } from "./external-cli-resolution.js";
-import { createClaudeCodeToolMcpHost } from "./claude-code-tool-mcp-host.js";
+import {
+  createClaudeCodeToolMcpHost,
+  type ClaudeCodeToolMcpActiveTurn,
+  type ClaudeCodeToolMcpHost,
+} from "./claude-code-tool-mcp-host.js";
 import { getClaudeCodeConfig } from "../storage/local-llm-credential-access.js";
+import type {
+  ToolMetadata,
+  ToolResult,
+  ToolUpdateCallback,
+} from "../tools/types.js";
+
+/** One parsed stream-json line from the CLI: untrusted JSON, read defensively. */
+type ClaudeStreamEvent = Record<string, any>;
+type ClaudeToolArgs = Record<string, any>;
+/** One Stella or native tool call a step started, for side-effect reconciliation. */
+type McpCallRecord = {
+  toolCallId: string;
+  toolName: string;
+  status: "started" | "completed";
+  argsSummary: string;
+  outcomeSummary?: string;
+};
+type ClaudeToolUseTruncation = {
+  toolCallId: string;
+  toolName: string;
+  toolArgs: ClaudeToolArgs;
+  stopReason: string;
+  category?: string;
+  explanation?: string;
+};
+type ClaudeCodeStatusChange = {
+  state: "running" | "compacting" | "model-fallback";
+  text: string;
+};
+type ClaudeCodeImage = { mimeType: string; data: string };
+type ClaudeCodeUsage = {
+  inputTokens: number | undefined;
+  outputTokens: number | undefined;
+};
+type ClaudeCodeStepResult = {
+  message: string;
+  sessionId: string;
+  usage: ClaudeCodeUsage | undefined;
+  delivered?: boolean;
+};
+export type ClaudeCodeTurnResult = {
+  text: string;
+  sessionId: string;
+  usage: ClaudeCodeUsage | undefined;
+  delivered?: true;
+};
+type ClaudeCodeInjectInput = {
+  text: string;
+  images?: ClaudeCodeImage[];
+  onConsumed?: () => void;
+  onDropped?: () => void;
+};
+/**
+ * Callbacks use method syntax so callers may declare narrower argument
+ * shapes for what they read.
+ */
+export type ClaudeCodeTurnRequest = {
+  runId?: string;
+  sessionKey: string;
+  persistedSessionId?: string;
+  modelId: string;
+  stellaAppDir?: string;
+  shellEnv?: Record<string, string>;
+  cliBridgeSocketPath?: string;
+  vanilla?: boolean;
+  effortLevel?: string;
+  prompt: string;
+  resumeFallbackPrompt?: string;
+  systemPrompt?: string;
+  cwd?: string;
+  attachments?: readonly { url: string; mimeType?: string }[];
+  tools: readonly ToolMetadata[];
+  nativeTools?: readonly string[];
+  autoCompactWindowTokens?: number;
+  autoCompactTriggerPct?: number;
+  abortSignal?: AbortSignal;
+  executeTool(
+    toolCallId: string,
+    toolName: string,
+    toolArgs: Record<string, unknown>,
+    signal?: AbortSignal,
+    onUpdate?: ToolUpdateCallback,
+  ): Promise<ToolResult>;
+  onToolUpdate?(args: {
+    toolCallId: string;
+    toolName: string;
+    update: ToolResult;
+  }): void;
+  onToolResponseWritten?(args: {
+    toolCallId: string;
+    toolName: string;
+  }): void | Promise<void>;
+  onNativeToolStart?(args: {
+    toolCallId: string;
+    toolName: string;
+    toolArgs: ClaudeToolArgs;
+  }): void;
+  onNativeToolEnd?(args: {
+    toolCallId: string;
+    toolName: string;
+    result: string;
+    isError: boolean;
+  }): void;
+  onTurnControl?(control: {
+    inject: (input: ClaudeCodeInjectInput) => boolean;
+  }): (() => void) | undefined;
+  onIntermediateResult?(result: ClaudeCodeStepResult): void;
+  onSessionId?(sessionId: string): void;
+  onStatusChange?(status: ClaudeCodeStatusChange): void;
+  onStream?(chunk: string): void;
+  onModelRound?(round: { messageId?: string; toolCallCount: number }): void;
+  onProtocolInit?(init: {
+    tools: string[];
+    mcpServers: { name?: string; status?: string }[];
+  }): void;
+};
+type ClaudeCodeInjection = {
+  consumed: boolean;
+  answered?: boolean;
+  dropped?: boolean;
+  onConsumed?: () => void;
+  onDropped?: () => void;
+  text: string;
+};
+type NativeToolCall = {
+  toolName: string;
+  toolArgs: ClaudeToolArgs;
+  settled?: boolean;
+};
+/** One prompt written to the CLI and still waiting on its `result` line. */
+type PendingStep = {
+  request: ClaudeCodeTurnRequest;
+  resolve: (result: ClaudeCodeStepResult) => void;
+  reject: (error: unknown) => void;
+  emitStreamDelta: (event: ClaudeStreamEvent) => void;
+  mcpCalls: McpCallRecord[];
+  activeNativeToolUseIds: Set<string>;
+  nativeToolCalls: Map<string, NativeToolCall>;
+  injections: Map<string, ClaudeCodeInjection>;
+  hasOutput?: boolean;
+  idleTimer?: ReturnType<typeof setTimeout>;
+  abortListener?: () => void;
+  detachTurnControl?: () => void;
+  intermediateResult?: ClaudeCodeStepResult;
+  answeredMcpCallCount?: number;
+};
+type ClaudeCodeChild = ChildProcessByStdio<Writable, Readable, Readable>;
+type ClaudeCodeProcessState = {
+  child: ClaudeCodeChild;
+  stdoutBuffer: string;
+  stdoutDecoder: StringDecoder;
+  stderrText: string;
+  finalSessionId: string;
+  pending: PendingStep[];
+  closed: boolean;
+  compacting: boolean;
+  compactionCount: number;
+  launchConfig: string;
+  claudeConfigDir: string | null;
+};
+type ClaudeCodeSession = {
+  sessionId: string;
+  cwd: string | undefined;
+  lastUsedAt: number;
+  turnCount: number;
+  resumeReady: boolean;
+  running: boolean;
+  queue: {
+    request: ClaudeCodeTurnRequest;
+    resolve: (result: ClaudeCodeTurnResult) => void;
+    reject: (error: unknown) => void;
+  }[];
+  artifactDir?: string;
+  process?: ClaudeCodeProcessState;
+  mcpHost?: ClaudeCodeToolMcpHost;
+  mcpToolCatalogKey?: string;
+  mcpConfigPath?: string;
+  activeMcpTurn?: ClaudeCodeToolMcpActiveTurn;
+  activeNativeToolUseCorrelator?: ClaudeNativeToolUseCorrelator;
+  modelOverride?: string;
+  fableSafetyFailures?: number;
+  allowEmptyNativeFinal?: boolean;
+  /** Set to [] at every turn start, before any step can consume steering. */
+  consumedSteeringTexts?: string[];
+  modelFallbackNotified?: boolean;
+  claudeLoginEmail?: string;
+};
+type ClaudeCodeError = Error & { code?: string; status?: number };
 const CLAUDE_CODE_MODEL_PREFIX = "claude-code/";
 /**
  * Model the fable fallback policy switches a turn to after the configured
@@ -33,7 +227,7 @@ const CLAUDE_CODE_FALLBACK_MODEL = "claude-opus-4-8";
  * configured model, then falling back, makes sense. Wording verified
  * against CLI 2.1.32; anything else propagates as a normal turn error.
  */
-export const isClaudeCodeModelRefusalOrOverloadError = (message) =>
+export const isClaudeCodeModelRefusalOrOverloadError = (message: string) =>
   /unable to respond to this request|usage policy|overloaded/i.test(message);
 /**
  * Model aliases the `claude` CLI accepts via `--model` — canonical list in
@@ -43,7 +237,10 @@ export const isClaudeCodeModelRefusalOrOverloadError = (message) =>
  * to it in pickers when known.
  */
 const CLAUDE_CODE_ALIASES = CLAUDE_CODE_MODEL_ALIASES;
-const CLAUDE_CODE_ALIAS_LABELS = {
+const CLAUDE_CODE_ALIAS_LABELS: Record<
+  (typeof CLAUDE_CODE_ALIASES)[number],
+  { displayName: string; description: string }
+> = {
   default: {
     displayName: "Default",
     description: "Recommended model for your Claude account",
@@ -123,7 +320,7 @@ const CLAUDE_CODE_COMPACTION_LOOP_MESSAGE =
  * Past the budget the turn fails to the caller with an actionable message.
  */
 const MAX_STEP_RECOVERIES_PER_TURN = 2;
-const summarizeMcpLedgerValue = (value, maxChars) => {
+const summarizeMcpLedgerValue = (value: unknown, maxChars: number) => {
   let serialized;
   try {
     serialized = JSON.stringify(sanitizeSensitiveData(value));
@@ -139,10 +336,14 @@ const summarizeMcpLedgerValue = (value, maxChars) => {
  * waiting on its `result` line. `exitCode` 0 means a clean-but-early exit.
  */
 export class ClaudeCodeProcessEndedError extends Error {
-  exitCode;
+  exitCode: number | null;
 
-  mcpCalls;
-  constructor(message, exitCode = null, mcpCalls = []) {
+  mcpCalls: McpCallRecord[];
+  constructor(
+    message: string,
+    exitCode: number | null = null,
+    mcpCalls: McpCallRecord[] = [],
+  ) {
     super(message);
     this.name = "ClaudeCodeProcessEndedError";
     this.exitCode = exitCode;
@@ -153,10 +354,14 @@ export class ClaudeCodeProcessEndedError extends Error {
  * The step completed but its `result` payload contained no final text.
  */
 export class ClaudeCodeMalformedResultError extends Error {
-  kind;
+  kind: "result_error" | "empty_result";
 
-  mcpCalls;
-  constructor(message, kind, mcpCalls = []) {
+  mcpCalls: McpCallRecord[];
+  constructor(
+    message: string,
+    kind: "result_error" | "empty_result",
+    mcpCalls: McpCallRecord[] = [],
+  ) {
     super(message);
     this.name = "ClaudeCodeMalformedResultError";
     this.kind = kind;
@@ -171,8 +376,8 @@ export class ClaudeCodeMalformedResultError extends Error {
  * reseed can reconcile instead of replaying them.
  */
 export class ClaudeCodeCompactionLoopError extends Error {
-  mcpCalls;
-  constructor(mcpCalls = []) {
+  mcpCalls: McpCallRecord[];
+  constructor(mcpCalls: McpCallRecord[] = []) {
     super(CLAUDE_CODE_COMPACTION_LOOP_MESSAGE);
     this.name = "ClaudeCodeCompactionLoopError";
     this.mcpCalls = mcpCalls;
@@ -184,8 +389,10 @@ export class ClaudeCodeCompactionLoopError extends Error {
  * Stella-managed `CLAUDE_CONFIG_DIR` signed in to the owner's active Claude
  * account (the host picks it; `getClaudeCodeConfig`).
  */
-const claudeLoginLabel = (email) =>
-  email ? `the Claude Code login for ${email}` : "the Claude Code login on this computer";
+const claudeLoginLabel = (email: string | undefined) =>
+  email
+    ? `the Claude Code login for ${email}`
+    : "the Claude Code login on this computer";
 /**
  * Pre-flight the login Claude Code will run on, so a caller can say "this
  * will fail, and here is what to do" BEFORE spawning an agent that would 401
@@ -208,7 +415,9 @@ export const checkClaudeCodeAuth = async () => {
  * A subscription limit (5-hour or weekly window) in a CLI result, with the
  * reset time when the CLI printed one (`...limit reached|<epoch seconds>`).
  */
-export const claudeCodeSubscriptionLimitOf = (error) => {
+export const claudeCodeSubscriptionLimitOf = (
+  error: unknown,
+): { resetsAt?: number } | null => {
   const message = error instanceof Error ? error.message : String(error ?? "");
   if (
     !/usage limit|limit reached|hit your (?:usage )?limit|out of (?:extra )?usage/i.test(
@@ -231,7 +440,7 @@ export const claudeCodeSubscriptionLimitOf = (error) => {
  * also match a model asking the user to authenticate to some third-party
  * site, which is not a Stella credential problem.
  */
-export const claudeCodeAuthFailureOf = (error) => {
+export const claudeCodeAuthFailureOf = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error ?? "");
   if (claudeCodeSubscriptionLimitOf(error)) return null;
   if (
@@ -244,7 +453,7 @@ export const claudeCodeAuthFailureOf = (error) => {
   return { revoked: /revoked|token_revoked/i.test(message) };
 };
 
-const asRecoverableStepError = (error) =>
+const asRecoverableStepError = (error: unknown) =>
   error instanceof ClaudeCodeProcessEndedError ||
   error instanceof ClaudeCodeMalformedResultError
     ? error
@@ -265,8 +474,8 @@ const asRecoverableStepError = (error) =>
  * directive would otherwise arrive without any task context.
  */
 const buildSideEffectReconciliationPrompt = (
-  mcpCalls = [],
-  referenceContext,
+  mcpCalls: McpCallRecord[] = [],
+  referenceContext?: string,
 ) => {
   return [
     "The previous step was interrupted after side-effecting work may already have been applied.",
@@ -306,8 +515,8 @@ const buildResultRetryPrompt = () =>
  * retry classification, the orchestrator) treat this as auth rather than
  * re-deriving it from prose.
  */
-const withClaudeLoginRejected = (error, email) => {
-  const failure = new Error(
+const withClaudeLoginRejected = (error: unknown, email: string | undefined) => {
+  const failure: ClaudeCodeError = new Error(
     `${withPeriod(normalizeErrorMessage(error))} Anthropic rejected ${claudeLoginLabel(email)}. Sign in again in Settings › Account.`,
   );
   failure.code = "CLAUDE_CODE_AUTH_REAUTH_REQUIRED";
@@ -318,7 +527,7 @@ const withClaudeLoginRejected = (error, email) => {
  * The shared recovery budget ran out. Auth rejections and usage limits never
  * reach here (they are reported at once), so the CLI is the suspect.
  */
-const withStepRecoveryExhausted = (error) =>
+const withStepRecoveryExhausted = (error: unknown) =>
   new Error(
     `${normalizeErrorMessage(error)} Stella retried ${MAX_STEP_RECOVERIES_PER_TURN} time(s) but Claude Code kept ending the step without a usable result. Check the \`claude\` CLI health (\`claude --version\`, login status), then retry the request.`,
   );
@@ -326,12 +535,12 @@ const withStepRecoveryExhausted = (error) =>
  * A Claude subscription usage limit, named as such. Inform only: Stella never
  * switches accounts.
  */
-const withClaudeSubscriptionLimitReported = (limit) => {
+const withClaudeSubscriptionLimitReported = (limit: { resetsAt?: number }) => {
   const resetsAt =
     typeof limit.resetsAt === "number" && Number.isFinite(limit.resetsAt)
       ? new Date(limit.resetsAt)
       : null;
-  const failure = new Error(
+  const failure: ClaudeCodeError = new Error(
     resetsAt
       ? `Claude usage limit reached. It resets at ${resetsAt.toLocaleString()}.`
       : "Claude usage limit reached for this account.",
@@ -374,7 +583,9 @@ const TRUNCATING_STOP_REASONS = new Set(["refusal", "max_tokens"]);
  * be flagged. Requiring the tool_use to be last keeps this free of false
  * positives on multi-block messages.
  */
-export const getClaudeCodeTruncatedToolUseFromStreamEvent = (event) => {
+export const getClaudeCodeTruncatedToolUseFromStreamEvent = (
+  event: ClaudeStreamEvent,
+): ClaudeToolUseTruncation | null => {
   if (event.type !== "assistant") return null;
   const message = asObject(event.message);
   const stopReason =
@@ -404,12 +615,14 @@ export const getClaudeCodeTruncatedToolUseFromStreamEvent = (event) => {
       : {}),
   };
 };
-export const describeClaudeToolUseTruncation = (truncation) =>
+export const describeClaudeToolUseTruncation = (
+  truncation: ClaudeToolUseTruncation,
+) =>
   `Claude's stream ended with stop_reason "${truncation.stopReason}"` +
   `${truncation.category ? ` (${truncation.category})` : ""} while it was ` +
   `still writing the arguments for \`${truncation.toolName}\`, so those ` +
   `arguments are cut off mid-value.`;
-const stableToolArgs = (value) => {
+const stableToolArgs = (value: unknown): string => {
   if (Array.isArray(value)) return `[${value.map(stableToolArgs).join(",")}]`;
   if (value && typeof value === "object") {
     return `{${Object.entries(value)
@@ -419,9 +632,11 @@ const stableToolArgs = (value) => {
   }
   return JSON.stringify(value) ?? "null";
 };
-const normalizeClaudeToolName = (toolName) =>
-  toolName.includes("__") ? (toolName.split("__").at(-1) ?? toolName) : toolName;
-const claudeToolKey = (toolName, toolArgs) => {
+const normalizeClaudeToolName = (toolName: string) =>
+  toolName.includes("__")
+    ? (toolName.split("__").at(-1) ?? toolName)
+    : toolName;
+const claudeToolKey = (toolName: string, toolArgs: ClaudeToolArgs) => {
   return crypto
     .createHash("sha256")
     .update(normalizeClaudeToolName(toolName))
@@ -436,9 +651,11 @@ const claudeToolKey = (toolName, toolArgs) => {
  * undefined when no such repair parses — callers must then fail open, never
  * guess.
  */
-export const repairPartialToolInputJson = (text) => {
-  const attempt = (candidate) => {
-    const stack = [];
+export const repairPartialToolInputJson = (
+  text: string,
+): object | undefined => {
+  const attempt = (candidate: string): object | undefined => {
+    const stack: string[] = [];
     let inString = false;
     let escaped = false;
     for (const ch of candidate) {
@@ -484,22 +701,33 @@ export const repairPartialToolInputJson = (text) => {
  * fail-open window.)
  */
 const TOOL_USE_INTEGRITY_SETTLE_MS = 750;
+type StreamingToolBlock = {
+  toolCallId: string;
+  toolName: string;
+  initialInput: ClaudeToolArgs;
+  partialJson: string;
+};
+type ObservedToolUse = {
+  toolCallId: string;
+  toolName: string;
+  toolArgs: ClaudeToolArgs;
+};
 export const createClaudeNativeToolUseCorrelator = () => {
-  const queued = new Map();
-  const waiters = new Map();
-  const observedIds = new Set();
+  const queued = new Map<string, string[]>();
+  const waiters = new Map<string, ((id: string) => void)[]>();
+  const observedIds = new Set<string>();
   /** Keys of tool_use blocks a finalized assistant event proved truncated. */
-  const truncatedKeys = new Map();
+  const truncatedKeys = new Map<string, ClaudeToolUseTruncation>();
   /** Keys a finalized assistant event has adjudicated (truncated or clean). */
-  const settledKeys = new Set();
-  const integrityWaiters = new Map();
-  const settleKey = (key) => {
+  const settledKeys = new Set<string>();
+  const integrityWaiters = new Map<string, (() => void)[]>();
+  const settleKey = (key: string) => {
     settledKeys.add(key);
     const pending = integrityWaiters.get(key);
     integrityWaiters.delete(key);
     for (const resolve of pending ?? []) resolve();
   };
-  const streamingBlocks = new Map();
+  const streamingBlocks = new Map<number, StreamingToolBlock>();
   /**
    * Blocks whose `content_block_stop` arrived with UNPARSEABLE accumulated
    * JSON — the stream was cut mid-argument (turn abort, process exit,
@@ -507,9 +735,9 @@ export const createClaudeNativeToolUseCorrelator = () => {
    * CLI still repairs and dispatches such calls; keep the raw partials so the
    * integrity gate can match the dispatched args against their repair.
    */
-  const interruptedBlocks = [];
+  const interruptedBlocks: StreamingToolBlock[] = [];
   const MAX_INTERRUPTED_BLOCKS = 16;
-  const recordInterruptedBlock = (pending) => {
+  const recordInterruptedBlock = (pending: StreamingToolBlock) => {
     interruptedBlocks.push(pending);
     if (interruptedBlocks.length > MAX_INTERRUPTED_BLOCKS) {
       interruptedBlocks.shift();
@@ -523,7 +751,10 @@ export const createClaudeNativeToolUseCorrelator = () => {
    * whose raw JSON already parses are complete — a call matching one is just
    * the benign pipe-read race and must stay fail-open.
    */
-  const findInterruptedTruncation = (toolName, key) => {
+  const findInterruptedTruncation = (
+    toolName: string,
+    key: string,
+  ): ClaudeToolUseTruncation | undefined => {
     const normalizedName = normalizeClaudeToolName(toolName);
     for (const pending of [...streamingBlocks.values(), ...interruptedBlocks]) {
       if (normalizeClaudeToolName(pending.toolName) !== normalizedName) {
@@ -536,7 +767,9 @@ export const createClaudeNativeToolUseCorrelator = () => {
       } catch {
         // Unparseable partial: candidate for a repaired dispatch.
       }
-      const repaired = asObject(repairPartialToolInputJson(pending.partialJson));
+      const repaired = asObject(
+        repairPartialToolInputJson(pending.partialJson),
+      );
       if (!repaired) continue;
       if (claudeToolKey(pending.toolName, repaired) !== key) continue;
       return {
@@ -551,7 +784,7 @@ export const createClaudeNativeToolUseCorrelator = () => {
     return undefined;
   };
 
-  const observe = (args) => {
+  const observe = (args: ObservedToolUse) => {
     if (observedIds.has(args.toolCallId)) return;
     observedIds.add(args.toolCallId);
     const key = claudeToolKey(args.toolName, args.toolArgs);
@@ -572,7 +805,7 @@ export const createClaudeNativeToolUseCorrelator = () => {
      * proved one, so the caller can also surface it to the user (the call may
      * already be executing, in which case the gate below cannot stop it).
      */
-    observeAssistantMessage(event) {
+    observeAssistantMessage(event: ClaudeStreamEvent) {
       if (event.type !== "assistant") return null;
       const content = asObject(event.message)?.content;
       if (!Array.isArray(content)) return null;
@@ -596,14 +829,14 @@ export const createClaudeNativeToolUseCorrelator = () => {
      * arrived in time to say. Fails open by design — see the settle constant.
      */
     async resolveToolUseIntegrity(
-      toolName,
-      toolArgs,
-      signal,
+      toolName: string,
+      toolArgs: ClaudeToolArgs,
+      signal?: AbortSignal,
       timeoutMs = TOOL_USE_INTEGRITY_SETTLE_MS,
     ) {
       const key = claudeToolKey(toolName, toolArgs);
       if (!settledKeys.has(key)) {
-        await new Promise((resolve) => {
+        await new Promise<void>((resolve) => {
           const entries = integrityWaiters.get(key) ?? [];
           const finish = () => {
             clearTimeout(timer);
@@ -633,7 +866,7 @@ export const createClaudeNativeToolUseCorrelator = () => {
       }
       return undefined;
     },
-    observeStreamEvent(event) {
+    observeStreamEvent(event: ClaudeStreamEvent) {
       if (event.type !== "stream_event") return;
       const source = asObject(event.event);
       const index = asNumber(source?.index);
@@ -688,11 +921,15 @@ export const createClaudeNativeToolUseCorrelator = () => {
         toolArgs,
       });
     },
-    async claim(toolName, toolArgs, signal) {
+    async claim(
+      toolName: string,
+      toolArgs: ClaudeToolArgs,
+      signal: AbortSignal,
+    ): Promise<string> {
       const key = claudeToolKey(toolName, toolArgs);
       const existing = queued.get(key)?.shift();
       if (existing) return existing;
-      return await new Promise((resolve, reject) => {
+      return await new Promise<string>((resolve, reject) => {
         const entries = waiters.get(key) ?? [];
         const onAbort = () => {
           const index = entries.indexOf(onObserved);
@@ -710,7 +947,7 @@ export const createClaudeNativeToolUseCorrelator = () => {
           );
         }, 5_000);
         timer.unref?.();
-        const onObserved = (id) => {
+        const onObserved = (id: string) => {
           clearTimeout(timer);
           signal.removeEventListener("abort", onAbort);
           resolve(id);
@@ -723,16 +960,19 @@ export const createClaudeNativeToolUseCorrelator = () => {
     },
   };
 };
-const asNumber = (value) =>
+type ClaudeNativeToolUseCorrelator = ReturnType<
+  typeof createClaudeNativeToolUseCorrelator
+>;
+const asNumber = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
-const withPeriod = (text) => (/[.!?]$/u.test(text) ? text : `${text}.`);
-const normalizeErrorMessage = (error) => {
+const withPeriod = (text: string) => (/[.!?]$/u.test(text) ? text : `${text}.`);
+const normalizeErrorMessage = (error: unknown) => {
   if (error instanceof Error && error.message.trim())
     return error.message.trim();
   if (typeof error === "string" && error.trim()) return error.trim();
   return "Unknown error";
 };
-const textArrayMessage = (value) => {
+const textArrayMessage = (value: unknown) => {
   if (!Array.isArray(value)) return undefined;
   const text = value
     .filter((entry) => typeof entry === "string")
@@ -741,11 +981,11 @@ const textArrayMessage = (value) => {
     .join("\n");
   return text || undefined;
 };
-const isSessionAlreadyInUseError = (message) =>
+const isSessionAlreadyInUseError = (message: string) =>
   /Session ID .* is already in use\./i.test(message);
-const isMissingResumeSessionError = (message) =>
+const isMissingResumeSessionError = (message: string) =>
   /No conversation found with session ID:/i.test(message);
-const configuredTimeoutMs = (envName, fallbackMs) => {
+const configuredTimeoutMs = (envName: string, fallbackMs: number) => {
   const raw = process.env[envName]?.trim();
   if (!raw) return fallbackMs;
   const parsed = Number(raw);
@@ -758,9 +998,9 @@ const configuredTimeoutMs = (envName, fallbackMs) => {
  * SIGINT in `abortProcess`, neither SIGTERM nor SIGKILL could ever fire,
  * so a signal-ignoring CLI survived cancellation.
  */
-const processIsDead = (child) =>
+const processIsDead = (child: ChildProcess) =>
   child.exitCode !== null || child.signalCode !== null;
-const killProcess = (child) => {
+const killProcess = (child: ChildProcess) => {
   if (processIsDead(child)) return;
   try {
     child.kill("SIGTERM");
@@ -777,7 +1017,7 @@ const killProcess = (child) => {
   }, SIGKILL_TIMEOUT_MS);
   child.once("exit", () => clearTimeout(sigkillTimer));
 };
-const abortProcess = (child) => {
+const abortProcess = (child: ChildProcess) => {
   if (processIsDead(child)) return;
   try {
     child.kill("SIGINT");
@@ -788,14 +1028,14 @@ const abortProcess = (child) => {
     killProcess(child);
   }, SIGTERM_TIMEOUT_MS);
 };
-const parseClaudeCodeModel = (modelId) => {
+const parseClaudeCodeModel = (modelId: string) => {
   const normalized = modelId.trim();
   if (!normalized.startsWith(CLAUDE_CODE_MODEL_PREFIX)) return undefined;
   const suffix = normalized.slice(CLAUDE_CODE_MODEL_PREFIX.length).trim();
   if (!suffix || suffix === "default") return undefined;
   return suffix;
 };
-const mimeExtension = (mimeType) => {
+const mimeExtension = (mimeType: string) => {
   switch (mimeType.trim().toLowerCase()) {
     case "image/jpeg":
     case "image/jpg":
@@ -810,7 +1050,10 @@ const mimeExtension = (mimeType) => {
       return ".bin";
   }
 };
-const parseDataUrlAttachment = (attachment) => {
+const parseDataUrlAttachment = (attachment: {
+  url: string;
+  mimeType?: string;
+}) => {
   const match = /^data:([^;,]+);base64,(.+)$/i.exec(attachment.url.trim());
   if (!match) {
     return null;
@@ -824,7 +1067,7 @@ const parseDataUrlAttachment = (attachment) => {
     return null;
   }
 };
-const ensureArtifactDir = (session) => {
+const ensureArtifactDir = (session: ClaudeCodeSession) => {
   if (!session.artifactDir) {
     session.artifactDir = path.join(
       os.tmpdir(),
@@ -835,12 +1078,15 @@ const ensureArtifactDir = (session) => {
   fs.mkdirSync(session.artifactDir, { recursive: true });
   return session.artifactDir;
 };
-const materializeAttachments = (session, attachments) => {
+const materializeAttachments = (
+  session: ClaudeCodeSession,
+  attachments: ClaudeCodeTurnRequest["attachments"],
+) => {
   if (!attachments || attachments.length === 0) {
     return [];
   }
   const artifactDir = ensureArtifactDir(session);
-  const notes = [];
+  const notes: string[] = [];
   for (const [index, attachment] of attachments.entries()) {
     const parsed = parseDataUrlAttachment(attachment);
     if (!parsed) {
@@ -855,7 +1101,10 @@ const materializeAttachments = (session, attachments) => {
   }
   return notes;
 };
-const buildInitialPrompt = (session, request) => {
+const buildInitialPrompt = (
+  session: ClaudeCodeSession,
+  request: ClaudeCodeTurnRequest,
+) => {
   const attachments = materializeAttachments(session, request.attachments);
   if (attachments.length === 0) {
     return request.prompt;
@@ -869,20 +1118,20 @@ const buildInitialPrompt = (session, request) => {
     .filter((section) => section.trim().length > 0)
     .join("\n\n");
 };
-const normalizeNativeTools = (nativeTools) =>
+const normalizeNativeTools = (nativeTools: unknown): string[] =>
   Array.isArray(nativeTools)
     ? [
         ...new Set(
           nativeTools
-            .filter((name) => typeof name === "string")
+            .filter((name): name is string => typeof name === "string")
             .map((name) => name.trim())
             .filter(Boolean),
         ),
       ]
     : [];
 export const buildClaudeCodeNativeToolRuntimePrompt = (
-  systemPrompt,
-  nativeTools = [],
+  systemPrompt: string | undefined,
+  nativeTools: readonly string[] = [],
 ) => {
   const enabled = normalizeNativeTools(nativeTools);
   return [
@@ -897,7 +1146,7 @@ export const buildClaudeCodeNativeToolRuntimePrompt = (
     .join("\n\n");
 };
 /** Text of one stream-json `tool_result` block, for Stella's own journal. */
-const nativeToolResultText = (block) => {
+const nativeToolResultText = (block: ClaudeStreamEvent | null) => {
   const content = block?.content;
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -920,7 +1169,10 @@ const nativeToolResultText = (block) => {
  * Bash or Edit ran. Returns true when the event announced or settled a
  * native call.
  */
-const observeNativeToolCalls = (event, pending) => {
+const observeNativeToolCalls = (
+  event: ClaudeStreamEvent,
+  pending: PendingStep,
+) => {
   const content = asObject(event.message)?.content;
   if (!Array.isArray(content)) return false;
   let changed = false;
@@ -1000,7 +1252,12 @@ const observeNativeToolCalls = (event, pending) => {
  * image content blocks directly, so screenshots reach vision without enabling
  * any Claude-native file or shell tools outside Stella's tool boundary.
  */
-const buildStreamJsonUserMessage = (sessionId, text, images, uuid) =>
+const buildStreamJsonUserMessage = (
+  sessionId: string,
+  text: string,
+  images: ClaudeCodeImage[],
+  uuid?: string,
+) =>
   JSON.stringify({
     type: "user",
     session_id: sessionId,
@@ -1024,13 +1281,18 @@ const buildStreamJsonUserMessage = (sessionId, text, images, uuid) =>
     parent_tool_use_id: null,
     ...(uuid ? { uuid } : {}),
   });
-const asObject = (value) =>
-  value && typeof value === "object" && !Array.isArray(value) ? value : null;
+const asObject = (value: unknown): Record<string, any> | null =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, any>)
+    : null;
 /**
  * Hand steering back to the host newest-first, so its prepends keep the
  * original order.
  */
-const dropInjections = (pending, shouldDrop) => {
+const dropInjections = (
+  pending: PendingStep,
+  shouldDrop: (injection: ClaudeCodeInjection) => boolean,
+) => {
   for (const injection of [...(pending.injections?.values() ?? [])].reverse()) {
     if (injection.dropped || !shouldDrop(injection)) continue;
     injection.dropped = true;
@@ -1045,17 +1307,17 @@ const dropInjections = (pending, shouldDrop) => {
  * A fresh session seeded from the turn's history must still see the steering
  * the lost session had already taken in this turn.
  */
-const withConsumedSteering = (session, prompt) =>
+const withConsumedSteering = (session: ClaudeCodeSession, prompt: string) =>
   session.consumedSteeringTexts?.length
     ? [prompt, ...session.consumedSteeringTexts].join("\n\n")
     : prompt;
-const hasUnconsumedInjection = (pending) => {
+const hasUnconsumedInjection = (pending: PendingStep) => {
   for (const injection of pending.injections?.values() ?? []) {
     if (!injection.consumed) return true;
   }
   return false;
 };
-const parseStreamJsonLine = (line) => {
+const parseStreamJsonLine = (line: string): ClaudeStreamEvent | null => {
   try {
     const parsed = JSON.parse(line);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
@@ -1065,7 +1327,9 @@ const parseStreamJsonLine = (line) => {
     return null;
   }
 };
-export const getClaudeCodeTextDeltaFromStreamEvent = (event) => {
+export const getClaudeCodeTextDeltaFromStreamEvent = (
+  event: ClaudeStreamEvent,
+): string | null => {
   if (event.type !== "stream_event") {
     return null;
   }
@@ -1094,9 +1358,12 @@ export const getClaudeCodeTextDeltaFromStreamEvent = (event) => {
   return null;
 };
 
-const updateClaudeCodeNativeToolActivity = (event, activeToolUseIds) => {
+const updateClaudeCodeNativeToolActivity = (
+  event: ClaudeStreamEvent,
+  activeToolUseIds: Set<string>,
+) => {
   const before = activeToolUseIds.size;
-  const updateFromContent = (content) => {
+  const updateFromContent = (content: unknown) => {
     if (!Array.isArray(content)) return;
     for (const raw of content) {
       const block = asObject(raw);
@@ -1124,7 +1391,10 @@ const updateClaudeCodeNativeToolActivity = (event, activeToolUseIds) => {
   }
   return before !== activeToolUseIds.size;
 };
-const observeFinalizedClaudeToolUses = (event, observe) => {
+const observeFinalizedClaudeToolUses = (
+  event: ClaudeStreamEvent,
+  observe: ((args: ObservedToolUse) => void) | undefined,
+) => {
   if (event.type !== "assistant" || !observe) return;
   const content = asObject(event.message)?.content;
   if (!Array.isArray(content)) return;
@@ -1144,7 +1414,10 @@ const observeFinalizedClaudeToolUses = (event, observe) => {
     });
   }
 };
-const mergeMcpCalls = (target, records) => {
+const mergeMcpCalls = (
+  target: McpCallRecord[],
+  records: readonly McpCallRecord[] | undefined,
+) => {
   for (const record of records ?? []) {
     const existing = target.find(
       (entry) => entry.toolCallId === record.toolCallId,
@@ -1159,10 +1432,12 @@ const mergeMcpCalls = (target, records) => {
     target.push({ ...record });
   }
 };
-export const createClaudeCodeStreamEmitter = (onStream) => {
+export const createClaudeCodeStreamEmitter = (
+  onStream: ((chunk: string) => void) | undefined,
+) => {
   let lastVisibleChar = "";
   let boundaryPending = false;
-  return (event) => {
+  return (event: ClaudeStreamEvent) => {
     if (event.type !== "stream_event") return;
     const source = asObject(event.event) ?? event;
     if (source.type === "message_start") {
@@ -1191,7 +1466,9 @@ export const createClaudeCodeStreamEmitter = (onStream) => {
     onStream?.(out);
   };
 };
-export const getClaudeCodeStatusChangeFromStreamEvent = (event) => {
+export const getClaudeCodeStatusChangeFromStreamEvent = (
+  event: ClaudeStreamEvent,
+): ClaudeCodeStatusChange | null => {
   const type = typeof event.type === "string" ? event.type : "";
   const subtype = typeof event.subtype === "string" ? event.subtype : "";
   const hookEvent =
@@ -1237,7 +1514,9 @@ export const getClaudeCodeStatusChangeFromStreamEvent = (event) => {
   return null;
 };
 /** Diagnostic boundary: one finalized Claude assistant message is one model round. */
-export const getClaudeCodeModelRoundFromStreamEvent = (event) => {
+export const getClaudeCodeModelRoundFromStreamEvent = (
+  event: ClaudeStreamEvent,
+) => {
   if (event.type !== "assistant") return null;
   const message = asObject(event.message);
   const content = message?.content;
@@ -1275,7 +1554,9 @@ const CLAUDE_CODE_MODEL_FALLBACK_RE =
  * pretty-printing the from/to ids parsed out of the message. Returns null
  * for any other event.
  */
-export const getClaudeCodeModelFallbackFromStreamEvent = (event) => {
+export const getClaudeCodeModelFallbackFromStreamEvent = (
+  event: ClaudeStreamEvent,
+) => {
   if (event.type !== "system" || event.subtype !== "informational") {
     return null;
   }
@@ -1296,7 +1577,7 @@ export const getClaudeCodeModelFallbackFromStreamEvent = (event) => {
     `The rest of this session runs on ${toModel}.`;
   return { fromModel, toModel, text };
 };
-const cleanupSessionArtifacts = (session) => {
+const cleanupSessionArtifacts = (session: ClaudeCodeSession) => {
   if (!session.artifactDir) {
     return;
   }
@@ -1307,12 +1588,15 @@ const cleanupSessionArtifacts = (session) => {
   }
   session.artifactDir = undefined;
 };
-const resetSessionMcpClients = (session, reason) => {
+const resetSessionMcpClients = (
+  session: ClaudeCodeSession,
+  reason: unknown,
+) => {
   void session.mcpHost?.resetClientSessions(reason).catch(() => {
     // Process teardown must continue even if a stale transport resists close.
   });
 };
-const cleanupSessionProcess = (session) => {
+const cleanupSessionProcess = (session: ClaudeCodeSession) => {
   if (!session.process) {
     return;
   }
@@ -1323,7 +1607,7 @@ const cleanupSessionProcess = (session) => {
   killProcess(session.process.child);
   session.process = undefined;
 };
-const cleanupSessionMcpHost = (session) => {
+const cleanupSessionMcpHost = (session: ClaudeCodeSession) => {
   const host = session.mcpHost;
   session.mcpHost = undefined;
   session.mcpToolCatalogKey = undefined;
@@ -1335,7 +1619,12 @@ const cleanupSessionMcpHost = (session) => {
     });
   }
 };
-const ensureSessionState = (sessions, request, sessionKey, cwd) => {
+const ensureSessionState = (
+  sessions: Map<string, ClaudeCodeSession>,
+  request: ClaudeCodeTurnRequest,
+  sessionKey: string,
+  cwd: string | undefined,
+): ClaudeCodeSession => {
   const normalizedCwd = cwd?.trim() || undefined;
   const persistedSessionId = request.persistedSessionId?.trim() || undefined;
   const existing = sessions.get(sessionKey);
@@ -1351,7 +1640,7 @@ const ensureSessionState = (sessions, request, sessionKey, cwd) => {
     cleanupSessionProcess(existing);
     cleanupSessionMcpHost(existing);
     cleanupSessionArtifacts(existing);
-    const replacement = {
+    const replacement: ClaudeCodeSession = {
       sessionId: persistedSessionId ?? crypto.randomUUID(),
       cwd: normalizedCwd,
       lastUsedAt: Date.now(),
@@ -1363,7 +1652,7 @@ const ensureSessionState = (sessions, request, sessionKey, cwd) => {
     sessions.set(sessionKey, replacement);
     return replacement;
   }
-  const created = {
+  const created: ClaudeCodeSession = {
     sessionId: persistedSessionId ?? crypto.randomUUID(),
     cwd: normalizedCwd,
     lastUsedAt: Date.now(),
@@ -1376,11 +1665,11 @@ const ensureSessionState = (sessions, request, sessionKey, cwd) => {
   return created;
 };
 class ClaudeCodeSessionRuntime {
-  sessions = new Map();
-  activeProcesses = new Map();
-  closeWhenIdle = new Set();
-  idleCloseTimers = new Map();
-  async runTurn(request) {
+  sessions = new Map<string, ClaudeCodeSession>();
+  activeProcesses = new Map<string, ChildProcess>();
+  closeWhenIdle = new Set<string>();
+  idleCloseTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  async runTurn(request: ClaudeCodeTurnRequest): Promise<ClaudeCodeTurnResult> {
     this.clearIdleCloseTimer(request.sessionKey);
     const session = ensureSessionState(
       this.sessions,
@@ -1392,7 +1681,7 @@ class ClaudeCodeSessionRuntime {
       request.onSessionId?.(session.sessionId);
     }
     session.lastUsedAt = Date.now();
-    return await new Promise((resolve, reject) => {
+    return await new Promise<ClaudeCodeTurnResult>((resolve, reject) => {
       session.queue.push({ request, resolve, reject });
       this.pumpSession(request.sessionKey, session);
     });
@@ -1402,11 +1691,11 @@ class ClaudeCodeSessionRuntime {
    * session key. Guards against restart races where a stale close handler
    * would otherwise evict the replacement child from tracking.
    */
-  hasActiveProcess(sessionKey) {
+  hasActiveProcess(sessionKey: string) {
     const child = this.activeProcesses.get(sessionKey);
     return Boolean(child && !child.killed && child.exitCode === null);
   }
-  resumableSessionId(sessionKey, cwd) {
+  resumableSessionId(sessionKey: string, cwd: string | undefined) {
     const session = this.sessions.get(sessionKey);
     if (!session || !session.resumeReady) {
       return undefined;
@@ -1417,7 +1706,7 @@ class ClaudeCodeSessionRuntime {
     }
     return session.sessionId;
   }
-  closeSessionWhenIdle(sessionKey) {
+  closeSessionWhenIdle(sessionKey: string) {
     this.clearIdleCloseTimer(sessionKey);
     const session = this.sessions.get(sessionKey);
     if (!session) return;
@@ -1427,7 +1716,7 @@ class ClaudeCodeSessionRuntime {
     }
     this.closeSession(sessionKey, session);
   }
-  scheduleSessionCloseWhenIdle(sessionKey, timeoutMs) {
+  scheduleSessionCloseWhenIdle(sessionKey: string, timeoutMs: number) {
     this.clearIdleCloseTimer(sessionKey);
     const timer = setTimeout(
       () => this.closeSessionWhenIdle(sessionKey),
@@ -1436,12 +1725,12 @@ class ClaudeCodeSessionRuntime {
     timer.unref?.();
     this.idleCloseTimers.set(sessionKey, timer);
   }
-  clearIdleCloseTimer(sessionKey) {
+  clearIdleCloseTimer(sessionKey: string) {
     const timer = this.idleCloseTimers.get(sessionKey);
     if (timer) clearTimeout(timer);
     this.idleCloseTimers.delete(sessionKey);
   }
-  closeSession(sessionKey, session) {
+  closeSession(sessionKey: string, session: ClaudeCodeSession) {
     this.clearIdleCloseTimer(sessionKey);
     const child = session.process?.child;
     if (child && this.activeProcesses.get(sessionKey) === child) {
@@ -1480,7 +1769,7 @@ class ClaudeCodeSessionRuntime {
       }
     }
   }
-  pumpSession(sessionKey, session) {
+  pumpSession(sessionKey: string, session: ClaudeCodeSession) {
     if (session.running) return;
     const job = session.queue.shift();
     if (!job) {
@@ -1501,7 +1790,10 @@ class ClaudeCodeSessionRuntime {
         this.pumpSession(sessionKey, session);
       });
   }
-  async executeTurn(session, request) {
+  async executeTurn(
+    session: ClaudeCodeSession,
+    request: ClaudeCodeTurnRequest,
+  ): Promise<ClaudeCodeTurnResult> {
     // Vanilla mode sends the prompt to stock Claude Code untouched: no
     // Stella runtime contract, no system-prompt override.
     const effectiveSystemPrompt = request.vanilla
@@ -1548,7 +1840,7 @@ class ClaudeCodeSessionRuntime {
           onUpdate,
         ) => {
           const pending = session.process?.pending[0];
-          const callRecord = {
+          const callRecord: McpCallRecord = {
             toolCallId,
             toolName,
             status: "started",
@@ -1633,16 +1925,16 @@ class ClaudeCodeSessionRuntime {
    * message.
    */
   async executeStepWithRecovery(
-    session,
-    request,
-    effectiveSystemPrompt,
-    prompt,
-    promptImages,
-    recoveryBudget,
-  ) {
+    session: ClaudeCodeSession,
+    request: ClaudeCodeTurnRequest,
+    effectiveSystemPrompt: string,
+    prompt: string,
+    promptImages: ClaudeCodeImage[],
+    recoveryBudget: { remaining: number },
+  ): Promise<ClaudeCodeStepResult> {
     let currentPrompt = prompt;
     let currentPromptImages = promptImages;
-    const failedAttemptMcpCalls = [];
+    const failedAttemptMcpCalls: McpCallRecord[] = [];
 
     for (;;) {
       try {
@@ -1702,9 +1994,7 @@ class ClaudeCodeSessionRuntime {
           continue;
         }
         currentPrompt = hasPossibleSideEffects
-          ? buildSideEffectReconciliationPrompt(
-              failedAttemptMcpCalls,
-            )
+          ? buildSideEffectReconciliationPrompt(failedAttemptMcpCalls)
           : buildResultRetryPrompt();
         currentPromptImages = [];
       }
@@ -1722,7 +2012,11 @@ class ClaudeCodeSessionRuntime {
    * prompt; false when the policy doesn't apply (including a failure on the
    * fallback itself) and the error should propagate.
    */
-  applyFableFallbackPolicy(session, request, error) {
+  applyFableFallbackPolicy(
+    session: ClaudeCodeSession,
+    request: ClaudeCodeTurnRequest,
+    error: unknown,
+  ) {
     if (session.modelOverride) return false;
     const modelName = parseClaudeCodeModel(request.modelId);
     if (!modelName || !/\bfable\b/.test(modelName)) return false;
@@ -1755,12 +2049,12 @@ class ClaudeCodeSessionRuntime {
     return true;
   }
   async executeStep(
-    session,
-    request,
-    effectiveSystemPrompt,
-    prompt,
-    promptImages,
-    observedMcpCalls = [],
+    session: ClaudeCodeSession,
+    request: ClaudeCodeTurnRequest,
+    effectiveSystemPrompt: string,
+    prompt: string,
+    promptImages: ClaudeCodeImage[],
+    observedMcpCalls: McpCallRecord[] = [],
   ) {
     return await this.executeStepWithMode(
       session,
@@ -1781,17 +2075,16 @@ class ClaudeCodeSessionRuntime {
    * whose history+request would replay them on the fresh session.
    */
   async executeStepWithMode(
-    session,
-    request,
-    effectiveSystemPrompt,
-    prompt,
-    useResume,
+    session: ClaudeCodeSession,
+    request: ClaudeCodeTurnRequest,
+    effectiveSystemPrompt: string,
+    prompt: string,
+    useResume: boolean,
     allowCompactionLoopRestart = true,
-    promptImages = [],
-    observedMcpCalls = [],
-  ) {
-
-    const buildReseedPrompt = (mcpCalls) => {
+    promptImages: ClaudeCodeImage[] = [],
+    observedMcpCalls: McpCallRecord[] = [],
+  ): Promise<ClaudeCodeStepResult> {
+    const buildReseedPrompt = (mcpCalls: McpCallRecord[]) => {
       // Read at recovery time: steering consumed during the failed attempt
       // must reach the fresh session too.
       const reseedBase = withConsumedSteering(
@@ -1851,7 +2144,6 @@ class ClaudeCodeSessionRuntime {
         allowCompactionLoopRestart &&
         error instanceof ClaudeCodeCompactionLoopError
       ) {
-
         const mcpCalls = [...observedMcpCalls];
         mergeMcpCalls(mcpCalls, error.mcpCalls);
         this.resetStreamingProcess(request.sessionKey, session);
@@ -1874,11 +2166,11 @@ class ClaudeCodeSessionRuntime {
     }
   }
   buildClaudeCodeArgs(
-    session,
-    request,
-    effectiveSystemPrompt,
-    useResume,
-    mcpHost,
+    session: ClaudeCodeSession,
+    request: ClaudeCodeTurnRequest,
+    effectiveSystemPrompt: string,
+    useResume: boolean,
+    mcpHost: ClaudeCodeToolMcpHost | undefined,
   ) {
     // A turn-scoped fallback override (fable exhausted its attempts) beats
     // the configured model; executeTurn clears it at every turn start.
@@ -1935,7 +2227,12 @@ class ClaudeCodeSessionRuntime {
     }
     return args;
   }
-  buildProcessLaunchConfig(session, request, effectiveSystemPrompt, mcpHost) {
+  buildProcessLaunchConfig(
+    session: ClaudeCodeSession,
+    request: ClaudeCodeTurnRequest,
+    effectiveSystemPrompt: string,
+    mcpHost: ClaudeCodeToolMcpHost | undefined,
+  ) {
     return JSON.stringify([
       session.modelOverride ?? parseClaudeCodeModel(request.modelId) ?? "",
       request.effortLevel?.trim() ?? "",
@@ -1948,7 +2245,10 @@ class ClaudeCodeSessionRuntime {
       request.cliBridgeSocketPath ?? "",
     ]);
   }
-  async ensureMcpHost(session, request) {
+  async ensureMcpHost(
+    session: ClaudeCodeSession,
+    request: ClaudeCodeTurnRequest,
+  ): Promise<ClaudeCodeToolMcpHost | undefined> {
     if (request.vanilla) {
       if (session.mcpHost) {
         await session.mcpHost.close().catch(() => undefined);
@@ -1994,11 +2294,11 @@ class ClaudeCodeSessionRuntime {
     return session.mcpHost;
   }
   async ensureStreamingProcess(
-    session,
-    request,
-    effectiveSystemPrompt,
-    useResume,
-  ) {
+    session: ClaudeCodeSession,
+    request: ClaudeCodeTurnRequest,
+    effectiveSystemPrompt: string,
+    useResume: boolean,
+  ): Promise<ClaudeCodeProcessState> {
     const mcpHost = await this.ensureMcpHost(session, request);
     const launchConfig = this.buildProcessLaunchConfig(
       session,
@@ -2066,7 +2366,7 @@ class ClaudeCodeSessionRuntime {
       (request.autoCompactWindowTokens ?? 0) > 0
     ) {
       childEnv.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(
-        Math.floor(request.autoCompactWindowTokens),
+        Math.floor(request.autoCompactWindowTokens!),
       );
     }
     if (
@@ -2074,7 +2374,7 @@ class ClaudeCodeSessionRuntime {
       (request.autoCompactTriggerPct ?? 0) > 0
     ) {
       childEnv.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE = String(
-        Math.min(100, Math.max(1, Math.floor(request.autoCompactTriggerPct))),
+        Math.min(100, Math.max(1, Math.floor(request.autoCompactTriggerPct!))),
       );
     }
     const child = spawn(
@@ -2093,7 +2393,7 @@ class ClaudeCodeSessionRuntime {
         env: childEnv,
       },
     );
-    const processState = {
+    const processState: ClaudeCodeProcessState = {
       child,
       stdoutBuffer: "",
       stdoutDecoder: new StringDecoder("utf8"),
@@ -2153,10 +2453,13 @@ class ClaudeCodeSessionRuntime {
         ) {
           request.onProtocolInit({
             tools: Array.isArray(parsedLine.tools)
-              ? parsedLine.tools.filter((entry) => typeof entry === "string")
+              ? parsedLine.tools.filter(
+                  (entry: unknown): entry is string =>
+                    typeof entry === "string",
+                )
               : [],
             mcpServers: Array.isArray(parsedLine.mcp_servers)
-              ? parsedLine.mcp_servers.map((entry) => {
+              ? parsedLine.mcp_servers.map((entry: unknown) => {
                   const value = asObject(entry);
                   return {
                     ...(typeof value?.name === "string"
@@ -2268,7 +2571,12 @@ class ClaudeCodeSessionRuntime {
             parsedLine.is_error !== true &&
             hasUnconsumedInjection(current)
           ) {
-            this.reportIntermediateResult(session, processState, current, parsedLine);
+            this.reportIntermediateResult(
+              session,
+              processState,
+              current,
+              parsedLine,
+            );
             continue;
           }
           const completed = processState.pending.shift();
@@ -2370,11 +2678,7 @@ class ClaudeCodeSessionRuntime {
         pending.reject(
           pending.request.abortSignal?.aborted
             ? new Error("Claude Code run aborted.")
-            : new ClaudeCodeProcessEndedError(
-                message,
-                code,
-                pending.mcpCalls,
-              ),
+            : new ClaudeCodeProcessEndedError(message, code, pending.mcpCalls),
         );
       }
     });
@@ -2386,17 +2690,17 @@ class ClaudeCodeSessionRuntime {
     return processState;
   }
   async sendStreamingPrompt(
-    session,
-    processState,
-    request,
-    prompt,
-    promptImages = [],
-  ) {
+    session: ClaudeCodeSession,
+    processState: ClaudeCodeProcessState,
+    request: ClaudeCodeTurnRequest,
+    prompt: string,
+    promptImages: ClaudeCodeImage[] = [],
+  ): Promise<ClaudeCodeStepResult> {
     if (processState.closed || processState.child.stdin.destroyed) {
       throw new ClaudeCodeProcessEndedError("Claude Code stream is closed.");
     }
-    return await new Promise((resolve, reject) => {
-      const pending = {
+    return await new Promise<ClaudeCodeStepResult>((resolve, reject) => {
+      const pending: PendingStep = {
         request,
         resolve,
         reject: (error) => {
@@ -2507,7 +2811,7 @@ class ClaudeCodeSessionRuntime {
       }
     });
   }
-  detachAbortListener(pending) {
+  detachAbortListener(pending: PendingStep) {
     if (pending.idleTimer) {
       clearTimeout(pending.idleTimer);
       pending.idleTimer = undefined;
@@ -2535,7 +2839,12 @@ class ClaudeCodeSessionRuntime {
    * query. Returns false when the turn can no longer take input, so the caller
    * keeps the message queued for its next prompt instead.
    */
-  injectIntoPendingTurn(session, processState, pending, input) {
+  injectIntoPendingTurn(
+    session: ClaudeCodeSession,
+    processState: ClaudeCodeProcessState,
+    pending: PendingStep,
+    input: ClaudeCodeInjectInput,
+  ) {
     if (
       processState.closed ||
       processState.child.stdin.destroyed ||
@@ -2562,14 +2871,18 @@ class ClaudeCodeSessionRuntime {
     );
     return true;
   }
-  noteInjectionConsumed(session, processState, uuid) {
+  noteInjectionConsumed(
+    session: ClaudeCodeSession,
+    processState: ClaudeCodeProcessState,
+    uuid: unknown,
+  ) {
     if (typeof uuid !== "string") return;
     for (const pending of processState.pending) {
       const injection = pending.injections?.get(uuid);
       if (!injection || injection.consumed) continue;
       injection.consumed = true;
       if (injection.text) {
-        session.consumedSteeringTexts.push(injection.text);
+        session.consumedSteeringTexts!.push(injection.text);
       }
       try {
         injection.onConsumed?.();
@@ -2585,8 +2898,13 @@ class ClaudeCodeSessionRuntime {
    * for that query's result; this answer is handed to the host as its own
    * reply.
    */
-  reportIntermediateResult(session, processState, pending, parsedLine) {
-    let stepResult;
+  reportIntermediateResult(
+    session: ClaudeCodeSession,
+    processState: ClaudeCodeProcessState,
+    pending: PendingStep,
+    parsedLine: ClaudeStreamEvent,
+  ) {
+    let stepResult: ClaudeCodeStepResult;
     try {
       stepResult = this.parseResultPayload(
         session,
@@ -2610,7 +2928,10 @@ class ClaudeCodeSessionRuntime {
       // A host-side steering observer must not break the engine turn.
     }
   }
-  refreshPendingIdleTimer(processState, pending) {
+  refreshPendingIdleTimer(
+    processState: ClaudeCodeProcessState,
+    pending: PendingStep,
+  ) {
     if (pending.idleTimer) {
       clearTimeout(pending.idleTimer);
     }
@@ -2653,8 +2974,13 @@ class ClaudeCodeSessionRuntime {
     }, timeoutMs);
     pending.idleTimer.unref?.();
   }
-  parseResultPayload(session, parsed, stderrText, allowEmptyFinal = false) {
-    let resultError;
+  parseResultPayload(
+    session: ClaudeCodeSession,
+    parsed: ClaudeStreamEvent,
+    stderrText: string,
+    allowEmptyFinal = false,
+  ): ClaudeCodeStepResult {
+    let resultError: string | undefined;
     if (parsed.is_error === true) {
       const parsedError =
         (typeof parsed.result === "string" && parsed.result.trim()) ||
@@ -2699,7 +3025,11 @@ class ClaudeCodeSessionRuntime {
    * prompts with a recognizable error so `executeStepWithMode` can
    * restart the turn on a fresh session seeded from the checkpoint history.
    */
-  failCompactionLoop(sessionKey, session, processState) {
+  failCompactionLoop(
+    sessionKey: string,
+    session: ClaudeCodeSession,
+    processState: ClaudeCodeProcessState,
+  ) {
     processState.closed = true;
     if (session.process === processState) {
       session.process = undefined;
@@ -2714,12 +3044,10 @@ class ClaudeCodeSessionRuntime {
       this.detachAbortListener(pending);
       // Typed: the reseed path must know which MCP calls this step already
       // made so it reconciles instead of replaying them.
-      pending.reject(
-        new ClaudeCodeCompactionLoopError(pending.mcpCalls),
-      );
+      pending.reject(new ClaudeCodeCompactionLoopError(pending.mcpCalls));
     }
   }
-  resetStreamingProcess(sessionKey, session) {
+  resetStreamingProcess(sessionKey: string, session: ClaudeCodeSession) {
     if (!session.process) {
       return;
     }
@@ -2736,27 +3064,38 @@ class ClaudeCodeSessionRuntime {
   }
 }
 const runtime = new ClaudeCodeSessionRuntime();
-export const isClaudeCodeModel = (modelId) =>
+export const isClaudeCodeModel = (modelId: string) =>
   modelId.trim().startsWith(CLAUDE_CODE_MODEL_PREFIX);
-export const runClaudeCodeTurn = async (request) =>
+export const runClaudeCodeTurn = async (request: ClaudeCodeTurnRequest) =>
   await runtime.runTurn(request);
 /** Diagnostic/test hook: is a live CLI process tracked for this session key? */
-export const claudeCodeSessionHasActiveProcess = (sessionKey) =>
+export const claudeCodeSessionHasActiveProcess = (sessionKey: string) =>
   runtime.hasActiveProcess(sessionKey);
-export const claudeCodeResumableSessionId = (sessionKey, cwd) =>
-  runtime.resumableSessionId(sessionKey, cwd);
-export const closeClaudeCodeSessionWhenIdle = (sessionKey) => {
+export const claudeCodeResumableSessionId = (
+  sessionKey: string,
+  cwd: string | undefined,
+) => runtime.resumableSessionId(sessionKey, cwd);
+export const closeClaudeCodeSessionWhenIdle = (sessionKey: string) => {
   runtime.closeSessionWhenIdle(sessionKey);
 };
 export const scheduleClaudeCodeSessionCloseWhenIdle = (
-  sessionKey,
-  timeoutMs,
+  sessionKey: string,
+  timeoutMs: number,
 ) => {
   runtime.scheduleSessionCloseWhenIdle(sessionKey, timeoutMs);
 };
-export const listClaudeCodeModels = async (auth, stellaAppDir) => {
-  const models = new Map();
-  const resolvedModels = stellaAppDir
+type ClaudeCodeModelOption = {
+  id: string;
+  displayName: string;
+  description?: string;
+  source: "alias" | "anthropic";
+};
+export const listClaudeCodeModels = async (
+  auth: { apiKey?: string } | null | undefined,
+  stellaAppDir?: string,
+) => {
+  const models = new Map<string, ClaudeCodeModelOption>();
+  const resolvedModels: Record<string, string> = stellaAppDir
     ? readClaudeCodeResolvedModels(stellaAppDir)
     : {};
   for (const alias of CLAUDE_CODE_ALIASES) {
@@ -2785,7 +3124,9 @@ export const listClaudeCodeModels = async (auth, stellaAppDir) => {
       },
     });
     if (!response.ok) return { models: [...models.values()] };
-    const parsed = await response.json();
+    const parsed = (await response.json()) as {
+      data?: { id?: unknown; display_name?: unknown }[];
+    };
     for (const model of parsed.data ?? []) {
       if (typeof model.id !== "string" || !model.id.trim()) continue;
       const id = model.id.trim();

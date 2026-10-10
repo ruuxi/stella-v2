@@ -2,10 +2,13 @@
 // parent intact. The marker path below only guards against pathological output.
 export const MAX_PARENT_AGENT_REPORT_CHARS = 200_000;
 
-export const boundParentAgentReport = (value, threadId) => {
+export const boundParentAgentReport = (
+  value: string,
+  threadId?: string | null,
+): string => {
   if (value.length <= MAX_PARENT_AGENT_REPORT_CHARS) return value;
 
-  const buildMarker = (omitted) =>
+  const buildMarker = (omitted: number) =>
     [
       "",
       `[middle of child report omitted: ${omitted} chars; full result remains durable on thread_id ${threadId || "unknown"}]`,

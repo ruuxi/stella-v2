@@ -1,3 +1,8 @@
+import type {
+  AssistantRowViewModel,
+  EventRowViewModel,
+} from "@/features/chat/conversation-row-types";
+
 /**
  * Whether an assistant row paints ANYTHING on screen.
  *
@@ -15,23 +20,25 @@
  * field that can paint content must be checked here, otherwise a row
  * carrying only that field would be dropped from the timeline.
  */
-export const assistantRowHasVisibleContent = (row) => row.text.trim().length > 0 ||
-    Boolean(row.officePreviewRef) ||
-    Boolean(row.resourcePayload) ||
-    (row.linkedFiles?.length ?? 0) > 0 ||
-    (row.inlineImagePayloads?.length ?? 0) > 0 ||
-    (row.webSearchResults?.length ?? 0) > 0 ||
-    (row.mapArtifacts?.length ?? 0) > 0 ||
-    (row.sourceDiffPayloads?.length ?? 0) > 0 ||
-    Boolean(row.customSlot) ||
-    Boolean(row.voiceSession) ||
-    (row.backgroundWork?.threadIds.length ?? 0) > 0 ||
-    (row.agentCompletion?.sections.length ?? 0) > 0;
+export const assistantRowHasVisibleContent = (
+  row: AssistantRowViewModel,
+): boolean =>
+  row.text.trim().length > 0 ||
+  Boolean(row.officePreviewRef) ||
+  Boolean(row.resourcePayload) ||
+  (row.linkedFiles?.length ?? 0) > 0 ||
+  (row.inlineImagePayloads?.length ?? 0) > 0 ||
+  (row.webSearchResults?.length ?? 0) > 0 ||
+  (row.mapArtifacts?.length ?? 0) > 0 ||
+  (row.sourceDiffPayloads?.length ?? 0) > 0 ||
+  Boolean(row.customSlot) ||
+  Boolean(row.voiceSession) ||
+  (row.backgroundWork?.threadIds.length ?? 0) > 0 ||
+  (row.agentCompletion?.sections.length ?? 0) > 0;
 /**
  * Whether a timeline row produces a rendered box at all. User rows always
  * render; assistant rows render when they have visible content. A reply
  * arrives whole, so there is no empty pre-text row to reserve space for.
  */
-export const eventRowRendersContent = (row) => row.kind === "user"
-    ? !row.hidden
-    : row.kind !== "assistant" || assistantRowHasVisibleContent(row);
+export const eventRowRendersContent = (row: EventRowViewModel): boolean =>
+  row.kind === "user" ? !row.hidden : assistantRowHasVisibleContent(row);

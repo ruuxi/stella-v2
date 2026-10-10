@@ -23,6 +23,7 @@
  * scoped per tab.
  */
 import { uiState } from "@/platform/ui-state";
+import type { ElectronSystemApi } from "@/shared/types/electron";
 
 export const CONVERSATION_MODEL_SELECTIONS_STORAGE_KEY =
   "stella.conversationModelSelections.v1";
@@ -49,42 +50,58 @@ export const MODEL_SELECTION_KEYS = [
   "codexServiceTier",
   "claudeCodeModel",
   "claudeCodeReasoningEffort",
-];
+] as const;
+
+type LocalModelPreferencesPatch = Parameters<
+  ElectronSystemApi["setLocalModelPreferences"]
+>[0];
+
+/** The captured selection subset, replayable through `setLocalModelPreferences`. */
+export type ModelSelection = Pick<
+  LocalModelPreferencesPatch,
+  (typeof MODEL_SELECTION_KEYS)[number]
+>;
 
 /**
  * Extract the per-tab selection subset from a full local-preferences object.
  * Returns null for anything that isn't a preferences-shaped object.
  */
-export function pickModelSelection(preferences) {
+export function pickModelSelection(
+  preferences: unknown,
+): ModelSelection | null {
   if (!preferences || typeof preferences !== "object") return null;
-  const selection = {};
+  const source = preferences as Record<string, unknown>;
+  const selection: Record<string, unknown> = {};
   for (const key of MODEL_SELECTION_KEYS) {
-    if (preferences[key] !== undefined) selection[key] = preferences[key];
+    if (source[key] !== undefined) selection[key] = source[key];
   }
-  return selection;
+  return selection as ModelSelection;
 }
 
 /** Deterministic serialization (sorted keys) for structural comparison. */
-const stableStringify = (value) => {
+const stableStringify = (value: unknown): string => {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) {
     return `[${value.map((item) => stableStringify(item)).join(",")}]`;
   }
-  const keys = Object.keys(value).sort();
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
   return `{${keys
-    .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
     .join(",")}}`;
 };
 
 /** Structural equality for two selection snapshots (order-insensitive). */
-export function modelSelectionsEqual(a, b) {
+export function modelSelectionsEqual(
+  a: ModelSelection | null | undefined,
+  b: ModelSelection | null | undefined,
+): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
   return stableStringify(a) === stableStringify(b);
 }
 
-/** @type {Map<string, Record<string, unknown>>} */
-const memory = new Map();
+const memory = new Map<string, ModelSelection>();
 let loaded = false;
 
 const load = () => {
@@ -117,7 +134,7 @@ const load = () => {
 };
 
 const persist = () => {
-  const selections = {};
+  const selections: Record<string, ModelSelection> = {};
   let count = 0;
   for (const [conversationId, selection] of memory) {
     selections[conversationId] = selection;
@@ -130,16 +147,18 @@ const persist = () => {
 };
 
 export const conversationModelSelections = {
-  /** @returns {Record<string, unknown> | null} */
-  get(conversationId) {
+  get(conversationId: string): ModelSelection | null {
     load();
     return memory.get(conversationId) ?? null;
   },
-  has(conversationId) {
+  has(conversationId: string): boolean {
     load();
     return memory.has(conversationId);
   },
-  set(conversationId, selection) {
+  set(
+    conversationId: string | null | undefined,
+    selection: ModelSelection | null | undefined,
+  ) {
     if (!conversationId || !selection) return;
     load();
     // Re-insert at the tail so the bounded map evicts least-recently-touched
@@ -153,7 +172,7 @@ export const conversationModelSelections = {
     }
     persist();
   },
-  delete(conversationId) {
+  delete(conversationId: string) {
     load();
     if (memory.delete(conversationId)) persist();
   },
@@ -162,7 +181,7 @@ export const conversationModelSelections = {
    * Kept for callers that want a strict open-tab cache; the live hook no
    * longer prunes on close so history can restore a conversation's pick.
    */
-  pruneToOpenConversations(openConversationIds) {
+  pruneToOpenConversations(openConversationIds: ReadonlySet<string>) {
     load();
     let changed = false;
     for (const conversationId of [...memory.keys()]) {

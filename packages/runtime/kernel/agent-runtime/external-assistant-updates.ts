@@ -1,5 +1,14 @@
 import { now } from "./shared.js";
 import { persistThreadPayloadMessage } from "./thread-memory.js";
+import type { RuntimeStore } from "../storage/runtime-store.js";
+
+type ExternalAssistantUpdateArgs = {
+  store: RuntimeStore;
+  threadKey: string;
+  engine: string;
+  runId?: string;
+  attemptGeneration?: number;
+};
 
 const EMPTY_USAGE = {
   input: 0,
@@ -16,7 +25,10 @@ const EMPTY_USAGE = {
   },
 };
 
-const persistAssistantUpdate = (args, preamble) => {
+const persistAssistantUpdate = (
+  args: ExternalAssistantUpdateArgs,
+  preamble: string,
+) => {
   const text = preamble.trim();
   if (!text) return;
   const claude = args.engine === "claude_code";
@@ -33,13 +45,15 @@ const persistAssistantUpdate = (args, preamble) => {
       provider: claude ? "anthropic" : "chatgpt",
       model: claude ? "claude-code" : "codex",
       usage: EMPTY_USAGE,
-      stopReason: "toolUse",
+      stopReason: "toolUse" as const,
       timestamp: now(),
     },
   });
 };
 
-export const createExternalAssistantUpdateBuffer = (args) => {
+export const createExternalAssistantUpdateBuffer = (
+  args: ExternalAssistantUpdateArgs,
+) => {
   let text = "";
   const flush = () => {
     const partial = text.trim();
@@ -49,7 +63,7 @@ export const createExternalAssistantUpdateBuffer = (args) => {
     return partial;
   };
   return {
-    append(chunk) {
+    append(chunk: string) {
       text += chunk;
     },
     flushBeforeTool: flush,

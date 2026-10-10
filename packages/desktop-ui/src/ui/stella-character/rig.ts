@@ -1,6 +1,100 @@
-import { TAU, clamp, toPath, polyPath, lerpRing, spanAt, profileMax } from "./geometry.js";
-import { N, C, BLEED, VIEWBOX, VIEW_CENTER, SHAPES, ORB_RING, SPARKLE_PATH } from "./shapes.js";
-import { EYE_N, EYE_POSES, lerpPose } from "./eyes.js";
+import {
+  TAU,
+  clamp,
+  toPath,
+  polyPath,
+  lerpRing,
+  spanAt,
+  profileMax,
+  type Point,
+} from "./geometry";
+import {
+  N,
+  C,
+  BLEED,
+  VIEWBOX,
+  VIEW_CENTER,
+  SHAPES,
+  ORB_RING,
+  SPARKLE_PATH,
+} from "./shapes";
+import { EYE_N, EYE_POSES, lerpPose, type EyePoseName } from "./eyes";
+
+/**
+ * Activities the mark can portray. The rig maps each to a silhouette, an eye
+ * pose, and a motion profile; callers only ever name the activity.
+ */
+export type StellaCharacterState =
+  | "idle"
+  | "listening"
+  | "thinking"
+  | "working"
+  | "writing"
+  | "searching"
+  | "reading"
+  | "loading"
+  | "generating"
+  | "speaking"
+  | "uploading"
+  | "downloading"
+  | "happy"
+  | "celebrate"
+  | "confused"
+  | "sad"
+  | "sleeping"
+  | "waking"
+  | "powering-down";
+
+export type StellaCharacterShape = keyof typeof SHAPES;
+
+export interface CreateStellaMarkOptions {
+  size?: number | null;
+  state?: StellaCharacterState;
+  shape?: StellaCharacterShape;
+
+  ink?: "aurora" | "vivid";
+
+  flat?: string | null;
+
+  eyeColor?: string;
+  glow?: boolean;
+  core?: boolean;
+  followPointer?: boolean;
+  interactive?: boolean;
+  paused?: boolean;
+
+  /** Suspend the loop while the mark is scrolled out of view. Off for marks
+   * whose host is never laid out normally, e.g. a transformed overlay. */
+  visibilityGate?: boolean;
+}
+
+export interface StellaMarkHandle {
+  el: SVGSVGElement;
+  readonly state: StellaCharacterState;
+  setState(state: StellaCharacterState): void;
+  readonly shape: StellaCharacterShape;
+  setShape(shape: StellaCharacterShape): void;
+  setGaze(p: { x: number; y: number } | null): void;
+  sparkle(count?: number): void;
+  pause(): void;
+  resume(): void;
+  destroy(): void;
+}
+
+type Spring = { x: number; v: number; t: number };
+type Warp = (px: number, py: number) => Point;
+type Particle = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  max: number;
+  r: number;
+  rot: number;
+  vr: number;
+  el: SVGPathElement | null;
+};
 
 /**
  * The Stella character rig: an imperative, self-driving SVG mark.
@@ -39,19 +133,24 @@ for (let i = 0; i < N; i++) {
   RING_SHIMMER_COS[i] = Math.cos(th * 3);
 }
 
-const spring = (v) => ({ x: v, v: 0, t: v });
-const stepSpring = (s, w, z, dt) => {
+const spring = (v: number): Spring => ({ x: v, v: 0, t: v });
+const stepSpring = (s: Spring, w: number, z: number, dt: number) => {
   s.v += (-2 * z * w * s.v - w * w * (s.x - s.t)) * dt;
   s.x += s.v * dt;
-  if (!Number.isFinite(s.x) || !Number.isFinite(s.v)) { s.x = s.t; s.v = 0; }
+  if (!Number.isFinite(s.x) || !Number.isFinite(s.v)) {
+    s.x = s.t;
+    s.v = 0;
+  }
 };
 const SUBSTEP = 1 / 120;
 
-const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
-const easeOutBack = (t) => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
-const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
-const smoothstep = (t) => t * t * (3 - 2 * t);
-const rand = (a, b) => a + Math.random() * (b - a);
+const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+const easeOutBack = (t: number) =>
+  1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
+const easeInOutCubic = (t: number) =>
+  t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const smoothstep = (t: number) => t * t * (3 - 2 * t);
+const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
 /**
  * The thinking ellipsis: three dots riding one travelling Gaussian, with the
@@ -59,32 +158,47 @@ const rand = (a, b) => a + Math.random() * (b - a);
  * a slot at a time — rise, pop and tone all come off the same curve, so the
  * three dots read as one motion passing along the row.
  */
-const CYCLE = 1400, PHASE0 = 0.119, SIGMA = 0.15;
-const LIFT = 9, POP_LO = 0.84, POP_K = 0.22;
-const DOT_R = 22, DOT_X = 62, DOT_FUDGE = 1.02, DOT_STAGGER = 0.12;
+const CYCLE = 1400,
+  PHASE0 = 0.119,
+  SIGMA = 0.15;
+const LIFT = 9,
+  POP_LO = 0.84,
+  POP_K = 0.22;
+const DOT_R = 22,
+  DOT_X = 62,
+  DOT_FUDGE = 1.02,
+  DOT_STAGGER = 0.12;
 /** Three dots in a small box are tiny, so the whole group zooms in under
  *  `ZOOM_SMALL_PX`; the character alone needs no such help. */
 const DOTS_ZOOM = 1.5;
 
-const ZOOM_SMALL_PX = 44, ZOOM_LARGE_PX = 134;
+const ZOOM_SMALL_PX = 44,
+  ZOOM_LARGE_PX = 134;
 
 /** Weight at which the silhouette has finished becoming the orb, so the rest of
  *  the dots' ramp is spent spreading the side dots rather than reshaping. */
 const MORPH_END = 0.62;
 
-const ENV_W = 14, ENV_Z = 1;
-const FADE_W = 11, FADE_Z = 1;
+const ENV_W = 14,
+  ENV_Z = 1;
+const FADE_W = 11,
+  FADE_Z = 1;
 
-function wave(now, slot, amount, t0) {
-  let p = (((now - t0) / CYCLE + PHASE0) % 1 + 1) % 1;
+function wave(now: number, slot: number, amount: number, t0: number) {
+  const p = ((((now - t0) / CYCLE + PHASE0) % 1) + 1) % 1;
   let d = Math.abs(p - slot / 3);
   d = Math.min(d, 1 - d);
   const g = Math.exp(-(d * d) / (2 * SIGMA * SIGMA));
-  return { g, lift: g * LIFT * amount, pop: POP_LO + POP_K * g, tone: 1 - 0.5 * (1 - g) };
+  return {
+    g,
+    lift: g * LIFT * amount,
+    pop: POP_LO + POP_K * g,
+    tone: 1 - 0.5 * (1 - g),
+  };
 }
 
 const SQ_CYCLE = 1500;
-const SQ_SIGMA = 0.30;
+const SQ_SIGMA = 0.3;
 const SQ_PINCH = 0.34;
 const SQ_BULGE = 0.16;
 const SQ_LEAD = 0.62;
@@ -93,12 +207,12 @@ const SQ_TRAVEL = 1.78;
 const SQ_TIP_RELIEF = 0.55;
 const SQ_FACE_GIVE = 0.62;
 
-function squeezeBand(now, startedAt) {
-  const p = (((now - startedAt) / SQ_CYCLE) % 1 + 1) % 1;
+function squeezeBand(now: number, startedAt: number): number {
+  const p = ((((now - startedAt) / SQ_CYCLE) % 1) + 1) % 1;
   return SQ_TRAVEL - 2 * SQ_TRAVEL * p;
 }
 
-function squeezeWarp(band, amount, scale = 1) {
+function squeezeWarp(band: number, amount: number, scale = 1): Warp {
   const lead = band - SQ_LEAD;
   return (px, py) => {
     const ny = (py - C) / C;
@@ -114,9 +228,18 @@ function squeezeWarp(band, amount, scale = 1) {
   };
 }
 
-export const ACTIVITIES = ["dots", "twinkle", "orbit", "radar", "progress", "squeeze", "standby"];
+export const ACTIVITIES = [
+  "dots",
+  "twinkle",
+  "orbit",
+  "radar",
+  "progress",
+  "squeeze",
+  "standby",
+] as const;
+type Activity = (typeof ACTIVITIES)[number];
 
-const ACTIVITY_OF = {
+const ACTIVITY_OF: Partial<Record<StellaCharacterState, Activity>> = {
   thinking: "dots",
   working: "twinkle",
   writing: "twinkle",
@@ -132,7 +255,7 @@ const ACTIVITY_OF = {
   "powering-down": "standby",
 };
 
-const BODY_R = {
+const BODY_R: Record<Activity, number> = {
   dots: DOT_R,
   twinkle: C,
   orbit: C * 0.9,
@@ -142,7 +265,7 @@ const BODY_R = {
   standby: C,
 };
 
-const POSES = {
+const POSES: Record<StellaCharacterState, EyePoseName[]> = {
   idle: ["neutral", "open", "neutral", "curious"],
   listening: ["wide", "open", "neutral"],
   thinking: ["squint", "focus", "curious", "neutral"],
@@ -164,26 +287,53 @@ const POSES = {
   "powering-down": ["sleepy"],
 };
 
-const POSE_EVERY = {
-  idle: [9000, 16000], listening: [2800, 5000], thinking: [2000, 3600],
-  working: [1800, 3200], writing: [2400, 4200], searching: [1000, 1800],
-  reading: [2200, 3800], loading: [4000, 8000], generating: [3000, 6000],
-  speaking: [1400, 2600], uploading: [3000, 6000], downloading: [3000, 6000],
-  happy: [2500, 4500], celebrate: [1200, 2400], confused: [2200, 3800],
-  sad: [4000, 7000], sleeping: [6000, 10000], waking: [800, 1400],
+const POSE_EVERY: Record<StellaCharacterState, [number, number]> = {
+  idle: [9000, 16000],
+  listening: [2800, 5000],
+  thinking: [2000, 3600],
+  working: [1800, 3200],
+  writing: [2400, 4200],
+  searching: [1000, 1800],
+  reading: [2200, 3800],
+  loading: [4000, 8000],
+  generating: [3000, 6000],
+  speaking: [1400, 2600],
+  uploading: [3000, 6000],
+  downloading: [3000, 6000],
+  happy: [2500, 4500],
+  celebrate: [1200, 2400],
+  confused: [2200, 3800],
+  sad: [4000, 7000],
+  sleeping: [6000, 10000],
+  waking: [800, 1400],
   "powering-down": [6000, 9000],
 };
 
-const BLINK_EVERY = {
-  idle: [6000, 14000], listening: [3000, 7000], thinking: [3500, 7000],
-  working: [2800, 5500], writing: [3000, 6000], searching: [1600, 4000],
-  reading: [3000, 6000], loading: [5000, 9000], generating: [4000, 8000],
-  speaking: [2500, 5000], uploading: [4000, 8000], downloading: [4000, 8000],
-  happy: [2500, 5000], celebrate: [2200, 4500], confused: [2800, 5500],
-  sad: [4000, 8000], sleeping: null, waking: [900, 1600], "powering-down": null,
+const BLINK_EVERY: Record<StellaCharacterState, [number, number] | null> = {
+  idle: [6000, 14000],
+  listening: [3000, 7000],
+  thinking: [3500, 7000],
+  working: [2800, 5500],
+  writing: [3000, 6000],
+  searching: [1600, 4000],
+  reading: [3000, 6000],
+  loading: [5000, 9000],
+  generating: [4000, 8000],
+  speaking: [2500, 5000],
+  uploading: [4000, 8000],
+  downloading: [4000, 8000],
+  happy: [2500, 5000],
+  celebrate: [2200, 4500],
+  confused: [2800, 5500],
+  sad: [4000, 8000],
+  sleeping: null,
+  waking: [900, 1600],
+  "powering-down": null,
 };
 
-const FACE_TUNE = {
+const FACE_TUNE: Partial<
+  Record<StellaCharacterState, [number, number, number]>
+> = {
   idle: [1, 1, 1],
   listening: [1.08, 1.03, 1.06],
   thinking: [0.97, 0.98, 0.94],
@@ -199,24 +349,38 @@ const FACE_TUNE = {
   sleeping: [0.9, 0.98, 0.85],
   "powering-down": [0.9, 0.98, 0.85],
 };
-const FACE_DEFAULT = [1, 1, 1];
+const FACE_DEFAULT: [number, number, number] = [1, 1, 1];
 
-const INKS = {
+const INKS: Record<"aurora" | "vivid", [string, number][]> = {
+  aurora: [
+    ["#00aad8", 0],
+    ["#3493d9", 0.25],
+    ["#4878db", 0.5],
+    ["#7449c5", 0.75],
+    ["#be57a4", 1],
+  ],
 
-  aurora: [["#00aad8", 0], ["#3493d9", 0.25], ["#4878db", 0.5], ["#7449c5", 0.75], ["#be57a4", 1]],
-
-  vivid: [["#4ffff7", 0], ["#00b5ff", 0.22], ["#3164ff", 0.45], ["#703cff", 0.68], ["#ff45c3", 1]],
+  vivid: [
+    ["#4ffff7", 0],
+    ["#00b5ff", 0.22],
+    ["#3164ff", 0.45],
+    ["#703cff", 0.68],
+    ["#ff45c3", 1],
+  ],
 };
 
 let uid = 0;
 
-export function createStellaMark(host, opts = {}) {
+export function createStellaMark(
+  host: HTMLElement,
+  opts: CreateStellaMarkOptions = {},
+): StellaMarkHandle {
   const o = {
-    size: null,
-    state: "idle",
-    shape: "star",
-    ink: "aurora",
-    flat: null,
+    size: null as number | null,
+    state: "idle" as StellaCharacterState,
+    shape: "star" as StellaCharacterShape,
+    ink: "aurora" as "aurora" | "vivid",
+    flat: null as string | null,
     eyeColor: "var(--stella-mark-bg, #101014)",
     glow: true,
     core: true,
@@ -227,14 +391,19 @@ export function createStellaMark(host, opts = {}) {
     ...opts,
   };
   const id = `sm${++uid}`;
-  const reduced = typeof matchMedia === "function" &&
+  const reduced =
+    typeof matchMedia === "function" &&
     matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const svg = document.createElementNS(SVGNS, "svg");
   svg.setAttribute("viewBox", VIEWBOX);
   svg.setAttribute("aria-hidden", "true");
-  svg.style.cssText = "display:block;width:100%;height:auto;overflow:visible;user-select:none";
-  if (o.size) { svg.style.width = `${o.size}px`; svg.style.height = `${o.size}px`; }
+  svg.style.cssText =
+    "display:block;width:100%;height:auto;overflow:visible;user-select:none";
+  if (o.size) {
+    svg.style.width = `${o.size}px`;
+    svg.style.height = `${o.size}px`;
+  }
 
   const defs = document.createElementNS(SVGNS, "defs");
   const clip = document.createElementNS(SVGNS, "clipPath");
@@ -248,11 +417,14 @@ export function createStellaMark(host, opts = {}) {
     const g = document.createElementNS(SVGNS, "linearGradient");
     g.id = `${id}-ink`;
     g.setAttribute("gradientUnits", "userSpaceOnUse");
-    g.setAttribute("x1", C); g.setAttribute("y1", C * 1.86);
-    g.setAttribute("x2", C); g.setAttribute("y2", C * 0.14);
+    g.setAttribute("x1", String(C));
+    g.setAttribute("y1", String(C * 1.86));
+    g.setAttribute("x2", String(C));
+    g.setAttribute("y2", String(C * 0.14));
     for (const [color, offset] of stops) {
       const s = document.createElementNS(SVGNS, "stop");
-      s.setAttribute("offset", offset); s.setAttribute("stop-color", color);
+      s.setAttribute("offset", String(offset));
+      s.setAttribute("stop-color", color);
       g.appendChild(s);
     }
     defs.appendChild(g);
@@ -261,12 +433,18 @@ export function createStellaMark(host, opts = {}) {
     const g = document.createElementNS(SVGNS, "radialGradient");
     g.id = `${id}-core`;
     g.setAttribute("gradientUnits", "userSpaceOnUse");
-    g.setAttribute("cx", C); g.setAttribute("cy", C); g.setAttribute("r", C * 0.92);
-    for (const [op, off] of [[0.26, 0], [0.09, 0.32], [0, 1]]) {
+    g.setAttribute("cx", String(C));
+    g.setAttribute("cy", String(C));
+    g.setAttribute("r", String(C * 0.92));
+    for (const [op, off] of [
+      [0.26, 0],
+      [0.09, 0.32],
+      [0, 1],
+    ]) {
       const s = document.createElementNS(SVGNS, "stop");
-      s.setAttribute("offset", off);
+      s.setAttribute("offset", String(off));
       s.setAttribute("stop-color", "#ffffff");
-      s.setAttribute("stop-opacity", op);
+      s.setAttribute("stop-opacity", String(op));
       g.appendChild(s);
     }
     defs.appendChild(g);
@@ -274,11 +452,15 @@ export function createStellaMark(host, opts = {}) {
   if (o.glow) {
     const g = document.createElementNS(SVGNS, "radialGradient");
     g.id = `${id}-glow`;
-    for (const [color, op, off] of [["#4878db", 0.26, 0], ["#00aad8", 0.1, 0.55], ["#00aad8", 0, 1]]) {
+    for (const [color, op, off] of [
+      ["#4878db", 0.26, 0],
+      ["#00aad8", 0.1, 0.55],
+      ["#00aad8", 0, 1],
+    ] as const) {
       const s = document.createElementNS(SVGNS, "stop");
-      s.setAttribute("offset", off);
+      s.setAttribute("offset", String(off));
       s.setAttribute("stop-color", o.flat ? "var(--fg)" : color);
-      s.setAttribute("stop-opacity", op);
+      s.setAttribute("stop-opacity", String(op));
       g.appendChild(s);
     }
     defs.appendChild(g);
@@ -286,8 +468,10 @@ export function createStellaMark(host, opts = {}) {
   svg.appendChild(defs);
 
   const hit = document.createElementNS(SVGNS, "rect");
-  hit.setAttribute("x", -BLEED); hit.setAttribute("y", -BLEED);
-  hit.setAttribute("width", C * 2 + BLEED * 2); hit.setAttribute("height", C * 2 + BLEED * 2);
+  hit.setAttribute("x", String(-BLEED));
+  hit.setAttribute("y", String(-BLEED));
+  hit.setAttribute("width", String(C * 2 + BLEED * 2));
+  hit.setAttribute("height", String(C * 2 + BLEED * 2));
   hit.setAttribute("fill", "none");
   hit.setAttribute("pointer-events", o.interactive ? "all" : "none");
   svg.appendChild(hit);
@@ -295,16 +479,21 @@ export function createStellaMark(host, opts = {}) {
   const zoomG = document.createElementNS(SVGNS, "g");
   svg.appendChild(zoomG);
 
-  let glowEl = null;
+  let glowEl: SVGCircleElement | null = null;
   if (o.glow) {
     glowEl = document.createElementNS(SVGNS, "circle");
-    glowEl.setAttribute("cx", C); glowEl.setAttribute("cy", C);
-    glowEl.setAttribute("r", C * 1.02);
+    glowEl.setAttribute("cx", String(C));
+    glowEl.setAttribute("cy", String(C));
+    glowEl.setAttribute("r", String(C * 1.02));
     glowEl.setAttribute("fill", `url(#${id}-glow)`);
     zoomG.appendChild(glowEl);
   }
 
-  const inkFill = o.flat ? "var(--fg)" : stops ? `url(#${id}-ink)` : "var(--fg)";
+  const inkFill = o.flat
+    ? "var(--fg)"
+    : stops
+      ? `url(#${id}-ink)`
+      : "var(--fg)";
 
   /** The ellipsis' side dots. The middle one is the character itself, which the
    *  silhouette morph turns into an orb. */
@@ -327,7 +516,9 @@ export function createStellaMark(host, opts = {}) {
   });
   const rings = Array.from({ length: 4 }, () => {
     const c = document.createElementNS(SVGNS, "circle");
-    c.setAttribute("cx", C); c.setAttribute("cy", C); c.setAttribute("r", 0);
+    c.setAttribute("cx", String(C));
+    c.setAttribute("cy", String(C));
+    c.setAttribute("r", String(0));
     c.setAttribute("fill", "none");
     c.setAttribute("stroke", o.flat || !stops ? "var(--fg)" : stops[2][0]);
     c.style.display = "none";
@@ -339,7 +530,7 @@ export function createStellaMark(host, opts = {}) {
   const body = document.createElementNS(SVGNS, "path");
   body.setAttribute("fill", inkFill);
   bodyG.appendChild(body);
-  let coreEl = null;
+  let coreEl: SVGPathElement | null = null;
   if (o.core) {
     coreEl = document.createElementNS(SVGNS, "path");
     coreEl.setAttribute("fill", `url(#${id}-core)`);
@@ -349,12 +540,17 @@ export function createStellaMark(host, opts = {}) {
   const sweepGrad = document.createElementNS(SVGNS, "linearGradient");
   sweepGrad.id = `${id}-sweep`;
   sweepGrad.setAttribute("gradientUnits", "userSpaceOnUse");
-  sweepGrad.setAttribute("x1", C); sweepGrad.setAttribute("x2", C);
-  for (const [op, off] of [[0, 0], [0.4, 0.5], [0, 1]]) {
+  sweepGrad.setAttribute("x1", String(C));
+  sweepGrad.setAttribute("x2", String(C));
+  for (const [op, off] of [
+    [0, 0],
+    [0.4, 0.5],
+    [0, 1],
+  ]) {
     const st = document.createElementNS(SVGNS, "stop");
-    st.setAttribute("offset", off);
+    st.setAttribute("offset", String(off));
     st.setAttribute("stop-color", "#ffffff");
-    st.setAttribute("stop-opacity", op);
+    st.setAttribute("stop-opacity", String(op));
     sweepGrad.appendChild(st);
   }
   defs.appendChild(sweepGrad);
@@ -362,9 +558,10 @@ export function createStellaMark(host, opts = {}) {
   sweepG.setAttribute("clip-path", `url(#${id}-clip)`);
   sweepG.style.display = "none";
   const sweepRect = document.createElementNS(SVGNS, "rect");
-  sweepRect.setAttribute("x", -BLEED); sweepRect.setAttribute("y", -BLEED);
-  sweepRect.setAttribute("width", C * 2 + BLEED * 2);
-  sweepRect.setAttribute("height", C * 2 + BLEED * 2);
+  sweepRect.setAttribute("x", String(-BLEED));
+  sweepRect.setAttribute("y", String(-BLEED));
+  sweepRect.setAttribute("width", String(C * 2 + BLEED * 2));
+  sweepRect.setAttribute("height", String(C * 2 + BLEED * 2));
   sweepRect.setAttribute("fill", `url(#${id}-sweep)`);
   sweepG.appendChild(sweepRect);
   bodyG.appendChild(sweepG);
@@ -388,82 +585,116 @@ export function createStellaMark(host, opts = {}) {
   let state = o.state;
   let shapeName = o.shape;
   let shape = SHAPES[shapeName] ?? SHAPES.star;
-  let shapeFrom = shape, shapeMix = spring(1);
+  let shapeFrom = shape;
+  const shapeMix = spring(1);
 
   const env = spring(0);
   const fade = spring(1);
   const blink = spring(1);
   const eyeSize = spring(1);
-  const gazeX = spring(0), gazeY = spring(0);
-  const bobX = spring(0), bobY = spring(0);
+  const gazeX = spring(0),
+    gazeY = spring(0);
+  const bobX = spring(0),
+    bobY = spring(0);
   const breathe = spring(1);
 
-  let activity = ACTIVITY_OF[state] ?? null;
-  let prevActivity = null;
+  let activity: Activity | null = ACTIVITY_OF[state] ?? null;
+  let prevActivity: Activity | null = null;
   let activityStart = 0;
 
-  let poseCur = EYE_POSES.neutral, poseFrom = EYE_POSES.neutral;
-  let poseMix = 1, poseDur = 160, poseAt = 0, poseIdx = 0;
-  let nextPoseAt = 0, nextBlinkAt = 0;
+  let poseCur: Point[] = EYE_POSES.neutral,
+    poseFrom: Point[] = EYE_POSES.neutral;
+  let poseMix = 1,
+    poseDur = 160,
+    poseAt = 0,
+    poseIdx = 0;
+  let nextPoseAt = 0,
+    nextBlinkAt = 0;
 
-  let pointer = null;
+  let pointer: { x: number; y: number } | null = null;
   let paused = o.paused;
   let onscreen = true;
   let painted = false;
-  let running = false, raf = 0, last = 0, clock = 0;
-  let boxW = o.size ?? 28, measuredAt = -1e9;
+  let running = false,
+    raf = 0,
+    last = 0,
+    clock = 0;
+  let boxW = o.size ?? 28,
+    measuredAt = -1e9;
   // Last written value of every attribute the frame touches. A write census
   // over the working state found several of these carrying one value for the
   // whole run, so each write is skipped when nothing changed.
-  let lastPath = "", lastZoom = "";
+  let lastPath = "",
+    lastZoom = "";
   const lastEyePath = ["", ""];
   let decorHidden = false;
-  let sweepShown = false, eyesHidden = false;
-  let lastBodyTransform = "", lastGlowTransform = "";
-  let lastBodyAlpha = -1, lastGlowAlpha = -1;
+  let sweepShown = false,
+    eyesHidden = false;
+  let lastBodyTransform = "",
+    lastGlowTransform = "";
+  let lastBodyAlpha = -1,
+    lastGlowAlpha = -1;
   let squeezeStart = 0;
-  let particles = [];
+  let particles: Particle[] = [];
   let destroyed = false;
 
   const suspended = () => paused || !onscreen;
 
-  const weightOf = (name) => {
+  const weightOf = (name: Activity) => {
     const e = clamp(env.x, 0, 1);
     if (name === activity) return e * clamp(fade.x, 0, 1);
     if (name === prevActivity) return e * (1 - clamp(fade.x, 0, 1));
     return 0;
   };
 
-  function setPose(name, dur = 160) {
+  function setPose(name: EyePoseName, dur = 160) {
     const next = EYE_POSES[name] ?? EYE_POSES.neutral;
     if (next === poseCur && poseMix >= 1) return;
     poseFrom = currentPosePoints();
     poseCur = next;
-    poseMix = 0; poseDur = dur; poseAt = clock;
+    poseMix = 0;
+    poseDur = dur;
+    poseAt = clock;
   }
-  const currentPosePoints = () =>
-    poseMix >= 1 ? poseCur : lerpPose(poseFrom, poseCur, easeInOutCubic(poseMix));
+  const currentPosePoints = (): Point[] =>
+    poseMix >= 1
+      ? poseCur
+      : lerpPose(poseFrom, poseCur, easeInOutCubic(poseMix));
 
   function pickPose() {
     const pool = POSES[state] ?? POSES.idle;
-    poseIdx = (poseIdx + 1 + Math.floor(Math.random() * (pool.length - 1))) % pool.length;
-    setPose(pool[poseIdx], state === "searching" || state === "celebrate" ? 110 : 170);
+    poseIdx =
+      (poseIdx + 1 + Math.floor(Math.random() * (pool.length - 1))) %
+      pool.length;
+    setPose(
+      pool[poseIdx],
+      state === "searching" || state === "celebrate" ? 110 : 170,
+    );
   }
 
-  function scheduleFace(now) {
+  function scheduleFace(now: number) {
     const every = POSE_EVERY[state] ?? POSE_EVERY.idle;
     nextPoseAt = now + rand(every[0], every[1]);
     const b = BLINK_EVERY[state];
     nextBlinkAt = b ? now + rand(b[0], b[1]) : Infinity;
   }
 
-  function applyState(next) {
+  function applyState(next: StellaCharacterState) {
     if (next === state) return;
     state = next;
     const nextActivity = ACTIVITY_OF[state] ?? null;
     if (nextActivity !== activity) {
-      if (activity && env.x > 0.02) { prevActivity = activity; fade.x = 0; fade.v = 0; fade.t = 1; }
-      else { prevActivity = null; fade.x = 1; fade.v = 0; fade.t = 1; }
+      if (activity && env.x > 0.02) {
+        prevActivity = activity;
+        fade.x = 0;
+        fade.v = 0;
+        fade.t = 1;
+      } else {
+        prevActivity = null;
+        fade.x = 1;
+        fade.v = 0;
+        fade.t = 1;
+      }
       activity = nextActivity;
       activityStart = clock;
       if (nextActivity === "squeeze") squeezeStart = clock;
@@ -479,25 +710,38 @@ export function createStellaMark(host, opts = {}) {
   function burst(count = 16) {
     if (reduced) return;
     for (let i = 0; i < count; i++) {
-      const a = rand(0, TAU), sp = rand(70, 210);
+      const a = rand(0, TAU),
+        sp = rand(70, 210);
       particles.push({
-        x: C, y: C, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40,
-        life: 0, max: rand(0.5, 1.05), r: rand(5, 13), rot: rand(0, 360),
-        vr: rand(-260, 260), el: null,
+        x: C,
+        y: C,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp - 40,
+        life: 0,
+        max: rand(0.5, 1.05),
+        r: rand(5, 13),
+        rot: rand(0, 360),
+        vr: rand(-260, 260),
+        el: null,
       });
     }
     wake();
   }
 
-  function stepParticles(dt) {
+  function stepParticles(dt: number) {
     if (!particles.length) return;
-    const next = [];
+    const next: Particle[] = [];
     for (const p of particles) {
       p.life += dt;
-      if (p.life >= p.max) { p.el?.remove(); continue; }
+      if (p.life >= p.max) {
+        p.el?.remove();
+        continue;
+      }
       p.vx *= 1 - 1.6 * dt;
       p.vy = p.vy * (1 - 1.6 * dt) + 150 * dt;
-      p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.rot += p.vr * dt;
       const u = p.life / p.max;
       const alpha = u < 0.12 ? u / 0.12 : Math.pow(1 - (u - 0.12) / 0.88, 1.7);
       const size = p.r * (1 - u * 0.45);
@@ -508,8 +752,10 @@ export function createStellaMark(host, opts = {}) {
         burstG.appendChild(p.el);
       }
       p.el.setAttribute("opacity", alpha.toFixed(3));
-      p.el.setAttribute("transform",
-        `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)}) rotate(${p.rot.toFixed(1)}) scale(${size.toFixed(2)})`);
+      p.el.setAttribute(
+        "transform",
+        `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)}) rotate(${p.rot.toFixed(1)}) scale(${size.toFixed(2)})`,
+      );
       next.push(p);
     }
     particles = next;
@@ -519,14 +765,14 @@ export function createStellaMark(host, opts = {}) {
   // once and written in place. The frame runs at 60fps, so building fresh
   // arrays here is a steady stream of garbage for no gain.
   const workProfile = new Float64Array(N);
-  const workRing = Array.from({ length: N }, () => [0, 0]);
-  const warpedRing = Array.from({ length: N }, () => [0, 0]);
+  const workRing = Array.from({ length: N }, (): Point => [0, 0]);
+  const warpedRing = Array.from({ length: N }, (): Point => [0, 0]);
   const eyeBuf = [
-    Array.from({ length: EYE_N }, () => [0, 0]),
-    Array.from({ length: EYE_N }, () => [0, 0]),
+    Array.from({ length: EYE_N }, (): Point => [0, 0]),
+    Array.from({ length: EYE_N }, (): Point => [0, 0]),
   ];
 
-  function buildRing(now, twinkleW) {
+  function buildRing(now: number, twinkleW: number): Point[] {
     const base = shape.profile;
     const from = shapeFrom.profile;
     const mixing = shapeMix.x < 0.999;
@@ -545,12 +791,13 @@ export function createStellaMark(host, opts = {}) {
     for (let i = 0; i < N; i++) {
       let r = mixing ? from[i] + (base[i] - from[i]) * m : base[i];
       if (shimmerAmp) {
-        const wobble = RING_SHIMMER_SIN[i] * shimmerCos + RING_SHIMMER_COS[i] * shimmerSin;
+        const wobble =
+          RING_SHIMMER_SIN[i] * shimmerCos + RING_SHIMMER_COS[i] * shimmerSin;
         r *= 1 + shimmerAmp * wobble;
       }
       if (twinkling) {
         const th = (i / N) * TAU;
-        let d = Math.abs(((th - sweep) % TAU + TAU) % TAU - Math.PI);
+        let d = Math.abs(((((th - sweep) % TAU) + TAU) % TAU) - Math.PI);
         d = Math.PI - d;
         const g = Math.exp(-(d * d) / (2 * 0.55 * 0.55));
         r *= 1 + 0.17 * twinkleW * g;
@@ -568,7 +815,7 @@ export function createStellaMark(host, opts = {}) {
     return workRing;
   }
 
-  function frame(now) {
+  function frame(now: number) {
     if (destroyed) return;
     const dtReal = Math.min((now - (last || now)) / 1000, 0.1);
     last = now;
@@ -586,11 +833,19 @@ export function createStellaMark(host, opts = {}) {
 
     env.t = activity ? 1 : 0;
     if (reduced) {
-      env.x = env.t; fade.x = 1; shapeMix.x = 1;
-      blink.x = 1; eyeSize.x = 1; gazeX.x = gazeX.t; gazeY.x = gazeY.t;
-      bobX.x = 0; bobY.x = 0; breathe.x = 1;
+      env.x = env.t;
+      fade.x = 1;
+      shapeMix.x = 1;
+      blink.x = 1;
+      eyeSize.x = 1;
+      gazeX.x = gazeX.t;
+      gazeY.x = gazeY.t;
+      bobX.x = 0;
+      bobY.x = 0;
+      breathe.x = 1;
     } else {
-      const sub = Math.max(1, Math.ceil(dt / SUBSTEP)), h = dt / sub;
+      const sub = Math.max(1, Math.ceil(dt / SUBSTEP)),
+        h = dt / sub;
       for (let i = 0; i < sub; i++) {
         stepSpring(env, ENV_W, ENV_Z, h);
         stepSpring(fade, FADE_W, FADE_Z, h);
@@ -605,13 +860,21 @@ export function createStellaMark(host, opts = {}) {
       }
     }
     if (fade.x > 0.996) prevActivity = null;
-    if (poseMix < 1) poseMix = reduced ? 1 : clamp((t - poseAt) / poseDur, 0, 1);
+    if (poseMix < 1)
+      poseMix = reduced ? 1 : clamp((t - poseAt) / poseDur, 0, 1);
 
     if (!paused && !reduced) {
-      if (t >= nextPoseAt) { pickPose(); const e = POSE_EVERY[state] ?? POSE_EVERY.idle; nextPoseAt = t + rand(e[0], e[1]); }
+      if (t >= nextPoseAt) {
+        pickPose();
+        const e = POSE_EVERY[state] ?? POSE_EVERY.idle;
+        nextPoseAt = t + rand(e[0], e[1]);
+      }
       if (t >= nextBlinkAt) {
-        blink.x = 1; blink.t = 0.06;
-        setTimeout(() => { blink.t = 1; }, 78);
+        blink.x = 1;
+        blink.t = 0.06;
+        setTimeout(() => {
+          blink.t = 1;
+        }, 78);
         const b = BLINK_EVERY[state];
         nextBlinkAt = b ? t + rand(b[0], b[1]) : Infinity;
       }
@@ -624,14 +887,25 @@ export function createStellaMark(host, opts = {}) {
     if (pointer) {
       const r = svg.getBoundingClientRect();
       if (r.width > 0) {
-        const nx = clamp((pointer.x - (r.left + r.width / 2)) / r.width, -0.9, 0.9);
-        const ny = clamp((pointer.y - (r.top + r.height / 2)) / r.height, -0.9, 0.9);
+        const nx = clamp(
+          (pointer.x - (r.left + r.width / 2)) / r.width,
+          -0.9,
+          0.9,
+        );
+        const ny = clamp(
+          (pointer.y - (r.top + r.height / 2)) / r.height,
+          -0.9,
+          0.9,
+        );
         const reach = Math.min(1, Math.hypot(nx, ny));
         const ang = Math.atan2(ny, nx);
         gazeX.t = Math.cos(ang) * reach * C * 0.085;
         gazeY.t = Math.sin(ang) * reach * C * 0.06;
       }
-    } else { gazeX.t = 0; gazeY.t = 0; }
+    } else {
+      gazeX.t = 0;
+      gazeY.t = 0;
+    }
 
     const act = clamp(env.x, 0, 1);
     const wDots = weightOf("dots");
@@ -642,7 +916,9 @@ export function createStellaMark(host, opts = {}) {
     const wSqueeze = weightOf("squeeze");
     const wStandby = weightOf("standby");
 
-    let band = 0, warp = null, faceWarp = null;
+    let band = 0;
+    let warp: Warp | null = null,
+      faceWarp: Warp | null = null;
     if (wSqueeze > 0.004) {
       band = squeezeBand(t, squeezeStart);
       warp = squeezeWarp(band, wSqueeze);
@@ -653,9 +929,12 @@ export function createStellaMark(host, opts = {}) {
     // reads as the ellipsis' middle dot rather than as a shrunken star.
     const ring = buildRing(t, wTwinkle);
     const morph = clamp(wDots / MORPH_END, 0, 1);
-    const layoutRing = morph <= 0 ? ring
-      : morph >= 1 ? ORB_RING
-      : lerpRing(ring, ORB_RING, easeInOutCubic(morph));
+    const layoutRing =
+      morph <= 0
+        ? ring
+        : morph >= 1
+          ? ORB_RING
+          : lerpRing(ring, ORB_RING, easeInOutCubic(morph));
     let finalRing = layoutRing;
     if (warp) {
       for (let i = 0; i < N; i++) {
@@ -673,10 +952,12 @@ export function createStellaMark(host, opts = {}) {
       lastPath = d;
     }
     if (warp) {
-
       const y = C + (band - SQ_LEAD * 0.5) * C;
       const h = SQ_SIGMA * C * 1.5;
-      if (!sweepShown) { sweepG.style.display = ""; sweepShown = true; }
+      if (!sweepShown) {
+        sweepG.style.display = "";
+        sweepShown = true;
+      }
       sweepG.style.opacity = wSqueeze.toFixed(3);
       sweepGrad.setAttribute("y1", (y - h).toFixed(1));
       sweepGrad.setAttribute("y2", (y + h).toFixed(1));
@@ -690,26 +971,29 @@ export function createStellaMark(host, opts = {}) {
     const w1 = wave(t, 1, act, activityStart);
     const bodyR = activity
       ? (BODY_R[activity] ?? C) * clamp(fade.x, 0, 1) +
-        (prevActivity ? BODY_R[prevActivity] ?? C : BODY_R[activity] ?? C) * (1 - clamp(fade.x, 0, 1))
+        (prevActivity ? (BODY_R[prevActivity] ?? C) : (BODY_R[activity] ?? C)) *
+          (1 - clamp(fade.x, 0, 1))
       : C;
     const pop = 1 + (w1.pop - 1) * (wDots / Math.max(act, 0.001));
     const rest = 1 - act;
-    let scale = rest * breathe.x + (bodyR / C) * act * pop;
-    let scaleX = scale, scaleY = scale;
-    let tx = C + bobX.x * rest;
+    const scale = rest * breathe.x + (bodyR / C) * act * pop;
+    let scaleX = scale,
+      scaleY = scale;
+    const tx = C + bobX.x * rest;
     let ty = C + bobY.x * rest - w1.lift * wDots;
     let rot = 0;
     let bodyAlpha = 1 - (1 - w1.tone) * wDots;
 
     if (wSqueeze > 0.004) {
-
       const inside = Math.exp(-(band * band) / (2 * 0.72 * 0.72));
       scaleY *= 1 + 0.04 * inside * wSqueeze;
       scaleX *= 1 - 0.014 * inside * wSqueeze;
       ty -= C * 0.01 * inside * wSqueeze;
     }
-    if (wStandby > 0.004) bodyAlpha *= 1 - (0.3 + 0.18 * Math.sin(t * 0.0016)) * wStandby;
-    if (wProgress > 0.004 || wOrbit > 0.004) rot += Math.sin(t * 0.0009) * 3 * (wProgress + wOrbit);
+    if (wStandby > 0.004)
+      bodyAlpha *= 1 - (0.3 + 0.18 * Math.sin(t * 0.0016)) * wStandby;
+    if (wProgress > 0.004 || wOrbit > 0.004)
+      rot += Math.sin(t * 0.0009) * 3 * (wProgress + wOrbit);
 
     const bodyTransform =
       `translate(${tx.toFixed(2)} ${ty.toFixed(2)}) rotate(${rot.toFixed(2)}) ` +
@@ -725,9 +1009,10 @@ export function createStellaMark(host, opts = {}) {
     }
 
     if (glowEl) {
-      const gl = (rest * breathe.x + act * (bodyR / C)) * (1 + 0.05 * Math.sin(t * 0.0011));
-      const glowTransform =
-        `translate(${tx.toFixed(2)} ${ty.toFixed(2)}) scale(${gl.toFixed(4)}) translate(${-C} ${-C})`;
+      const gl =
+        (rest * breathe.x + act * (bodyR / C)) *
+        (1 + 0.05 * Math.sin(t * 0.0011));
+      const glowTransform = `translate(${tx.toFixed(2)} ${ty.toFixed(2)}) scale(${gl.toFixed(4)}) translate(${-C} ${-C})`;
       if (glowTransform !== lastGlowTransform) {
         glowEl.setAttribute("transform", glowTransform);
         lastGlowTransform = glowTransform;
@@ -753,7 +1038,8 @@ export function createStellaMark(host, opts = {}) {
 
       const half = face.rx * 0.42 * fGap;
       const ew = face.rx * 0.78 * fSize * eyeSize.x;
-      const eh = face.ry * 0.62 * fSize * fHeight * eyeSize.x * Math.max(blink.x, 0.04);
+      const eh =
+        face.ry * 0.62 * fSize * fHeight * eyeSize.x * Math.max(blink.x, 0.04);
       const [l, r] = spanAt(layoutRing, socketY + gazeY.x, [C, C]);
       for (let i = 0; i < 2; i++) {
         const dir = i === 0 ? -1 : 1;
@@ -768,9 +1054,11 @@ export function createStellaMark(host, opts = {}) {
           const out = placed[k];
           if (faceWarp) {
             const [fx, fy] = faceWarp(px, py);
-            out[0] = fx; out[1] = fy;
+            out[0] = fx;
+            out[1] = fy;
           } else {
-            out[0] = px; out[1] = py;
+            out[0] = px;
+            out[1] = py;
           }
         }
 
@@ -800,20 +1088,37 @@ export function createStellaMark(host, opts = {}) {
 
     stepParticles(dt);
 
-    const small = 1 - smoothstep(clamp((boxW - ZOOM_SMALL_PX) / (ZOOM_LARGE_PX - ZOOM_SMALL_PX), 0, 1));
+    const small =
+      1 -
+      smoothstep(
+        clamp((boxW - ZOOM_SMALL_PX) / (ZOOM_LARGE_PX - ZOOM_SMALL_PX), 0, 1),
+      );
     const z = 1 + (DOTS_ZOOM - 1) * wDots * small;
-    const zt = z === 1 ? "" :
-      `translate(${VIEW_CENTER} ${VIEW_CENTER}) scale(${z.toFixed(4)}) translate(${-VIEW_CENTER} ${-VIEW_CENTER})`;
-    if (zt !== lastZoom) { zoomG.setAttribute("transform", zt); lastZoom = zt; }
+    const zt =
+      z === 1
+        ? ""
+        : `translate(${VIEW_CENTER} ${VIEW_CENTER}) scale(${z.toFixed(4)}) translate(${-VIEW_CENTER} ${-VIEW_CENTER})`;
+    if (zt !== lastZoom) {
+      zoomG.setAttribute("transform", zt);
+      lastZoom = zt;
+    }
 
-    const settled = !particles.length &&
-      Math.abs(env.x - env.t) < 0.001 && Math.abs(env.v) < 0.001 &&
-      poseMix >= 1 && blink.t === 1 && Math.abs(blink.x - 1) < 0.002 &&
+    const settled =
+      !particles.length &&
+      Math.abs(env.x - env.t) < 0.001 &&
+      Math.abs(env.v) < 0.001 &&
+      poseMix >= 1 &&
+      blink.t === 1 &&
+      Math.abs(blink.x - 1) < 0.002 &&
       shapeMix.x > 0.999;
     // One frame always lands before the loop can suspend, so a mark that
     // mounts blurred or offscreen shows the mark rather than an empty box.
     painted = true;
-    if (suspended() || (reduced && settled)) { running = false; raf = 0; return; }
+    if (suspended() || (reduced && settled)) {
+      running = false;
+      raf = 0;
+      return;
+    }
     raf = requestAnimationFrame(frame);
   }
 
@@ -822,50 +1127,63 @@ export function createStellaMark(host, opts = {}) {
    * ramp, springing outward with an ease-out-back so the ellipsis lays itself
    * down left-to-right instead of arriving all at once.
    */
-  function drawDots(w, t) {
+  function drawDots(w: number, t: number) {
     const xs = [C - DOT_X, C + DOT_X];
     for (let i = 0; i < 2; i++) {
       const k = clamp((w - i * DOT_STAGGER) / (1 - i * DOT_STAGGER), 0, 1);
       if (k <= 0.004) continue;
-      const app = easeOutCubic(k), spread = easeOutBack(k);
+      const app = easeOutCubic(k),
+        spread = easeOutBack(k);
       const wv = wave(t, i === 0 ? 0 : 2, w, activityStart);
       const s = (DOT_R * app * wv.pop * DOT_FUDGE) / C;
-      const x = C + (xs[i] - C) * spread, y = C - wv.lift;
+      const x = C + (xs[i] - C) * spread,
+        y = C - wv.lift;
       dots[i].style.display = "";
-      dots[i].setAttribute("transform",
-        `translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${s.toFixed(4)}) translate(${-C} ${-C})`);
+      dots[i].setAttribute(
+        "transform",
+        `translate(${x.toFixed(1)} ${y.toFixed(1)}) scale(${s.toFixed(4)}) translate(${-C} ${-C})`,
+      );
       dots[i].setAttribute("opacity", (app * wv.tone).toFixed(3));
     }
   }
 
-  function drawOrbit(w, t) {
+  function drawOrbit(w: number, t: number) {
     const a0 = t * 0.0016;
-    const rx = C * 1.02, ry = C * 0.42;
+    const rx = C * 1.02,
+      ry = C * 0.42;
     for (let i = 0; i < sparks.length; i++) {
       const a = a0 + (i * TAU) / sparks.length;
       const front = 0.5 + 0.5 * clamp(Math.cos(a), 0, 1);
       const el = sparks[i];
       el.style.display = "";
-      el.setAttribute("opacity", (clamp((Math.cos(a) + 0.5) / 0.7, 0.2, 1) * w).toFixed(3));
-      el.setAttribute("transform",
+      el.setAttribute(
+        "opacity",
+        (clamp((Math.cos(a) + 0.5) / 0.7, 0.2, 1) * w).toFixed(3),
+      );
+      el.setAttribute(
+        "transform",
         `translate(${(C + rx * Math.sin(a)).toFixed(1)} ${(C - ry * Math.cos(a)).toFixed(1)}) ` +
-        `rotate(${((a * 40) % 360).toFixed(1)}) scale(${(17 * front * w).toFixed(2)})`);
+          `rotate(${((a * 40) % 360).toFixed(1)}) scale(${(17 * front * w).toFixed(2)})`,
+      );
     }
   }
 
-  function drawRadar(w, t, from) {
+  function drawRadar(w: number, t: number, from: number) {
     for (let i = 0; i < 3; i++) {
-      const p = ((t / 1500 + i / 3) % 1 + 1) % 1;
+      const p = (((t / 1500 + i / 3) % 1) + 1) % 1;
       const el = rings[i];
       el.style.display = "";
-      el.setAttribute("r", (from * 0.72 + (C * 1.2 - from * 0.72) * p).toFixed(1));
+      el.setAttribute(
+        "r",
+        (from * 0.72 + (C * 1.2 - from * 0.72) * p).toFixed(1),
+      );
       el.setAttribute("stroke-width", (4.2 * (1 - p * 0.55)).toFixed(2));
       el.removeAttribute("stroke-dasharray");
       el.setAttribute("opacity", (w * (1 - p) * 0.75).toFixed(3));
     }
   }
 
-  function drawProgress(w, t) {
+  function drawProgress(w: number, t: number) {
     const r = C * 1.06;
     const track = rings[3];
     const circ = TAU * r;
@@ -873,7 +1191,10 @@ export function createStellaMark(host, opts = {}) {
     track.style.display = "";
     track.setAttribute("r", r.toFixed(1));
     track.setAttribute("stroke-width", "5");
-    track.setAttribute("stroke-dasharray", `${(circ * 0.28).toFixed(1)} ${(circ * 0.72).toFixed(1)}`);
+    track.setAttribute(
+      "stroke-dasharray",
+      `${(circ * 0.28).toFixed(1)} ${(circ * 0.72).toFixed(1)}`,
+    );
     track.setAttribute("stroke-dashoffset", (-circ * p).toFixed(1));
     track.setAttribute("stroke-linecap", "round");
     track.setAttribute("opacity", (w * 0.9).toFixed(3));
@@ -883,18 +1204,24 @@ export function createStellaMark(host, opts = {}) {
    *  suspended, except for the very first frame, which always gets to paint. */
   function wake() {
     if (destroyed || running || (suspended() && painted)) return;
-    running = true; last = 0;
+    running = true;
+    last = 0;
     raf = requestAnimationFrame(frame);
   }
 
-  const onPointerMove = (e) => { pointer = { x: e.clientX, y: e.clientY }; wake(); };
-  const onPointerLeave = () => { pointer = null; };
+  const onPointerMove = (e: PointerEvent) => {
+    pointer = { x: e.clientX, y: e.clientY };
+    wake();
+  };
+  const onPointerLeave = () => {
+    pointer = null;
+  };
   if (o.followPointer && !reduced) {
     window.addEventListener("pointermove", onPointerMove, { passive: true });
     document.documentElement.addEventListener("pointerleave", onPointerLeave);
   }
 
-  const setBoxW = (w) => {
+  const setBoxW = (w: number) => {
     if (!(w > 0) || Math.abs(w - boxW) < 0.5) return;
     boxW = w;
     wake();
@@ -902,7 +1229,7 @@ export function createStellaMark(host, opts = {}) {
 
   // The mark's zoom depends on its rendered width. Observing it keeps the
   // measurement out of the frame path, where reading it forced a layout.
-  let sizeObserver = null;
+  let sizeObserver: ResizeObserver | null = null;
   if (typeof ResizeObserver === "function") {
     sizeObserver = new ResizeObserver((entries) => {
       setBoxW(entries[entries.length - 1]?.contentRect?.width ?? 0);
@@ -915,14 +1242,17 @@ export function createStellaMark(host, opts = {}) {
    * recomputing the outline 60 times a second for pixels nobody can see. Time is
    * frozen (as with pause), so it resumes mid-motion instead of jumping.
    */
-  let viewObserver = null;
+  let viewObserver: IntersectionObserver | null = null;
   if (o.visibilityGate && typeof IntersectionObserver === "function") {
     viewObserver = new IntersectionObserver(
       (entries) => {
         const next = entries[entries.length - 1]?.isIntersecting ?? true;
         if (next === onscreen) return;
         onscreen = next;
-        if (onscreen) { last = 0; wake(); }
+        if (onscreen) {
+          last = 0;
+          wake();
+        }
       },
       { rootMargin: "64px" },
     );
@@ -935,35 +1265,56 @@ export function createStellaMark(host, opts = {}) {
     poseCur = poseFrom = EYE_POSES[pool[0]] ?? EYE_POSES.neutral;
     scheduleFace(0);
     if (activity === "squeeze") squeezeStart = 0;
-    env.x = 0; env.t = activity ? 1 : 0;
+    env.x = 0;
+    env.t = activity ? 1 : 0;
   }
   wake();
 
   return {
     el: svg,
-    get state() { return state; },
-    setState: (s) => applyState(s),
-    setShape(name) {
+    get state() {
+      return state;
+    },
+    setState: (s: StellaCharacterState) => applyState(s),
+    setShape(name: StellaCharacterShape) {
       const next = SHAPES[name];
       if (!next || next === shape) return;
-      shapeFrom = shape; shape = next; shapeName = name;
-      shapeMix.x = 0; shapeMix.v = 0; shapeMix.t = 1;
+      shapeFrom = shape;
+      shape = next;
+      shapeName = name;
+      shapeMix.x = 0;
+      shapeMix.v = 0;
+      shapeMix.t = 1;
       wake();
     },
-    get shape() { return shapeName; },
-    setGaze(p) { pointer = p; wake(); },
-    sparkle: (n) => burst(n),
+    get shape() {
+      return shapeName;
+    },
+    setGaze(p: { x: number; y: number } | null) {
+      pointer = p;
+      wake();
+    },
+    sparkle: (n?: number) => burst(n),
     // Pausing suspends the loop rather than idling it, and resuming resets the
     // frame clock so motion continues from where it stopped instead of jumping.
-    pause() { paused = true; },
-    resume() { paused = false; last = 0; wake(); },
+    pause() {
+      paused = true;
+    },
+    resume() {
+      paused = false;
+      last = 0;
+      wake();
+    },
     destroy() {
       destroyed = true;
       cancelAnimationFrame(raf);
       sizeObserver?.disconnect();
       viewObserver?.disconnect();
       window.removeEventListener("pointermove", onPointerMove);
-      document.documentElement.removeEventListener("pointerleave", onPointerLeave);
+      document.documentElement.removeEventListener(
+        "pointerleave",
+        onPointerLeave,
+      );
       svg.remove();
     },
   };

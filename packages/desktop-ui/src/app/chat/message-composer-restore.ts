@@ -13,14 +13,17 @@
  * selections, pasted-text bodies, activity anchors) can't be reconstructed
  * here and is intentionally dropped; the text always carries over.
  */
+import type { Attachment } from "@stella/contracts/local-chat";
+import type { ChatContext, ChatContextFile } from "@/shared/types/electron";
+import type { UserRowViewModel } from "@/features/chat/conversation-row-types";
 
-/**
- * @param {ReadonlyArray<import("@stella/contracts/local-chat").Attachment> | undefined} attachments
- * @returns {import("@/shared/types/electron").ChatContext | null}
- */
-export const composerContextFromSentAttachments = (attachments) => {
-  const files = [];
-  const regionScreenshots = [];
+type RegionScreenshot = NonNullable<ChatContext["regionScreenshots"]>[number];
+
+export const composerContextFromSentAttachments = (
+  attachments: ReadonlyArray<Attachment> | undefined,
+): ChatContext | null => {
+  const files: ChatContextFile[] = [];
+  const regionScreenshots: RegionScreenshot[] = [];
   for (const attachment of attachments ?? []) {
     const url = attachment?.url;
     if (typeof url !== "string" || url.length === 0) continue;
@@ -55,14 +58,16 @@ export const composerContextFromSentAttachments = (attachments) => {
  * Mirrors the message row's image treatment: a `file`-kind attachment counts
  * only when its mime type is an image; screenshots (no `file` kind) and
  * image-mimed / `data:image/` attachments are images.
- *
- * @param {import("@stella/contracts/local-chat").Attachment} attachment
  */
-const isImageCopyAttachment = (attachment) => {
+const isImageCopyAttachment = (attachment: Attachment): boolean => {
   const mimeType = attachment.mimeType ?? "";
-  if (attachment.kind === "file" && !mimeType.startsWith("image/")) return false;
+  if (attachment.kind === "file" && !mimeType.startsWith("image/"))
+    return false;
   if (mimeType.startsWith("image/")) return true;
-  if (typeof attachment.url === "string" && attachment.url.startsWith("data:image/"))
+  if (
+    typeof attachment.url === "string" &&
+    attachment.url.startsWith("data:image/")
+  )
     return true;
   return attachment.kind !== "file" && !mimeType;
 };
@@ -73,10 +78,10 @@ const isImageCopyAttachment = (attachment) => {
  * the FIRST image attachment (the primary/leftmost chip); falls back to the
  * first attachment that carries a usable on-disk path or data/file URL.
  * Returns null when nothing is copyable.
- *
- * @param {ReadonlyArray<import("@stella/contracts/local-chat").Attachment> | undefined} attachments
  */
-export const primaryCopyAttachment = (attachments) => {
+export const primaryCopyAttachment = (
+  attachments: ReadonlyArray<Attachment> | undefined,
+) => {
   const usable = (attachments ?? []).filter(
     (attachment) =>
       attachment &&
@@ -98,10 +103,8 @@ export const primaryCopyAttachment = (attachments) => {
  * The composer payload restored from a sent user row: the message text plus
  * the reconstructed attachment/context state (or null when the row carried
  * no re-hydratable attachments).
- *
- * @param {import("@/features/chat/conversation-row-types").UserRowViewModel} row
  */
-export const composerDraftFromUserRow = (row) => ({
+export const composerDraftFromUserRow = (row: UserRowViewModel) => ({
   message: row.text ?? "",
   chatContext: composerContextFromSentAttachments(row.attachments),
 });

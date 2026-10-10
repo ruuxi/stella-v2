@@ -1,4 +1,7 @@
-import { truncateLocalConversation, forkLocalConversation } from "@/features/chat/services/local-chat-store";
+import {
+  truncateLocalConversation,
+  forkLocalConversation,
+} from "@/features/chat/services/local-chat-store";
 import {
   useCallback,
   useEffect,
@@ -42,6 +45,21 @@ import { conversationStore } from "@/features/cloud/conversation-store";
 import { markCloudConversationCreated } from "@/features/cloud/cloud-conversation-selection";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { showToast } from "@/ui/toast";
+import type { LegendListRef } from "@legendapp/list/react";
+import type { ConversationCalls } from "@stella/contracts/backend/conversations";
+import type { UserRowViewModel } from "@/features/chat/conversation-row-types";
+import type { StreamingAssistantOverlay } from "@/features/chat/streaming/streaming-types";
+import type { ChatContext } from "@/shared/types/electron";
+
+type TabComposerMemory = {
+  message: string;
+  chatContext: ChatContext | null;
+  selectedText: string | null;
+};
+type TabScrollMemory = { scrollTop: number; followingLatest: boolean };
+type ConversationEditRequest = { key: string; requestId: string };
+type ConversationEditOperation = { accountScope: string; requestId: string };
+
 const MAX_RETAINED_TAB_STATE = 20;
 /**
  * How long, after opening/switching into a conversation that lands at the
@@ -50,9 +68,13 @@ const MAX_RETAINED_TAB_STATE = 20;
  */
 const OPEN_BOTTOM_SETTLE_MS = 600;
 const NO_NEWER_CLOUD_MESSAGES = () => false;
-const EMPTY_STREAMING_ASSISTANTS = [];
-const hasNonWhitespaceText = (text) => text.trim().length > 0;
-const setBoundedTabMemory = (memory, conversationId, value) => {
+const EMPTY_STREAMING_ASSISTANTS: StreamingAssistantOverlay[] = [];
+const hasNonWhitespaceText = (text: string) => text.trim().length > 0;
+const setBoundedTabMemory = <T>(
+  memory: Map<string, T>,
+  conversationId: string,
+  value: T,
+) => {
   memory.delete(conversationId);
   memory.set(conversationId, value);
   while (memory.size > MAX_RETAINED_TAB_STATE) {
@@ -67,11 +89,17 @@ export const createConversationScrollMemoryCleanup = ({
   scrollMemory,
   getIsFollowing,
   isConversationOpen,
+}: {
+  conversationId: string | null;
+  list: Pick<LegendListRef, "getScrollableNode"> | null;
+  scrollMemory: Map<string, TabScrollMemory>;
+  getIsFollowing: () => boolean;
+  isConversationOpen: (conversationId: string) => boolean;
 }) => {
   // Resolve Legend's DOM node while its internal ref is still mounted. During
   // layout cleanup the list handle can remain non-null after that internal ref
   // has already been cleared, making a late getScrollableNode() call throw.
-  let element = null;
+  let element: ReturnType<LegendListRef["getScrollableNode"]> | null = null;
   if (conversationId && list) {
     try {
       element = list.getScrollableNode();
@@ -96,22 +124,33 @@ const newConversationEditRequestId = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `edit-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-export const cloudConversationEditFailureMessage = (error, fallback) => {
+export const cloudConversationEditFailureMessage = (
+  error: unknown,
+  fallback: string,
+): string => {
   if (error instanceof Error && error.message.trim()) {
     return error.message.trim();
   }
   return fallback;
 };
-const forkCloudConversation = (args) =>
-  backendClient.call("conversations.fork", args);
-const rewindCloudConversation = (args) =>
-  backendClient.call("conversations.rewind", args);
+const forkCloudConversation = (
+  args: ConversationCalls["conversations.fork"]["args"],
+) => backendClient.call("conversations.fork", args);
+const rewindCloudConversation = (
+  args: ConversationCalls["conversations.rewind"]["args"],
+) => backendClient.call("conversations.rewind", args);
 
 export function useFullShellChat({
   activeConversationId,
   isOnChatRoute,
   traceEnabled,
   navigateToConversation,
+}: {
+  activeConversationId: string | null;
+  isOnChatRoute: boolean;
+  traceEnabled: boolean;
+  /** Opens + navigates to a conversation (tab + router). */
+  navigateToConversation?: (conversationId: string, title?: string) => void;
 }) {
   const { cloudFeaturesEnabled, isLocalStorage, storageMode } = useChatStore();
   const { accountScope } = useCloudConversationSession();
@@ -140,21 +179,27 @@ export function useFullShellChat({
   const [composerFocusRequestId, setComposerFocusRequestId] = useState(0);
   const { chatContext, setChatContext, selectedText, setSelectedText } =
     useCapturedChatContext();
-  const composerMemoryByConversationRef = useRef(new Map());
-  const scrollMemoryByConversationRef = useRef(new Map());
+  const composerMemoryByConversationRef = useRef(
+    new Map<string, TabComposerMemory>(),
+  );
+  const scrollMemoryByConversationRef = useRef(
+    new Map<string, TabScrollMemory>(),
+  );
   const activeConversationIdRef = useRef(activeConversationId);
   activeConversationIdRef.current = activeConversationId;
-  const previousComposerConversationIdRef = useRef(activeConversationId);
-  const restoredConversationScrollRef = useRef(null);
+  const previousComposerConversationIdRef = useRef<string | null>(
+    activeConversationId,
+  );
+  const restoredConversationScrollRef = useRef<string | null>(null);
   // Text the onboarding hand-off asked to submit as soon as the composer can.
-  const pendingAutoSendTextRef = useRef(null);
+  const pendingAutoSendTextRef = useRef<string | null>(null);
   // Auth scope is a hard renderer privacy boundary. Clear composer content,
   // attachment handles, and per-tab memories in a layout effect so no frame
   // can paint the previous owner's unsent text during identity bootstrap.
   // Keyed on the scope it last cleared for: Fast Refresh re-runs every effect
   // of an edited component, and an applied renderer change must not wipe the
   // same owner's unsent text.
-  const clearedForScopeRef = useRef(null);
+  const clearedForScopeRef = useRef<string | null>(null);
   useLayoutEffect(() => {
     const scope = `${accountScope}\0${storageMode}`;
     if (clearedForScopeRef.current === scope) return;
@@ -198,8 +243,9 @@ export function useFullShellChat({
         : takePendingComposerDraft();
       // Arm the hand-off before writing the text so the auto-send readiness
       // subscription below observes both in the same store notification.
-      pendingAutoSendTextRef.current =
-        pendingDraft?.send ? pendingDraft.text : null;
+      pendingAutoSendTextRef.current = pendingDraft?.send
+        ? pendingDraft.text
+        : null;
       setMessage(remembered?.message ?? pendingDraft?.text ?? "");
       setChatContext(remembered?.chatContext ?? null);
       setSelectedText(remembered?.selectedText ?? null);
@@ -237,9 +283,7 @@ export function useFullShellChat({
     activeConversationId ?? undefined,
   );
   const { activities: localActivities } = localActivityFeed;
-  const localFileFeed = useConversationFiles(
-    activeConversationId ?? undefined,
-  );
+  const localFileFeed = useConversationFiles(activeConversationId ?? undefined);
   const { files: localPersistedFiles } = localFileFeed;
   const { records: threadActivityRecords } = useThreadActivity(
     activeConversationId ?? undefined,
@@ -294,9 +338,12 @@ export function useFullShellChat({
     acknowledgeLocalMessages(persistedMessages);
   }, [acknowledgeLocalMessages, persistedMessages, localOptimisticEvents]);
   const awaitingMessageAdmission = useMemo(() => {
-    const persistedIds = new Set(persistedMessages.map((message) => message._id));
-    return localOptimisticEvents.some((event) =>
-      event.type === "user_message" && !persistedIds.has(event._id));
+    const persistedIds = new Set(
+      persistedMessages.map((message) => message._id),
+    );
+    return localOptimisticEvents.some(
+      (event) => event.type === "user_message" && !persistedIds.has(event._id),
+    );
   }, [localOptimisticEvents, persistedMessages]);
   const activities = cloudChat.activities;
   const persistedFiles = cloudChat.files;
@@ -313,27 +360,41 @@ export function useFullShellChat({
   // Follow the canonical turn while no local execution owns the controls.
   // Remember the canonical turn this window executed. Its live-clear frame
   // can lag local completion; falling back to it would resurrect the dots.
-  const locallyOwnedCloudTurnRef = useRef(null);
+  const locallyOwnedCloudTurnRef = useRef<string | null>(null);
   const cloudLiveTurnId = cloudChat.conversation.state.live?.turnId ?? null;
   useLayoutEffect(() => {
-    if (localIsStreaming && cloudLiveTurnId && (localHasToolActivity || localAnswerLanded)) {
+    if (
+      localIsStreaming &&
+      cloudLiveTurnId &&
+      (localHasToolActivity || localAnswerLanded)
+    ) {
       locallyOwnedCloudTurnRef.current = cloudLiveTurnId;
     }
-  }, [localIsStreaming, cloudLiveTurnId, localHasToolActivity, localAnswerLanded]);
-  const localTurnHandedOff = !localIsStreaming && Boolean(cloudLiveTurnId) &&
+  }, [
+    localIsStreaming,
+    cloudLiveTurnId,
+    localHasToolActivity,
+    localAnswerLanded,
+  ]);
+  const localTurnHandedOff =
+    !localIsStreaming &&
+    Boolean(cloudLiveTurnId) &&
     locallyOwnedCloudTurnRef.current === cloudLiveTurnId;
-  const useCloudRun = cloudChat.isWebShell || (!localIsStreaming && cloudChat.isStreaming);
+  const useCloudRun =
+    cloudChat.isWebShell || (!localIsStreaming && cloudChat.isStreaming);
   const runtimeStatusText = useCloudRun
     ? cloudChat.runtimeStatusText
     : localRuntimeStatusText;
   const isCompacting = useCloudRun ? false : localIsCompacting;
-  const activeToolCallId = useCloudRun ? cloudChat.activeToolCallId : localActiveToolCallId;
+  const activeToolCallId = useCloudRun
+    ? cloudChat.activeToolCallId
+    : localActiveToolCallId;
   const activeToolName = useCloudRun
-    ? (localTurnHandedOff ? null : cloudChat.activeToolName)
+    ? localTurnHandedOff
+      ? null
+      : cloudChat.activeToolName
     : localActiveToolName;
-  const latestCompletedTool = useCloudRun
-    ? null
-    : localLatestCompletedTool;
+  const latestCompletedTool = useCloudRun ? null : localLatestCompletedTool;
   const hasToolActivity = useCloudRun
     ? Boolean(cloudChat.activeToolName)
     : localHasToolActivity;
@@ -341,10 +402,14 @@ export function useFullShellChat({
     ? Boolean(activeToolName)
     : localIsToolActive;
   const reasoningText = useCloudRun ? "" : localReasoningText;
-  const isStreaming = cloudChat.isStreaming || localIsStreaming || awaitingMessageAdmission;
+  const isStreaming =
+    cloudChat.isStreaming || localIsStreaming || awaitingMessageAdmission;
   // The committed reply hands off before the terminal turn frame arrives.
-  const answerLanded = !awaitingMessageAdmission &&
-    (useCloudRun ? (cloudChat.answerLanded || localTurnHandedOff) : localAnswerLanded);
+  const answerLanded =
+    !awaitingMessageAdmission &&
+    (useCloudRun
+      ? cloudChat.answerLanded || localTurnHandedOff
+      : localAnswerLanded);
   const pendingUserMessageId = cloudChat.isWebShell
     ? cloudChat.pendingUserMessageId
     : localPendingUserMessageId;
@@ -361,48 +426,58 @@ export function useFullShellChat({
     ? cloudChat.cancelCurrentStream
     : localCancelCurrentStream;
   // Page only the selected history; local and cloud cursors never mix.
-  const hasOlderMessages = storageMode === "local"
-    ? localMessageFeed.hasOlderMessages
-    : cloudChat.conversation.state.hasOlder;
-  const hasNewerMessages = storageMode === "local"
-    ? localMessageFeed.hasNewerMessages
-    : false;
-  const isLoadingOlderMessages = storageMode === "local"
-    ? localMessageFeed.isLoadingOlder
-    : cloudChat.conversation.state.loadingOlder;
-  const isLoadingNewerMessages = storageMode === "local"
-    ? localMessageFeed.isLoadingNewer
-    : false;
-  const isInitialLoadingMessages = storageMode === "local"
-    ? localMessageFeed.isInitialLoading
-    : cloudChat.isInitialLoading;
-  const loadOlderMessages = storageMode === "local"
-    ? localMessageFeed.loadOlder
-    : cloudChat.conversation.loadOlder;
-  const loadNewerMessages = storageMode === "local"
-    ? localMessageFeed.loadNewer
-    : NO_NEWER_CLOUD_MESSAGES;
-  const loadLatestMessages = storageMode === "local"
-    ? localMessageFeed.loadLatest
-    : NO_NEWER_CLOUD_MESSAGES;
-  const hasOlderActivity = storageMode === "local"
-    ? localActivityFeed.hasOlderActivity
-    : cloudChat.hasOlderActivity;
-  const isLoadingOlderActivity = storageMode === "local"
-    ? localActivityFeed.isLoadingOlder
-    : cloudChat.isLoadingOlderActivity;
-  const loadOlderActivity = storageMode === "local"
-    ? localActivityFeed.loadOlder
-    : cloudChat.loadOlderActivity;
-  const hasOlderFiles = storageMode === "local"
-    ? localFileFeed.hasOlderFiles
-    : cloudChat.conversation.state.hasOlder;
-  const isLoadingOlderFiles = storageMode === "local"
-    ? localFileFeed.isLoadingOlder
-    : cloudChat.conversation.state.loadingOlder;
-  const loadOlderFiles = storageMode === "local"
-    ? localFileFeed.loadOlder
-    : cloudChat.conversation.loadOlder;
+  const hasOlderMessages =
+    storageMode === "local"
+      ? localMessageFeed.hasOlderMessages
+      : cloudChat.conversation.state.hasOlder;
+  const hasNewerMessages =
+    storageMode === "local" ? localMessageFeed.hasNewerMessages : false;
+  const isLoadingOlderMessages =
+    storageMode === "local"
+      ? localMessageFeed.isLoadingOlder
+      : cloudChat.conversation.state.loadingOlder;
+  const isLoadingNewerMessages =
+    storageMode === "local" ? localMessageFeed.isLoadingNewer : false;
+  const isInitialLoadingMessages =
+    storageMode === "local"
+      ? localMessageFeed.isInitialLoading
+      : cloudChat.isInitialLoading;
+  const loadOlderMessages =
+    storageMode === "local"
+      ? localMessageFeed.loadOlder
+      : cloudChat.conversation.loadOlder;
+  const loadNewerMessages =
+    storageMode === "local"
+      ? localMessageFeed.loadNewer
+      : NO_NEWER_CLOUD_MESSAGES;
+  const loadLatestMessages =
+    storageMode === "local"
+      ? localMessageFeed.loadLatest
+      : NO_NEWER_CLOUD_MESSAGES;
+  const hasOlderActivity =
+    storageMode === "local"
+      ? localActivityFeed.hasOlderActivity
+      : cloudChat.hasOlderActivity;
+  const isLoadingOlderActivity =
+    storageMode === "local"
+      ? localActivityFeed.isLoadingOlder
+      : cloudChat.isLoadingOlderActivity;
+  const loadOlderActivity =
+    storageMode === "local"
+      ? localActivityFeed.loadOlder
+      : cloudChat.loadOlderActivity;
+  const hasOlderFiles =
+    storageMode === "local"
+      ? localFileFeed.hasOlderFiles
+      : cloudChat.conversation.state.hasOlder;
+  const isLoadingOlderFiles =
+    storageMode === "local"
+      ? localFileFeed.isLoadingOlder
+      : cloudChat.conversation.state.loadingOlder;
+  const loadOlderFiles =
+    storageMode === "local"
+      ? localFileFeed.loadOlder
+      : cloudChat.conversation.loadOlder;
   // Visible chat timeline: SQLite-backed `persistedMessages` plus the
   // synthetic overlays (optimistic users, in-memory streaming
   // assistants, scheduler-pending) that drop off as their persisted
@@ -504,7 +579,7 @@ export function useFullShellChat({
       list: listRef.current,
       scrollMemory,
       getIsFollowing,
-      isConversationOpen: (id) =>
+      isConversationOpen: (id: string) =>
         conversationTabs
           .getSnapshot()
           .tabs.some((tab) => tab.conversationId === id),
@@ -520,7 +595,7 @@ export function useFullShellChat({
       return;
     }
     const conversationId = activeConversationId;
-    let settleRaf = null;
+    let settleRaf: number | null = null;
     const frame = window.requestAnimationFrame(() => {
       const remembered =
         scrollMemoryByConversationRef.current.get(conversationId);
@@ -629,7 +704,7 @@ export function useFullShellChat({
       onRestore: () => {
         if (activeConversationIdRef.current !== submittedConversationId) {
           if (submittedConversationId) {
-            const remembered =
+            const remembered: Partial<TabComposerMemory> =
               composerMemoryByConversationRef.current.get(
                 submittedConversationId,
               ) ?? {};
@@ -638,8 +713,7 @@ export function useFullShellChat({
               submittedConversationId,
               {
                 message: remembered.message || submittedMessage,
-                selectedText:
-                  remembered.selectedText ?? submittedSelectedText,
+                selectedText: remembered.selectedText ?? submittedSelectedText,
                 chatContext: remembered.chatContext ?? submittedChatContext,
               },
             );
@@ -724,18 +798,7 @@ export function useFullShellChat({
   // nested action row. The callbacks are stable and read live state
   // through this ref, so every user row can consume them without
   // re-rendering as conversation state churns.
-  const messageActionsStateRef = useRef(null);
-  const conversationEditInFlightRef = useRef(false);
-  const conversationEditOperationRef = useRef(null);
-  const forkRequestRef = useRef(null);
-  const rewindRequestRef = useRef(null);
-  useEffect(() => {
-    conversationEditInFlightRef.current = false;
-    conversationEditOperationRef.current = null;
-    forkRequestRef.current = null;
-    rewindRequestRef.current = null;
-  }, [accountScope]);
-  messageActionsStateRef.current = {
+  const messageActionsState = {
     activeConversationId,
     accountScope,
     storageMode,
@@ -750,10 +813,26 @@ export function useFullShellChat({
     navigateToConversation,
     requestFocus: () => setComposerFocusRequestId((id) => id + 1),
   };
+  const messageActionsStateRef = useRef<typeof messageActionsState | null>(
+    null,
+  );
+  const conversationEditInFlightRef = useRef(false);
+  const conversationEditOperationRef = useRef<ConversationEditOperation | null>(
+    null,
+  );
+  const forkRequestRef = useRef<ConversationEditRequest | null>(null);
+  const rewindRequestRef = useRef<ConversationEditRequest | null>(null);
+  useEffect(() => {
+    conversationEditInFlightRef.current = false;
+    conversationEditOperationRef.current = null;
+    forkRequestRef.current = null;
+    rewindRequestRef.current = null;
+  }, [accountScope]);
+  messageActionsStateRef.current = messageActionsState;
   // Rewind changes the canonical DO epoch at the sequence immediately before
   // the target prompt, then seeds that prompt back into the same composer.
   // SQLite is neither read nor written as mutation authority.
-  const rewindToUserMessage = useCallback((row) => {
+  const rewindToUserMessage = useCallback((row: UserRowViewModel) => {
     const state = messageActionsStateRef.current;
     if (!state) return;
     if (state.isStreaming || conversationEditInFlightRef.current) return;
@@ -762,14 +841,24 @@ export function useFullShellChat({
     if (state.storageMode === "local") {
       conversationEditInFlightRef.current = true;
       const draft = composerDraftFromUserRow(row);
-      void truncateLocalConversation(conversationId, row.id).then(() => {
-        if (activeConversationIdRef.current !== conversationId) return;
-        state.setMessage(draft.message);
-        state.setChatContext(draft.chatContext);
-        state.setSelectedText(null);
-        state.requestFocus();
-      }).catch((error) => showToast({ title: "Couldn’t rewind this message", description: String(error), variant: "error" }))
-        .finally(() => { conversationEditInFlightRef.current = false; });
+      void truncateLocalConversation(conversationId, row.id)
+        .then(() => {
+          if (activeConversationIdRef.current !== conversationId) return;
+          state.setMessage(draft.message);
+          state.setChatContext(draft.chatContext);
+          state.setSelectedText(null);
+          state.requestFocus();
+        })
+        .catch((error) =>
+          showToast({
+            title: "Couldn’t rewind this message",
+            description: String(error),
+            variant: "error",
+          }),
+        )
+        .finally(() => {
+          conversationEditInFlightRef.current = false;
+        });
       return;
     }
     const boundary = cloudPrefixBoundaryForUserMessage(
@@ -789,6 +878,7 @@ export function useFullShellChat({
     if (
       head.status !== "live" ||
       head.conversationId !== conversationId ||
+      head.epoch === null ||
       !Number.isSafeInteger(head.epoch) ||
       !Number.isSafeInteger(head.headSeq) ||
       head.headSeq < boundary.targetSeq
@@ -802,6 +892,7 @@ export function useFullShellChat({
       return;
     }
     const draft = composerDraftFromUserRow(row);
+    const expectedEpoch = head.epoch;
     const requestKey = `${conversationId}:${head.epoch}:${head.headSeq}:${boundary.throughSeq}`;
     const requestId =
       rewindRequestRef.current?.key === requestKey
@@ -816,7 +907,7 @@ export function useFullShellChat({
         await state.rewindCloudConversation({
           conversationId,
           throughSeq: boundary.throughSeq,
-          expectedEpoch: head.epoch,
+          expectedEpoch,
           expectedLastSeq: head.headSeq,
           requestId,
           activeTurnPolicy: "conflict",
@@ -875,7 +966,7 @@ export function useFullShellChat({
   // Fork copies the canonical prefix into a fresh DO-backed conversation,
   // then drops the selected prompt into the new tab's composer. The source
   // remains untouched and no SQLite branch is minted.
-  const forkToNewConversation = useCallback((row) => {
+  const forkToNewConversation = useCallback((row: UserRowViewModel) => {
     const state = messageActionsStateRef.current;
     if (!state) return;
     if (state.isStreaming || conversationEditInFlightRef.current) return;
@@ -883,18 +974,31 @@ export function useFullShellChat({
     if (!conversationId || !row?.id) return;
     // Never mint a branch we can't navigate to — that would strand the
     // user on the original chat with an orphan conversation in the store.
-    if (!state.navigateToConversation) return;
+    const navigate = state.navigateToConversation;
+    if (!navigate) return;
     if (state.storageMode === "local") {
       conversationEditInFlightRef.current = true;
       const draft = composerDraftFromUserRow(row);
-      void forkLocalConversation(conversationId, row.id).then((id) => {
-        if (!id || activeConversationIdRef.current !== conversationId) return;
-        state.navigateToConversation(id);
-        setBoundedTabMemory(composerMemoryByConversationRef.current, id, {
-          message: draft.message, chatContext: draft.chatContext, selectedText: null,
+      void forkLocalConversation(conversationId, row.id)
+        .then((id) => {
+          if (!id || activeConversationIdRef.current !== conversationId) return;
+          navigate(id);
+          setBoundedTabMemory(composerMemoryByConversationRef.current, id, {
+            message: draft.message,
+            chatContext: draft.chatContext,
+            selectedText: null,
+          });
+        })
+        .catch((error) =>
+          showToast({
+            title: "Couldn’t fork this message",
+            description: String(error),
+            variant: "error",
+          }),
+        )
+        .finally(() => {
+          conversationEditInFlightRef.current = false;
         });
-      }).catch((error) => showToast({ title: "Couldn’t fork this message", description: String(error), variant: "error" }))
-        .finally(() => { conversationEditInFlightRef.current = false; });
       return;
     }
     const boundary = cloudPrefixBoundaryForUserMessage(
@@ -914,6 +1018,7 @@ export function useFullShellChat({
     if (
       head.status !== "live" ||
       head.conversationId !== conversationId ||
+      head.epoch === null ||
       !Number.isSafeInteger(head.epoch) ||
       !Number.isSafeInteger(head.headSeq) ||
       head.headSeq < boundary.targetSeq
@@ -927,6 +1032,7 @@ export function useFullShellChat({
       return;
     }
     const draft = composerDraftFromUserRow(row);
+    const expectedEpoch = head.epoch;
     const requestKey = `${conversationId}:${head.epoch}:${head.headSeq}:${boundary.throughSeq}`;
     const requestId =
       forkRequestRef.current?.key === requestKey
@@ -941,7 +1047,7 @@ export function useFullShellChat({
         const result = await state.forkCloudConversation({
           sourceConversationId: conversationId,
           throughSeq: boundary.throughSeq,
-          expectedEpoch: head.epoch,
+          expectedEpoch,
           expectedLastSeq: head.headSeq,
           requestId,
         });
@@ -956,7 +1062,7 @@ export function useFullShellChat({
         // Open + navigate first so the destination tab exists, THEN seed
         // its composer memory. The restore effect consumes the seed when
         // the active id changes on the next render.
-        state.navigateToConversation(result.conversationId);
+        navigate(result.conversationId);
         setBoundedTabMemory(
           composerMemoryByConversationRef.current,
           result.conversationId,

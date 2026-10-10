@@ -26,18 +26,28 @@ const MAX_TEXT_CHARS = 30_000;
 
 const TOOL_RESULT_PREFIX = "[Tool result]";
 
-const truncateWithSuffix = (value, maxChars) =>
+type TranscriptStore = {
+  listRecentThreadUserMessages?: (
+    threadKey: string,
+    limit?: number,
+  ) => Array<{ content: string; timestamp: number }>;
+};
+
+const truncateWithSuffix = (value: string, maxChars: number) =>
   value.length <= maxChars
     ? value
     : `${value.slice(0, maxChars)}...(truncated)`;
 
-const findPreviousUserMessageTimestamp = (store, threadKey) => {
+const findPreviousUserMessageTimestamp = (
+  store: TranscriptStore | null | undefined,
+  threadKey: string,
+) => {
   if (typeof store?.listRecentThreadUserMessages !== "function") {
     return null;
   }
   let recent;
   try {
-    recent = store.listRecentThreadUserMessages(threadKey);
+    recent = store.listRecentThreadUserMessages!(threadKey);
   } catch {
     // Tagging is best-effort; a store read failure must not block the write.
     return null;
@@ -57,20 +67,6 @@ const findPreviousUserMessageTimestamp = (store, threadKey) => {
  * Decorate a user transcript body exactly the way the retired events
  * projection rendered it: an optional timestamp tag (skipped inside the
  * thirty-minute window after the thread's previous user message).
- *
- * @param {{
- *   store: {
- *     listRecentThreadUserMessages?: (
- *       threadKey: string,
- *       limit?: number,
- *     ) => Array<{ content: string; timestamp: number }>;
- *   };
- *   threadKey: string;
- *   text: string;
- *   timestamp: number;
- *   timezone?: string;
- * }} args
- * @returns {string}
  */
 export const decorateUserTranscriptContent = ({
   store,
@@ -78,7 +74,13 @@ export const decorateUserTranscriptContent = ({
   text,
   timestamp,
   timezone,
-}) => {
+}: {
+  store: TranscriptStore;
+  threadKey: string;
+  text: string;
+  timestamp: number;
+  timezone?: string;
+}): string => {
   const body = truncateWithSuffix(text.trim(), MAX_TEXT_CHARS);
   if (!body) {
     return body;

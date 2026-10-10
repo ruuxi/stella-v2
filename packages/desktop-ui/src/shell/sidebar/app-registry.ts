@@ -15,44 +15,53 @@
  * is a no-op. The snapshot is computed once at module load and never
  * changes -- which is correct for a production build.
  */
-const APP_MODULES = import.meta.glob("../../app/*/metadata.ts", { eager: true });
-const computeSnapshot = (modules) => Object.values(modules)
+import type { AppMetadata } from "@/app/_shared/app-metadata";
+
+type AppMetadataModule = { default: AppMetadata };
+
+const APP_MODULES = import.meta.glob<AppMetadataModule>(
+  "../../app/*/metadata.ts",
+  { eager: true },
+);
+const computeSnapshot = (
+  modules: Record<string, AppMetadataModule>,
+): AppMetadata[] =>
+  Object.values(modules)
     .map((m) => m.default)
     .sort((a, b) => (a.order ?? 100) - (b.order ?? 100));
 let cachedSnapshot = computeSnapshot(APP_MODULES);
-const subscribers = new Set();
-export const subscribe = (cb) => {
-    subscribers.add(cb);
-    return () => {
-        subscribers.delete(cb);
-    };
+const subscribers = new Set<() => void>();
+export const subscribe = (cb: () => void) => {
+  subscribers.add(cb);
+  return () => {
+    subscribers.delete(cb);
+  };
 };
 /**
  * Returns the current registered apps. Reference is stable until the
  * underlying glob actually changes (HMR), satisfying React's
  * `useSyncExternalStore` invariant.
  */
-export const getSnapshot = () => cachedSnapshot;
+export const getSnapshot = (): AppMetadata[] => cachedSnapshot;
 if (import.meta.hot) {
-    import.meta.hot.accept((newModule) => {
-        if (!newModule)
-            return;
-        // Re-evaluating the new module's `APP_MODULES` is the safest way to
-        // pick up additions/removals: Vite's `importGlob` plugin re-globs
-        // the filesystem when its `hotUpdate` runs, so the new module's
-        // exports reflect the updated set. Recomputing the snapshot from the
-        // new module ensures stable reference semantics for the consumer.
-        const next = newModule.getSnapshot?.();
-        if (!next)
-            return;
-        cachedSnapshot = next;
-        for (const cb of subscribers) {
-            try {
-                cb();
-            }
-            catch {
-                // Subscribers throwing should never break the registry.
-            }
-        }
-    });
+  import.meta.hot.accept((newModule) => {
+    if (!newModule) return;
+    // Re-evaluating the new module's `APP_MODULES` is the safest way to
+    // pick up additions/removals: Vite's `importGlob` plugin re-globs
+    // the filesystem when its `hotUpdate` runs, so the new module's
+    // exports reflect the updated set. Recomputing the snapshot from the
+    // new module ensures stable reference semantics for the consumer.
+    const next = (
+      newModule as { getSnapshot?: () => AppMetadata[] }
+    ).getSnapshot?.();
+    if (!next) return;
+    cachedSnapshot = next;
+    for (const cb of subscribers) {
+      try {
+        cb();
+      } catch {
+        // Subscribers throwing should never break the registry.
+      }
+    }
+  });
 }

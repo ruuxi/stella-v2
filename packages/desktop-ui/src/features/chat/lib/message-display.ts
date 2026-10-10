@@ -1,11 +1,21 @@
-import { isUiDisplayableChatEvent, isUiHiddenChatMessagePayload, } from "@stella/contracts/chat-event-visibility";
+import {
+  isUiDisplayableChatEvent,
+  isUiHiddenChatMessagePayload,
+} from "@stella/contracts/chat-event-visibility";
+
+type ChatEventLike = Parameters<typeof isUiDisplayableChatEvent>[0];
+
 export const isUiHiddenMessagePayload = isUiHiddenChatMessagePayload;
-function isUiDisplayableEvent(event) {
-    return isUiDisplayableChatEvent(event);
+function isUiDisplayableEvent(event: ChatEventLike): boolean {
+  return isUiDisplayableChatEvent(event);
 }
-export function filterEventsForUiDisplay(events) {
-    return events.filter(isUiDisplayableEvent);
+export function filterEventsForUiDisplay<T extends ChatEventLike>(
+  events: readonly T[],
+): T[] {
+  return events.filter(isUiDisplayableEvent);
 }
-export function filterMessagesForUiDisplay(messages) {
-    return messages.filter((message) => isUiDisplayableChatEvent(message));
+export function filterMessagesForUiDisplay<T extends ChatEventLike>(
+  messages: readonly T[],
+): T[] {
+  return messages.filter((message) => isUiDisplayableChatEvent(message));
 }

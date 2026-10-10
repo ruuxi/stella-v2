@@ -3,6 +3,7 @@ import {
   conversationModelSelections,
   modelSelectionsEqual,
   pickModelSelection,
+  type ModelSelection,
 } from "@/features/chat/services/conversation-model-selection";
 
 const PREFERENCES_CHANGED_EVENT = "stella:local-model-preferences-changed";
@@ -24,7 +25,7 @@ const readPreferences = async () => {
  * preferences, so this single write moves both the displayed model and the
  * routed model together.
  */
-const applySelection = async (selection) => {
+const applySelection = async (selection: ModelSelection) => {
   try {
     await window.electronAPI?.system?.setLocalModelPreferences?.(selection);
     window.dispatchEvent(new CustomEvent(PREFERENCES_CHANGED_EVENT));
@@ -64,11 +65,14 @@ const applySelection = async (selection) => {
 export function useConversationModelSelection({
   activeConversationId,
   enabled,
+}: {
+  activeConversationId: string | null | undefined;
+  enabled: boolean;
 }) {
-  const previousConversationIdRef = useRef(null);
+  const previousConversationIdRef = useRef<string | null | undefined>(null);
   const activeConversationIdRef = useRef(activeConversationId);
-  const lastKnownSelectionRef = useRef(null);
-  const lastKnownConversationIdRef = useRef(null);
+  const lastKnownSelectionRef = useRef<ModelSelection | null>(null);
+  const lastKnownConversationIdRef = useRef<string | null>(null);
   const restoringRef = useRef(false);
   const restoreGenerationRef = useRef(0);
   activeConversationIdRef.current = activeConversationId;

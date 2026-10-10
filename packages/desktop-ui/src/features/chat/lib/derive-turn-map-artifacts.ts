@@ -11,12 +11,24 @@
  * Purely a renderer affordance derived from already-persisted events — the
  * model only sees the tool's text summary.
  */
-import { isMapRouteArtifact } from "@stella/contracts/map-artifact";
+import {
+  isMapRouteArtifact,
+  type MapRouteArtifact,
+} from "@stella/contracts/map-artifact";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import type { EventRecord } from "@/features/chat/lib/event-transforms";
+
+export type TurnMapArtifact = {
+  /** Stable key (the tool_result event id, with a batch index when needed). */
+  id: string;
+  map: MapRouteArtifact;
+};
 /** Keep a runaway turn from stacking maps down the timeline. */
 const MAX_MAP_CARDS_PER_TURN = 3;
-export const deriveTurnMapArtifacts = (events) => {
-  const cards = [];
+export const deriveTurnMapArtifacts = (
+  events: readonly EventRecord[],
+): TurnMapArtifact[] => {
+  const cards: TurnMapArtifact[] = [];
   for (const event of events) {
     if (!event || event.type !== "tool_result") continue;
     const payload = event.payload;
@@ -35,7 +47,7 @@ export const deriveTurnMapArtifacts = (events) => {
     if (agentType !== undefined && agentType !== AGENT_IDS.ORCHESTRATOR) {
       continue;
     }
-    const candidates = Array.isArray(payload.maps)
+    const candidates: unknown[] = Array.isArray(payload.maps)
       ? payload.maps
       : [payload.map];
     for (let index = 0; index < candidates.length; index += 1) {

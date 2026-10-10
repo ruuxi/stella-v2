@@ -16,20 +16,74 @@ import {
 } from "./resident-context.js";
 import { QUARANTINE_CUSTOM_TYPE } from "./provider-abort-containment.js";
 import { ORCHESTRATOR_ROSTER_CUSTOM_TYPE } from "../storage/shared.js";
+import type {
+  PersistedRuntimeThreadPayload,
+  RuntimeThreadMessage,
+} from "../storage/shared.js";
+import type { RuntimeStore } from "../storage/runtime-store.js";
+import type { AgentMessage } from "../agent-core/types.js";
+import type { HookEmitter } from "../extensions/hook-emitter.js";
+import type { HookRuntimeContext } from "../extensions/types.js";
+import type { ResolvedLlmRoute } from "../model-routing.js";
+import type { ThreadCompactionResult } from "../thread-runtime.js";
+import type { RuntimePromptMessage } from "@stella/contracts/protocol";
+import type { ResidentContext } from "./resident-context.js";
+
+type ThreadMessageRecord = ReturnType<
+  RuntimeStore["loadThreadMessages"]
+>[number];
+type ThreadPayload = PersistedRuntimeThreadPayload;
+type AssistantPayload = Extract<ThreadPayload, { role: "assistant" }>;
+type ToolResultPayload = Extract<ThreadPayload, { role: "toolResult" }>;
+type RuntimeInternalMessage = Extract<
+  AgentMessage,
+  { role: "runtimeInternal" }
+>;
+type HistoryEntry = RuntimeThreadMessage | ThreadMessageRecord;
+type ToolGuidanceContext = { toolsAllowlist?: readonly string[] };
+type SystemPromptSection = { id: string; text: string };
+type PromptBuildContext = ResidentContext & {
+  staleUserReminderText?: string;
+  connectorTransitionReminderText?: string;
+};
+type PromptBuildHookContext = HookRuntimeContext & {
+  hookEmitter?: HookEmitter;
+};
+type PromptBuildArgs = {
+  context: PromptBuildContext;
+  userPrompt: string;
+  promptMessages?: RuntimePromptMessage[];
+  stellaDataDir?: string;
+  stellaAppDir?: string;
+  agentType?: string;
+  hookContext?: PromptBuildHookContext;
+};
+type CompactThreadArgs = {
+  store: RuntimeStore;
+  threadKey: string;
+  resolvedLlm: ResolvedLlmRoute;
+  agentType: string;
+  overrideSummary?: string;
+  preserveLastN?: number;
+  stellaDataDir?: string;
+  readAgentRoster?: () => Promise<string | undefined>;
+};
 const logger = createRuntimeLogger("agent-runtime.thread-memory");
 const MEMORY_STARTUP_DOC_PATHS = [
   LIFE_CORE_MEMORY_DISPLAY_PATH,
   LIFE_USER_PROFILE_DISPLAY_PATH,
   LIFE_MEMORY_INDEX_DISPLAY_PATH,
 ];
-/**
- * @param {{ conversationId: string, agentType: string, runId: string, threadId?: string }} args
- */
 export const buildRunThreadKey = ({
   conversationId,
   agentType,
   runId,
   threadId,
+}: {
+  conversationId: string;
+  agentType: string;
+  runId: string;
+  threadId?: string;
 }) =>
   buildRuntimeThreadKey({
     conversationId,
@@ -43,10 +97,13 @@ export const buildRunThreadKey = ({
 // boundary in thread-runtime.ts, where a cache-prefix change is expected and
 // the harness persists deterministic structured image receipts outside the
 // model-authored summary.
-export const stripStaleImageBlocks = (messages) => {
+export const stripStaleImageBlocks = <T>(messages: T): T => {
   return messages;
 };
-export const buildHistorySource = (context) => {
+export const buildHistorySource = (context: {
+  threadHistory?: readonly HistoryEntry[];
+  memoryEnabled?: boolean;
+}): AgentMessage[] => {
   const threadHistory = context.threadHistory ?? [];
   let latestRosterIndex = -1;
   for (let index = threadHistory.length - 1; index >= 0; index -= 1) {
@@ -72,7 +129,7 @@ export const buildHistorySource = (context) => {
           !isFailedAssistantPayload(entry.payload) &&
           (context.memoryEnabled !== false || !isMemoryStartupDocEntry(entry)),
       )
-      ?.map((entry) => {
+      ?.map((entry): AgentMessage | null => {
         if (entry.payload) {
           return entry.payload;
         }
@@ -113,13 +170,13 @@ export const buildHistorySource = (context) => {
         }
         return null;
       })
-      .filter((entry) => entry !== null) ?? [];
+      .filter((entry): entry is AgentMessage => entry !== null) ?? [];
   return messages;
 };
-const isRetiredMemoryEntry = (entry) =>
+const isRetiredMemoryEntry = (entry: HistoryEntry) =>
   entry.role === "runtimeInternal" &&
   isRetiredMemoryCustomMessage(entry.customMessage);
-const isFailedAssistantPayload = (payload) =>
+const isFailedAssistantPayload = (payload?: ThreadPayload) =>
   payload?.role === "assistant" &&
   (payload.stopReason === "error" ||
     payload.stopReason === "aborted" ||
@@ -128,19 +185,22 @@ const isFailedAssistantPayload = (payload) =>
         block.type === "toolCall" ||
         (block.type === "text" && block.text.trim().length > 0),
     ));
-const isMemoryStartupDocEntry = (entry) => {
+const isMemoryStartupDocEntry = (entry: HistoryEntry) => {
   if (
     entry.role !== "runtimeInternal" ||
     entry.customMessage?.customType !== BOOTSTRAP_STARTUP_DOC_CUSTOM_TYPE
   ) {
     return false;
   }
-  const text = customMessageContentText(entry.customMessage.content);
+  const text = customMessageContentText(entry.customMessage!.content);
   return MEMORY_STARTUP_DOC_PATHS.some((displayPath) =>
     text.includes(`<startup_doc path="${displayPath}">`),
   );
 };
-const createHistoryAssistantMessage = (content, errorMessage) => ({
+const createHistoryAssistantMessage = (
+  content: AssistantPayload["content"],
+  errorMessage?: string,
+): AssistantPayload => ({
   role: "assistant",
   content,
   api: "openai-completions",
@@ -164,14 +224,19 @@ const createHistoryAssistantMessage = (content, errorMessage) => ({
   ...(errorMessage ? { errorMessage } : {}),
   timestamp: now(),
 });
-const stringifyPayload = (value) => {
+const stringifyPayload = (value: unknown) => {
   try {
     return JSON.stringify(value);
   } catch {
     return String(value);
   }
 };
-const contentPreviewFromTextAndImages = (content) =>
+const contentPreviewFromTextAndImages = (
+  content: Exclude<
+    Extract<ThreadPayload, { role: "user" | "toolResult" }>["content"],
+    string
+  >,
+) =>
   content
     .map((block) =>
       block.type === "text"
@@ -180,7 +245,9 @@ const contentPreviewFromTextAndImages = (content) =>
     )
     .join("\n")
     .trim();
-export const buildThreadMessagePreview = (payload) => {
+export const buildThreadMessagePreview = (
+  payload: ThreadPayload | RuntimeInternalMessage,
+): string => {
   if (payload.role === "user") {
     return typeof payload.content === "string"
       ? payload.content
@@ -203,13 +270,27 @@ export const buildThreadMessagePreview = (payload) => {
       .join("\n\n")
       .trim();
   }
-  const body = contentPreviewFromTextAndImages(payload.content);
-  return [`[Tool result] ${payload.toolName}`, ...(body ? [body] : [])]
+  const body = contentPreviewFromTextAndImages(
+    payload.content as ToolResultPayload["content"],
+  );
+  return [
+    `[Tool result] ${(payload as ToolResultPayload).toolName}`,
+    ...(body ? [body] : []),
+  ]
     .join("\n")
     .trim();
 };
-export const persistThreadPayloadMessage = (store, args) => {
-  const payload =
+export const persistThreadPayloadMessage = (
+  store: RuntimeStore,
+  args: {
+    threadKey: string;
+    payload: ThreadPayload;
+    runId?: string;
+    attemptGeneration?: number;
+    preservePayloadExactly?: boolean;
+  },
+) => {
+  const payload: ThreadPayload =
     args.payload.role === "assistant"
       ? {
           ...args.payload,
@@ -231,10 +312,19 @@ export const persistThreadPayloadMessage = (store, args) => {
     ...(args.preservePayloadExactly ? { preservePayloadExactly: true } : {}),
   });
 };
-export const persistThreadPayloadMessages = (store, args) => {
+export const persistThreadPayloadMessages = (
+  store: RuntimeStore,
+  args: {
+    threadKey: string;
+    payloads: ThreadPayload[];
+    runId?: string;
+    attemptGeneration?: number;
+    preservePayloadExactly?: boolean;
+  },
+) => {
   const timestamp = now();
   const messages = args.payloads.map((rawPayload, index) => {
-    const payload =
+    const payload: ThreadPayload =
       rawPayload.role === "assistant"
         ? {
             ...rawPayload,
@@ -258,11 +348,27 @@ export const persistThreadPayloadMessages = (store, args) => {
   });
   store.appendThreadMessages(messages);
 };
-export const persistThreadCustomMessage = (store, args) => {
+export const persistThreadCustomMessage = (
+  store: RuntimeStore,
+  args: {
+    threadKey: string;
+    /** Required by the store, which rejects a missing one. */
+    customType: string | undefined;
+    content: Parameters<
+      RuntimeStore["appendThreadCustomMessage"]
+    >[0]["content"];
+    timestamp?: number;
+    display?: boolean;
+    preservePayloadExactly?: boolean;
+    eventId?: string;
+    /** Accepted from callers but not written by this path. */
+    lifecycleEvent?: unknown;
+  },
+) => {
   store.appendThreadCustomMessage({
     threadKey: args.threadKey,
     timestamp: args.timestamp ?? now(),
-    customType: args.customType,
+    customType: args.customType!,
     content: args.content,
     display: args.display === true,
     ...(args.preservePayloadExactly ? { preservePayloadExactly: true } : {}),
@@ -281,14 +387,17 @@ const getPlatformIdentityPrompt = () => {
   }
   return null;
 };
-const hasToolGuidance = (context, toolNames) => {
+const hasToolGuidance = (
+  context: ToolGuidanceContext,
+  toolNames: readonly string[],
+) => {
   const toolsAllowlist = context.toolsAllowlist;
   if (!Array.isArray(toolsAllowlist) || toolsAllowlist.length === 0) {
     return true;
   }
   return toolNames.some((toolName) => toolsAllowlist.includes(toolName));
 };
-const hasShellToolGuidance = (context) => {
+const hasShellToolGuidance = (context: ToolGuidanceContext) => {
   return hasToolGuidance(context, ["Bash", "exec_command"]);
 };
 /**
@@ -303,7 +412,7 @@ const hasShellToolGuidance = (context) => {
  * Since the covered case is defined by what the tool host can see, the
  * boundary has to be spelled out too.
  */
-const buildBackgroundWaitPrompt = (context) => {
+const buildBackgroundWaitPrompt = (context: ToolGuidanceContext) => {
   if (!hasShellToolGuidance(context)) {
     return null;
   }
@@ -315,7 +424,7 @@ const buildBackgroundWaitPrompt = (context) => {
     "- Never claim you'll report back on something outside those two paths. If a wait is genuinely unattended, say so plainly and hand over the exact command to check it.",
   ].join("\n");
 };
-const buildFileEditingPrompt = (context) => {
+const buildFileEditingPrompt = (context: ToolGuidanceContext) => {
   const explicitlyHasWriteEdit =
     Array.isArray(context.toolsAllowlist) &&
     context.toolsAllowlist.length > 0 &&
@@ -344,8 +453,13 @@ const buildFileEditingPrompt = (context) => {
  * The system prompt as named sections, in order. Sections let a resident
  * thread announce only the parts that changed (see `pi-session-core`).
  */
-export const buildSystemPromptSections = (context) => {
-  const sections = [
+export const buildSystemPromptSections = (
+  context: ToolGuidanceContext & {
+    systemPrompt: string;
+    dynamicContextSections?: readonly SystemPromptSection[];
+  },
+): SystemPromptSection[] => {
+  const sections: SystemPromptSection[] = [
     { id: "instructions", text: context.systemPrompt.trim() },
     ...(context.dynamicContextSections ?? []),
   ];
@@ -370,10 +484,22 @@ export const buildSystemPromptSections = (context) => {
  * byte-exact dedup against the persisted thread, and the compaction
  * fold-in. This wrapper keeps the historical call sites stable.
  */
-export const buildStartupPromptMessages = async (args) =>
-  buildResidentContextMessages(args.context);
-const fanOutBeforeUserMessage = async (args) => {
-  const empty = { prepend: [], append: [] };
+export const buildStartupPromptMessages = async (args: {
+  context: ResidentContext;
+  stellaDataDir?: string;
+  stellaAppDir?: string;
+}) => buildResidentContextMessages(args.context);
+const fanOutBeforeUserMessage = async (args: {
+  hookContext: PromptBuildHookContext;
+  agentType: string;
+  userPrompt: string;
+  staleUserReminderText?: string;
+  connectorTransitionReminderText?: string;
+}) => {
+  const empty: {
+    prepend: RuntimePromptMessage[];
+    append: RuntimePromptMessage[];
+  } = { prepend: [], append: [] };
   const { hookEmitter } = args.hookContext;
   if (!hookEmitter) return empty;
   const results = await hookEmitter.emitAll(
@@ -404,8 +530,8 @@ const fanOutBeforeUserMessage = async (args) => {
     },
     { agentType: args.agentType },
   );
-  const prepend = [];
-  const append = [];
+  const prepend: RuntimePromptMessage[] = [];
+  const append: RuntimePromptMessage[] = [];
   for (const result of results) {
     if (result?.prependMessages?.length) {
       prepend.push(...result.prependMessages);
@@ -416,9 +542,11 @@ const fanOutBeforeUserMessage = async (args) => {
   }
   return { prepend, append };
 };
-export const buildSubagentPromptMessages = async (args) => {
+export const buildSubagentPromptMessages = async (
+  args: PromptBuildArgs,
+): Promise<RuntimePromptMessage[]> => {
   const trimmedUserPrompt = args.userPrompt.trim();
-  const messages = [];
+  const messages: RuntimePromptMessage[] = [];
   // `before_user_message` fan-out runs first so extension-injected
   // context lands at the very top of the prompt-message array.
   // Subagent reminder fields are intentionally undefined — they're an
@@ -455,9 +583,11 @@ export const buildSubagentPromptMessages = async (args) => {
   }
   return messages;
 };
-export const buildOrchestratorPromptMessages = async (args) => {
+export const buildOrchestratorPromptMessages = async (
+  args: PromptBuildArgs,
+): Promise<RuntimePromptMessage[]> => {
   const trimmedUserPrompt = args.userPrompt.trim();
-  const messages = [];
+  const messages: RuntimePromptMessage[] = [];
   // Stale-user reminders used to be inline branches here; they now live as `before_user_message` hooks in
   // `runtime/extensions/stella-runtime/hooks/`. The reminder text is
   // forwarded through the hook payload so the hooks can decide whether
@@ -505,7 +635,17 @@ export const buildOrchestratorPromptMessages = async (args) => {
   }
   return messages;
 };
-export const appendThreadMessage = (store, args) => {
+export const appendThreadMessage = (
+  store: RuntimeStore,
+  args: {
+    threadKey: string;
+    role: RuntimeThreadMessage["role"];
+    content: string;
+    toolCallId?: string;
+    payload?: ThreadPayload;
+    preservePayloadExactly?: boolean;
+  },
+) => {
   store.appendThreadMessage({
     timestamp: now(),
     threadKey: args.threadKey,
@@ -520,7 +660,9 @@ export const appendThreadMessage = (store, args) => {
 // backoff schedule and the overlay write retries a busy SQLite inside
 // `maybeCompactRuntimeThread`. This wrapper only converts a residual
 // store-level throw into a logged `compacted: false`.
-export const compactRuntimeThreadHistory = async (args) => {
+export const compactRuntimeThreadHistory = async (
+  args: CompactThreadArgs,
+): Promise<ThreadCompactionResult | { compacted: false }> => {
   try {
     return await maybeCompactRuntimeThread({
       store: args.store,
@@ -547,7 +689,13 @@ export const compactRuntimeThreadHistory = async (args) => {
     return { compacted: false };
   }
 };
-export const persistAssistantReply = async (args) => {
+export const persistAssistantReply = async (
+  args: CompactThreadArgs & {
+    content: string;
+    runId?: string;
+    attemptGeneration?: number;
+  },
+) => {
   if (!args.content.trim()) {
     return;
   }

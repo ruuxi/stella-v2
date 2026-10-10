@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { StellaMark } from "@/components/stella-mark";
 import { prefersReducedMotion } from "./motion";
+import { StellaCharacter } from "./stella-character";
 import d from "./devices-act.module.css";
 
 const MESSAGES = [
@@ -14,26 +14,23 @@ const MESSAGES = [
   { me: false, text: "Sent, with a map." },
 ];
 
-const DEVICES = ["Mac", "iPhone", "Browser"];
+const DEVICES = ["computer", "phone", "browser"] as const;
+const HOLD_MS = 4200;
 
 export function DevicesAct() {
   const sectionRef = useRef<HTMLElement>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<HTMLDivElement>(null);
   const [device, setDevice] = useState(0);
+  const [pass, setPass] = useState(0);
   const [running, setRunning] = useState(false);
-  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
     const measure = () => {
       const r = view.getBoundingClientRect();
-      const narrow = r.width < 700;
-      const fit = narrow
-        ? Math.min(r.height / 880, r.width / 400)
-        : Math.min(r.height / 880, r.width / 1040);
-      stageRef.current?.style.setProperty("--fit", String(fit));
+      const fit = Math.min(r.width / 680, r.height / 560);
+      view.style.setProperty("--fit", String(Math.max(0.4, fit)));
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -50,120 +47,91 @@ export function DevicesAct() {
 
   useEffect(() => {
     if (!running || prefersReducedMotion()) return;
-    const id = window.setTimeout(() => setDevice((d) => (d + 1) % DEVICES.length), 4200);
+    const id = window.setTimeout(() => {
+      setDevice((v) => (v + 1) % DEVICES.length);
+      setPass((v) => v + 1);
+    }, HOLD_MS);
     return () => window.clearTimeout(id);
-  }, [running, device, tick]);
+  }, [running, device]);
 
+  const kind = DEVICES[device];
   const shown = (device + 1) * 2;
 
   return (
-    <section
-      ref={sectionRef}
-      className={d.act}
-      data-tone="dark"
-      data-bg="#060609"
-      aria-labelledby="devices-title"
-    >
-      <div className={d.sticky}>
-        <h2 id="devices-title" className={d.title}>
-          Everywhere <span>you are.</span>
-        </h2>
+    <section ref={sectionRef} className={d.act} data-tone="dark" data-bg="#060609" aria-labelledby="devices-title">
+      <div className={d.inner}>
+        <div className={d.copy}>
+          <h2 id="devices-title" className={d.title}>
+            Everywhere <span>you are.</span>
+          </h2>
+          <p className={d.names} aria-live="polite">
+            <span className="visually-hidden">On your computer, your phone and in the browser.</span>
+            {DEVICES.map((name, i) => (
+              <span key={name} className={d.name} data-on={i === device ? "1" : "0"} aria-hidden="true">
+                {name}.
+              </span>
+            ))}
+          </p>
+        </div>
         <div ref={viewRef} className={d.view} aria-hidden="true">
-          <div ref={stageRef} className={d.stage}>
-            <div
-              data-on={device === 0 ? "1" : "0"}
-              className={`${d.frame} ${d.mac}`}
-            >
-              <div className={d.macScreen}>
-                <span className={d.notch} />
-                <div className={d.macDesk}>
-                  <span className={d.macSide}>
-                    <i />
+          <div className={d.stage} data-device={kind}>
+            <div className={d.device}>
+              <span className={d.island} />
+              <span className={d.notch} />
+              <div className={d.screen}>
+                <div className={d.chrome}>
+                  <span className={d.lights}>
                     <i />
                     <i />
                     <i />
                   </span>
+                  <span className={d.tab}>
+                    <StellaCharacter size={12} eyeColor="#ffffff" />
+                    Stella
+                  </span>
+                  <span className={d.url}>stella.sh/chat</span>
                 </div>
-              </div>
-              <div className={d.macBase}>
-                <span />
-              </div>
-            </div>
-            <div
-              data-on={device === 1 ? "1" : "0"}
-              className={`${d.frame} ${d.phone}`}
-            >
-              <div className={d.phoneScreen}>
-                <span className={d.island} />
-                <span className={d.status}>
+                <div className={d.phoneStatus}>
                   <b>9:41</b>
                   <i />
-                </span>
+                </div>
+                <div className={d.app}>
+                  <div className={d.appBar}>
+                    <span className={d.appLights}>
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                    <StellaCharacter size={20} eyeColor="#ffffff" className={d.appMark} />
+                  </div>
+                  <div className={d.chat} data-pass={pass % 2 ? "a" : "b"} data-first={pass === 0 ? "1" : "0"}>
+                    <div className={d.list}>
+                      {MESSAGES.map((m, i) => (
+                        <p
+                          key={i}
+                          className={m.me ? d.me : d.her}
+                          data-on={i < shown ? "1" : "0"}
+                          style={{
+                            animationDelay: i >= shown - 2 && device > 0 ? `${900 + (i % 2) * 600}ms` : "0ms",
+                          }}
+                        >
+                          {m.text}
+                        </p>
+                      ))}
+                    </div>
+                    <div className={d.compose}>
+                      <span>Do anything</span>
+                      <i />
+                    </div>
+                  </div>
+                </div>
                 <span className={d.homebar} />
               </div>
             </div>
-            <div
-              data-on={device === 2 ? "1" : "0"}
-              className={`${d.frame} ${d.browser}`}
-            >
-              <div className={d.browserTop}>
-                <span className={d.lights}>
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                <span className={d.btab}>
-                  <StellaMark size={12} />
-                  Stella
-                </span>
-              </div>
-              <div className={d.burl}>stella.sh/chat</div>
-            </div>
-
-            <div className={d.chat}>
-              <div className={d.chatHead}>
-                <StellaMark size={18} />
-                <b>Stella</b>
-              </div>
-              <div className={d.chatWin}>
-                <div className={d.list}>
-                  {MESSAGES.map((m, i) => (
-                    <p
-                      key={i}
-                      className={m.me ? d.me : d.her}
-                      data-on={i < shown ? "1" : "0"}
-                      style={{
-                        transitionDelay: i >= shown - 2 && device > 0 ? `${450 + (i % 2) * 650}ms` : "0ms",
-                      }}
-                    >
-                      {m.text}
-                    </p>
-                  ))}
-                </div>
-              </div>
-              <div className={d.compose}>Do anything</div>
+            <div className={d.base}>
+              <span />
             </div>
           </div>
-        </div>
-        <div className={d.labels} role="tablist" aria-label="Devices">
-          {DEVICES.map((name, i) => (
-            <button
-              key={name}
-              type="button"
-              role="tab"
-              aria-selected={device === i}
-              data-on={device === i ? "1" : "0"}
-              onClick={() => {
-                setDevice(i);
-                setTick((t) => t + 1);
-              }}
-            >
-              {name}
-            </button>
-          ))}
-          <span>Windows</span>
-          <span>Linux</span>
-          <span>Android</span>
         </div>
       </div>
     </section>

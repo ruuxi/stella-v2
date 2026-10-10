@@ -48,7 +48,13 @@ import {
 } from "@/features/workspace-display/media-files";
 import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
 import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
-import { useActiveSidebarSection } from "@/features/workspace-display/sidebar-sections";
+import {
+  fileNameFromDisplayTabId,
+  sidebarSections,
+  useActiveSidebarSection,
+  useSidebarFileUnavailable,
+  useSidebarTab,
+} from "@/features/workspace-display/sidebar-sections";
 import {
   useDisplayPanelOpen,
   useDisplayTabList,
@@ -63,6 +69,7 @@ import { removeGeneratedMediaItem } from "@/shell/display/payload-to-tab-spec";
 import { bucketByRecency } from "@/shared/lib/recency-buckets";
 import { ChevronRight, Eye, LayoutList, Search, X } from "@/ui/icons";
 import { DeferredDisplayContent } from "./DeferredDisplayContent";
+import { isPayloadFileMissing, restorablePayloadFor } from "./file-tab-restore";
 import "./files-section.css";
 /**
  * Keep the Work panel cheap to open even after a long-running conversation.
@@ -566,31 +573,95 @@ export function WorkList({ section = "files", idleContent = null }) {
     </div>
   );
 }
-/**
- * One Files tab: the browsable list (no `location`) or a single file/agent
- * viewer (`location` = a display-tab id). Prop-driven so multiple file tabs can
- * coexist, each keeping its own mounted viewer.
- *
- * @param {{ location?: string | null }} props
- */
-export function FilesSection({ location = null }) {
+function UnavailableFile({ name, kind }) {
+  return (
+    <div className="sidebar-section__empty files-unavailable" role="status">
+      <span className="sidebar-section__empty-icon" aria-hidden="true">
+        <DisplayTabIcon kind={kind} size={17} />
+      </span>
+      <p className="sidebar-section__empty-title">File unavailable</p>
+      <p className="sidebar-section__empty-body files-unavailable__name" title={name}>
+        {name}
+      </p>
+      <p className="sidebar-section__empty-body">
+        It may have been moved or deleted.
+      </p>
+      <button
+        type="button"
+        className="pill-btn"
+        onClick={() => sidebarSections.clearLocation("files")}
+      >
+        Browse files
+      </button>
+    </div>
+  );
+}
+
+export function FilesSection({ tabId, location = null, active = false }) {
   const { tabs } = useDisplayTabList();
+  const panelOpen = useDisplayPanelOpen();
+  const sidebarTab = useSidebarTab(tabId);
+  const unavailable = useSidebarFileUnavailable(tabId, location);
   const openTab = location
     ? (tabs.find((tab) => tab.id === location) ?? null)
     : null;
-  // The Models control now lives globally in the shell (GlobalModelsControl),
-  // so there is no per-section footer here.
+  const shown = active && panelOpen;
+  const needsRestore = Boolean(location && !openTab && !unavailable);
+
+  useEffect(() => {
+    if (!tabId || !location || !openTab) return;
+    sidebarSections.rememberFile(
+      tabId,
+      location,
+      openTab.title,
+      openTab.kind,
+      openTab.payload,
+    );
+  }, [location, openTab, tabId]);
+
+  useEffect(() => {
+    if (!shown || !needsRestore || !tabId || !location) return;
+    const tab = sidebarSections
+      .getSnapshot()
+      .tabs.find((item) => item.id === tabId);
+    const payload = tab ? restorablePayloadFor(tab) : null;
+    if (!payload) {
+      sidebarSections.markFileUnavailable(tabId, location);
+      return;
+    }
+    let cancelled = false;
+    void isPayloadFileMissing(payload).then((missing) => {
+      if (cancelled) return;
+      if (missing) {
+        sidebarSections.markFileUnavailable(tabId, location);
+        return;
+      }
+      const openedId = openDisplayPayloadTab(payload, { activate: false });
+      if (openedId !== location) {
+        sidebarSections.retargetFile(tabId, location, openedId);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [location, needsRestore, shown, tabId]);
+
   return (
     <div className="work-section">
       <div className="work-section__body">
-        {/* The drill-back to the list lives in the top bar now (browser-tab
-            model), so no in-body viewer header here. */}
-        {!openTab ? (
+        {!location ? (
           <WorkList section="files" />
-        ) : (
+        ) : openTab ? (
           <div className="sidebar-section__viewer-body">
             <DeferredDisplayContent key={openTab.id} render={openTab.render} />
           </div>
+        ) : unavailable ? (
+          <UnavailableFile
+            name={sidebarTab?.file?.title || fileNameFromDisplayTabId(location)}
+            kind={sidebarTab?.file?.kind ?? "text"}
+          />
+        ) : (
+          <div className="sidebar-section__viewer-body" aria-busy="true" />
         )}
       </div>
     </div>

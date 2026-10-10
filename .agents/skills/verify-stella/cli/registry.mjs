@@ -20,6 +20,7 @@ export const COMMANDS = [
     flags: ["account", "fake-mic", "browser-bridge", "model-gateway"],
     switches: ["replace", "reuse"],
   }),
+  command("session", "relaunch", "relaunch", "Quit and restart the owned instance on the same data, profile and account"),
   command("session", "doctor", "doctor", "Check the owned instance end to end; exit 2 when unhealthy", { aliases: ["doctor"] }),
   command("session", "info", "info", "Read the owned session record", { aliases: ["info"] }),
   command("chat", "ready", "chat-ready", "Return semantic chat readiness; exit 2 when not ready"),

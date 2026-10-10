@@ -14,8 +14,8 @@ const REPO = path.resolve(WEBSITE, "../..");
 const PUBLIC = path.join(WEBSITE, "public");
 const HOST = "stella.sh";
 const DEV_BACKEND = "https://stella-v2-cloud-builder-dev.fromyou.workers.dev";
-const builtBackend = () => {
-  const html = fs.readFileSync(path.join(PUBLIC, "chat-app", "index.html"), "utf8");
+const builtBackend = (dir) => {
+  const html = fs.readFileSync(path.join(dir, "index.html"), "utf8");
   return /<link rel="preconnect" href="([^"]+)"/.exec(html)?.[1]?.replace(/\/+$/, "") ?? "";
 };
 let BACKEND = DEV_BACKEND;
@@ -25,6 +25,7 @@ const HELP = `Lab benchmark for the web chat (packages/website/public/chat-app).
   VITE_STELLA_BACKEND_URL=${DEV_BACKEND} bun run build:chat
   node scripts/perf-chat.mjs --runs 9 --label before --out .perf/chat-before.json
   node scripts/perf-chat.mjs --compare .perf/chat-before.json .perf/chat-after.json
+  node scripts/perf-chat.mjs --variants base=/tmp/a,cand=/tmp/b --out-dir .perf/ab
 
 Serves public/ over HTTP/2 with brotli and the site's cache headers, maps
 ${HOST} to it in a throwaway headless Chromium, and loads /chat-app/ the way a
@@ -39,6 +40,12 @@ Options:
   --net NAME      fast4g | slow4g | none (default fast4g)
   --keys N        characters typed into the composer (default 40)
   --settle MS     time observed after the composer is typeable (default 3000)
+  --fresh         do not seed a session: a first-time visitor (signs up an
+                  anonymous dev account on every load, so keep runs few)
+  --early-typing  also type from the moment a composer appears until after
+                  the app takes over, and check no keystroke or focus was lost
+  --shots DIR     with --early-typing, screenshot the first run's journey
+  --trace FILE    record a Chrome trace of the first two cold loads per variant
   --label NAME    label stored in the result
   --out FILE      write raw runs as JSON
   --chrome PATH   Chrome/Chromium binary (or CHROME_PATH)
@@ -46,6 +53,10 @@ Options:
   --next URL      also proxy everything outside /chat-app/ to a running
                   \`next start\` and load the real /chat page around the frame
   --start-next    run \`next start\` on --port (default 3140) and use it as --next
+  --variants a=DIR,b=DIR
+                  serve two chat builds (build-web-renderer --out DIR) from the
+                  same server and alternate them run by run (ABBA), so machine
+                  load drifts out of the comparison; needs --out-dir
 `;
 
 const NETWORKS = {
@@ -139,6 +150,8 @@ const proxyNext = async (nextBase, req, res, url) => {
   res.end(brotli ? zlib.brotliCompressSync(body, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: 5 } }) : body);
 };
 
+let chatAppDir = path.join(PUBLIC, "chat-app");
+
 const startServer = async (nextBase) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "perf-chat-tls-"));
   execFileSync("openssl", [
@@ -176,8 +189,9 @@ const startServer = async (nextBase) => {
       return;
     }
     if (rel.endsWith("/")) rel += "index.html";
-    const file = path.join(PUBLIC, rel);
-    if (!file.startsWith(PUBLIC) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+    const root = rel.startsWith("/chat-app/") ? chatAppDir : PUBLIC;
+    const file = rel.startsWith("/chat-app/") ? path.join(chatAppDir, rel.slice("/chat-app".length)) : path.join(PUBLIC, rel);
+    if (!file.startsWith(root) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
       res.writeHead(404);
       res.end();
       return;
@@ -294,7 +308,7 @@ const launchBrowser = async (chromePath, port, gpu) => {
 const probe = (token) => `(() => {
   if (!location.pathname.startsWith("/chat-app/")) return;
   try {
-    if (!localStorage.getItem("better-auth_session_token")) {
+    if (${JSON.stringify(Boolean(token))} && !localStorage.getItem("better-auth_session_token")) {
       localStorage.setItem("better-auth_session_token", ${JSON.stringify(token)});
       localStorage.setItem("stella_auth_identity_intent", "connected");
       localStorage.setItem("stella-onboarding-complete", "true");
@@ -313,7 +327,7 @@ const probe = (token) => `(() => {
   const hook = {
     supportsFiber: true, renderers: new Map(),
     inject(r) { const id = hook.renderers.size + 1; hook.renderers.set(id, r); return id; },
-    onCommitFiberRoot() { pb.commits += 1; },
+    onCommitFiberRoot() { pb.commits += 1; if (!pb.marks.firstCommit) pb.marks.firstCommit = performance.now(); },
     onCommitFiberUnmount() {}, onPostCommitFiberRoot() {}, onScheduleFiberRoot() {}, checkDCE() {}, isDisabled: false,
   };
   try { Object.defineProperty(window, "__REACT_DEVTOOLS_GLOBAL_HOOK__", { value: hook, configurable: true }); } catch (e) {}
@@ -325,12 +339,26 @@ const probe = (token) => `(() => {
     }
     return null;
   };
+  pb.moves = [];
+  let lastRect = "";
   const tick = () => {
+    const top = window.__pbComposer();
+    if (top) {
+      const r = top.getBoundingClientRect();
+      const key = [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)].join(",");
+      if (key !== lastRect) {
+        lastRect = key;
+        pb.moves.push([performance.now(), Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height), top.closest("#stella-static-home") ? 1 : 0]);
+      }
+    }
     if (document.querySelector(".shell-topbar-full, .shell-topbar")) mark("shell");
     if (window.__pbComposer()) mark("composer");
+    const shellGone = !document.getElementById("stella-static-home") || document.getElementById("stella-static-home").dataset.leaving;
+    if (shellGone && [...document.querySelectorAll("#root textarea.chat-composer-textarea")].some((t) => !t.disabled && t.offsetParent !== null && !t.closest("[inert]"))) mark("appComposer");
     const splash = document.getElementById("stella-launch");
     if (!splash || splash.dataset.exiting === "true") mark("splashExit");
-    if ("composer" in pb.marks && "splashExit" in pb.marks) { mark("typeable"); return; }
+    if ("composer" in pb.marks && "splashExit" in pb.marks) mark("typeable");
+    if ("typeable" in pb.marks && "appComposer" in pb.marks && performance.now() - pb.marks.appComposer > 3000) return;
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
@@ -347,13 +375,21 @@ const COLLECT = (opts) => `((w) => {
   const isJs = (r) => /\\.m?js(\\?|$)/.test(r.name);
   const isFont = (r) => /\\.(woff2?|ttf|otf)(\\?|$)/.test(r.name);
   const js = res.filter(isJs);
+  const nav = w.performance.getEntriesByType("navigation")[0];
+  const composerAt = pb.marks.composer ?? Infinity;
+  const criticalJs = w.performance.getEntriesByType("resource").filter((r) => isJs(r) && r.startTime < composerAt);
   return {
+    handoff: w.__stellaStaticHandoff ? { ...w.__stellaStaticHandoff, at: shift(w.__stellaStaticHandoff.at) } : null,
+    htmlDone: nav ? shift(nav.responseEnd) : null,
+    jsDone: criticalJs.length ? shift(Math.max(...criticalJs.map((r) => r.responseEnd))) : null,
     marks: Object.fromEntries(Object.entries(pb.marks).map(([k, v]) => [k, shift(v)])),
     longtasks: pb.longtasks.map(([t, d]) => [shift(t), d]),
     commits: pb.commits,
+    moves: (pb.moves || []).map(([t, ...rest]) => [shift(t), ...rest]),
     jsDecoded: js.reduce((a, r) => a + (r.decodedBodySize || 0), 0),
     jsEncoded: js.reduce((a, r) => a + (r.encodedBodySize || 0), 0),
     jsCount: js.length,
+    css: res.filter((r) => /\\.css(\\?|$)/.test(r.name)).map((r) => [r.name.split("/").pop(), Math.round(r.encodedBodySize / 1024), Math.round(shift(r.startTime)), Math.round(shift(r.responseEnd))]),
     fonts: res.filter(isFont).map((r) => [r.name.split("/").pop(), Math.round(r.encodedBodySize / 1024), Math.round(r.responseEnd)]),
     requests: res.length,
     domNodes: w.document.getElementsByTagName("*").length + (w === window ? 0 : document.getElementsByTagName("*").length),
@@ -375,6 +411,8 @@ const openPage = async (cdp, token, opts) => {
       process.stderr.write(`[console.${msg.params.type}] ${msg.params.args.map((a) => a.value ?? a.description ?? "").join(" ").slice(0, 300)}\n`);
     } else if (msg.method === "Network.responseReceived" && !msg.params.response.url.includes("/chat-app/")) {
       process.stderr.write(`[net] ${msg.params.response.status} ${msg.params.response.url.slice(0, 160)}\n`);
+    } else if (msg.method === "Runtime.exceptionThrown") {
+      process.stderr.write(`[exception] ${(msg.params.exceptionDetails.exception?.description ?? msg.params.exceptionDetails.text ?? "").slice(0, 400)}\n`);
     } else if (msg.method === "Network.loadingFailed") {
       process.stderr.write(`[net-fail] ${msg.params.errorText} ${msg.params.blockedReason ?? ""} ${msg.params.corsErrorStatus ? JSON.stringify(msg.params.corsErrorStatus) : ""}\n`);
     }
@@ -409,20 +447,28 @@ const measureLoad = async (page, navigate, opts) => {
   let marks = null;
   while (Date.now() - t0 < 60000) {
     marks = await page.evaluate(`(() => { const w = ${WIN(opts)}; return w && w.__pb ? w.__pb.marks : null; })()`).catch(() => null);
-    if (marks && "typeable" in marks) break;
+    if (marks && "typeable" in marks && "appComposer" in marks) break;
     await sleep(50);
   }
-  if (!marks || !("typeable" in marks)) throw new Error(`never typeable: ${JSON.stringify(marks)}`);
+  if (!marks || !("typeable" in marks) || !("appComposer" in marks)) throw new Error(`never typeable: ${JSON.stringify(marks)}`);
   await sleep(opts.settle);
   const d = await page.evaluate(COLLECT(opts));
   const m1 = await page.metrics();
   const typeable = Math.max(d.marks.typeable, d.marks.fcp ?? 0);
-  if (opts.debug) process.stderr.write(`[fonts] ${JSON.stringify(d.fonts)}\n`);
+  if (opts.debug) process.stderr.write(`[marks] ${JSON.stringify(Object.fromEntries(Object.entries(d.marks).map(([k, v]) => [k, Math.round(v)])))} jsDone=${Math.round(d.jsDone)}\n`);
+  if (opts.debug) process.stderr.write(`[moves] ${JSON.stringify(d.moves.map(([t, ...r]) => [Math.round(t), ...r]))}\n`);
+  if (opts.debug) process.stderr.write(`[fonts] ${JSON.stringify(d.fonts)}\n[css] ${JSON.stringify(d.css)} html=${Math.round(d.htmlDone)} fcp=${Math.round(d.marks.fcp)}\n`);
   const blocking = (from, to) => d.longtasks.filter(([t]) => t >= from && t < to).reduce((a, [, dur]) => a + Math.max(0, dur - 50), 0);
   return {
+    htmlDone: d.htmlDone,
+    jsDone: d.jsDone,
     fcp: d.marks.fcp ?? null,
     composer: d.marks.composer,
     typeable,
+    appTypeable: Math.max(d.marks.appComposer, d.marks.fcp ?? 0),
+    handoffAt: d.handoff?.at ?? null,
+    handoffMisalignPx: d.handoff ? Math.max(Math.abs(d.handoff.dx), Math.abs(d.handoff.dy), Math.abs(d.handoff.dw), Math.abs(d.handoff.dh)) : null,
+    composerShiftPx: d.moves.length ? Math.max(...d.moves.map(([, x, y]) => Math.max(Math.abs(x - d.moves[0][1]), Math.abs(y - d.moves[0][2])))) : null,
     tbtBeforeTypeable: blocking(0, typeable),
     tbtAfterTypeable: blocking(typeable, typeable + opts.settle),
     longTasks: d.longtasks.filter(([t]) => t < typeable + opts.settle).length,
@@ -485,6 +531,67 @@ const measureTyping = async (page, opts) => {
     typingStyleMs: (m1.RecalcStyleDuration - m0.RecalcStyleDuration) * 1000,
     typingLayoutMs: (m1.LayoutDuration - m0.LayoutDuration) * 1000,
     typingLongTasks: longtasks.length,
+  };
+};
+
+const measureEarlyTyping = async (page, navigate, opts) => {
+  await navigate();
+  const pbRef = `(${WIN(opts)})`;
+  const t0 = Date.now();
+  let box = null;
+  while (Date.now() - t0 < 60000) {
+    box = await page.evaluate(`(() => {
+      const w = ${WIN(opts)};
+      if (!w || !w.__pb || !("typeable" in w.__pb.marks)) return null;
+      const el = w.__pbComposer();
+      if (!el) return null;
+      const frame = w === window ? { left: 0, top: 0 } : w.frameElement.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      return { x: frame.left + r.left + Math.min(40, r.width / 2), y: frame.top + r.top + r.height / 2, staticShell: Boolean(el.closest("#stella-static-home")) };
+    })()`).catch(() => null);
+    if (box) break;
+    await sleep(20);
+  }
+  if (!box) throw new Error("composer never appeared");
+  const shot = async (name) => {
+    if (!opts.shots) return;
+    const image = await page.s("Page.captureScreenshot", { format: "png" });
+    fs.mkdirSync(opts.shots, { recursive: true });
+    fs.writeFileSync(path.join(opts.shots, `${name}.png`), Buffer.from(image.data, "base64"));
+  };
+  await shot(`${opts.variantName}-1-first-composer`);
+  await page.s("Input.dispatchMouseEvent", { type: "mousePressed", x: box.x, y: box.y, button: "left", clickCount: 1 });
+  await page.s("Input.dispatchMouseEvent", { type: "mouseReleased", x: box.x, y: box.y, button: "left", clickCount: 1 });
+  const alphabet = "abcdefghijklmnopqrstuvwxyz";
+  let typed = "";
+  let doneAt = null;
+  while (Date.now() - t0 < 30000) {
+    const ch = alphabet[typed.length % alphabet.length];
+    await page.s("Input.dispatchKeyEvent", { type: "keyDown", key: ch, text: ch, unmodifiedText: ch });
+    await page.s("Input.dispatchKeyEvent", { type: "keyUp", key: ch });
+    typed += ch;
+    await sleep(60);
+    if (typed.length === 6) await shot(`${opts.variantName}-1b-typing`);
+    if (doneAt === null && (await page.evaluate(`"appComposer" in ${pbRef}.__pb.marks`).catch(() => false))) doneAt = Date.now();
+    if (doneAt !== null && Date.now() - doneAt > 1500) break;
+  }
+  await sleep(1500);
+  await shot(`${opts.variantName}-2-after-app-took-over`);
+  const state = await page.evaluate(`(() => {
+    const w = ${WIN(opts)};
+    const active = w.document.activeElement;
+    const field = [...w.document.querySelectorAll("#root textarea.chat-composer-textarea")].find((t) => !t.disabled && t.offsetParent !== null && !t.closest("[inert]"));
+    return { value: field ? field.value : null, focused: Boolean(field && active === field), caret: field ? field.selectionStart : null };
+  })()`);
+  const value = state.value ?? "";
+  if (value !== typed) process.stderr.write(`[early] typed=${typed} value=${value}\n`);
+  return {
+    startedOnStatic: box.staticShell ? 1 : 0,
+    typedChars: typed.length,
+    keptChars: value === typed ? typed.length : value.length,
+    exact: value === typed ? 1 : 0,
+    focusKept: state.focused ? 1 : 0,
+    caretAtEnd: state.caret === value.length ? 1 : 0,
   };
 };
 
@@ -572,7 +679,15 @@ const main = async () => {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) return console.log(HELP);
   if (args.compare) return compare(args.compare, args._[0]);
-  if (!fs.existsSync(path.join(PUBLIC, "chat-app", "index.html"))) throw new Error("Build the chat first: bun run build:chat");
+  const variants = typeof args.variants === "string"
+    ? args.variants.split(",").map((entry) => {
+        const [name, dir] = entry.split("=");
+        return { name, dir: path.resolve(dir) };
+      })
+    : [{ name: args.label || "run", dir: path.join(PUBLIC, "chat-app") }];
+  for (const variant of variants) {
+    if (!fs.existsSync(path.join(variant.dir, "index.html"))) throw new Error(`No chat build in ${variant.dir}; run bun run build:chat`);
+  }
   const opts = {
     runs: Number(args.runs ?? 9),
     cpu: Number(args.cpu ?? 4),
@@ -585,42 +700,92 @@ const main = async () => {
   const nextServer = args["start-next"] ? await startNext(Number(args.port ?? 3140)) : null;
   if (nextServer) opts.next = nextServer.base;
   opts.page = Boolean(opts.next);
-  BACKEND = builtBackend();
-  if (BACKEND !== DEV_BACKEND) {
-    throw new Error(`chat-app was built against ${BACKEND || "no backend"}; rebuild against dev: VITE_STELLA_BACKEND_URL=${DEV_BACKEND} bun run build:chat`);
+  for (const variant of variants) {
+    BACKEND = builtBackend(variant.dir);
+    if (BACKEND !== DEV_BACKEND) {
+      throw new Error(`${variant.dir} was built against ${BACKEND || "no backend"}; rebuild against dev: VITE_STELLA_BACKEND_URL=${DEV_BACKEND} bun run build:chat`);
+    }
   }
-  const token = await sessionToken();
+  const token = args.fresh ? null : await sessionToken();
   const server = await startServer(opts.next);
   const browser = await launchBrowser(findChrome(typeof args.chrome === "string" ? args.chrome : ""), server.port, !args["no-gpu"]);
   const url = opts.page ? `https://${HOST}/chat` : `https://${HOST}/chat-app/index.html`;
-  const result = {
-    meta: { label: args.label || "", date: new Date().toISOString(), ...opts, backend: BACKEND },
-    journeys: { cold: [], warm: [], typing: [] },
-  };
+  const results = Object.fromEntries(
+    variants.map((variant) => [
+      variant.name,
+      { meta: { label: variant.name, dir: variant.dir, date: new Date().toISOString(), ...opts, backend: BACKEND }, journeys: { cold: [], warm: [], typing: [], early: [] } },
+    ]),
+  );
   try {
     for (let i = 0; i < opts.runs; i += 1) {
-      const page = await openPage(browser.cdp, token, opts);
-      try {
-        const cold = await measureLoad(page, () => page.s("Page.navigate", { url }), opts);
-        const warm = await measureLoad(page, () => page.s("Page.reload", { ignoreCache: false }), opts);
-        const typing = await measureTyping(page, opts);
-        result.journeys.cold.push(cold);
-        result.journeys.warm.push(warm);
-        if (typing) result.journeys.typing.push(typing);
-        process.stderr.write(
-          `[${i + 1}/${opts.runs}] cold typeable=${fmt(cold.typeable)} fcp=${fmt(cold.fcp)} js=${fmt(cold.jsKB)}KB tbt=${fmt(cold.tbtBeforeTypeable)} | warm typeable=${fmt(warm.typeable)} | key p90=${fmt(typing?.keyP90)} max=${fmt(typing?.keyMax)} ok=${typing?.typedOk}\n`,
-        );
-        if (args.inspect && i === 0) {
-          process.stderr.write(`${JSON.stringify(await page.evaluate(`[...document.querySelectorAll("textarea")].map((t) => ({ cls: t.className, ph: t.placeholder, val: t.value, dis: t.disabled, vis: t.offsetParent !== null, rect: t.getBoundingClientRect().toJSON(), focused: document.activeElement === t }))`), null, 1)}\n`);
+      const order = i % 2 === 0 ? variants : [...variants].reverse();
+      for (const variant of order) {
+        chatAppDir = variant.dir;
+        const result = results[variant.name];
+        const page = await openPage(browser.cdp, token, opts);
+        try {
+          const traceEvents = [];
+          const tracing = typeof args.trace === "string" && i < 2;
+          let offTrace = null;
+          if (tracing) {
+            offTrace = browser.cdp.on((msg) => {
+              if (msg.method === "Tracing.dataCollected") traceEvents.push(...msg.params.value);
+            });
+            await browser.cdp.send("Tracing.start", {
+              transferMode: "ReportEvents",
+              traceConfig: { includedCategories: ["devtools.timeline", "disabled-by-default-devtools.timeline", "v8.execute", "blink.user_timing", "loading"] },
+            });
+          }
+          const cold = await measureLoad(page, () => page.s("Page.navigate", { url }), opts);
+          if (tracing) {
+            const done = new Promise((resolve) => {
+              const off = browser.cdp.on((msg) => {
+                if (msg.method === "Tracing.tracingComplete") {
+                  off();
+                  resolve();
+                }
+              });
+            });
+            await browser.cdp.send("Tracing.end");
+            await done;
+            offTrace();
+            fs.writeFileSync(args.trace.replace(/(\.json)?$/, `-${variant.name}-${i + 1}.json`), JSON.stringify({ traceEvents }));
+          }
+          const warm = await measureLoad(page, () => page.s("Page.reload", { ignoreCache: false }), opts);
+          const typing = await measureTyping(page, opts);
+          result.journeys.cold.push(cold);
+          result.journeys.warm.push(warm);
+          if (typing) result.journeys.typing.push(typing);
+          if (args["early-typing"]) {
+            const early = await openPage(browser.cdp, token, opts);
+            try {
+              const r = await measureEarlyTyping(early, () => early.s("Page.navigate", { url }), { ...opts, variantName: variant.name, shots: i === 0 && typeof args.shots === "string" ? args.shots : null });
+              result.journeys.early.push(r);
+              process.stderr.write(`[${i + 1}/${opts.runs}] ${variant.name} early typing ${JSON.stringify(r)}\n`);
+            } finally {
+              await early.close();
+            }
+          }
+          process.stderr.write(
+            `[${i + 1}/${opts.runs}] ${variant.name} cold typeable=${fmt(cold.typeable)} fcp=${fmt(cold.fcp)} js=${fmt(cold.jsKB)}KB tbt=${fmt(cold.tbtBeforeTypeable)} | warm typeable=${fmt(warm.typeable)} | key p90=${fmt(typing?.keyP90)} max=${fmt(typing?.keyMax)} ok=${typing?.typedOk}\n`,
+          );
+          if (typeof args["eval-file"] === "string" && i === 0) {
+            const source = fs.readFileSync(args["eval-file"], "utf8");
+            const value = await page.evaluate(`((w) => (${source})(w))(${WIN(opts)})`);
+            process.stdout.write(`${JSON.stringify(value, null, 1)}\n`);
+          }
+          if (args.inspect && i === 0) {
+            process.stderr.write(`${JSON.stringify(await page.evaluate(`[...document.querySelectorAll("textarea")].map((t) => ({ cls: t.className, ph: t.placeholder, val: t.value, dis: t.disabled, vis: t.offsetParent !== null, rect: t.getBoundingClientRect().toJSON(), focused: document.activeElement === t }))`), null, 1)}\n`);
+          }
+          if (args.screenshot && i === 0) {
+            const shot = await page.s("Page.captureScreenshot", { format: "png" });
+            fs.writeFileSync(variants.length > 1 ? args.screenshot.replace(/(\.png)?$/, `-${variant.name}.png`) : args.screenshot, Buffer.from(shot.data, "base64"));
+          }
+        } catch (error) {
+          process.stderr.write(`[${i + 1}/${opts.runs}] ${variant.name} FAILED ${error.message}\n`);
+        } finally {
+          await page.close();
         }
-        if (args.screenshot && i === 0) {
-          const shot = await page.s("Page.captureScreenshot", { format: "png" });
-          fs.writeFileSync(args.screenshot, Buffer.from(shot.data, "base64"));
-        }
-      } catch (error) {
-        process.stderr.write(`[${i + 1}/${opts.runs}] FAILED ${error.message}\n`);
-      } finally {
-        await page.close();
       }
     }
   } finally {
@@ -629,11 +794,20 @@ const main = async () => {
     nextServer?.stop();
     fs.rmSync(server.dir, { recursive: true, force: true });
   }
-  if (typeof args.out === "string") {
-    fs.mkdirSync(path.dirname(path.resolve(args.out)), { recursive: true });
-    fs.writeFileSync(args.out, JSON.stringify(result));
+  const outDir = typeof args["out-dir"] === "string" ? args["out-dir"] : null;
+  if (outDir) fs.mkdirSync(outDir, { recursive: true });
+  for (const variant of variants) {
+    const file = outDir ? path.join(outDir, `${variant.name}.json`) : typeof args.out === "string" && variants.length === 1 ? args.out : null;
+    if (file) {
+      fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify(results[variant.name]));
+    }
   }
-  printSummary(result);
+  if (variants.length > 1 && outDir) {
+    compare(path.join(outDir, `${variants[0].name}.json`), path.join(outDir, `${variants[1].name}.json`));
+    return;
+  }
+  printSummary(results[variants[0].name]);
 };
 
 main().catch((error) => {

@@ -2173,6 +2173,110 @@ export const runShell = async (
   );
 };
 
+/**
+ * Stella's variables over the inherited environment for one managed shell
+ * command: process identity, checkout/drafts/agent id, local `bin` PATH
+ * entries, and the stella-computer / stella-media / stella-x-api session and
+ * auth. With no `command` (a CLI's own shell, whose commands are not known up
+ * front) every command-gated variable is included.
+ */
+const resolveStellaShellEnvOverrides = (
+  state: ShellState,
+  cwd: string,
+  context?: ToolContext,
+  command?: string,
+): Record<string, string> => {
+  const envOverrides: Record<string, string> = {};
+  const processIdentity = resolveToolProcessIdentity(context);
+  if (processIdentity) {
+    envOverrides.HOME = processIdentity.home;
+    envOverrides.USER = processIdentity.user;
+    envOverrides.LOGNAME = processIdentity.user;
+    const stateRoot = context?.toolStateRoot?.trim();
+    Object.assign(
+      envOverrides,
+      toolStateEnvironment(
+        stateRoot && path.isAbsolute(stateRoot)
+          ? path.resolve(stateRoot)
+          : processIdentity.home,
+      ),
+    );
+  }
+  if (context && context.executionHost !== "sandbox") {
+    Object.assign(envOverrides, stellaAgentShellEnvironment(context));
+  }
+  const stellaComputerSessionId = getStellaComputerSessionId(context);
+  const localBinPaths = [
+    ...(context?.stellaDataDir
+      ? [path.join(path.resolve(context.stellaDataDir), "bin")]
+      : []),
+    path.join(path.resolve(cwd), "node_modules", ".bin"),
+    ...(context?.stellaAppDir
+      ? [path.join(path.resolve(context.stellaAppDir), "node_modules", ".bin")]
+      : []),
+  ].filter(
+    (entry, index, entries) =>
+      existsSync(entry) && entries.indexOf(entry) === index,
+  );
+
+  if (localBinPaths.length > 0) {
+    envOverrides.PATH = [...localBinPaths, process.env.PATH ?? ""]
+      .filter(Boolean)
+      .join(path.delimiter);
+  }
+
+  if (
+    (command === undefined || shouldUseStellaComputer(command)) &&
+    stellaComputerSessionId
+  ) {
+    envOverrides.STELLA_COMPUTER_SESSION = stellaComputerSessionId;
+  }
+
+  if (command === undefined || shouldUseStellaMedia(command)) {
+    const backendAuth = state.getCloudBackendAuth?.();
+    if (backendAuth) {
+      envOverrides.STELLA_MEDIA_BASE_URL = backendAuth.baseUrl;
+      envOverrides.STELLA_MEDIA_AUTH_TOKEN = backendAuth.authToken;
+    }
+    if (context?.deviceId) {
+      envOverrides.STELLA_DEVICE_ID = context.deviceId;
+    }
+  }
+
+  if (command === undefined || shouldUseStellaXApi(command)) {
+    const backendAuth = state.getCloudBackendAuth?.();
+    if (backendAuth) {
+      envOverrides.STELLA_X_API_BASE_URL = backendAuth.baseUrl;
+      envOverrides.STELLA_X_API_AUTH_TOKEN = backendAuth.authToken;
+    }
+  }
+  return envOverrides;
+};
+
+/**
+ * The environment Stella's managed shell gives its commands (CLI shims on
+ * PATH, entrypoint variables, media / X auth), for engines whose CLIs bring
+ * their own shell (Claude Code's native Bash) so bundled Stella workflows
+ * behave the same there.
+ */
+export const buildAgentShellEnvironment = (
+  state: ShellState,
+  context: ToolContext,
+  cwd: string,
+): Record<string, string> => {
+  const env = buildShellEnv(
+    resolveStellaShellEnvOverrides(state, cwd, context),
+    state,
+    // The CLI owns its own process; leave colors/locale/TERM as inherited.
+    true,
+  );
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === "string") result[key] = value;
+  }
+  return result;
+};
+
 const resolveManagedShellCommand = (
   state: ShellState,
   args: Record<string, unknown>,
@@ -2223,67 +2327,13 @@ const resolveManagedShellCommand = (
     }
     cwd = canonicalCwd;
   }
-  const envOverrides: Record<string, string> = {};
   const processIdentity = resolveToolProcessIdentity(context);
-  if (processIdentity) {
-    envOverrides.HOME = processIdentity.home;
-    envOverrides.USER = processIdentity.user;
-    envOverrides.LOGNAME = processIdentity.user;
-    const stateRoot = context?.toolStateRoot?.trim();
-    Object.assign(
-      envOverrides,
-      toolStateEnvironment(
-        stateRoot && path.isAbsolute(stateRoot)
-          ? path.resolve(stateRoot)
-          : processIdentity.home,
-      ),
-    );
-  }
-  if (context && context.executionHost !== "sandbox") {
-    Object.assign(envOverrides, stellaAgentShellEnvironment(context));
-  }
-  const stellaComputerSessionId = getStellaComputerSessionId(context);
-  const localBinPaths = [
-    ...(context?.stellaDataDir
-      ? [path.join(path.resolve(context.stellaDataDir), "bin")]
-      : []),
-    path.join(path.resolve(cwd), "node_modules", ".bin"),
-    ...(context?.stellaAppDir
-      ? [path.join(path.resolve(context.stellaAppDir), "node_modules", ".bin")]
-      : []),
-  ].filter(
-    (entry, index, entries) =>
-      existsSync(entry) && entries.indexOf(entry) === index,
+  const envOverrides = resolveStellaShellEnvOverrides(
+    state,
+    cwd,
+    context,
+    command,
   );
-
-  if (localBinPaths.length > 0) {
-    envOverrides.PATH = [...localBinPaths, process.env.PATH ?? ""]
-      .filter(Boolean)
-      .join(path.delimiter);
-  }
-
-  if (shouldUseStellaComputer(command) && stellaComputerSessionId) {
-    envOverrides.STELLA_COMPUTER_SESSION = stellaComputerSessionId;
-  }
-
-  if (shouldUseStellaMedia(command)) {
-    const backendAuth = state.getCloudBackendAuth?.();
-    if (backendAuth) {
-      envOverrides.STELLA_MEDIA_BASE_URL = backendAuth.baseUrl;
-      envOverrides.STELLA_MEDIA_AUTH_TOKEN = backendAuth.authToken;
-    }
-    if (context?.deviceId) {
-      envOverrides.STELLA_DEVICE_ID = context.deviceId;
-    }
-  }
-
-  if (shouldUseStellaXApi(command)) {
-    const backendAuth = state.getCloudBackendAuth?.();
-    if (backendAuth) {
-      envOverrides.STELLA_X_API_BASE_URL = backendAuth.baseUrl;
-      envOverrides.STELLA_X_API_AUTH_TOKEN = backendAuth.authToken;
-    }
-  }
 
   const requestedShell =
     typeof args.shell === "string" && args.shell.trim()

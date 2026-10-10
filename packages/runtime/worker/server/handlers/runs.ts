@@ -158,6 +158,7 @@ export const runsHandlers: WorkerRpcHandlers = {
         executionPlacementRunId?: string;
         userMessageEventId?: string;
         userAuthoredPrompt?: boolean;
+        scheduled?: boolean;
         attachments?: RuntimeAttachmentRef[];
       };
       // On pi-durable the host's own turns (schedule fires, watch
@@ -173,6 +174,7 @@ export const runsHandlers: WorkerRpcHandlers = {
             placementRunId,
             ...(automation.userMessageEventId ? { userMessageEventId: automation.userMessageEventId } : {}),
             ...(automation.attachments?.length ? { attachments: automation.attachments } : {}),
+            ...(automation.scheduled ? { scheduled: true } : {}),
           }),
         );
       }

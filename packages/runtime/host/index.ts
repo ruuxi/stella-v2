@@ -1137,7 +1137,10 @@ export class StellaRuntimeHost {
               };
         }
         const handoff = payload.handoff === true;
-        if (!handoff) {
+        // A schedule's prompt is runtime input, not a message the user typed.
+        const scheduled = dispatch.ingress === "schedule";
+        const userAuthored = !handoff && !scheduled;
+        if (userAuthored) {
           await this.appendLocalChatEvent({
             conversationId: dispatch.conversationId,
             eventId: userMessageEventId,
@@ -1160,7 +1163,8 @@ export class StellaRuntimeHost {
             // The run stays hidden (the sending client owns its own
             // presentation), but the journal's user row must be
             // visible or no other client can ever render the message.
-            userAuthoredPrompt: !handoff,
+            userAuthoredPrompt: userAuthored,
+            ...(scheduled ? { scheduled: true } : {}),
             // A desktop/voice turn may be in flight when the phone
             // sends. The runtime queues this exact accepted execution;
             // background agents must not make the computer offline.

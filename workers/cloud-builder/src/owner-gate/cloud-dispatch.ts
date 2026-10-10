@@ -212,7 +212,9 @@ export abstract class OwnerGateCloudDispatch extends OwnerGateDispatch {
       ...(payload.locale ? { locale: payload.locale } : {}),
       ...(payload.attachments ? { attachments: payload.attachments } : {}),
       ...(payload.execution ? { execution: payload.execution } : {}),
-      ...(payload.handoff ? { hiddenMessage: true } : {}),
+      ...(payload.handoff || row.ingress === "schedule"
+        ? { hiddenMessage: true }
+        : {}),
     };
     const handoffKey = cloudChatHandoffKey(row.dispatch_id);
     let handoff = await this.ctx.storage.get<CloudChatHandoff>(handoffKey);

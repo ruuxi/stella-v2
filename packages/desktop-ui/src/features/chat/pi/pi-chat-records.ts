@@ -9,6 +9,7 @@
  */
 import {
   isPiAgentInput,
+  isPiScheduledInput,
   piJournalUserMessage,
   piMessageText,
   type PiChatState,
@@ -29,9 +30,9 @@ type Turn = {
   entryId?: number;
   assistantMessages: number;
   /**
-   * A turn the host started with a prompt the user never sees (a schedule
-   * fire, a watch escalation): the reply stays out of the timeline too,
-   * since the scheduler delivers what it decides to.
+   * A turn the host started with a prompt the user never sees (a local
+   * scheduler's fire, a watch escalation): the reply stays out of the
+   * timeline too, since the scheduler delivers what it decides to.
    */
   hidden?: true;
 };
@@ -84,8 +85,8 @@ export const projectPiChat = (state: Pick<PiChatState, "entries" | "requestIds">
           ? { providerContext: { attachments: providerAttachments } }
           : {}),
       };
-      // A reply to an agent's report or note shows; a turn the app started stays out whole.
-      const automation = hidden && !isPiAgentInput(message);
+      // A reply to an agent's report or note, or to a schedule's prompt, shows; a turn the app started stays out whole.
+      const automation = hidden && !isPiAgentInput(message) && !isPiScheduledInput(message);
       turn = {
         userMessageId: clientMsgId ?? `cloud:${turnId}:message:${entry.id}`,
         entryId: entry.id,

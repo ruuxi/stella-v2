@@ -128,6 +128,7 @@ export function TopSheet({
         <AnimatedPressable
           style={[styles.backdrop, { opacity: backdropOpacity }]}
           onPress={onClose}
+          accessibilityRole="button"
           accessibilityLabel="Close"
         />
         {/* Auto-height: the sheet takes its own height and the floating

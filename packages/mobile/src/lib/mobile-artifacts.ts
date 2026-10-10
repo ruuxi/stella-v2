@@ -27,6 +27,41 @@ const extensionOf = (filePath: string): string | null => {
     : tail.slice(dot + 1).toUpperCase();
 };
 
+const VIEWABLE_IMAGE_EXTENSIONS = new Set([
+  "PNG",
+  "JPG",
+  "JPEG",
+  "GIF",
+  "WEBP",
+  "BMP",
+  "HEIC",
+  "HEIF",
+  "AVIF",
+]);
+
+export const isViewableImagePath = (filePath: string): boolean => {
+  const ext = extensionOf(filePath);
+  return ext !== null && VIEWABLE_IMAGE_EXTENSIONS.has(ext);
+};
+
+export const viewedArtifact = (artifact: ChatArtifact): ChatArtifact => {
+  const payload = artifact.payload;
+  if (
+    payload.kind !== "media" ||
+    payload.asset.kind !== "download" ||
+    !isViewableImagePath(payload.asset.filePath)
+  ) {
+    return artifact;
+  }
+  return {
+    ...artifact,
+    payload: {
+      ...payload,
+      asset: { kind: "image", filePaths: [payload.asset.filePath] },
+    },
+  };
+};
+
 const formatBytes = (bytes: number | undefined): string | null => {
   if (typeof bytes !== "number" || !Number.isFinite(bytes) || bytes <= 0) {
     return null;

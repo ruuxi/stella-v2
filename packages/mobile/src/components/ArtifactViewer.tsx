@@ -17,6 +17,7 @@ import {
   requestEvidencePreview,
 } from "../lib/chat-evidence-previews";
 import * as Sharing from "expo-sharing";
+import { Directory, File, Paths } from "expo-file-system";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AssistantMarkdown } from "./AssistantMarkdown";
@@ -27,6 +28,7 @@ import {
   artifactPrimaryFilePath,
   artifactSubtitle,
   artifactTitle,
+  viewedArtifact,
 } from "../lib/mobile-artifacts";
 import {
   bytesToDataUri,
@@ -86,6 +88,8 @@ type ArtifactViewerContentProps = {
    * dismissing the whole sheet.
    */
   onBack?: () => void;
+  /** Close the sheet hosting the viewer: the header's close button and an image's vertical swipe. */
+  onClose?: () => void;
 } & ArtifactSwipeProps;
 
 const isImageArtifact = (artifact: ChatArtifact): boolean =>
@@ -273,13 +277,32 @@ th { position: sticky; top: 0; background: ${colors.muted}; font-weight: 600; }
  * chrome. `ArtifactViewer` wraps it in a `TopSheet` for the chat-card path;
  * the activity hub embeds it directly so artifacts open within that sheet.
  */
+const sharedImageFile = async (uri: string): Promise<string> => {
+  if (uri.startsWith("file:")) return uri;
+  const directory = new Directory(Paths.cache, "artifact-share");
+  directory.create({ intermediates: true, idempotent: true });
+  const name = decodeURIComponent(uri.split(/[?#]/)[0]?.split("/").pop() ?? "") || "image";
+  const target = new File(directory, `${Date.now()}-${name.replace(/[^\w.\-]+/g, "_")}`);
+  const downloaded = await File.downloadFileAsync(uri, target, { idempotent: true });
+  return downloaded.uri;
+};
+
 export function ArtifactViewerContent({
-  artifact,
+  artifact: openedArtifact,
   access,
   onBack,
-  siblings,
+  onClose,
+  siblings: openedSiblings,
   onNavigate,
 }: ArtifactViewerContentProps) {
+  const artifact = useMemo(
+    () => (openedArtifact ? viewedArtifact(openedArtifact) : null),
+    [openedArtifact],
+  );
+  const siblings = useMemo(
+    () => openedSiblings?.map(viewedArtifact),
+    [openedSiblings],
+  );
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const styles = useMemo(
@@ -347,9 +370,10 @@ export function ArtifactViewerContent({
       ? artifact.payload
       : null;
   const [sharing, setSharing] = useState(false);
-  const shareableImageUri = loaded?.kind === "image" && loaded.uri.startsWith("file:")
-    ? loaded.uri
-    : null;
+  const shareableImageUri =
+    loaded?.kind === "image" && /^(?:file|https?):/i.test(loaded.uri)
+      ? loaded.uri
+      : null;
   const onShare = useCallback(async () => {
     if ((!localPdf && !shareableImageUri) || sharing) return;
     setSharing(true);
@@ -358,11 +382,13 @@ export function ArtifactViewerContent({
         const result = await sharePdf(localPdf);
         if (!result.ok) Alert.alert("Couldn't share the PDF", result.error);
       } else if (shareableImageUri) {
-        await Sharing.shareAsync(shareableImageUri, {
+        await Sharing.shareAsync(await sharedImageFile(shareableImageUri), {
           mimeType: "image/*",
-          dialogTitle: "Share generated image",
+          dialogTitle: "Share image",
         });
       }
+    } catch {
+      Alert.alert("Couldn't share the image");
     } finally {
       setSharing(false);
     }
@@ -681,7 +707,7 @@ export function ArtifactViewerContent({
             onPress={onShare}
             disabled={sharing}
             accessibilityRole="button"
-            accessibilityLabel={localPdf ? "Save or share PDF" : "Share generated image"}
+            accessibilityLabel={localPdf ? "Save or share PDF" : "Share image"}
             hitSlop={10}
             style={({ pressed }) => [
               styles.shareButton,
@@ -693,6 +719,20 @@ export function ArtifactViewerContent({
             ) : (
               <Icon name="share" size={20} color={colors.text} />
             )}
+          </Pressable>
+        ) : null}
+        {onClose && !onBack ? (
+          <Pressable
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            hitSlop={10}
+            style={({ pressed }) => [
+              styles.shareButton,
+              pressed && styles.backButtonPressed,
+            ]}
+          >
+            <Icon name="x" size={20} color={colors.text} />
           </Pressable>
         ) : null}
       </View>
@@ -777,6 +817,7 @@ export function ArtifactViewerContent({
               hasPrevious={Boolean(neighbours.previous)}
               hasNext={Boolean(neighbours.next)}
               {...(swipeable ? { onSwipe } : {})}
+              {...(onClose ? { onDismiss: onClose } : {})}
             />
           ) : loaded?.kind === "markdown" ? (
             <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -806,6 +847,7 @@ export function ArtifactViewer({
       <ArtifactViewerContent
         artifact={artifact}
         access={access}
+        onClose={onClose}
         {...(siblings ? { siblings } : {})}
         {...(onNavigate ? { onNavigate } : {})}
       />

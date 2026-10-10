@@ -2,7 +2,7 @@ import type { WebContentsView } from "electron";
 import type {
   BrowserViewOwnerState,
   BrowserViewTabState,
-} from "../in-app-browser-service.js";
+} from "@stella/contracts/desktop/browser-view";
 
 export const DEFAULT_URL = "about:blank";
 export const MANUAL_OWNER_ID = "stella:manual";

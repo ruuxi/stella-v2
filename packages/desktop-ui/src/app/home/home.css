@@ -33,6 +33,10 @@
   margin: 0 0 12px;
 }
 
+.full-body-home-status:empty {
+  display: none;
+}
+
 .full-body-home-status .cloud-chat-status-tail {
   margin-top: 0;
 }

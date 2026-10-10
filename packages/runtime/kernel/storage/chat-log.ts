@@ -922,109 +922,6 @@ export class ChatLog {
     return Boolean(type ? statement.get(eventId, type) : statement.get(eventId));
   }
 
-  truncateConversationAtEvent(
-    conversationId: string,
-    eventIdInput: string,
-  ): { removed: number } {
-    const cursor = this.getEventCursor(conversationId, eventIdInput);
-    if (!cursor) return { removed: 0 };
-    let removed = 0;
-    this.tx.immediate(() => {
-      // Count first: driver-reported change counts include FTS trigger
-      // cascades and cannot be trusted for the removed-row total.
-      const countRow = this.cached
-        .prepare(
-          "SELECT COUNT(*) AS n FROM entry WHERE conversation_id = ? AND seq >= ?",
-        )
-        .get(conversationId, cursor.sequence) as { n?: number } | undefined;
-      this.cached
-        .prepare("DELETE FROM entry WHERE conversation_id = ? AND seq >= ?")
-        .run(conversationId, cursor.sequence);
-      removed = typeof countRow?.n === "number" ? countRow.n : 0;
-      const orphanThreadRows = this.cached
-        .prepare(
-          `SELECT thread_id FROM agent
-           WHERE conversation_id = ?
-             AND status <> 'running'
-             AND prompt_created_at IS NOT NULL
-             AND prompt_created_at >= ?`,
-        )
-        .all(conversationId, cursor.timestamp) as Array<{
-        thread_id?: unknown;
-      }>;
-      for (const row of orphanThreadRows) {
-        const threadId = typeof row.thread_id === "string" ? row.thread_id : "";
-        if (!threadId) continue;
-        this.cached
-          .prepare(
-            `DELETE FROM blob WHERE id IN (
-               SELECT blob_id FROM thread_entry
-               WHERE thread_id = ? AND blob_id IS NOT NULL
-             )`,
-          )
-          .run(threadId);
-        this.cached.prepare("DELETE FROM thread WHERE id = ?").run(threadId);
-        this.cached.prepare("DELETE FROM agent WHERE thread_id = ?").run(threadId);
-      }
-    });
-    return { removed };
-  }
-
-  forkConversationBeforeEvent(
-    conversationId: string,
-    eventIdInput: string,
-  ): { conversationId: string } | null {
-    const cursor = this.getEventCursor(conversationId, eventIdInput);
-    if (!cursor) return null;
-    const rows = this.cached
-      .prepare(
-        `SELECT ${ENTRY_SELECT} FROM entry
-         WHERE entry.conversation_id = ?
-           AND entry.type IN (${placeholders(CHAT_MESSAGE_TYPES)})
-           AND entry.seq < ?
-         ORDER BY entry.seq ASC`,
-      )
-      .all(conversationId, ...CHAT_MESSAGE_TYPES, cursor.sequence) as EntryRow[];
-    const newConversationId = conversationId.startsWith("local_")
-      ? `local_${generateLocalId()}`
-      : generateLocalId();
-    const createdAt = Date.now();
-    const idMap = new Map<string, string>();
-    for (const row of rows) {
-      idMap.set(row._id, `local-${generateLocalId()}`);
-    }
-    this.tx.immediate(() => {
-      this.ensureConversation(newConversationId, createdAt);
-      for (const row of rows) {
-        const newId = idMap.get(row._id)!;
-        let payload = parseJsonRecord(row.payloadJson) ?? undefined;
-        if (payload && row.type === "assistant_message") {
-          const remappedUserId =
-            typeof payload.userMessageId === "string"
-              ? idMap.get(payload.userMessageId)
-              : undefined;
-          if (remappedUserId) {
-            payload = { ...payload, userMessageId: remappedUserId };
-          }
-        }
-        const channelEnvelope =
-          parseJsonRecord(row.channelEnvelopeJson) ?? undefined;
-        this.upsertEvent({
-          conversationId: newConversationId,
-          eventId: newId,
-          type: row.type,
-          timestamp: row.timestamp,
-          deviceId: asTrimmedString(row.deviceId) || undefined,
-          requestId: asTrimmedString(row.requestId) || undefined,
-          targetDeviceId: asTrimmedString(row.targetDeviceId) || undefined,
-          payload,
-          channelEnvelope,
-        });
-      }
-    });
-    return { conversationId: newConversationId };
-  }
-
   /* ------------------------------------------------------------------ */
   /* Reads: raw events                                                   */
   /* ------------------------------------------------------------------ */
@@ -1336,6 +1233,75 @@ export class ChatLog {
       if (messages.length >= normalizedLimit) break;
     }
     return messages.reverse();
+  }
+
+  /**
+   * Visible user and assistant messages after `afterSeq`, ascending, from at
+   * most `limit` rows: each with its text, and the last row's seq.
+   */
+  listMessagesAfterSeq(
+    conversationId: string,
+    afterSeq: number,
+    limit: number,
+  ): {
+    messages: Array<{
+      id: string;
+      seq: number;
+      role: "user" | "assistant";
+      text: string;
+      timestamp: number;
+    }>;
+    throughSeq: number;
+    complete: boolean;
+  } {
+    const normalizedLimit = Math.max(1, Math.floor(limit));
+    const rows = this.cached
+      .prepare(
+        `SELECT entry.id AS id, entry.seq AS seq, entry.created_at AS timestamp,
+                entry.type AS type, entry.payload AS payloadJson
+         FROM entry
+         WHERE entry.conversation_id = ?
+           AND entry.seq > ?
+           AND entry.type IN (${placeholders(CHAT_MESSAGE_TYPES)})
+           AND entry.visible = 1
+         ORDER BY entry.seq ASC
+         LIMIT ?`,
+      )
+      .all(
+        conversationId,
+        afterSeq,
+        ...CHAT_MESSAGE_TYPES,
+        normalizedLimit,
+      ) as Array<{
+      id: string;
+      seq: number;
+      timestamp: number;
+      type: string;
+      payloadJson: string | null;
+    }>;
+    const messages: Array<{
+      id: string;
+      seq: number;
+      role: "user" | "assistant";
+      text: string;
+      timestamp: number;
+    }> = [];
+    for (const row of rows) {
+      const text = eventTextFromPayload(parseJsonRecord(row.payloadJson));
+      if (!text) continue;
+      messages.push({
+        id: row.id,
+        seq: row.seq,
+        role: row.type === "user_message" ? "user" : "assistant",
+        text,
+        timestamp: row.timestamp,
+      });
+    }
+    return {
+      messages,
+      throughSeq: rows.at(-1)?.seq ?? afterSeq,
+      complete: rows.length < normalizedLimit,
+    };
   }
 
   /* ------------------------------------------------------------------ */

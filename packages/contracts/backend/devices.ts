@@ -20,20 +20,6 @@ export type ExecutionCapability =
   | "local-apps"
   | "attachments";
 
-export type PairedPhone = {
-  mobileDeviceId: string;
-  displayName?: string;
-  platform?: string;
-  approvedAt: number;
-  lastSeenAt: number;
-};
-
-export type PhoneAccessState = {
-  /** The desktop's live pairing code, if one is waiting to be used. */
-  activePairing: { pairingCode: string; expiresAt: number; createdAt: number } | null;
-  pairedDevices: PairedPhone[];
-};
-
 export type ActivityNotificationKind = "started" | "completed" | "failed";
 
 export type DeviceCalls = {
@@ -108,19 +94,8 @@ export type DeviceCalls = {
       migratedRemoteExecution: boolean;
     };
   };
-  /** A pairing code a phone signed into the same account can redeem. */
-  "phone.createPairing": {
-    args: { desktopDeviceId: string };
-    result: { pairingCode: string; expiresAt: number; createdAt: number; pairingUrl: string };
-  };
-  "phone.revoke": {
-    args: { desktopDeviceId: string; mobileDeviceId: string };
-    result: null;
-  };
   /** Tell the owner's phones about desktop activity. */
   "phone.notifyActivity": { args: { kind: ActivityNotificationKind }; result: null };
 };
 
-export type DeviceViews = {
-  "phone.access": { args: { desktopDeviceId: string }; result: PhoneAccessState };
-};
+export type DeviceViews = Record<never, never>;

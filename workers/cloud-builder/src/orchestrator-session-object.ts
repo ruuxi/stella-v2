@@ -19,6 +19,8 @@ import type {
   LocalTurnFinishReceipt,
 } from "./orchestrator/types.js";
 import {
+  AGENT_RUNTIME_KEY,
+  PI_LIVE_KEY,
   CHAT_TURN_HEARTBEAT_MS,
   OWNER_PURGE_STALE_LEASE_GRACE_MS,
   LOCAL_TURN_CANCEL_GRACE_MS,
@@ -94,6 +96,16 @@ export class OrchestratorSessionObject extends OrchestratorTurnStart {
   }
 
   async alarm(): Promise<void> {
+    try {
+      await this.conversationAlarm();
+    } finally {
+      await this.piHeartbeat().catch((error: unknown) => {
+        log("error", "pi_heartbeat_failed", { message: errorMessage(error) });
+      });
+    }
+  }
+
+  private async conversationAlarm(): Promise<void> {
     // A turn can finish after its remote lease was removed but before the
     // unregister response arrived. Reconcile that durable debt before using
     // this wake-up for the conversation lifecycle. Same for projections the
@@ -163,7 +175,7 @@ export class OrchestratorSessionObject extends OrchestratorTurnStart {
     } catch (error) {
       if (error instanceof OwnerPurgeFenceError) {
         this.currentTurnCancellation?.abort();
-        this.currentAgent?.abort();
+        this.currentPiRun?.abort();
         return;
       }
       throw error;
@@ -200,7 +212,15 @@ export class OrchestratorSessionObject extends OrchestratorTurnStart {
       // Marking the turn terminal is not enough — the loop would keep burning
       // metered relay calls for output runTurn will discard.
       this.currentTurnCancellation?.abort();
-      this.currentAgent?.abort();
+      this.currentPiRun?.abort();
+      if (!this.currentPiRun) {
+        await this.abortPiConversation().catch((error: unknown) => {
+          log("error", "pi_conversation_abort_failed", {
+            turnId: turn.turnId,
+            message: errorMessage(error),
+          });
+        });
+      }
       log("error", "chat_turn_timed_out", {
         turnId: turn.turnId,
         conversationId: turn.conversationId,
@@ -265,29 +285,42 @@ export class OrchestratorSessionObject extends OrchestratorTurnStart {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (
-      request.method === "POST" &&
-      url.pathname.startsWith("/internal/edit/")
-    ) {
-      return this.handleConversationEditRoute(url.pathname, request);
-    }
     if (url.pathname === "/socket") return this.handleSocket(request);
     if (request.method === "GET") {
       if (url.pathname === "/history") {
         return this.handleCanonicalHistory(request);
       }
       if (url.pathname === "/journal") return this.handleJournalProbe(url);
+      if (url.pathname === "/pi-brain") return this.handlePiBrain(request);
       return json({ error: "Not found." }, 404);
     }
     if (request.method !== "POST") {
       return json({ error: "Method not allowed." }, 405);
     }
-    // Read-only, so an in-progress edit does not block it.
     if (url.pathname === "/history/query") {
       return this.handleHistoryQuery(request);
     }
-    // Frames of the running Claude Code turn, from its BuildSession. Ahead
-    // of the edit lock: an edit cannot start while a turn runs, and these
+    if (url.pathname === "/pi-workspace") {
+      return this.handlePiWorkspace(request);
+    }
+    if (url.pathname === "/pi-brain") {
+      return this.handlePiBrain(request);
+    }
+    // A pi agent's container daemon (its drive and its delivered files),
+    // under its lease's own credential.
+    if (url.pathname === "/pi-turn-broker") {
+      // Only where pi runs agents: a pi conversation, or one hosting a computer's cloud agent.
+      if (
+        !this.piRuntime &&
+        (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) !== "pi" &&
+        !(await this.ctx.storage.get<boolean>(PI_LIVE_KEY))
+      ) {
+        return json({ error: "Turn broker request failed." }, 401);
+      }
+      const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+      return await runtime.handleBroker(request);
+    }
+    // Frames of the running Claude Code turn, from its BuildSession. These
     // only ever touch the exact active turn.
     if (url.pathname === CLOUD_CLI_TURN_DO_PATHS.tool) {
       return this.handleCliTurnTool(request);
@@ -297,25 +330,6 @@ export class OrchestratorSessionObject extends OrchestratorTurnStart {
     }
     if (url.pathname === CLOUD_CLI_TURN_DO_PATHS.terminal) {
       return this.handleCliTurnTerminal(request);
-    }
-    const conversationEdit = await this.activeConversationEditLock();
-    // `/turn` re-checks the lock inside its own admission critical section
-    // and answers with the turn-start contract's `conversation_locked`.
-    if (
-      conversationEdit &&
-      url.pathname !== "/cancel" &&
-      url.pathname !== "/purge" &&
-      url.pathname !== "/owner-purge-cancel" &&
-      url.pathname !== "/turn"
-    ) {
-      return json(
-        {
-          code: "conversation_edit_in_progress",
-          message: "This conversation is being edited. Try again shortly.",
-          retryAfterMs: 1_000,
-        },
-        409,
-      );
     }
     if (url.pathname === "/internal/dev-acceptance/probe") {
       return this.handleDevAcceptanceProbe(request);
@@ -534,7 +548,7 @@ export class OrchestratorSessionObject extends OrchestratorTurnStart {
       if (currentMatches) {
         await this.ctx.storage.put("terminal", true);
         this.currentTurnCancellation?.abort();
-        this.currentAgent?.abort();
+        this.currentPiRun?.abort();
       }
       const execution = currentMatches
         ? this.turnExecutions.get(turnId)

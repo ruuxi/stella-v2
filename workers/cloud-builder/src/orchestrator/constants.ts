@@ -4,12 +4,64 @@ import { APPEND_WINDOW_MAX_BYTES } from "../conversation-types.js";
 /** Desktop keeps a connect card up about this long before giving up. */
 export const CONNECT_CARD_WAIT_MS = 5 * 60_000;
 export const CONNECT_CARD_POLL_MS = 2_000;
+/** How often a waiting agent checks whether its browser handoff ended, and how long past its deadline it waits. */
+export const BROWSER_HANDOFF_POLL_MS = 2_000;
+export const BROWSER_HANDOFF_GRACE_MS = 60_000;
 export const WAKE_REPORT_INLINE_MAX_BYTES = 512 * 1024;
 
-/** A wake joins a running turn only while this much of its watchdog is left. */
-export const WAKE_STEER_DEADLINE_MARGIN_MS = 60_000;
-
 export const CHAT_WATCHDOG_MS = 5 * 60_000;
+/** Durable key: this conversation runs on pi-durable (`pi-runtime.ts`). */
+export const AGENT_RUNTIME_KEY = "agentRuntime";
+
+/** Durable key prefix: a cloud pi agent on a device's control receipt, by thread id. */
+export const PI_DEVICE_AGENT_PREFIX = "pi:device-agent:";
+
+/** Durable key: an agent thread whose agent runs here, by thread id. */
+export const piThreadKey = (threadId: string): string =>
+  `pi:thread:${threadId}`;
+
+/** Journal records read per batch when importing other writers' turns into pi. */
+export const PI_JOURNAL_IMPORT_BATCH = 200;
+/** The newest pi entry this conversation's journal has mirrored. */
+export const PI_MIRRORED_KEY = "piMirroredEntry";
+/** Set while pi has work in flight here, so a wake after eviction resumes it. */
+export const PI_LIVE_KEY = "piLive";
+/** Where this pi conversation's brain runs (`@stella/contracts/turn-plane/pi-brain`). */
+export const PI_BRAIN_KEY = "piBrain";
+/**
+ * Durable key: the brief a turn's `switch_destination` left for the computer
+ * Stella moved to (pi's or Claude Code's), placed there once that turn ends.
+ */
+export const BRAIN_HANDOFF_KEY = "brainHandoff";
+
+/** A connect checks the running agents against their owners at most this often. */
+export const AGENT_RECONCILE_INTERVAL_MS = 60_000;
+/**
+ * Durable key: the running agents of a conversation pi has run in, as their
+ * owners record them (`refreshAgents`). Absent where pi never ran: there
+ * they are folded from the journal's agent cards.
+ */
+export const AGENTS_VIEW_KEY = "runningAgentsView";
+
+/**
+ * Durable key: when this conversation first settled the running agents no
+ * owner keeps a record of (`reconcileRunningAgents`).
+ */
+export const AGENTS_UNOWNED_SETTLED_KEY = "agentsUnownedSettledAt";
+/**
+ * An agent started this recently may not have reached its owner's records
+ * yet (a computer's start is queued like its turn), so that first pass
+ * leaves it alone.
+ */
+export const AGENT_OWNER_RECORD_LAG_MS = 10 * 60_000;
+export const PI_HEARTBEAT_MS = 30_000;
+/** The agent tools a pi-durable conversation's harness has itself. */
+export const PI_HARNESS_AGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "spawn_agent",
+  "send_message",
+  "agent_status",
+  "pause_agent",
+]);
 /**
  * While a chat turn runs, its alarm fires at least this often. The alarm is
  * what wakes a replaced object (a deploy, an eviction) so the wake can resume

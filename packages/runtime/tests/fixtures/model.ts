@@ -1,4 +1,4 @@
-import type { Api, Model } from "../../ai/types.js";
+import type { Api, Model } from "@earendil-works/pi-ai";
 
 /** A registry-independent model; override only what a test asserts on. */
 export const testModel = <TApi extends Api = "openai-completions">(

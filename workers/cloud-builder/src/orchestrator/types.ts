@@ -1,7 +1,5 @@
-import type {
-  AgentMessage,
-  AgentTool,
-} from "@stella/runtime/kernel/agent-core/types.js";
+import type { AgentTool } from "@stella/runtime/kernel/agent-core/types.js";
+import type { AgentActivityEntry } from "@stella/contracts/conversation-agent-activity";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 import type {
@@ -16,27 +14,6 @@ import type { CloudCliTurnIdentity } from "@stella/contracts/cloud-orchestrator-
 
 export type WakeReport = { prompt: string; lifecycleReport?: string };
 
-/** A hidden agent wake admitted while a resident loop runs, to join it. */
-export type SteeredWake = {
-  turn: ChatTurnRequest;
-  report: WakeReport;
-  message: AgentMessage;
-};
-
-/**
- * The resident loop running in this isolate that hidden agent wakes join
- * before its next model call. Each wake stays durable under `queued:` until
- * the loop consumes it, so one the loop never takes runs as its own turn.
- */
-export type SteerableTurn = {
-  turn: ChatTurnRequest;
-  watchdogAt: number;
-  /** Admitted, not yet handed to the loop. */
-  waiting: SteeredWake[];
-  /** Handed to the loop, keyed by the exact message its `message_end` carries. */
-  injected: Map<AgentMessage, SteeredWake>;
-};
-
 /**
  * Binding names/types come from Wrangler. Storage and dev-acceptance fields
  * remain optional here solely for rolling-deploy compatibility and production
@@ -45,6 +22,7 @@ export type SteerableTurn = {
 export type Env = Pick<
   Cloudflare.Env,
   | "BUILD_SESSIONS"
+  | "ORCHESTRATOR_SESSIONS"
   | "OWNER_GATES"
   | "WORLDS"
   | "LOADER"
@@ -61,6 +39,8 @@ export type Env = Pick<
       | "MODEL_GATEWAY_CONTROL"
       | "MODEL_GATEWAY_OWNERS"
       | "MODEL_GATEWAY_URL"
+      | "Sandbox"
+      | "SANDBOX_IDLE_TIMEOUT_MS"
       | "CLOUD_BUILDER_PUBLIC_URL"
       | "CAPABILITY_SIGNING_KEY"
       | "CAPABILITY_SIGNING_KID"
@@ -112,6 +92,8 @@ export type ChatTurnRequest = {
    * rebound to whichever mutable attempt happens to be current.
    */
   agentThreadControl?: CloudAgentControlReceipt;
+  /** A computer's orchestrator controlling its cloud agent; the turn does that instead of answering. */
+  piAgent?: import("@stella/contracts/turn-plane/turn-start").CloudPiAgentRequest;
   wakeReportSpillKey?: string;
   watchdogMs?: number;
   /** Worker-issued owner purge lease generation. */
@@ -221,6 +203,56 @@ export type LocalTurnFinishReceipt = {
   epoch: number;
   finishFingerprint?: string;
   externallyCanceled?: boolean;
+};
+
+/** How an agent thread's attempt ended, as its terminal events carry it. */
+export type PiThreadOutcome = {
+  status: "completed" | "failed" | "canceled";
+  resultJson?: string;
+  errorMessage?: string;
+  /** What its run saved to the owner's drive and linked in its answer. */
+  files?: import("../pi-runtime.js").PiDeliveredFile[];
+};
+
+/** One attempt of an agent thread whose agent runs here, until it settles. */
+type PiThreadAttemptRecord = {
+  turnId: string;
+  attemptGeneration: number;
+  /** pi has it: its agent was started or messaged under its call key. */
+  handedOff?: true;
+  /** A pause was asked for: a report without text settles it as canceled. */
+  pausing?: true;
+  /** The decided outcome, kept while it is delivered. */
+  terminal?: PiThreadOutcome & { completedAt: number };
+};
+
+/** An agent thread whose attempts run as a pi agent here (`startPiThread`). */
+export type PiThreadRecord = {
+  ownerId: string;
+  ownerGeneration: string;
+  threadId: string;
+  description: string;
+  /** A computer's dispatch: the agent threads deliver its reports there, so nothing wakes here. */
+  originDeviceId?: string;
+  /** Attempts not settled yet, oldest first. */
+  attempts: PiThreadAttemptRecord[];
+  /** Every attempt through this generation has settled. */
+  settledThrough: number;
+};
+
+export type BrainHandoff = {
+  turnId: string;
+  ownerId: string;
+  ownerGeneration: string;
+  deviceId: string;
+  clientMsgId: string;
+  prompt: string;
+};
+
+/** The running agents pi has here, and those the owner's agent threads have. */
+export type AgentsView = {
+  pi: AgentActivityEntry[];
+  owner: AgentActivityEntry[];
 };
 
 /** An execution Stella's own loop runs here; `anthropic` runs on Claude Code. */

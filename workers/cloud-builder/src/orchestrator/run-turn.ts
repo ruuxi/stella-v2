@@ -1,41 +1,12 @@
-import {
-  compactCloudHistory,
-  CONTEXT_CHECKPOINT_KEY,
-  type ContextCheckpoint,
-} from "../context-compaction.js";
-import {
-  materializeProviderContext,
-  preparePromptContext,
-  PROMPT_CONTEXT_KEY,
-  type PromptContext,
-  promptContextBoundary,
-  promptContextCheckpointChanged,
-  promptContextHistoryStartAfterSeq,
-  providerHistory,
-  resumePromptContext,
-  reusablePromptContext,
-  sentResidentPrompts,
-} from "../prompt-context.js";
-import { LIFE_USER_PROFILE_DISPLAY_PATH } from "@stella/runtime/kernel/agent-runtime/resident-context.js";
-import type { ExplicitModelAgent as RuntimeAgent } from "@stella/runtime/kernel/agent-core/explicit-model-agent.js";
-import type {
-  AgentEvent,
-  AgentMessage,
-  AgentTool,
-} from "@stella/runtime/kernel/agent-core/types.js";
-import {
-  AGENT_RUN_MAX_ATTEMPTS,
-  executeAgentRunWithRetry,
-  prepareTransientResumeTail,
-} from "@stella/runtime/kernel/agent-runtime/run-retry.js";
+import type { DevicesResponse } from "@stella/contracts/turn-plane/placement";
+import { attachedFilesText } from "../prompt-context.js";
+import { formatMessageRefTag } from "@stella/contracts/reply-refs";
+import { buildCloudSkillsBlock } from "../cloud-skills.js";
+import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
 import {
   assertTurnExecutionActive,
   type TurnRetryCancellation,
 } from "../turn-cancellation.js";
-import {
-  buildDefaultTransformContext,
-  getAgentCompletion,
-} from "@stella/runtime/kernel/agent-runtime/run-shared.js";
 import { guardedModelFetch } from "../guarded-model-fetch.js";
 import {
   fetchWithManagedCancellation,
@@ -51,22 +22,10 @@ import {
   GATEWAY_SUBSCRIPTION_LIMIT_HEADER,
   nativeSubscriptionLimitNotice,
 } from "@stella/contracts/gateway/api";
-import { createCloudRelaySession } from "@stella/executor-cloud/relay-model";
-import {
-  withOrchestratorCacheRetention,
-  withoutPromptCache,
-} from "../orchestrator-cache-retention.js";
-import { loadRuntimeAgent } from "../runtime-agent.js";
-import { CLOUD_HISTORY_TOKEN_BUDGET } from "@stella/executor-cloud/prune-history";
-import {
-  buildCloudSystemPromptSections,
-  cloudResidentContext,
-} from "../cloud-prompt.js";
-import { resolveOpenToolCall } from "../tool-replay.js";
-import { stampUserMessageSequences } from "../journal.js";
+import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import type { CanonicalPrompts } from "../cloud-prompt.js";
 import type { ExactTurnCancellation } from "../execution-placement-turn-cancellation.js";
 import type {
-  SteerableTurn,
   ChatTurnRequest,
   LocalTurnLease,
   PersistedChatTurnModelCapability,
@@ -74,6 +33,8 @@ import type {
 } from "./types.js";
 import {
   CHAT_WATCHDOG_MS,
+  PI_JOURNAL_IMPORT_BATCH,
+  PI_MIRRORED_KEY,
   CHAT_TURN_HEARTBEAT_MS,
   CHAT_TURN_RESUME_KEY,
   CHAT_TURN_STARTED_AT_KEY,
@@ -87,6 +48,7 @@ import {
   mintOrchestratorTurnCapability,
   CliTurnFailedError,
   cloudExecutionContext,
+  piModelSpec,
   ChatTurnNotResumableError,
   measureInto,
   localTurnRetirementDeadline,
@@ -97,8 +59,9 @@ import {
   cloudContextFailure,
 } from "./support.js";
 import { OrchestratorCliTurn } from "./cli-turn.js";
+import type { OrchestratorOwner } from "./owner.js";
 
-/** Stella's own loop: one admitted chat turn, start to terminal. */
+/** One admitted chat turn, start to terminal, on Stella's loop or on pi. */
 export abstract class OrchestratorRunTurn extends OrchestratorCliTurn {
   protected async finishPreCanceledTurn(
     turn: ChatTurnRequest,
@@ -203,8 +166,7 @@ export abstract class OrchestratorRunTurn extends OrchestratorCliTurn {
     const startupTimings: Record<string, number> = {
       queueWaitMs: Math.round(enteredAt - enqueuedAt),
     };
-    // A hidden wake the running turn already took in (`absorbSteeredWake`),
-    // which also retired its lease and gate slot.
+    // A turn already terminal in the journal.
     if (this.journal.turnState(turn.turnId)?.state === "terminal") {
       log("info", "chat_turn_duplicate_ignored", { turnId: turn.turnId });
       await this.ctx.storage.delete(`queued:${turn.turnId}`);
@@ -438,16 +400,15 @@ export abstract class OrchestratorRunTurn extends OrchestratorCliTurn {
       await assertExactTurnActive();
       this.activeTurnId = turn.turnId;
       // An `anthropic` turn runs on the Claude Code CLI in the orchestrator
-      // container (`runCliTurn`); only the other engines run this loop.
+      // container (`runCliTurn`); Stella-model and ChatGPT-plan turns run on
+      // pi-durable (`runPiTurn`).
       const harnessExecution =
         turn.execution.engine === "anthropic" ? undefined : turn.execution;
-      // The durable turn is claimed before the heavy loop implementation is
-      // evaluated. Load it alongside read-only preparation on actual turns;
-      // object wake, admission, status, and cancellation stay on the lean path.
-      const agentRuntimeWork = harnessExecution
-        ? loadRuntimeAgent()
-        : undefined;
-      void agentRuntimeWork?.catch(() => undefined);
+      if (turn.piAgent && harnessExecution?.engine !== "stella") {
+        throw new Error(
+          "A computer's cloud agents run on Stella's models; this conversation's cloud turns use another engine.",
+        );
+      }
       // Admission already bound the owner; this only re-asserts it and sets
       // the title on a turn that carried one.
       this.bindConversation(turn);
@@ -597,28 +558,8 @@ export abstract class OrchestratorRunTurn extends OrchestratorCliTurn {
         return context;
       });
       void measuredHomePreparation.catch(() => undefined);
-      const acquireModelGrant = async (
-        expected: LocalOwnerModelGrantExpectation,
-      ) => {
-        const freezeEpoch = this.localOwnerModelGrants.freezeEpoch(expected);
-        const issued = await this.ownerGate(turn.ownerId).acquireModelGrant({
-          ownerId: expected.ownerId,
-          ownerGeneration: expected.ownerGeneration,
-          conversationId: expected.conversationId,
-          readerId: this.isolateId,
-          turnId: expected.turnId,
-          leaseId: expected.leaseId,
-          fenceGeneration: expected.fenceGeneration,
-          policy: expected.memoryPolicy,
-        });
-        const grant = this.localOwnerModelGrants.validAfter(
-          issued,
-          expected,
-          freezeEpoch,
-        );
-        if (!grant) throw new OwnerPurgeFenceError();
-        return { grant, expected };
-      };
+      const acquireModelGrant = (expected: LocalOwnerModelGrantExpectation) =>
+        this.acquireOwnerModelGrant(expected);
       let modelGrantWork =
         executionSelection.engine === "stella"
           ? measuredHomePreparation.then(async ({ memoryPreference }) => {
@@ -677,834 +618,136 @@ export abstract class OrchestratorRunTurn extends OrchestratorCliTurn {
         void modelGrantWork.catch(() => undefined);
         return await modelGrantWork;
       };
-      // Only memory reads depend on memory policy. Model resolution and other
-      // context can run alongside that chain; no provider call starts here.
-      const preparationWork = Promise.all([
-        measuredHomePreparation,
-        canonicalPromptsWork,
-        measurePreparation("localeMs", () =>
-          this.resolveTurnLocale(turn, () =>
-            assertTurnExecutionActive(turnCancellation, executionSignal),
-          ),
-        ),
-        measurePreparation("attachmentsMs", () =>
-          this.loadChatAttachmentImages(turn, executionSignal),
-        ),
-        measuredHomePreparation.then((context) => context.skillCatalog),
-        measurePreparation("modelResolutionMs", () =>
-          createCloudRelaySession({
-            audience: turn.audience,
-            gatewayOrigin: modelGatewayOrigin,
-            capability: turnCapability.token,
-            agentType: "orchestrator",
-            execution: executionSelection,
-            signal: executionSignal,
-            fetch: async (input, init) => {
-              const request = new Request(input, init);
-              // Resolution contains no prompt and can overlap home loading.
-              if (new URL(request.url).pathname === GATEWAY_RESOLVE_PATH) {
-                return measurePreparation("modelResolutionTransportMs", () =>
-                  modelGateway.fetch(request),
-                );
-              }
-              const execute = async (physicalRequest: Request) => {
-                const localGrant = await modelGrantForPhysicalRequest();
-                const activeGrant = localGrant
-                  ? this.localOwnerModelGrants.begin(
-                      localGrant.grant,
-                      localGrant.expected,
-                      physicalRequest.signal,
-                    )
-                  : undefined;
-                const guardedRequest = activeGrant
-                  ? new Request(physicalRequest, {
-                      signal: activeGrant.requestSignal,
-                    })
-                  : physicalRequest;
-                try {
-                  // An eligible signed request goes straight to its owner
-                  // DO; the DO retains every check.
-                  const relayOwners =
-                    executionSelection.engine === "stella" &&
-                    turnCapability.claims.ledgerScope === "owner-relay-v2"
-                      ? this.env.MODEL_GATEWAY_OWNERS
-                      : undefined;
-                  const guard = (requestToGuard: Request) =>
-                    guardedModelFetch({
-                      request: requestToGuard,
-                      fetch: (value) =>
-                        relayOwners
-                          ? relayOwners
-                              .get(
-                                relayOwners.idFromName(
-                                  turnCapability.claims.sub,
-                                ),
-                              )
-                              .fetch(value)
-                          : modelGateway.fetch(value),
-                      mode: activeGrant
-                        ? "authorize-before-fetch"
-                        : "gate-body",
-                      authorize: async () => {
-                        await assertExactTurnActive();
-                        const { memoryPreference } =
-                          await measuredHomePreparation;
-                        if (
-                          !turn.ownerPurgeGeneration ||
-                          !turn.ownerPurgeLeaseId
-                        ) {
-                          throw new OwnerPurgeFenceError();
-                        }
-                        assertTurnExecutionActive(
-                          turnCancellation,
-                          executionSignal,
-                        );
-                        if (activeGrant) activeGrant.assertValid();
-                        else {
-                          const policyStartedAt = performance.now();
-                          await requireCloudContext(
-                            "agent_home_memory",
-                            this.ownerGate(turn.ownerId).assertMemoryPolicy(
-                              memoryPreference,
-                              turn.ownerPurgeGeneration,
-                              turn.ownerPurgeLeaseId,
-                              turn.turnId,
-                            ),
-                          );
-                          log("info", "chat_model_dispatch_prepared", {
-                            turnId: turn.turnId,
-                            memoryRevalidationMs: Math.round(
-                              performance.now() - policyStartedAt,
-                            ),
-                          });
-                        }
-                        // Count physical requests after privacy validation, including
-                        // compaction and tool continuations, rather than Agent invocations.
-                        await this.noteDevAcceptanceProviderDispatch();
-                        assertTurnExecutionActive(
-                          turnCancellation,
-                          executionSignal,
-                        );
-                        // The dev counter is an asynchronous boundary. Freeze may
-                        // arrive while it is pending, so check the local grant again
-                        // at the last point before the request body is released.
-                        activeGrant?.assertValid();
-                      },
-                    });
-                  const response =
-                    executionSelection.engine === "stella"
-                      ? await (() => {
-                          const control = this.env.MODEL_GATEWAY_CONTROL;
-                          if (!control)
-                            throw new Error(
-                              "Model gateway cancellation is not configured.",
-                            );
-                          return fetchWithManagedCancellation({
-                            request: guardedRequest,
-                            capability: turnCapability.token,
-                            control: control as ModelGatewayControl & Fetcher,
-                            waitUntil: (work) => this.ctx.waitUntil(work),
-                            fetch: guard,
-                          });
-                        })()
-                      : await guard(guardedRequest);
-                  if (!response.ok) {
-                    subscriptionLimitNotice = nativeSubscriptionLimitNotice(
-                      response.headers.get(GATEWAY_SUBSCRIPTION_LIMIT_HEADER),
-                    );
-                  }
-                  return activeGrant
-                    ? releaseOwnerModelGrantAfterBody(
-                        response,
-                        activeGrant.release,
-                      )
-                    : response;
-                } catch (error) {
-                  activeGrant?.release();
-                  throw error;
-                }
-              };
-              return execute(request);
-            },
-          }),
-        ),
-      ]);
-      void preparationWork.catch(() => undefined);
-      const destinations = await destinationsWork;
-      await assertExactTurnActive();
-
-      // Filled by exactly one of the two branches below: a fresh turn
-      // prepares its window and journals its prompt; a resumed turn rebuilds
-      // both from what its lost isolate already made durable.
-      let turnContext!: { state: PromptContext; tools: AgentTool[] };
-      let turnRelaySession!: Awaited<typeof preparationWork>[5];
-      let turnHistory!: AgentMessage[];
-      let turnCurrentPrompt!: AgentMessage[];
-      let turnProduced: AgentMessage[] = [];
-      let producedIndexBase = 0;
-      if (!resumeTurn) {
-        // Repair BEFORE the prompt row exists. An eviction, a cancel or a
-        // watchdog abort can leave the tail as an assistant message with
-        // unanswered tool calls, which the provider rejects on the next
-        // request — a permanently bricked conversation. Closing it after the
-        // prompt row would put a user message between the call and its result,
-        // which is exactly as poisonous.
-        const now = Date.now();
-        for (const repaired of this.journal.repairTail(now)) {
-          this.publish(repaired.record);
-        }
-        // Foreign rows that arrived while the previous turn was running land at
-        // this clean boundary rather than splicing into a tool-call pair.
-        this.drainInbox();
-
-        // The window is chosen from resident rows only, and rollover guarantees
-        // the resident floor sits below the last turn's context start — so a
-        // normal turn never touches R2.
-        const storedContext =
-          await this.getTurnState<PromptContext>(PROMPT_CONTEXT_KEY);
-        const journalEpoch = this.journal.meta().epoch;
-        const previousContext = reusablePromptContext({
-          storedContext,
-          journalEpoch,
-          ownerGeneration: turn.ownerGeneration,
-        });
-        const storedCheckpoint =
-          previousContext || storedContext
-            ? await this.getTurnState<ContextCheckpoint>(CONTEXT_CHECKPOINT_KEY)
-            : undefined;
-        const previousCheckpoint = previousContext
-          ? storedCheckpoint
-          : undefined;
-        const selection = this.journal.selectWindow(
-          turn.turnId,
-          previousContext
-            ? Number.MAX_SAFE_INTEGER
-            : CLOUD_HISTORY_TOKEN_BUDGET,
-          promptContextHistoryStartAfterSeq({
-            previousContext,
-            previousCheckpoint,
-          }),
-        );
-        this.journal.setTurnContext(
-          turn.turnId,
-          selection.startSeq,
-          selection.endSeq,
-        );
-        let journalHistory = stampUserMessageSequences(
-          await this.hydrateWindow(selection),
-          selection.rows,
-        );
-        const [
-          { memoryPreference, memoryDocuments, personalityOverride },
-          canonicalPrompts,
-          locale,
-          attachmentImages,
-          skillCatalog,
-          relaySession,
-        ] = await preparationWork;
-        turnRelaySession = relaySession;
-        const memoryEnabled = memoryPreference.memoryEnabled;
-        log("info", "cloud_memory_preference_loaded", {
-          turnId: turn.turnId,
-          ownerGeneration: memoryPreference.ownerGeneration,
-          memoryEnabled,
-          revision: memoryPreference.revision,
-        });
-        const turnTools = await this.createTools(
-          turn,
-          agentHome,
-          skillCatalog,
-          memoryEnabled,
-        );
-        const sections = buildCloudSystemPromptSections({
-          canonicalBody: canonicalPrompts.orchestratorBody,
-          tools: turnTools.promptTools,
-          locale,
-          threadId: turn.conversationId,
-        });
-        const compaction = await compactCloudHistory({
-          messages: journalHistory,
-          rows: selection.rows,
-          checkpoint: previousCheckpoint,
-          contextWindow: relaySession.model.contextWindow,
-          modelMaxTokens: relaySession.model.maxTokens,
-          systemPrompt: canonicalPrompts.compactionSystemPrompt,
-          profile: memoryDocuments.find(
-            (document) =>
-              document.displayPath === LIFE_USER_PROFILE_DISPLAY_PATH,
-          )?.content,
-          beforeRetry: async (attempt, error) => {
-            log("info", "chat_compaction_summary_failed", {
-              turnId: turn.turnId,
-              attempt,
-              error: error instanceof Error ? error.message : String(error),
-            });
-            await assertExactTurnActive();
-            assertTurnExecutionActive(turnCancellation, executionSignal);
-          },
-          summarize: async ({ systemPrompt, prompt, maxTokens }) => {
-            await assertExactTurnActive();
-            const Agent = await agentRuntimeWork!;
-            const summaryStream = withoutPromptCache(
-              relaySession.createStreamFn({ reasoningEffort: "none" }),
-            );
-            const summarizer = new Agent({
-              initialState: {
-                model: relaySession.model,
-                systemPrompt,
-                tools: [],
-                thinkingLevel: "off",
-              },
-              getApiKey: () => turnCapability.token,
-              sessionId: turn.conversationId,
-              degenerateResponseRetries: 0,
-              providerRequestLimit: 1,
-              streamFn: (model, context, options) =>
-                summaryStream(model, context, { ...options, maxTokens }),
-            });
-            this.currentAgent = summarizer;
-            try {
-              assertTurnExecutionActive(turnCancellation, executionSignal);
-              await summarizer.prompt(prompt);
-              const result = getAgentCompletion(summarizer);
-              if (result.errorMessage) throw new Error(result.errorMessage);
-              // As on the desktop, a summary cut off at the output cap is
-              // not a summary.
-              const last = summarizer.state.messages.at(-1);
-              if (last?.role === "assistant" && last.stopReason !== "stop")
-                throw new Error(`summary ended with ${last.stopReason}`);
-              return result.finalText;
-            } finally {
-              this.currentAgent = undefined;
-            }
-          },
-        });
-        await assertExactTurnActive();
-        journalHistory = compaction.messages;
-        const contextStartSeq =
-          compaction.rows[0]?.seq ?? this.journal.meta().next_seq;
-        const executionContext = cloudExecutionContext(turn, destinations);
-        const agentRoster = promptContextBoundary({
-          previous: previousContext,
-          policy: memoryPreference,
-          startSeq: contextStartSeq,
-          journalEpoch,
-        })
-          ? await this.agentRoster(turn)
-          : undefined;
-        const context = preparePromptContext({
-          previous: previousContext,
-          policy: memoryPreference,
-          sections,
-          tools: turnTools.tools,
-          resident: cloudResidentContext({
-            personality:
-              personalityOverride ?? canonicalPrompts.personalityBody,
-            memoryDocuments,
-            skillCatalog,
-            executionContext,
-            agentRoster,
-          }),
-          sent: previousContext
-            ? sentResidentPrompts(journalHistory, previousContext.epoch)
-            : [],
-          startSeq: contextStartSeq,
-          journalEpoch,
-        });
-        turnContext = context;
-        const prepend = context.prepend;
-        const report = await this.wakeReport(turn);
-        await assertExactTurnActive();
-        const durablePrompt = {
-          role: "user",
-          content: [{ type: "text", text: report.prompt }],
-          timestamp: now,
-          executionContext,
-          ...(turn.originUserMessageId
-            ? { originUserMessageId: turn.originUserMessageId }
-            : {}),
-          providerContext: {
-            version: 2,
-            epoch: context.state.epoch,
-            prepend,
-            clock: new Date(now).toISOString(),
-            ...(turn.attachments?.length
-              ? { attachments: [...turn.attachments] }
-              : {}),
-          },
-          ...(turn.source ? { source: turn.source } : {}),
-        } as AgentMessage;
-        const promptPayload = await this.spillOversizePrompt(
-          turn.turnId,
-          durablePrompt,
-        );
-        if (promptPayload.spillKey) await assertExactTurnActive();
-        // The prompt, its hidden updates, and the adopted checkpoint commit
-        // together. A restart cannot remember an update that was never appended.
-        const contextStateChanged = context.state !== previousContext;
-        const checkpointChanged = promptContextCheckpointChanged({
-          storedContext,
-          previousContext,
-          storedCheckpoint,
-          nextCheckpoint: compaction.checkpoint,
-        });
-        const promptRow = this.ctx.storage.transactionSync(() => {
-          const row = this.journal.appendMessage({
-            turnId: turn.turnId,
-            writer: "orchestrator",
-            writerKey: `turn:${turn.turnId}:prompt`,
-            role: "user",
-            hidden: turn.hiddenMessage === true,
-            clientMsgId: turn.clientMsgId,
-            createdAt: now,
-            message: durablePrompt,
-            ...promptPayload,
-          });
-          if (contextStateChanged)
-            this.ctx.storage.kv.put(PROMPT_CONTEXT_KEY, context.state);
-          if (checkpointChanged) {
-            if (compaction.checkpoint)
-              this.ctx.storage.kv.put(
-                CONTEXT_CHECKPOINT_KEY,
-                compaction.checkpoint,
-              );
-            else this.ctx.storage.kv.delete(CONTEXT_CHECKPOINT_KEY);
-          }
-          return row;
-        });
-        this.journal.setTurnSpan(turn.turnId, promptRow.seq);
-        this.publish(promptRow.record);
-        this.publishAgentTerminal(turn, report);
-
-        const startedRow = this.journal.appendTurn({
-          turnId: turn.turnId,
-          writer: "orchestrator",
-          writerKey: `turn:${turn.turnId}:phase:started`,
-          phase: "started",
-          lane: turn.lane ?? "chat",
-          source: turn.source,
-          promptSeq: promptRow.seq,
-          createdAt: now,
-        });
-        this.journal.setTurnSpan(turn.turnId, startedRow.seq);
-        this.publish(startedRow.record);
-        this.live = {
-          turnId: turn.turnId,
-          streamId: null,
-          partialText: "",
-          tools: [],
-        };
-
-        const currentMessage = stampUserMessageSequences(
-          [durablePrompt],
-          [
-            {
-              seq: promptRow.seq,
-              role: "user",
-              hidden: turn.hiddenMessage === true,
-            },
-          ],
-        )[0]!;
-        turnHistory = providerHistory({
-          context: context.state,
-          checkpoint: compaction.checkpoint,
-          messages: journalHistory,
-        });
-        const currentPrompt = materializeProviderContext(
-          [currentMessage],
-          context.state.epoch,
-        );
-        if (attachmentImages.length > 0) {
-          const user = currentPrompt.at(-1);
-          if (user?.role === "user" && Array.isArray(user.content))
-            user.content.push(...attachmentImages);
-        }
-        turnCurrentPrompt = currentPrompt;
-        this.journal.setTurnContext(
-          turn.turnId,
-          contextStartSeq,
-          selection.endSeq,
-        );
-        void this.index
-          .flush({ activity: "running", updatedAt: now })
-          .catch(() => undefined);
-        log("info", "chat_prompt_context", {
-          turnId: turn.turnId,
-          boundary: context.boundary,
-          updates: prepend.length,
-          compacted: compaction.compacted,
-          startSeq: contextStartSeq,
-        });
-      } else {
-        // Resume: the prompt row, the prompt context it adopted and the
-        // history window it recorded are all durable, so rebuild exactly the
-        // request the lost isolate was sending instead of preparing a new one.
-        // Nothing is appended before the open calls are answered: an inbox
-        // row or a repair landing between a tool call and its result would
-        // poison the provider request.
-        const [
-          { memoryPreference, memoryDocuments, personalityOverride },
-          canonicalPrompts,
-          locale,
-          attachmentImages,
-          skillCatalog,
-          relaySession,
-        ] = await preparationWork;
-        turnRelaySession = relaySession;
-        const journalEpoch = this.journal.meta().epoch;
-        const previousContext = reusablePromptContext({
-          storedContext:
-            await this.getTurnState<PromptContext>(PROMPT_CONTEXT_KEY),
-          journalEpoch,
-          ownerGeneration: turn.ownerGeneration,
-        });
-        const range = this.journal.turnContextRange(turn.turnId);
-        if (!previousContext) {
-          throw new ChatTurnNotResumableError("prompt_context");
-        }
-        if (!range || previousContext.startSeq !== range.startSeq) {
-          throw new ChatTurnNotResumableError("context_range");
-        }
-        const turnTools = await this.createTools(
-          turn,
-          agentHome,
-          skillCatalog,
-          memoryPreference.memoryEnabled,
-        );
-        const context = resumePromptContext({
-          previous: previousContext,
-          policy: memoryPreference,
-          tools: turnTools.tools,
-          startSeq: range.startSeq,
-          journalEpoch,
-        });
-        // A boundary (memory disabled or erased, an owner reset) means the
-        // frozen context the lost isolate sent may carry context that must
-        // not be sent again. Fail rather than resume across it.
-        if (!context) {
-          throw new ChatTurnNotResumableError("context_boundary");
-        }
-        turnContext = context;
-        const checkpoint = await this.getTurnState<ContextCheckpoint>(
-          CONTEXT_CHECKPOINT_KEY,
-        );
-        const selection = this.journal.selectRange(
-          turn.turnId,
-          range.startSeq,
-          range.endSeq,
-        );
-        const journalHistory = stampUserMessageSequences(
-          await this.hydrateWindow(selection),
-          selection.rows,
-        );
-        turnHistory = providerHistory({
-          context: context.state,
-          checkpoint,
-          messages: journalHistory,
-        });
-        const own = this.journal.selectTurnMessages(turn.turnId);
-        const ownMessages = await this.hydrateWindow(own);
-        if (own.rows[0]?.role !== "user" || !ownMessages[0]) {
-          throw new ChatTurnNotResumableError("prompt_row");
-        }
-        const promptMessage = stampUserMessageSequences(
-          [ownMessages[0]],
-          [own.rows[0]],
-        )[0]!;
-        const currentPrompt = materializeProviderContext(
-          [promptMessage],
-          context.state.epoch,
-        );
-        if (attachmentImages.length > 0) {
-          const user = currentPrompt.at(-1);
-          if (user?.role === "user" && Array.isArray(user.content))
-            user.content.push(...attachmentImages);
-        }
-        turnCurrentPrompt = currentPrompt;
-        const produced = ownMessages.slice(1);
-        const counts = { rerun: 0, interrupted: 0, notStarted: 0 };
-        const open = this.journal
-          .openTailCalls()
-          .filter((call) => call.turnId === turn.turnId);
-        for (let index = 0; index < open.length; index += 1) {
-          await assertExactTurnActive();
-          const call = open[index]!;
-          const resolved = await resolveOpenToolCall({
-            tools: context.tools,
-            call,
-            started: index === 0,
-            signal: executionSignal,
-            now: () => Date.now(),
-          });
-          await assertExactTurnActive();
-          const appended = this.journal.appendRepairedResult(
-            turn.turnId,
-            resolved.message,
-            Date.now(),
+      // The turn's one transport to the model gateway: owner fence, model
+      // grant and managed cancellation on every physical request.
+      const relayFetch = async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ): Promise<Response> => {
+        const request = new Request(input, init);
+        // Resolution contains no prompt and can overlap home loading.
+        if (new URL(request.url).pathname === GATEWAY_RESOLVE_PATH) {
+          return measurePreparation("modelResolutionTransportMs", () =>
+            modelGateway.fetch(request),
           );
-          this.journal.setTurnSpan(turn.turnId, appended.seq);
-          this.publish(appended.record);
-          produced.push(resolved.message);
-          if (resolved.disposition === "rerun") counts.rerun += 1;
-          else if (resolved.disposition === "interrupted")
-            counts.interrupted += 1;
-          else counts.notStarted += 1;
         }
-        turnProduced = produced;
-        producedIndexBase = this.journal.maxProducedIndex(turn.turnId) + 1;
-        this.live = {
-          turnId: turn.turnId,
-          streamId: null,
-          partialText: "",
-          tools: [],
-        };
-        void this.index
-          .flush({ activity: "running", updatedAt: Date.now() })
-          .catch(() => undefined);
-        log("info", "chat_turn_resume_context", {
-          turnId: turn.turnId,
-          conversationId: turn.conversationId,
-          historyRows: selection.rows.length,
-          producedRows: produced.length,
-          summarized: Boolean(checkpoint),
-          finishedBeforeLoss: produced.at(-1)?.role === "assistant",
-          ...counts,
-        });
-      }
-      // Revalidate at the provider boundary below, including retries. Agent
-      // construction does not send context, so a second check here only adds
-      // a control-plane round trip before the same mandatory validation.
-
-      // The watchdog (or /cancel) may have fired during the setup awaits
-      // above, before currentAgent exists for abort() to reach — re-check so
-      // an already-terminal turn never starts the loop at all.
-      try {
-        await assertExactTurnActive();
-      } catch (error) {
-        if (
-          turnCancellation.aborted ||
-          (await this.getTurnState<boolean>("terminal"))
-        ) {
-          // The prompt row is already committed, so this turn has content
-          // worth indexing even though the loop never ran. Returning without
-          // this is how a canceled turn used to vanish from the search index permanently.
-          await this.afterTerminal(turn);
-          return json({ ok: false, canceled: true });
-        }
-        throw error;
-      }
-
-      await assertExactTurnActive();
-      const Agent = await agentRuntimeWork!;
-      // No await is allowed between this local latch and constructing the
-      // Agent. The next async admission boundary repeats the same check.
-      assertTurnExecutionActive(turnCancellation, executionSignal);
-      const steerable: SteerableTurn = {
-        turn,
-        watchdogAt,
-        waiting: [],
-        injected: new Map(),
-      };
-      const agent: RuntimeAgent = new Agent({
-        initialState: {
-          systemPrompt: turnContext.state.frozen.systemPrompt,
-          model: turnRelaySession.model,
-          tools: turnContext.tools,
-          messages: resumeTurn
-            ? [...turnHistory, ...turnCurrentPrompt, ...turnProduced]
-            : turnHistory,
-        },
-        sessionId: turn.conversationId,
-        getApiKey: () => turnCapability.token,
-        toolExecution: "sequential",
-        toolInactivityTimeoutMs: 60_000,
-        // Re-prune and strip stale images before EVERY provider call, exactly
-        // as the desktop loop does. The journal window selected above is the
-        // turn's base; without this per-call guard a tool-heavy turn (web
-        // results at ~20KB each) grows unchecked toward the model's declared
-        // window with only the pre-turn budget as slack. First-party
-        // Anthropic routes use the 1h cache tier so an agent completion
-        // wakes this conversation on a warm prefix; resumed turns derive the
-        // same tier from the same route (orchestrator-cache-retention.ts).
-        streamFn: withOrchestratorCacheRetention(
-          turnRelaySession.createStreamFn({
-            reasoningEffort: executionSelection.reasoningEffort,
-            transformContext: async (resolvedModel, rawContext, signal) => {
-              const messages = await buildDefaultTransformContext({
-                model: resolvedModel,
-              })(rawContext.messages, signal);
-              return {
-                ...rawContext,
-                messages: messages.filter(
-                  (message) =>
-                    message.role === "user" ||
-                    message.role === "assistant" ||
-                    message.role === "toolResult",
-                ),
-              };
-            },
-          }),
-          () => turnRelaySession.model,
-        ),
-        // The outer ladder below owns empty completions and physical request
-        // attempts — the same division of labor as the desktop runtime
-        // (`createRuntimeAgent`), which disables the loop's built-in
-        // double-call for the same reason.
-        degenerateResponseRetries: 0,
-        providerRequestLimit: AGENT_RUN_MAX_ATTEMPTS,
-        getSteeringMessages: () => this.takeSteeredWakes(steerable),
-      });
-
-      // Incremental persistence: every produced message is committed as it is
-      // produced. A DO eviction at minute four of a five-minute turn used to
-      // discard everything the turn had done; now it loses at most the message
-      // still streaming. This is only safe because repairTail() above closes
-      // whatever tool calls such an eviction leaves open.
-      //
-      // The handler is synchronous on purpose. The Agent's event sink is
-      // fire-and-forget — a returned promise is dropped — so an `await` here
-      // would silently lose rows. SQLite in a DO is synchronous, which is what
-      // makes that constraint costless.
-      let producedIndex = producedIndexBase;
-      let streamId: string | null = null;
-      let persistError: string | undefined;
-      const unsubscribe = agent.subscribe((event: AgentEvent) => {
-        // Agent.abort() can race one last provider callback. The subscriber is
-        // synchronous, so this in-memory latch is the only check that can sit
-        // directly in front of every journal append/broadcast without opening
-        // another await-sized TOCTOU window.
-        if (turnCancellation.aborted || executionSignal.aborted) return;
-        try {
-          if (event.type === "message_end" && event.message.role === "user") {
-            // Submitted user blocks already exist as durable prompt metadata.
-            if (turnCurrentPrompt.includes(event.message)) return;
-            const steered = steerable.injected.get(event.message);
-            if (steered) {
-              steerable.injected.delete(event.message);
-              this.absorbSteeredWake(turn, steered);
-              return;
-            }
-          }
-          this.onAgentEvent(turn, event, {
-            nextIndex: () => producedIndex++,
-            streamId: () => streamId,
-            setStreamId: (value) => {
-              streamId = value;
-            },
-          });
-        } catch (error) {
-          // A failed transcript write must fail the turn: the model's
-          // in-memory history would otherwise diverge from what the user is
-          // shown, and the next turn would read a history the user never saw.
-          persistError ??= errorMessage(error);
-          agent.abort();
-        }
-      });
-
-      // The desktop runtime's transient ladder, verbatim: resume the same
-      // in-memory context after a retryable provider/transport failure
-      // instead of failing the whole turn on one blip. The Effect cancellation
-      // latch is wired to the cancel/watchdog paths so an aborted turn classifies as
-      // canceled (never retried) and a cancel during backoff wakes the sleep.
-      const retryState = { attemptsUsed: 0, retriesUsed: 0 };
-      this.currentAgent = agent;
-      this.steerableTurn = steerable;
-      let execution: { finalText: string; errorMessage?: string };
-      try {
-        execution = await executeAgentRunWithRetry({
-          state: retryState,
-          isCanceled: () => turnCancellation.aborted,
-          sleep: (milliseconds) => turnCancellation.sleep(milliseconds),
-          execute: async (resume) => {
-            await assertExactTurnActive();
-            // The model transport checks memory policy and the exact lease
-            // before every physical request, including tools and compaction.
-            log("info", "chat_turn_prepared", {
-              turnId: turn.turnId,
-              conversationId: turn.conversationId,
-              admissionMs: turn.queuedAt
-                ? Math.round(
-                    Date.now() - turn.queuedAt - (performance.now() - started),
-                  )
-                : undefined,
-              totalPreparationMs: Math.round(performance.now() - started),
-              ...preparationTimings,
-            });
-
-            // Stop cannot interleave between this synchronous latch and
-            // Agent.prompt/continue entering _runLoop and creating its own
-            // provider/tool controller.
-            assertTurnExecutionActive(turnCancellation, executionSignal);
-            if (resume) {
-              await agent.continue();
-            } else if (resumeTurn) {
-              // A reply journaled before the loss only lacks its terminal;
-              // asking the model again would bill and possibly change it.
-              if (agent.state.messages.at(-1)?.role !== "assistant") {
-                await agent.continue();
-              }
-            } else {
-              await agent.prompt(turnCurrentPrompt);
-            }
-            const completion = getAgentCompletion(agent);
-            return { ...completion, finalText: completion.finalText.trim() };
-          },
-          prepareResume: (reason, classification) => {
-            // A subscription reset is minutes or hours away; retrying this
-            // turn hides the actionable notice behind minute-long backoffs.
-            if (subscriptionLimitNotice) return false;
-            const prepared = prepareTransientResumeTail(
-              agent.state.messages,
-              classification,
-            );
-            if (prepared) {
-              log("info", "chat_turn_transient_retry", {
-                turnId: turn.turnId,
-                conversationId: turn.conversationId,
-                category: classification.category,
-                message: reason,
+        const execute = async (physicalRequest: Request) => {
+          const localGrant = await modelGrantForPhysicalRequest();
+          const activeGrant = localGrant
+            ? this.localOwnerModelGrants.begin(
+                localGrant.grant,
+                localGrant.expected,
+                physicalRequest.signal,
+              )
+            : undefined;
+          const guardedRequest = activeGrant
+            ? new Request(physicalRequest, {
+                signal: activeGrant.requestSignal,
+              })
+            : physicalRequest;
+          try {
+            // An eligible signed request goes straight to its owner
+            // DO; the DO retains every check.
+            const relayOwners =
+              executionSelection.engine === "stella" &&
+              turnCapability.claims.ledgerScope === "owner-relay-v2"
+                ? this.env.MODEL_GATEWAY_OWNERS
+                : undefined;
+            const guard = (requestToGuard: Request) =>
+              guardedModelFetch({
+                request: requestToGuard,
+                fetch: (value) =>
+                  relayOwners
+                    ? relayOwners
+                        .get(relayOwners.idFromName(turnCapability.claims.sub))
+                        .fetch(value)
+                    : modelGateway.fetch(value),
+                mode: activeGrant ? "authorize-before-fetch" : "gate-body",
+                authorize: async () => {
+                  await assertExactTurnActive();
+                  const { memoryPreference } = await measuredHomePreparation;
+                  if (!turn.ownerPurgeGeneration || !turn.ownerPurgeLeaseId) {
+                    throw new OwnerPurgeFenceError();
+                  }
+                  assertTurnExecutionActive(turnCancellation, executionSignal);
+                  if (activeGrant) activeGrant.assertValid();
+                  else {
+                    const policyStartedAt = performance.now();
+                    await requireCloudContext(
+                      "agent_home_memory",
+                      this.ownerGate(turn.ownerId).assertMemoryPolicy(
+                        memoryPreference,
+                        turn.ownerPurgeGeneration,
+                        turn.ownerPurgeLeaseId,
+                        turn.turnId,
+                      ),
+                    );
+                    log("info", "chat_model_dispatch_prepared", {
+                      turnId: turn.turnId,
+                      memoryRevalidationMs: Math.round(
+                        performance.now() - policyStartedAt,
+                      ),
+                    });
+                  }
+                  // Count physical requests after privacy validation, including
+                  // compaction and tool continuations, rather than Agent invocations.
+                  await this.noteDevAcceptanceProviderDispatch();
+                  assertTurnExecutionActive(turnCancellation, executionSignal);
+                  // The dev counter is an asynchronous boundary. Freeze may
+                  // arrive while it is pending, so check the local grant again
+                  // at the last point before the request body is released.
+                  activeGrant?.assertValid();
+                },
               });
+            const response =
+              executionSelection.engine === "stella"
+                ? await (() => {
+                    const control = this.env.MODEL_GATEWAY_CONTROL;
+                    if (!control)
+                      throw new Error(
+                        "Model gateway cancellation is not configured.",
+                      );
+                    return fetchWithManagedCancellation({
+                      request: guardedRequest,
+                      capability: turnCapability.token,
+                      control: control as ModelGatewayControl & Fetcher,
+                      waitUntil: (work) => this.ctx.waitUntil(work),
+                      fetch: guard,
+                    });
+                  })()
+                : await guard(guardedRequest);
+            if (!response.ok) {
+              subscriptionLimitNotice = nativeSubscriptionLimitNotice(
+                response.headers.get(GATEWAY_SUBSCRIPTION_LIMIT_HEADER),
+              );
             }
-            return prepared;
-          },
-          onRetry: (info) => {
-            log("info", "chat_turn_retry_scheduled", {
-              turnId: turn.turnId,
-              conversationId: turn.conversationId,
-              category: info.category,
-              retryNumber: info.retryNumber,
-              nextAttempt: info.nextAttempt,
-              delayMs: info.delayMs,
-            });
-          },
-        });
-      } finally {
-        this.currentAgent = undefined;
-        if (this.steerableTurn === steerable) this.steerableTurn = undefined;
-      }
-      unsubscribe();
-      // Oversize-row promotion, the only work the sync handler defers.
-      await this.background.catch(() => undefined);
-      if (persistError) {
-        throw new Error(`Persisting the reply failed: ${persistError}`);
-      }
-
-      if (await this.getTurnState<boolean>("terminal")) {
-        // Canceled or timed out mid-loop; the terminal event and its journal
-        // record are already written by whichever path marked it terminal.
-        // The post-terminal work is not: that path deliberately leaves it to
-        // the loop, which is the only caller that knows the loop has stopped
-        // and that a drain or a rollover is therefore safe.
-        await this.afterTerminal(turn);
-        return json({ ok: false, canceled: true });
-      }
-
-      // Everything the loop produced is already committed, row by row, above.
-      const finalText = execution.finalText;
-      if (execution.errorMessage) {
-        throw new Error(execution.errorMessage);
-      }
-      return await this.completeChatTurn(turn, finalText, started);
+            return activeGrant
+              ? releaseOwnerModelGrantAfterBody(response, activeGrant.release)
+              : response;
+          } catch (error) {
+            activeGrant?.release();
+            throw error;
+          }
+        };
+        return execute(request);
+      };
+      return await this.runPiTurn({
+        turn,
+        turnCancellation,
+        executionSignal,
+        resumeTurn,
+        started,
+        execution: harnessExecution,
+        capability: turnCapability.token,
+        relayFetch,
+        gatewayOrigin: modelGatewayOrigin,
+        homeWork: measuredHomePreparation,
+        canonicalPromptsWork,
+        destinationsWork,
+        measurePreparation,
+        preparationTimings,
+        assertExactTurnActive,
+      });
     } catch (error) {
       const message = errorMessage(error);
       const contextFailure = cloudContextFailure(error);
@@ -1602,6 +845,315 @@ export abstract class OrchestratorRunTurn extends OrchestratorCliTurn {
         unregisterMs: Math.round(releaseAt - unregisterAt),
         releaseGateMs: Math.round(performance.now() - releaseAt),
       });
+    }
+  }
+
+  /**
+   * One chat turn on the Claude Code CLI. Same claim, preparation, prompt
+   * row, terminal ladder and post-terminal work as Stella's own loop; what
+   * differs is who runs the model. No model capability is minted here, no
+   * relay session or summarizer exists (Claude Code compacts its own
+   * session), and the turn is dispatched once: a resumed turn that finds its
+   * dispatch record waits for that exact attempt's terminal instead.
+   */
+  /**
+   * A Stella-model turn of a conversation that runs on pi-durable. The turn
+   * plane around it is unchanged: admission, owner fence, the turn's model
+   * capability and guarded transport, watchdog, terminal delivery. pi owns
+   * the run: the prompt goes to its root conversation under the turn id, so
+   * a turn resumed after an eviction finds the same submission, and pi's
+   * committed messages are mirrored into the journal for `/history`, the
+   * socket and the existing clients.
+   */
+  protected async runPiTurn(args: {
+    turn: ChatTurnRequest;
+    turnCancellation: TurnRetryCancellation;
+    executionSignal: AbortSignal;
+    resumeTurn: boolean;
+    started: number;
+    execution: import("../pi-runtime.js").PiExecution;
+    capability: string;
+    relayFetch: typeof fetch;
+    gatewayOrigin: string;
+    homeWork: ReturnType<OrchestratorOwner["prepareCloudHomeContext"]>;
+    canonicalPromptsWork: Promise<CanonicalPrompts>;
+    destinationsWork: Promise<DevicesResponse | null>;
+    measurePreparation: <T>(name: string, work: () => Promise<T>) => Promise<T>;
+    preparationTimings: Record<string, number>;
+    assertExactTurnActive: () => Promise<void>;
+  }): Promise<Response> {
+    const { turn, turnCancellation, executionSignal, assertExactTurnActive } =
+      args;
+    const [home, canonicalPrompts, destinations, pi] = await Promise.all([
+      args.homeWork,
+      args.canonicalPromptsWork,
+      args.destinationsWork,
+      import("../pi-runtime.js"),
+    ]);
+    await assertExactTurnActive();
+    const executionContext = cloudExecutionContext(turn, destinations);
+    const modelSpec = (
+      agentType: "orchestrator" | "general",
+      execution: Extract<CloudExecutionSelection, { engine: "stella" }>,
+    ) => piModelSpec(agentType, execution, turn.audience);
+    const binding: import("../pi-runtime.js").PiTurnBinding = {
+      turnId: turn.turnId,
+      capability: args.capability,
+      fetch: args.relayFetch,
+      // Agents this turn starts run on this owner's authority after it ends.
+      authority: {
+        ownerId: turn.ownerId,
+        ownerGeneration: turn.ownerGeneration,
+        conversationId: turn.conversationId,
+        audience: turn.audience,
+        budgetMicroCents: turn.budgetMicroCents,
+        execution: args.execution,
+      },
+      // A ChatGPT plan turn runs on the plan's model, which the gateway does not resolve.
+      ...(args.execution.engine === "stella"
+        ? {
+            stellaModels: {
+              model: modelSpec("orchestrator", args.execution),
+              agentModel: modelSpec("general", args.execution),
+            },
+          }
+        : {}),
+      thinkingLevel: pi.thinkingLevelFor(
+        args.execution.reasoningEffort,
+        args.execution.engine,
+      ),
+      tools: async () =>
+        (
+          await this.createTools(
+            turn,
+            this.cloudAgentHome(turn),
+            home.skillCatalog,
+            home.memoryPreference.memoryEnabled,
+            "pi",
+          )
+        ).catalog,
+      sources: {
+        orchestratorPrompt: canonicalPrompts.orchestratorBody,
+        personality:
+          home.personalityOverride ?? canonicalPrompts.personalityBody,
+        memory: pi.memoryFromDocuments(
+          home.memoryPreference.memoryEnabled,
+          home.memoryDocuments,
+        ),
+        skillsCatalog: buildCloudSkillsBlock(home.skillCatalog) || undefined,
+        executionContext,
+        locale: await this.resolveTurnLocale(turn),
+      },
+    };
+    const runtime = await this.openPiRuntime(args.gatewayOrigin);
+    const unbind = await runtime.bind(binding);
+    const context = pi.contextFor(executionSignal);
+    let stream: Awaited<ReturnType<typeof runtime.follow>> | undefined;
+    let mirrored = (await this.ctx.storage.get<number>(PI_MIRRORED_KEY)) ?? 0;
+    try {
+      const report = await this.wakeReport(turn);
+      const promptKey = `turn:${turn.turnId}:prompt`;
+      const promptSeq =
+        args.resumeTurn && this.journal.hasRow(promptKey)
+          ? this.journal.selectTurnMessages(turn.turnId).rows[0]?.seq
+          : await this.journalCliPrompt(turn, executionContext, report, "pi");
+      if (promptSeq === undefined) {
+        throw new ChatTurnNotResumableError("prompt_row");
+      }
+      this.live = {
+        turnId: turn.turnId,
+        streamId: null,
+        partialText: "",
+        tools: [],
+      };
+      void this.index
+        .flush({ activity: "running", updatedAt: Date.now() })
+        .catch(() => undefined);
+      await runtime.configureRoot(binding, context);
+      // A reply the journal could not take fails the turn, as the loop's
+      // does: what the user is shown and what Stella read must not diverge.
+      // The entry stays unmirrored, so the next turn writes it again.
+      let persistError: string | undefined;
+      stream = await runtime.follow(
+        mirrored,
+        (entry) => {
+          if (persistError !== undefined) return;
+          const message = entry.model?.[0];
+          if (
+            message &&
+            (entry.kind === "pi.assistant" ||
+              entry.kind === "pi.tool-result") &&
+            // Written from the journal: another writer's, already there.
+            pi.journalSeqOf(entry) === undefined
+          ) {
+            try {
+              const appended = this.appendProduced(
+                turn,
+                message as unknown as AgentMessage,
+                {
+                  writer: "orchestrator",
+                  writerKey: `pi:${entry.id}`,
+                  streamId: null,
+                },
+              );
+              if (appended) this.publish(appended.record);
+            } catch (error) {
+              persistError = errorMessage(error);
+              this.currentPiRun?.abort();
+              return;
+            }
+          }
+          mirrored = Math.max(mirrored, entry.id);
+        },
+        context,
+        // Every client shows a turn's tools as they run, as the loop's.
+        (tool) =>
+          this.noteTurnTool(
+            turn,
+            { toolCallId: tool.toolCallId, name: tool.name, args: tool.args },
+            tool.phase,
+            tool.isError,
+          ),
+      );
+      await assertExactTurnActive();
+      if (turn.piAgent) {
+        await runtime.originAgent(
+          turn.piAgent,
+          turn.prompt,
+          turn.turnId,
+          context,
+        );
+        log("info", "pi_origin_agent_op", {
+          turnId: turn.turnId,
+          conversationId: turn.conversationId,
+          op: turn.piAgent.op,
+          threadId: turn.piAgent.threadId,
+        });
+        return await this.completeChatTurn(turn, "", args.started);
+      }
+      // What other writers journaled since (a computer's turns, another
+      // engine's) is part of the conversation this turn answers.
+      const [, images] = await Promise.all([
+        // Rows already rolled over to R2 are read from there.
+        runtime.importJournal(
+          (afterSeq) =>
+            this.archive.readRange(
+              afterSeq + 1,
+              Number.MAX_SAFE_INTEGER,
+              PI_JOURNAL_IMPORT_BATCH,
+            ),
+          turn.turnId,
+          context,
+        ),
+        this.loadChatAttachmentImages(turn, executionSignal),
+      ]);
+      const { root } = await runtime.open();
+      const clock = new Date().toISOString();
+      const text = turn.hiddenMessage
+        ? report.prompt
+        : `${report.prompt.replace(/\s+$/u, "")}\n\n${formatMessageRefTag(promptSeq)}`;
+      // Marked as the journal row is: the clock is context, and a prompt the
+      // user did not write (a wake, an agent's note) is read, not shown.
+      const hidden = { stella: { hidden: true as const } };
+      const submission = await root.submit(
+        {
+          type: "input",
+          requestId: `turn:${turn.turnId}`,
+          whenBusy: "followUp",
+          content: [
+            {
+              type: "text",
+              text: `<current-time>${clock}</current-time>`,
+              ...hidden,
+            },
+            { type: "text", text, ...(turn.hiddenMessage ? hidden : {}) },
+            ...(turn.attachments?.length
+              ? [
+                  {
+                    type: "text" as const,
+                    text: attachedFilesText(turn.attachments, {
+                      readableHere: true,
+                    }),
+                  },
+                ]
+              : []),
+            ...images,
+          ],
+        },
+        context,
+      );
+      log("info", "pi_turn_submitted", {
+        turnId: turn.turnId,
+        conversationId: turn.conversationId,
+        submissionId: submission.id,
+        resumed: args.resumeTurn,
+        preparationMs: Math.round(performance.now() - args.started),
+        ...args.preparationTimings,
+      });
+      this.currentPiRun = {
+        abort: () => {
+          void root.abort(pi.contextFor()).catch((error: unknown) => {
+            log("error", "pi_turn_abort_failed", {
+              turnId: turn.turnId,
+              message: errorMessage(error),
+            });
+          });
+        },
+      };
+      if (executionSignal.aborted || turnCancellation.aborted) {
+        this.currentPiRun.abort();
+      }
+      let settled: Awaited<ReturnType<typeof submission.wait>>;
+      try {
+        settled = await submission.wait(context);
+      } catch (error) {
+        if (
+          turnCancellation.aborted ||
+          executionSignal.aborted ||
+          (await this.getTurnState<boolean>("terminal"))
+        ) {
+          // Stop or the watchdog wrote the terminal; pi was aborted with it.
+          this.currentPiRun?.abort();
+          await this.afterTerminal(turn);
+          return json({ ok: false, canceled: true });
+        }
+        if (persistError !== undefined) {
+          throw new Error(`Persisting the reply failed: ${persistError}`);
+        }
+        throw error;
+      }
+      if (persistError !== undefined) {
+        throw new Error(`Persisting the reply failed: ${persistError}`);
+      }
+      if (await this.getTurnState<boolean>("terminal")) {
+        await this.afterTerminal(turn);
+        return json({ ok: false, canceled: true });
+      }
+      if (settled.status !== "done") {
+        throw new Error(
+          `Stella could not answer this turn (${settled.reason}).`,
+        );
+      }
+      const finalText = (await runtime.answer(settled, context)).trim();
+      log("info", "pi_turn_answered", {
+        turnId: turn.turnId,
+        conversationId: turn.conversationId,
+        wallClockMs: Math.round(performance.now() - args.started),
+      });
+      return await this.completeChatTurn(turn, finalText, args.started);
+    } finally {
+      this.currentPiRun = undefined;
+      unbind();
+      await stream?.stop().catch(() => undefined);
+      await this.ctx.storage
+        .put(PI_MIRRORED_KEY, mirrored)
+        .catch(() => undefined);
+      // Agents this turn started keep running after it.
+      await this.piHeartbeat().catch(() => undefined);
+      await this.placeBrainHandoff(
+        turn.turnId,
+        turnCancellation.aborted || executionSignal.aborted,
+      );
     }
   }
 }

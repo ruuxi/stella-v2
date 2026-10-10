@@ -21,5 +21,10 @@ export const resetMessageStorage = async (stellaDataDir: string): Promise<void> 
       recursive: true,
       force: true,
     }),
+    // pi-durable's conversations: one SQLite file each, and active.json.
+    fs.promises.rm(path.join(stateRoot, "agent"), {
+      recursive: true,
+      force: true,
+    }),
   ]);
 };

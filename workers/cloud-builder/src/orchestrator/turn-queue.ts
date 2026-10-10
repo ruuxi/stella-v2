@@ -104,10 +104,9 @@ export abstract class OrchestratorTurnQueue extends OrchestratorTurnLifecycle {
           ),
         ),
       onInterrupt: () => {
-        // Agent.abort() is idempotent. Once prompt() has synchronously entered
-        // its loop this reaches the provider/tool AbortController; before that
-        // point the turn latch and the admission checks below are authoritative.
-        if (this.activeTurnId === turn.turnId) this.currentAgent?.abort();
+        // Before the run starts, the turn latch and the admission checks below
+        // are authoritative.
+        if (this.activeTurnId === turn.turnId) this.currentPiRun?.abort();
       },
     });
     this.turnExecutions.set(turn.turnId, execution);
@@ -379,7 +378,7 @@ export abstract class OrchestratorTurnQueue extends OrchestratorTurnLifecycle {
 
   /**
    * On wake, the turn a replaced isolate was running (a deploy, an eviction)
-   * and whether to resume it. Bounded like the resident agent: at most
+   * and whether to resume it. Bounded: at most
    * {@link CHAT_RESUME_MAX} resumes per turn, counted durably here before the
    * resumed loop runs; only turns younger than {@link CHAT_RESUME_MAX_AGE_MS};
    * and only while the original watchdog, which a resume never extends,

@@ -69,12 +69,16 @@ const waitFor = async (predicate: () => boolean) => {
 
 // `waitFor` for fake-timer tests: `setImmediate` stays real when only
 // `setTimeout`/`clearTimeout` are faked, so real async I/O (fs, catalog
-// reads) still progresses without advancing the faked clock.
+// reads) still progresses without advancing the faked clock. Bounded by
+// wall-clock time rather than a turn count: under a loaded parallel run the
+// real fs reads can take more than a few hundred event-loop turns.
 const flushUntil = async (predicate: () => boolean) => {
-  for (let attempt = 0; attempt < 500; attempt += 1) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
     if (predicate()) return;
     await new Promise((resolve) => setImmediate(resolve));
   }
+  if (predicate()) return;
   throw new Error("condition not reached");
 };
 

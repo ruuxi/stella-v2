@@ -6,7 +6,7 @@
  */
 import type { AgentTool } from "@stella/runtime/kernel/agent-core/types.js";
 import { createCloudCodeAgentTool } from "../../src/cloud-code-tool.js";
-import { createResidentBrowserClient } from "../../src/resident-browser.js";
+import { createCloudBrowserClient } from "../../src/cloud-browser.js";
 
 type Env = { LOADER: WorkerLoader };
 
@@ -45,7 +45,7 @@ export default {
     const connectCalls: unknown[] = [];
     // A Browser Gateway stand-in: pages complete, a login handoff suspends.
     const browserActions: string[] = [];
-    const browser = createResidentBrowserClient(async (command) => {
+    const browser = createCloudBrowserClient(async (command) => {
       browserActions.push(command.action);
       const body =
         command.action === "browser.login_takeover"
@@ -87,8 +87,6 @@ export default {
       return {
         kind: "forwarded",
         status: 200,
-        statusText: "OK",
-        headers: new Headers(),
         body: new TextEncoder().encode(JSON.stringify(body)),
       };
     });

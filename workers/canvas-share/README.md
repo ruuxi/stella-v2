@@ -10,7 +10,16 @@ layer.
 - `GET /c/<slug>` → fetches `shares/<slug>.html` from R2.
   - Missing object → `404`.
   - `expires-at` custom metadata in the past → `404` (object is lazily deleted).
-  - Otherwise → the HTML with:
+  - `visibility: private` custom metadata → served only to its owner:
+    - `?grant=<token>` minted by the backend's `shares.viewLink` for this slug
+      and this object's `owner` tag → `302` to the clean `/c/<slug>` with an
+      HttpOnly `stella_canvas_view` cookie (24 hours, `Path=/c/`).
+    - That cookie for the object's owner → the HTML, `Cache-Control: private, no-store`.
+    - Anything else → `403` "This canvas is private" page.
+    - Needs the `CANVAS_SHARE_VIEW_SECRET` secret, the same value cloud-builder
+      signs grants with (`workers/shared/canvas-view-grant.ts`). Without it no
+      private canvas opens here.
+  - Otherwise (public, or written before visibility existed) → the HTML with:
     - `Content-Type: text/html; charset=utf-8`
     - `X-Content-Type-Options: nosniff`
     - `X-Robots-Tag: noindex, nofollow`

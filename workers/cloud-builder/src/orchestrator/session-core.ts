@@ -1,8 +1,6 @@
 import type { DevicesResponse } from "@stella/contracts/turn-plane/placement";
 import * as Deferred from "effect/Deferred";
 import { DurableObject } from "cloudflare:workers";
-import "../cloud-api-providers.js";
-import type { ExplicitModelAgent as RuntimeAgent } from "@stella/runtime/kernel/agent-core/explicit-model-agent.js";
 import type {
   TurnExecution,
   TurnRetryCancellation,
@@ -28,25 +26,25 @@ import {
 import { Journal } from "../journal.js";
 import { ConversationArchive } from "../archive.js";
 import { ConversationIndex } from "../index-flush.js";
-import {
-  CONVERSATION_EDIT_LOCK_KEY,
-  type ConversationEditLock,
-} from "../conversation-edit-protocol.js";
 import type {
   CloudCliTurnTerminal,
   CloudOrchestratorToolCallResponse,
 } from "@stella/contracts/cloud-orchestrator-cli";
 import { ExactTurnCancellationLedger } from "../execution-placement-turn-cancellation.js";
 import type {
-  SteerableTurn,
   Env,
   ChatTurnRequest,
   OwnerFencedTurn,
   LocalTurnLease,
+  AgentsView,
   CliTurnRuntime,
 } from "./types.js";
-import { LOCAL_TURN_LEASE_KEY } from "./constants.js";
-import { errorMessage, log } from "./support.js";
+import {
+  AGENT_RUNTIME_KEY,
+  AGENTS_VIEW_KEY,
+  LOCAL_TURN_LEASE_KEY,
+} from "./constants.js";
+import { listedAgents, errorMessage, log } from "./support.js";
 import type { OrchestratorOwner } from "./owner.js";
 
 /**
@@ -54,9 +52,9 @@ import type { OrchestratorOwner } from "./owner.js";
  * `../orchestrator-session-object.ts`) is one class split by concern into a
  * chain of layers, each extending the one below it:
  *
- *   session-core → owner → turn-lifecycle → turn-queue → conversation-edit →
- *   dev-acceptance → cloud-agents → tools → cli-turn → run-turn →
- *   journal-writes → local-turn → turn-start → OrchestratorSessionObject
+ *   session-core → owner → turn-lifecycle → turn-queue → dev-acceptance →
+ *   cloud-agents → pi → tools → cli-turn → run-turn → journal-writes →
+ *   local-turn → turn-start → OrchestratorSessionObject
  *
  * This bottom layer holds every field and the constructor, so fields are
  * initialized exactly once and in their original order. A layer calls only
@@ -171,16 +169,17 @@ export abstract class OrchestratorSessionCore extends DurableObject<Env> {
     Promise<CloudOrchestratorToolCallResponse>
   >();
 
-  // The in-flight loop, exposed so /cancel and the alarm can actually stop
-  // token burn instead of only marking the turn terminal.
-  protected currentAgent?: RuntimeAgent;
-  // The resident loop hidden agent wakes can join. Kept apart from
-  // `currentAgent`, which the compaction summarizer borrows.
-  protected steerableTurn?: SteerableTurn;
-  // Aborts the live turn's retry ladder alongside `currentAgent.abort()`:
+  // Aborts the live turn's retry ladder:
   // classification reads it to refuse retries after a cancel/timeout, and an
   // abort during retry backoff wakes the sleep instead of waiting it out.
   protected currentTurnCancellation?: TurnRetryCancellation;
+  /** The pi-durable run of the live turn, for the same Stop and watchdog paths. */
+  protected currentPiRun?: { abort(): void };
+  /** This conversation's pi-durable harness, opened once per isolate. */
+  protected piRuntime?: Promise<
+    import("../pi-runtime.js").PiConversationRuntime
+  >;
+  protected piClientsAttaching = false;
 
   protected readonly cloudHomePreparations = new Map<
     string,
@@ -189,6 +188,20 @@ export abstract class OrchestratorSessionCore extends DurableObject<Env> {
       destinations: Promise<DevicesResponse | null>;
     }
   >();
+
+  /** When this object last checked its running agents against their owners. */
+  protected agentsReconciledAt = 0;
+
+  /** What `agentsView` read last is in storage. */
+  protected agentsViewStored = false;
+  /**
+   * The running agents of a conversation pi has run in (`refreshAgents`),
+   * which `ready` and `agents` frames list; null where they are folded
+   * from the journal's agent cards.
+   */
+  protected agentsView: AgentsView | null = null;
+  protected agentsRefresh: Promise<void> | null = null;
+  protected agentsRefreshAgain = false;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -215,11 +228,27 @@ export abstract class OrchestratorSessionCore extends DurableObject<Env> {
       cancelTurn: (turnId) => this.cancelTurn(turnId),
       onConnect: () => {
         this.flushIndexIfLagging();
+        this.reconcileRunningAgentsSoon();
       },
       conversationId: () => this.conversationId(),
       log,
       verifyToken: (token) =>
         verifyUserToken(token, this.env as unknown as Cloudflare.Env),
+      pi: {
+        enabled: async () =>
+          (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi",
+        attach: () => this.attachPiClients(),
+        older: async (beforeEntryId) => {
+          const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+          const { contextFor } = await import("../pi-runtime.js");
+          return await runtime.olderForClients(beforeEntryId, contextFor());
+        },
+        detach: () => {
+          void this.piRuntime
+            ?.then((runtime) => runtime.stopWatchingForClients())
+            .catch(() => undefined);
+        },
+      },
     });
     // Set in the constructor rather than at accept time: whether an
     // auto-response survives DO eviction is not something the docs settle, and
@@ -245,6 +274,16 @@ export abstract class OrchestratorSessionCore extends DurableObject<Env> {
       if (this.journal.meta().conversation_id === "" && this.ctx.id.name) {
         this.journal.setConversationId(this.ctx.id.name);
       }
+      // A conversation on pi lists its running agents from their owners from
+      // the first connect on, even before it has read them.
+      const agentsView =
+        await this.ctx.storage.get<AgentsView>(AGENTS_VIEW_KEY);
+      this.agentsViewStored = agentsView !== undefined;
+      this.agentsView =
+        agentsView ??
+        ((await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi"
+          ? { pi: [], owner: [] }
+          : null);
       const localLease =
         await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
       if (localLease) {
@@ -358,7 +397,10 @@ export abstract class OrchestratorSessionCore extends DurableObject<Env> {
       newest: (limit): JournalRecord[] =>
         this.journal.newest(Math.min(limit, INITIAL_WINDOW_RECORDS)),
       liveTurn: () => this.live,
-      runningAgents: (limit) => this.journal.runningAgents(limit),
+      runningAgents: (limit) =>
+        this.agentsView
+          ? listedAgents(this.agentsView, limit)
+          : this.journal.runningAgents(limit),
     };
   }
 
@@ -427,17 +469,6 @@ export abstract class OrchestratorSessionCore extends DurableObject<Env> {
     }
   }
 
-  protected async activeConversationEditLock(): Promise<ConversationEditLock | null> {
-    const lock =
-      (await this.ctx.storage.get<ConversationEditLock>(
-        CONVERSATION_EDIT_LOCK_KEY,
-      )) ?? null;
-    if (!lock) return null;
-    if (lock.expiresAt > Date.now()) return lock;
-    await this.ctx.storage.delete(CONVERSATION_EDIT_LOCK_KEY);
-    return null;
-  }
-
   // Implemented further up the chain; the constructor and the conversation
   // hub wiring above need them.
   protected abstract cancelTurn(turnId: string): Promise<void>;
@@ -457,4 +488,13 @@ export abstract class OrchestratorSessionCore extends DurableObject<Env> {
     options?: { refreshGeneration?: boolean },
   ): Promise<ConversationOwnerRecord | null>;
   protected abstract restoreLocalLease(lease: LocalTurnLease): Promise<void>;
+  protected abstract attachPiClients(): Promise<{
+    snapshot: unknown;
+    hasOlder: boolean;
+  }>;
+  protected abstract openPiRuntime(
+    gatewayOrigin: string,
+  ): Promise<import("../pi-runtime.js").PiConversationRuntime>;
+  protected abstract piGatewayOrigin(): string;
+  protected abstract reconcileRunningAgentsSoon(): void;
 }

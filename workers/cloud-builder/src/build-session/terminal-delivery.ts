@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import { isCloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import type { ThreadCompletedEvent } from "@stella/contracts/turn-plane/owner-events";
 import {
   TURN_OWNER_GENERATION_HEADER,
@@ -8,8 +7,8 @@ import {
 } from "@stella/contracts/turn-plane/turn-start";
 import { runToolEffect } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import {
-  rememberCloudAgentControlReceipt,
-  steerCloudAgent,
+  agentCompletionPromptText,
+  agentLifecycleReport,
 } from "../cloud-agent-dispatch.js";
 import {
   CLOUD_CLI_TURN_DO_PATHS,
@@ -30,12 +29,6 @@ import {
   sandboxLifecycleFailureFields,
 } from "../sandbox-lifecycle.js";
 import {
-  SteerMailbox,
-  isChildTerminalSteer,
-  parseSteerMessage,
-  steerMessageFitsAgentHistory,
-} from "../steer-mailbox.js";
-import {
   nextTurnEventSeq,
   purgeThreadTranscript,
 } from "../thread-transcript.js";
@@ -44,10 +37,8 @@ import type { BuildSessionInternals } from "./host.js";
 import {
   AGENT_WATCHDOG_DEADLINE_KEY,
   HEADER_CONVERSATION_ID,
-  OBSERVED_BROWSER_SUSPENSION_KEY,
   ORCHESTRATOR_INTERNAL_ORIGIN,
   OWNER_PURGE_STALE_LEASE_GRACE_MS,
-  PENDING_BROWSER_SUSPENSION_KEY,
   callOrchestratorCliTurnRoute,
   errorMessage,
   exactTurnIdentityMatches,
@@ -56,7 +47,6 @@ import {
 } from "./shared/keys.js";
 import { OwnerPurgeFenceError } from "./shared/errors.js";
 import type {
-  PendingBrowserSuspension,
   PendingTerminal,
   TurnRequest,
 } from "./shared/types.js";
@@ -89,7 +79,6 @@ export type TerminalDeliveryHost = Pick<
   | "settleAgentTransientBackup"
   | "terminateCurrentAgentSession"
   | "unregisterTurnLease"
-  | "wakeParentAgentOrConversation"
   | "wakeParentConversation"
 >;
 
@@ -125,8 +114,6 @@ export const claimTerminalDecision = async (
       pendingTerminal: pending,
       alarmAttempts: 0,
     });
-    await txn.delete(PENDING_BROWSER_SUSPENSION_KEY);
-    await txn.delete(OBSERVED_BROWSER_SUSPENSION_KEY);
     if (alarmAt !== undefined) {
       await txn.setAlarm(alarmAt);
     }
@@ -276,7 +263,7 @@ export const deliverTerminal = async (
         // one mutation, so the wake rode on the callback's latency and its
         // retry ladder. The parent session lives one Durable Object away, so
         // it is woken directly.
-        await host.wakeParentAgentOrConversation(turn, {
+        await host.wakeParentConversation(turn, {
           status: pending.kind,
           threadUpdatedAt: completedAt,
           ...(resultJson ? { resultJson } : {}),
@@ -384,7 +371,8 @@ export const orchestratorCliTerminal = (
  * recorded first, so `/orchestrator-turn/status` can answer for it after the
  * turn record is gone. Thrown means "retry": `deliverTerminal` keeps the
  * decision and re-arms its alarm. A refusal that names this frame as one
- * the conversation will never take (any 4xx but an edit lock) is final.
+ * the conversation will never take (any 4xx but a timeout or rate limit) is
+ * final.
  */
 export const deliverOrchestratorCliTerminal = async (
   host: TerminalDeliveryHost,
@@ -403,15 +391,11 @@ export const deliverOrchestratorCliTerminal = async (
     CLOUD_CLI_TURN_DO_PATHS.terminal,
     terminal,
   );
-  const body = (await response.json().catch(() => null)) as {
-    code?: unknown;
-  } | null;
   if (response.ok) return;
   const transient =
     response.status >= 500 ||
     response.status === 408 ||
-    response.status === 429 ||
-    body?.code === "conversation_edit_in_progress";
+    response.status === 429;
   if (transient) {
     throw new Error(
       `Orchestrator CLI terminal was not taken (${response.status}).`,
@@ -490,46 +474,6 @@ export const handleOrchestratorTurnStatus = async (
   return json({ state: "unknown" });
 };
 
-export const agentLifecycleReport = (completion: {
-  resultJson?: string;
-  errorMessage?: string;
-}): string => {
-  let resultText = completion.errorMessage ?? "";
-  if (completion.resultJson) {
-    try {
-      const parsed = JSON.parse(completion.resultJson) as {
-        finalText?: unknown;
-      };
-      resultText =
-        typeof parsed.finalText === "string" && parsed.finalText.trim()
-          ? parsed.finalText
-          : completion.resultJson;
-    } catch {
-      resultText = completion.resultJson;
-    }
-  }
-  return resultText || "No result was reported.";
-};
-
-/** The hidden prompt that hands one finished thread to its requester. */
-export const agentCompletionPromptText = (args: {
-  threadId: string;
-  description?: string;
-  status: "completed" | "failed" | "canceled";
-  resultJson?: string;
-  errorMessage?: string;
-}): string => {
-  const resultText = agentLifecycleReport(args);
-  const label =
-    args.status === "completed"
-      ? "[Agent completed]"
-      : args.status === "canceled"
-        ? "[Agent canceled]"
-        : "[Agent failed]";
-  const description = args.description?.trim() || args.threadId;
-  return `${label} ${description} (thread ${args.threadId})\n\n${resultText}`;
-};
-
 const agentCompletionText = async (
   _host: TerminalDeliveryHost,
   turn: TurnRequest,
@@ -544,42 +488,6 @@ const agentCompletionText = async (
     ...(turn.description ? { description: turn.description } : {}),
     ...completion,
   });
-
-export const wakeParentAgentOrConversation = async (
-  host: TerminalDeliveryHost,
-  turn: TurnRequest,
-  completion: {
-    status: "completed" | "failed" | "canceled";
-    threadUpdatedAt: number;
-    resultJson?: string;
-    errorMessage?: string;
-  },
-): Promise<void> => {
-  if (turn.parentThreadId && turn.threadId) {
-    const steered = await steerCloudAgent({
-      env: host.env,
-      threadId: turn.parentThreadId,
-      message: {
-        id: `wake:${turn.threadId}:${turn.attemptGeneration ?? 1}`.slice(
-          0,
-          256,
-        ),
-        kind:
-          completion.status === "completed"
-            ? "child_completed"
-            : completion.status === "canceled"
-              ? "child_canceled"
-              : "child_failed",
-        text: await agentCompletionText(host, turn, completion),
-        threadId: turn.threadId,
-        attemptGeneration: turn.attemptGeneration ?? 1,
-        createdAt: completion.threadUpdatedAt,
-      },
-    });
-    if (steered.accepted) return;
-  }
-  await host.wakeParentConversation(turn, completion);
-};
 
 /**
  * Wake the conversation that spawned this thread with the agent's report.
@@ -658,34 +566,6 @@ export const wakeParentConversation = async (
   await response.body?.cancel().catch(() => undefined);
 };
 
-/** Project a nonterminal human wait without keeping an executor alive. */
-export const deliverBrowserSuspension = async (
-  host: TerminalDeliveryHost,
-  turn: TurnRequest,
-  pending: PendingBrowserSuspension,
-): Promise<boolean> => {
-  if (
-    pending.turnId !== turn.turnId ||
-    pending.attemptGeneration !== turn.attemptGeneration ||
-    !isCloudBrowserSuspension(pending.suspension)
-  ) {
-    return false;
-  }
-  try {
-    await host.event(turn, "auto", "waiting_for_user", pending.payload, false);
-    return true;
-  } catch (error) {
-    log("error", "browser_suspension_delivery_failed", {
-      turnId: turn.turnId,
-      threadId: turn.threadId,
-      interactionId: pending.suspension.interactionId,
-      message: errorMessage(error),
-    });
-    await host.setExactTurnAlarm(turn, Date.now() + 30_000);
-    return false;
-  }
-};
-
 /**
  * Fail a turn whose executor was lost and whose report cannot be recovered.
  * The exact terminal decision is claimed first, then the container is torn
@@ -743,64 +623,6 @@ export const deliverExecutorLossTerminal = async (
       await host.setExactTurnAlarm(turn, Date.now() + 30_000);
     }
   }
-};
-
-export const handleSteer = async (
-  host: TerminalDeliveryHost,
-  request: Request,
-): Promise<Response> => {
-  const message = parseSteerMessage(await request.json().catch(() => null));
-  if (!message) return json({ error: "Invalid steer message." }, 400);
-  if (!steerMessageFitsAgentHistory(message)) {
-    return json({ accepted: false, reason: "too_large" }, 409);
-  }
-  return await host.ctx.blockConcurrencyWhile(async () => {
-    const [turn, terminal] = await Promise.all([
-      host.ctx.storage.get<TurnRequest>("turn"),
-      host.ctx.storage.get<boolean>("terminal"),
-    ]);
-    if (
-      !turn ||
-      turn.kind !== "agent" ||
-      !turn.threadId ||
-      terminal !== false ||
-      !Number.isSafeInteger(turn.attemptGeneration)
-    ) {
-      return json({ accepted: false, reason: "not_running" }, 409);
-    }
-    const mailbox = SteerMailbox.open(host.ctx.storage.sql);
-    const result = mailbox.append(
-      {
-        turnId: turn.turnId,
-        attemptGeneration: turn.attemptGeneration!,
-      },
-      message,
-    );
-    if (result === "conflict") {
-      return json({ accepted: false, reason: "idempotency_conflict" }, 409);
-    }
-    if (result === "full") {
-      return json({ accepted: false, reason: "mailbox_full" }, 503);
-    }
-    if (isChildTerminalSteer(message.kind)) {
-      await rememberCloudAgentControlReceipt(host.ctx.storage, {
-        threadId: message.threadId,
-        attemptGeneration: message.attemptGeneration,
-        threadUpdatedAt: message.createdAt,
-        status:
-          message.kind === "child_completed"
-            ? "completed"
-            : message.kind === "child_canceled"
-              ? "canceled"
-              : "failed",
-      });
-    }
-    return json({
-      accepted: true,
-      turnId: turn.turnId,
-      attemptGeneration: turn.attemptGeneration,
-    });
-  });
 };
 
 /**

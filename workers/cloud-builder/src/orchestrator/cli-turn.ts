@@ -125,14 +125,6 @@ export abstract class OrchestratorCliTurn extends OrchestratorTools {
     );
   }
 
-  /**
-   * One chat turn on the Claude Code CLI. Same claim, preparation, prompt
-   * row, terminal ladder and post-terminal work as Stella's own loop; what
-   * differs is who runs the model. No model capability is minted here, no
-   * relay session or summarizer exists (Claude Code compacts its own
-   * session), and the turn is dispatched once: a resumed turn that finds its
-   * dispatch record waits for that exact attempt's terminal instead.
-   */
   protected async runCliTurn(args: {
     turn: ChatTurnRequest;
     turnCancellation: TurnRetryCancellation;
@@ -450,6 +442,10 @@ export abstract class OrchestratorCliTurn extends OrchestratorTools {
           },
         );
       }
+      await this.placeBrainHandoff(
+        turn.turnId,
+        turnCancellation.aborted || executionSignal.aborted,
+      );
     }
   }
 
@@ -463,6 +459,7 @@ export abstract class OrchestratorCliTurn extends OrchestratorTools {
     turn: ChatTurnRequest,
     executionContext: ExecutionContextSnapshot,
     report: WakeReport,
+    engine: "claude-code" | "pi" = "claude-code",
   ): Promise<number> {
     const now = Date.now();
     const durablePrompt = {
@@ -475,7 +472,7 @@ export abstract class OrchestratorCliTurn extends OrchestratorTools {
         : {}),
       providerContext: {
         version: 2,
-        epoch: `claude-code:${turn.turnId}`,
+        epoch: `${engine}:${turn.turnId}`,
         prepend: [],
         clock: new Date(now).toISOString(),
         ...(turn.attachments?.length
@@ -837,7 +834,7 @@ export abstract class OrchestratorCliTurn extends OrchestratorTools {
     }
   }
 
-  protected noteCliTool(
+  protected noteTurnTool(
     turn: ChatTurnRequest,
     call: { toolCallId: string; name: string; args: unknown },
     phase: "start" | "end",
@@ -973,7 +970,7 @@ export abstract class OrchestratorCliTurn extends OrchestratorTools {
             startedAt: Date.now(),
           } satisfies OrchestratorCliToolCallRecord,
         });
-        this.noteCliTool(turn, forward, "start");
+        this.noteTurnTool(turn, forward, "start");
         let message: AgentMessage;
         if (call.lostExecution) {
           // Its first execution started in an isolate that is gone: rerun a
@@ -1036,7 +1033,7 @@ export abstract class OrchestratorCliTurn extends OrchestratorTools {
         });
         if (appended) this.publish(appended.record);
         const isError = (message as { isError?: boolean }).isError === true;
-        this.noteCliTool(turn, forward, "end", isError);
+        this.noteTurnTool(turn, forward, "end", isError);
         const stored = this.journal.messageByWriterKey(writerKey) ?? message;
         return {
           ok: true,

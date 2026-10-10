@@ -17,8 +17,13 @@ import type {
 } from "@stella/contracts/desktop/companion";
 import type { UiState } from "./ui";
 import type { EvidenceCardSet } from "@stella/contracts/chat-evidence";
+import type {
+  DeviceFileMissingReason,
+  DeviceFileSource,
+} from "@stella/contracts/device-files";
 import type { Theme } from "@stella/theme";
 import type { AgentStreamEvent } from "@stella/contracts/agent-stream";
+import type { PiChatEventsPayload, PiChatRequest } from "@stella/contracts/pi-chat";
 import type { StellaBrowserBridgeStatus } from "@stella/contracts/browser-bridge-status";
 import type {
   LocalChatAgentReport,
@@ -1203,25 +1208,6 @@ export type ElectronLocalChatApi = {
     conversationId: string;
   }) => Promise<{ deleted: boolean }>;
   /**
-   * Truncate a conversation at (and including) a user message — the
-   * desktop "Rewind here" action. Removes the target event and every
-   * event after it, then notifies listeners with a full-refresh update.
-   */
-  truncateConversation: (payload: {
-    conversationId: string;
-    eventId: string;
-  }) => Promise<{ removed: number }>;
-  /**
-   * Branch a conversation's prefix (everything before a user message)
-   * into a brand-new conversation — the desktop "Fork to new chat"
-   * action. Resolves to the new conversation id, or null when the anchor
-   * event no longer exists.
-   */
-  forkConversation: (payload: {
-    conversationId: string;
-    eventId: string;
-  }) => Promise<{ conversationId: string } | null>;
-  /**
    * Raw event-stream read kept for the few non-timeline consumers that
    * look for specific auxiliary event types (the welcome dialog reads
    * `assistant_message`), and for the mobile bridge which proxies the
@@ -1460,8 +1446,19 @@ export type ElectronDisplayApi = {
         truncated: boolean;
         missing: false;
       }
-    | { missing: true; mimeType: string; path: string }
+    | {
+            missing: true;
+            mimeType: string;
+            path: string;
+            reason?: DeviceFileMissingReason;
+          }
   >;
+  /**
+   * Where a `stella-media:` stream for this file comes from: this computer,
+   * the copy another device put in the user's Drive, or nowhere this
+   * computer can reach (and why). Answers without reading the file.
+   */
+  mediaSource?: (filePath: string) => Promise<DeviceFileSource>;
   listCanvasHtml: () => Promise<
     Array<{
       filePath: string;
@@ -1489,7 +1486,7 @@ export type ElectronDisplayApi = {
    * (its own origin and CSP, with the Ask Stella bridge injected).
    * `missing` when the file is on no device that can serve it.
    */
-  canvasFileUrl: (filePath: string) => Promise<{ url: string } | { missing: true }>;
+  canvasFileUrl: (filePath: string) => Promise<{ url: string } | { missing: true; message?: string }>;
   /** Holds `html` (a cloud canvas) in main and returns its `stella-canvas://` URL. */
   canvasHtmlUrl: (html: string) => Promise<{ url: string }>;
   listTrash: () => Promise<{
@@ -1601,6 +1598,16 @@ export type ElectronUserAskApi = {
   ) => () => void;
 };
 
+/** The desktop chat on pi-durable (`@stella/contracts/pi-chat`). */
+export type ElectronPiChatApi = {
+  /** Whether the desktop chat runs on pi-durable: unless the user's engine is Claude Code. */
+  isEnabled: () => boolean;
+  /** Called when the user's engine moves the chat onto or off pi-durable. */
+  onEnabledChanged: (callback: (enabled: boolean) => void) => () => void;
+  request: (request: PiChatRequest) => Promise<unknown>;
+  onEvents: (callback: (payload: PiChatEventsPayload) => void) => () => void;
+};
+
 export type ElectronApi = {
   platform: string;
   arch: string;
@@ -1654,6 +1661,7 @@ export type ElectronApi = {
   dictation: ElectronDictationApi;
   companion: ElectronCompanionApi;
   agent: ElectronAgentApi;
+  piChat?: ElectronPiChatApi;
   system: ElectronSystemApi;
   remoteExecution: ElectronRemoteExecutionApi;
   executionTarget?: ElectronExecutionTargetApi;

@@ -22,9 +22,7 @@ import type {
  * Engine-independent per-run state.
  *
  * External engines (Claude Code, future CLIs) own one of these because their
- * loop is provided by the engine binary, not the Pi `Agent`. Pi execution now
- * routes exclusively through long-lived `OrchestratorSession` /
- * `SubagentSession` instances.
+ * loop is provided by the engine binary.
  */
 export type RuntimeExecutionSessionBase = {
   runId: string;

@@ -1,5 +1,8 @@
 import { memo, useEffect, useState } from "react";
-import type { AppSourceActionResult } from "@stella/contracts/desktop/app-source";
+import type {
+  AppSourceActionResult,
+  AppSourceWaiting,
+} from "@stella/contracts/desktop/app-source";
 import { showToast } from "@/ui/toast";
 import { useLocale, useT, useTPlural } from "@/shared/i18n";
 import {
@@ -11,13 +14,15 @@ import {
   usePendingAppSourceAction,
 } from "./app-source-store";
 import { UpdateCard } from "./UpdateCard";
+import "./app-update-message.css";
 
 /**
- * Changes the user asked Stella to make, in the chat: an agent's draft shows
- * on the message that relays its completion (Update, then Undo). Everything
- * else that can be added (a new version, a change from another computer, a
- * draft made by hand) is the Updates list's (`UpdatesSection`), opened from
- * the pill above the composer. Nothing renders unless Stella runs from source.
+ * Changes to Stella in the chat: an agent's draft shows on the message that
+ * relays its completion (Update, then Undo), and changes no agent here made
+ * (one from another computer, a draft made by hand) pin above the composer.
+ * New versions from the Stella team are the top bar's
+ * (`ShellTopBarUpdatePill`). The Updates tab (`UpdatesSection`) lists all of
+ * them with their history. Nothing renders unless Stella runs from source.
  */
 
 /** Re-render every half minute so "Updated 3 minutes ago" stays true. */
@@ -141,5 +146,87 @@ export const AgentUpdateCard = memo(function AgentUpdateCard({
         onClick: () => void run(agentId, () => api.undo(commit.sha)),
       }}
     />
+  );
+});
+
+/** "Rahuls-MacBook-Air" reads as "Rahuls MacBook Air". */
+export const deviceLabel = (device: string) =>
+  device.replace(/[-_]+/g, " ").trim();
+
+/**
+ * What adding an offer takes. A new version may already be merged with the
+ * user's own changes as a draft; otherwise the main process works out what
+ * taking it means.
+ */
+export const addOffer = (offer: AppSourceWaiting) => {
+  const api = appSourceApi();
+  if (!api) return Promise.resolve<AppSourceActionResult>({ ok: false, error: "" });
+  if (offer.kind === "version") {
+    return offer.draft ? api.apply(offer.draft) : api.applyUpstream();
+  }
+  if (offer.kind === "other-computer") return api.applyRemote();
+  return api.apply(offer.name);
+};
+
+/**
+ * Changes waiting to be added that aren't the Stella team's: a change the
+ * user made on another computer, or a draft made by hand. Each is a message
+ * from Stella in the chat, in the assistant's own bubble, with one button;
+ * skipping one is the Updates tab's.
+ */
+export const AppSourceOffers = memo(function AppSourceOffers() {
+  const t = useT();
+  const state = useAppSourceState();
+  const { pending, run } = useAppSourceAction();
+  if (!state || !appSourceApi()) return null;
+  // While Stella merges its own update, nothing else goes in: applying
+  // another change into the middle of it is a conflict nobody asked for.
+  const merging = updateProgress(state)?.state === "merging";
+  const offers = state.waiting.filter(
+    (offer): offer is Exclude<AppSourceWaiting, { kind: "version" }> =>
+      offer.kind !== "version" && (!merging || offer.adding),
+  );
+  if (offers.length === 0) return null;
+  const blocked = state.busy || pending !== null || merging;
+  return (
+    <div className="app-update-messages" data-testid="app-source-offers">
+      {offers.map((offer) => {
+        const adding = offer.adding || pending === offer.key;
+        return (
+          <div key={offer.key} className="event-row event-row--assistant">
+            <div className="event-item assistant">
+              <div className="message-line message-line--assistant">
+                <div className="assistant-message-text chat-bubble-text app-update-message">
+                  <p className="app-update-message__title">
+                    {offer.kind === "other-computer"
+                      ? offer.device
+                        ? t("shell.appSource.updates.fromDevice", {
+                            device: deviceLabel(offer.device),
+                          })
+                        : t("shell.appSource.updates.fromOtherComputer")
+                      : t("shell.appSource.updates.readyChange")}
+                  </p>
+                  <p className="app-update-message__summary">
+                    {subjectOf(offer.summary)}
+                  </p>
+                  <button
+                    type="button"
+                    className="app-update-message__button"
+                    disabled={adding || blocked}
+                    onClick={() => void run(offer.key, () => addOffer(offer))}
+                  >
+                    {adding
+                      ? t("shell.appSource.updates.adding")
+                      : offer.kind === "other-computer"
+                        ? t("shell.appSource.updates.get")
+                        : t("shell.appSource.updates.add")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 });

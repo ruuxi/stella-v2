@@ -1,55 +1,11 @@
-export type SupportedImageMimeType =
-  | "image/png"
-  | "image/jpeg"
-  | "image/gif"
-  | "image/webp";
+import {
+  detectImageMediaType,
+  type SupportedImageMediaType,
+} from "./image-payload.js";
 
-// NOTE: this intentionally duplicates `detectImageMediaType` in
-// runtime/ai/utils/image-payload.ts. The `ai` layer must not import from
-// `kernel`, so the magic-byte sniffing is mirrored rather than shared. Keep the
-// two in sync — if you add or adjust a format here, mirror it there (and vice
-// versa) so they don't silently drift.
-export const detectImageMimeTypeFromBytes = (
-  bytes: Uint8Array,
-): SupportedImageMimeType | null => {
-  if (bytes.length >= 8) {
-    if (
-      bytes[0] === 0x89 &&
-      bytes[1] === 0x50 &&
-      bytes[2] === 0x4e &&
-      bytes[3] === 0x47 &&
-      bytes[4] === 0x0d &&
-      bytes[5] === 0x0a &&
-      bytes[6] === 0x1a &&
-      bytes[7] === 0x0a
-    ) {
-      return "image/png";
-    }
-  }
+export type SupportedImageMimeType = SupportedImageMediaType;
 
-  if (bytes.length >= 3) {
-    if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-      return "image/jpeg";
-    }
-  }
-
-  if (bytes.length >= 6) {
-    const header = new TextDecoder().decode(bytes.slice(0, 6));
-    if (header === "GIF87a" || header === "GIF89a") {
-      return "image/gif";
-    }
-  }
-
-  if (bytes.length >= 12) {
-    const riff = new TextDecoder().decode(bytes.slice(0, 4));
-    const webp = new TextDecoder().decode(bytes.slice(8, 12));
-    if (riff === "RIFF" && webp === "WEBP") {
-      return "image/webp";
-    }
-  }
-
-  return null;
-};
+export const detectImageMimeTypeFromBytes = detectImageMediaType;
 
 export const imageMimeTypeFromPath = (
   filePath: string,

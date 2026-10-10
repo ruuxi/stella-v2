@@ -12,8 +12,6 @@ import {
   evidenceSourceKind,
   formatByteSize,
   humanTitleFor,
-  pairTitleFor,
-  parseEvidenceName,
   plainKindLabel,
   playbackMimeTypeFor,
   type EvidenceSourceKind,
@@ -66,44 +64,6 @@ export const describeEvidenceSources = (
   return sources;
 };
 
-export type EvidencePairCandidate = {
-  before: EvidenceSource;
-  after: EvidenceSource;
-  pairingKey: string;
-};
-
-/**
- * Image pairs that may collapse into one drag-to-compare frame: two images
- * sharing a pairing key that differ only by a before/after token. Identical
- * pixel dimensions are the other half of the rule, and that needs the files,
- * so the caller confirms it once both previews have landed.
- */
-export const evidencePairCandidates = (
-  sources: readonly EvidenceSource[],
-): EvidencePairCandidate[] => {
-  const groups = new Map<string, EvidenceSource[]>();
-  for (const source of sources) {
-    if (source.kind !== "image") continue;
-    const { pairingKey, variant } = parseEvidenceName(source.filePath);
-    if (!variant || !pairingKey) continue;
-    const group = groups.get(pairingKey) ?? [];
-    group.push(source);
-    groups.set(pairingKey, group);
-  }
-  const candidates: EvidencePairCandidate[] = [];
-  for (const [pairingKey, group] of groups) {
-    const before = group.find(
-      (source) => parseEvidenceName(source.filePath).variant === "before",
-    );
-    const after = group.find(
-      (source) => parseEvidenceName(source.filePath).variant === "after",
-    );
-    if (!before || !after) continue;
-    candidates.push({ before, after, pairingKey });
-  }
-  return candidates.sort((left, right) => left.before.order - right.before.order);
-};
-
 export const evidenceTitleFor = (source: EvidenceSource): string =>
   humanTitleFor(source.filePath, source.kind);
 
@@ -122,9 +82,6 @@ export const pillCardFor = (
   extensionLabel: plainKindLabel(source.filePath),
   ...(byteSize ? { byteSize } : {}),
 });
-
-export const pairCardTitle = (candidate: EvidencePairCandidate): string =>
-  pairTitleFor(candidate.before.filePath);
 
 export const evidencePlaybackMimeType = (filePath: string): string | undefined =>
   playbackMimeTypeFor(filePath);

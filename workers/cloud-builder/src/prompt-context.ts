@@ -17,10 +17,22 @@ import {
   type ResidentContext,
 } from "@stella/runtime/kernel/agent-runtime/resident-context.js";
 import type { MemoryPolicy } from "@stella/contracts/turn-plane/memory-policy";
-import type { ContextCheckpoint } from "./context-compaction.js";
 import { WORLD_ROOT } from "./workspace.js";
 
 export const PROMPT_CONTEXT_KEY = "cloudPromptContext:v2";
+
+/** A compacted conversation's summary of the history it replaced. */
+export type ContextCheckpoint = {
+  coveredThroughSeq: number;
+  summary: string;
+  pinnedInstruction?: string;
+  /**
+   * The newest row when the checkpoint was written. Sizes reported for
+   * responses at or before it measured the uncompacted history, so they no
+   * longer say anything (the desktop clears its recorded usage the same way).
+   */
+  writtenAtSeq?: number;
+};
 
 /** A hidden context message the model reads before a user message. */
 export type ResidentPrompt = { customType: string; text: string };

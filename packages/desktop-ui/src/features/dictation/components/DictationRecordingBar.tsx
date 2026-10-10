@@ -268,13 +268,13 @@ const formatElapsed = (ms: number): string => {
 };
 
 function CancelIcon() {
-  return <X size={14} />;
+  return <X size={16} />;
 }
 
 function CheckIcon() {
-  return <Check size={16} />;
+  return <Check size={18} />;
 }
 
 function SendIcon() {
-  return <ArrowUp size={14} strokeWidth={2.5} />;
+  return <ArrowUp size={16} strokeWidth={2.5} />;
 }

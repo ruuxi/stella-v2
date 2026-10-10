@@ -166,8 +166,6 @@
   min-width: 0;
 }
 
-/* Inside the task quote bubble the strip hangs under the head row with the
-   bubble's own padding; no under-row indent. */
 .agent-activity-files--standalone {
   position: relative;
   margin-left: 14px;
@@ -189,9 +187,11 @@
   pointer-events: none;
 }
 
-.agent-activity-files--inline {
-  margin: 0;
-  padding: 0 10px 8px 12px;
+/* At the bottom of the reply bubble the strip takes the bubble's own
+   padding; no under-row indent. */
+.agent-activity-files--bubble {
+  margin: 10px 0 6px;
+  padding: 0;
 }
 
 .agent-activity-files__pills {
@@ -211,10 +211,10 @@
      this side padding keeps comfortable air inside the pill. */
   padding: 2px 4px;
   border-radius: 999px;
-  /* Outline strength tracks the label ink: clearly visible (the old
-     panel-surface hairline all but disappeared on the chat background) but
-     one step below the `--text-base` label so it never outshines it. */
-  border: 1px solid var(--text-weaker);
+  /* A translucent ink hairline: it reads on the chat background and on the
+     reply bubble alike, a step quieter than `--text-weaker`. Mobile pills
+     use the same 28% foreground recipe. */
+  border: 1px solid color-mix(in srgb, var(--foreground) 28%, transparent);
   background: color-mix(in oklch, var(--foreground) 3%, transparent);
   transition:
     border-color 120ms ease,
@@ -222,7 +222,7 @@
 }
 
 .agent-activity-files__pill:hover {
-  border-color: var(--text-weak);
+  border-color: color-mix(in srgb, var(--foreground) 44%, transparent);
   background: color-mix(in oklch, var(--foreground) 6%, transparent);
 }
 

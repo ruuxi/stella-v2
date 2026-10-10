@@ -83,10 +83,11 @@ describe("POST /internal/sandboxes/retire", () => {
     for (const body of [
       { sandboxId: "not-a-lifecycle-id", size: "small", workload: "world" },
       { sandboxId: WORLD_ID, size: "medium", workload: "world" },
+      // An agent thread's container is a world container, never an app build.
       {
         sandboxId: `agent-${"a".repeat(40)}`,
         size: "small",
-        workload: "world",
+        workload: "app-build",
       },
       { sandboxId: WORLD_ID, size: "small", workload: "app-build" },
       { sandboxId: `app-${"a".repeat(40)}`, size: "large", workload: "world" },

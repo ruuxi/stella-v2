@@ -1,3 +1,8 @@
+import {
+  parsePiBrainHost,
+  type PiBrainRecord,
+  type PiBrainResponse,
+} from "@stella/contracts/turn-plane/pi-brain";
 import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
 import { OwnerGateSnapshotError } from "../owner-gate.js";
 import { CLOUD_HISTORY_TOKEN_BUDGET } from "@stella/executor-cloud/prune-history";
@@ -34,6 +39,7 @@ import type {
   LocalTurnFinishReceipt,
 } from "./types.js";
 import {
+  PI_BRAIN_KEY,
   LOCAL_TURN_LEASE_MS,
   LOCAL_TURN_BEGIN_MAX_BYTES,
   LOCAL_TURN_FINISH_MAX_ROWS,
@@ -54,7 +60,10 @@ import {
 } from "./support.js";
 import { OrchestratorJournalWrites } from "./journal-writes.js";
 
-/** Desktop-local turns (begin, renew, finish) and history reads. */
+/**
+ * Desktop-local turns (begin, renew, finish), history reads, and the pi
+ * workspace and brain routes.
+ */
 export abstract class OrchestratorLocalTurn extends OrchestratorJournalWrites {
   /**
    * The local half of localTurnOwner for a new admission: who is calling and
@@ -171,6 +180,54 @@ export abstract class OrchestratorLocalTurn extends OrchestratorJournalWrites {
    * The desktop code tool's `history.sql` / `history.read`, answered with
    * exactly what the cloud code tool's history client runs.
    */
+  /**
+   * A call from one of the owner's computers for its own copy of this
+   * conversation, whose tools it moved to the cloud: run in a container this
+   * object holds for it, as its cloud agents' are (`PiConversationRuntime.workspace`).
+   */
+  protected async handlePiWorkspace(request: Request): Promise<Response> {
+    const owner = await this.localTurnOwner(request);
+    if (owner instanceof Response) return owner;
+    const body = await request.json().catch(() => null);
+    try {
+      const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+      return json(
+        await runtime.workspace(
+          {
+            ownerId: owner.ownerId,
+            ownerGeneration: owner.ownerGeneration,
+            conversationId: this.conversationId(),
+          },
+          body,
+        ),
+      );
+    } catch (error) {
+      log("info", "pi_workspace_failed", { message: errorMessage(error) });
+      return json({ error: errorMessage(error) }, 400);
+    }
+  }
+
+  /**
+   * Where this conversation's Stella runs: `GET` reads the record, `POST`
+   * moves her (a computer's user flipping it, or her own `switch_destination`
+   * there). From then on that host takes the conversation's turns, while
+   * it can.
+   */
+  protected async handlePiBrain(request: Request): Promise<Response> {
+    const owner = await this.localTurnOwner(request);
+    if (owner instanceof Response) return owner;
+    if (request.method === "GET") {
+      return json({
+        record:
+          (await this.ctx.storage.get<PiBrainRecord>(PI_BRAIN_KEY)) ?? null,
+      } satisfies PiBrainResponse);
+    }
+    const host = parsePiBrainHost(await request.json().catch(() => null));
+    if (!host) return json({ error: "Name the cloud or a device." }, 400);
+    const record = await this.setPiBrain(host);
+    return json({ record } satisfies PiBrainResponse);
+  }
+
   protected async handleHistoryQuery(request: Request): Promise<Response> {
     const owner = await this.localTurnOwner(request);
     if (owner instanceof Response) return owner;
@@ -851,7 +908,6 @@ export abstract class OrchestratorLocalTurn extends OrchestratorJournalWrites {
         terminal,
         terminalDelivered,
         queued,
-        editLock,
       ] = await Promise.all([
         this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY),
         clientMsgId
@@ -866,13 +922,12 @@ export abstract class OrchestratorLocalTurn extends OrchestratorJournalWrites {
           prefix: "queued:",
           limit: 1,
         }),
-        this.activeConversationEditLock(),
       ]);
       const cloudBusy =
         Boolean(cloudTurn && terminal !== true) ||
         Boolean(cloudTurn && terminalDelivered !== true) ||
         queued.size > 0;
-      if (local || cloudBusy || editLock || this.purged()) return;
+      if (local || cloudBusy || this.purged()) return;
       if (clientMsgId) {
         const replay = classifyLocalClientMessageReplay(
           concurrentClientReceipt,

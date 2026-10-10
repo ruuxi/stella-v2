@@ -3,6 +3,7 @@ import { cloudFileArtifact } from "./cloud-file-payload";
 import type { ChatArtifact, ChatMessage, MobileDisplayPayload } from "../types";
 import { splitReplyRefs, toReplyPreview, type ReplyRef } from "@stella/contracts/reply-refs";
 import { isMapRouteArtifact } from "@stella/contracts/map-artifact";
+import { isPiAgentText } from "@stella/contracts/pi-chat";
 import type { ToolStep } from "./tool-activity";
 import {
   hasToolCalls,
@@ -336,11 +337,16 @@ export const projectCloudConversationMessages = (args: {
       if (record.role === "user") {
         userMessageId = projectedMessageId(record);
         // A prompt with nothing to show (older desktop turns mirrored their
-        // lifecycle wake as an empty, unflagged user record) is a hidden one.
+        // lifecycle wake as an empty, unflagged user record) is a hidden one,
+        // and so is one an agent sent (a note stored before it was flagged).
         const display = userDisplayContext(record.payload);
         const hasDisplayContext =
           display.pastedTexts.length > 0 || Boolean(display.quotedText);
-        if (record.hidden || (isBlankUserRecord(record) && !hasDisplayContext)) {
+        if (
+          record.hidden ||
+          (isBlankUserRecord(record) && !hasDisplayContext) ||
+          isPiAgentText(display.displayText ?? messageText(record.payload))
+        ) {
           continue;
         }
         const presentation = userAttachmentPresentation(record.payload);

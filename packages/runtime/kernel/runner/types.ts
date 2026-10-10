@@ -1,7 +1,7 @@
-import type { Api, Model } from "../../ai/types.js";
-import type { ImageCapTarget } from "../../ai/utils/image-caps.js";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import type { ImageCapTarget } from "../shared/image-caps.js";
 import type { AgentMessage } from "../agent-core/types.js";
-import type { OrchestratorSession } from "../agent-runtime/orchestrator-session.js";
+import type { CloudThread } from "./orchestrator-launch.js";
 import type { BackgroundCompactionScheduler } from "../agent-runtime/compaction-scheduler.js";
 import type { BackgroundExitWake } from "./background-exit-wake.js";
 import type { KernelRunSupervisor } from "./supervision/run-supervisor.js";
@@ -12,7 +12,6 @@ import type {
   RuntimeErrorEvent,
   RuntimeExecutionSessionHandle,
   RuntimeReasoningEvent,
-  RuntimeProviderLifecycleEvent,
   RuntimeRunStartedEvent,
   RuntimeStatusEvent,
   RuntimeToolEndEvent,
@@ -20,6 +19,7 @@ import type {
   RuntimeUserMessageEvent,
 } from "../agent-runtime.js";
 import type { RuntimeAgentEventPayload } from "@stella/contracts/protocol";
+import type { AgentThreadCalls } from "@stella/contracts/backend/agent-threads";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
 import type { LocalContextEvent } from "../storage/shared.js";
 import type { LocalChatEventWindow } from "../storage/event-window.js";
@@ -210,7 +210,6 @@ export type AgentCallbacks = {
     },
   ) => void;
   onStatus?: (event: RuntimeStatusEvent) => void;
-  onProviderLifecycle?: (event: RuntimeProviderLifecycleEvent) => void;
   onToolStart: (event: RuntimeToolStartEvent) => void;
   onToolEnd: (event: RuntimeToolEndEvent) => void;
   onError: (event: RuntimeErrorEvent) => void;
@@ -223,28 +222,6 @@ export type AgentCallbacks = {
     reason: string;
   }) => void;
   onAgentEvent?: (event: AgentLifecycleEvent) => void;
-  /**
-   * Client-owned metadata a durable run stores with its launch record and
-   * hands back to `createCallbacks` when the run resumes in a new process
-   * (e.g. the worker's request id and timezone). Plain JSON only.
-   */
-  durableClient?: Record<string, unknown>;
-};
-
-/**
- * What a durable orchestrator chat run stores to relaunch itself after the
- * worker process died (`run_task.checkpoint_json.launch`).
- */
-export type OrchestratorRunLaunch = {
-  kind: "orchestrator-chat";
-  conversationId: string;
-  agentType: string;
-  userMessageId: string;
-  uiVisibility?: "visible" | "hidden";
-  storageMode?: "cloud" | "local";
-  ownerGeneration?: string;
-  responseTarget?: RuntimeAgentEventPayload["responseTarget"];
-  client?: Record<string, unknown>;
 };
 
 export type QueuedOrchestratorTurn = {
@@ -316,14 +293,13 @@ export type RunnerState = {
    * exists so tools built earlier can reach a conversation's Stella.
    */
   sendRuntimeMessage?: (input: RuntimeSendMessageInput) => Promise<void>;
+  piReportDelivery?: PiReportDelivery;
   /**
-   * Long-lived orchestrator sessions keyed by `conversationId`. Each session
-   * owns one live Pi `Agent` for the lifetime of the conversation and is
-   * reused across turns to keep provider prompt-cache prefixes stable. See
-   * `runtime/kernel/agent-runtime/orchestrator-session.ts`. Disposed on
-   * worker shutdown via `runtime-initialization.ts:stop`.
+   * The thread each cloud conversation's last turn here ran, hidden prompt
+   * rows included, keyed by `conversationId`. The next cloud turn extends it
+   * while the journal holds nothing else (`cloudThreadExtendingCanonical`).
    */
-  orchestratorSessions: Map<string, OrchestratorSession>;
+  cloudThreads: Map<string, CloudThread>;
   /**
    * Per-thread background compaction scheduler. Holds at most one
    * in-flight compaction per `threadKey`; finalize* paths schedule
@@ -419,6 +395,8 @@ export type RunnerContext = {
   ) => Promise<import("@stella/contracts/agent-directory").AgentDirectoryAgentRow[]>;
   /** Desktop's writer into a cloud conversation's DO-resident transcript. */
   cloudTranscript: import("./cloud-transcript-write.js").CloudTranscriptWriter;
+  /** The signed-in owner's current data epoch, which cloud writes are fenced by. */
+  cloudOwnerGeneration: () => Promise<string>;
   linkedFilePublisher: import("../device-files/linked-file-publisher.js").LinkedFilePublisher;
   paths: RunnerPaths;
   state: RunnerState;
@@ -470,9 +448,16 @@ export type RunnerContext = {
   };
 };
 
+export type PiReportDelivery = (report: {
+  conversationId: string;
+  requestId: string;
+  text: string;
+}) => Promise<void>;
+
 export type RunnerPublicApi = {
   deviceId: string;
   hookEmitter: HookEmitter;
+  setPiReportDelivery: (delivery: PiReportDelivery | null) => void;
   setBackendUrl: (value: string | null) => void;
   setAuthToken: (value: string | null) => void;
   setHasConnectedAccount: (value: boolean) => void;
@@ -490,6 +475,8 @@ export type RunnerPublicApi = {
     signal?: AbortSignal,
     onUpdate?: ToolUpdateCallback,
   ) => Promise<ToolResult>;
+  /** Stella's tools for the pi-durable harness. */
+  piTools: import("./pi-tools.js").RunnerPiTools;
   agentHealthCheck: () => AgentHealth;
   warmModelCatalog: () => Promise<void>;
   /**
@@ -511,26 +498,6 @@ export type RunnerPublicApi = {
     payload: ChatPayload,
     callbacks: AgentCallbacks,
   ) => Promise<{ runId: string }>;
-  /**
-   * Relaunch the orchestrator chat runs a previous worker process left
-   * running and the recovery plan kept resumable (`run-task.ts`).
-   * `createCallbacks` rebuilds each run's client callbacks from its stored
-   * launch record. A run that cannot relaunch reports a fatal error through
-   * those callbacks and is settled as failed.
-   */
-  resumeInterruptedOrchestratorRuns: (args: {
-    createCallbacks: (
-      launch: OrchestratorRunLaunch & { runId: string },
-    ) => AgentCallbacks;
-  }) => Promise<{ resumed: string[]; failed: string[] }>;
-  /**
-   * What would keep a worker restart from being invisible right now: unsafe
-   * tool calls in flight, and active runs that would not resume after it.
-   */
-  getRestartBlockers: () => {
-    unsafeToolCalls: number;
-    nonDurableRuns: number;
-  };
   sendMessage: (input: RuntimeSendMessageInput) => Promise<void>;
   sendUserMessage: (input: RuntimeSendUserMessageInput) => Promise<void>;
   runAutomationTurn: (
@@ -610,9 +577,52 @@ export type RunnerPublicApi = {
     timezone?: string;
   }) => void;
   appendCloudJournal: import("./cloud-transcript-write.js").CloudTranscriptWriter["append"];
+  /**
+   * A cloud-stored conversation's journal for a transcript this computer
+   * mirrors into it (pi-durable): the local-turn begin and finish, the
+   * out-of-turn append, and the owner epoch they are fenced by.
+   */
+  cloudJournal: {
+    begin: import("./cloud-transcript-write.js").CloudTranscriptWriter["begin"];
+    finish: import("./cloud-transcript-write.js").CloudTranscriptWriter["finish"];
+    append: import("./cloud-transcript-write.js").CloudTranscriptWriter["append"];
+    history: import("./cloud-transcript-write.js").CloudTranscriptWriter["history"];
+    ownerGeneration: () => Promise<string>;
+  };
+  /**
+   * This computer's agents in a conversation stored in the cloud, as the
+   * owner's agent threads list them (a paired phone shows and messages
+   * them): each attempt's start and its end, through a durable outbox.
+   */
+  computerAgents: {
+    start: import("./computer-agent-cloud-records.js").ComputerAgentCloudRecords["create"];
+    complete: import("./computer-agent-cloud-records.js").ComputerAgentCloudRecords["complete"];
+    /**
+     * Settle every agent the owner's records say runs on this computer and
+     * does not (`computer-agent-reconcile`). `elsewhere` stands for agents
+     * the agent loops do not run (pi-durable's).
+     */
+    reconcile: (
+      elsewhere: (
+        threadId: string,
+      ) => Promise<import("./computer-agent-reconcile.js").ComputerAgentStanding | undefined>,
+    ) => Promise<{ settled: string[] }>;
+  };
+  /**
+   * The owner's agent threads, for the pi agents' directory: a cloud
+   * conversation's agents elsewhere and the user's cloud sessions, and a
+   * note for one of them. Throws when not signed in.
+   */
+  agentThreads: {
+    directory: (
+      conversationId: string,
+    ) => Promise<AgentThreadCalls["agentThreads.directory"]["result"]>;
+    message: (
+      args: Omit<AgentThreadCalls["agentThreads.message"]["args"], "ownerGeneration">,
+    ) => Promise<AgentThreadCalls["agentThreads.message"]["result"]>;
+  };
   beginVoiceToolCallReceipt: RuntimeStore["beginVoiceToolCallReceipt"];
   completeVoiceToolCallReceipt: RuntimeStore["completeVoiceToolCallReceipt"];
-  notifyOrchestratorHistoryChanged: (conversationId: string) => void;
   getVoiceOrchestratorConfig: (
     payload: RuntimeVoiceOrchestratorConfigRequest,
   ) => Promise<RuntimeVoiceOrchestratorConfig>;

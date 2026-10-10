@@ -1,3 +1,4 @@
+import { parseCloudAgentLifecycleCard } from "@stella/contracts/cloud-agent-lifecycle";
 import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
 import type { ConversationDeletedEvent } from "@stella/contracts/turn-plane/owner-events";
 import { sha256Hex } from "../hash.js";
@@ -512,7 +513,16 @@ export abstract class OrchestratorJournalWrites extends OrchestratorRunTurn {
       });
       return json({ error: "Conversation owner is unavailable." }, 409);
     }
-    const writerKey = `card:${sourceTurnId}:${card.type}`;
+    // One files card per source turn; an agent's lifecycle cards are one per
+    // event (its start and its end share the attempt they describe).
+    let writerKey = `card:${sourceTurnId}:${card.type}`;
+    if (card.type === "agent-lifecycle") {
+      const lifecycle = parseCloudAgentLifecycleCard(card);
+      if (!lifecycle) return json({ error: "Malformed request." }, 400);
+      writerKey = `card:${lifecycle.eventId}`;
+      // The owner's agent threads changed: theirs is the list, the card its receipt.
+      this.refreshAgentsSoon();
+    }
     const payloadJson = JSON.stringify(card);
     const now = Date.now();
     if (utf8Length(payloadJson) > MAX_ROW_BYTES) {
@@ -523,16 +533,6 @@ export abstract class OrchestratorJournalWrites extends OrchestratorRunTurn {
       // same reason the append route re-reads it.
       if (this.purged()) {
         return json({ error: "This conversation was deleted." }, 410);
-      }
-      if (await this.activeConversationEditLock()) {
-        return json(
-          {
-            code: "conversation_edit_in_progress",
-            message: "This conversation is being edited. Try again shortly.",
-            retryAfterMs: 1_000,
-          },
-          409,
-        );
       }
       if (await this.turnRunning()) {
         const size = this.journal.inboxSize();
@@ -614,6 +614,20 @@ export abstract class OrchestratorJournalWrites extends OrchestratorRunTurn {
     this.sealed = true;
     this.archive.seal();
     this.hub.closeAll(CLOSE_DELETED);
+    // Pi's runs stop here, with their leases, admissions and containers,
+    // before the storage they write goes.
+    const pi = this.piRuntime;
+    this.piRuntime = undefined;
+    const runtime = await pi?.catch(() => undefined);
+    if (runtime) {
+      await runtime.discard().then(
+        (runs) => log("info", "pi_purge_discarded", { runs }),
+        (error: unknown) =>
+          log("error", "pi_purge_discard_failed", {
+            message: errorMessage(error),
+          }),
+      );
+    }
     await this.archive.quiesce();
     // `segments` and `spills` outlive the drain — only the queue rows are
     // removed — so what has already been offered has to be remembered here, or

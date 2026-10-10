@@ -12,6 +12,11 @@ import {
   turnStartErrorResponse,
 } from "../turn-start-request.js";
 import {
+  type PiAgentExecution,
+  runsAsPiAgent,
+} from "../cloud-agent-dispatch.js";
+import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
+import {
   DISPATCH_ACCEPTED_LEASE_MS,
   type DispatchPayload,
   type ExecutionCapability,
@@ -475,6 +480,16 @@ export abstract class OwnerGateCloudDispatch extends OwnerGateDispatch {
       clientMsgId: row.dispatch_id,
       ...(row.parent_turn_id ? { parentTurnId: row.parent_turn_id } : {}),
     };
+    if (runsAsPiAgent(request.execution)) {
+      return await this.startPiPlacedAgent(
+        row,
+        {
+          ...request,
+          execution: request.execution,
+        },
+        now,
+      );
+    }
     const response = await sessions
       .getByName(threadId)
       .fetch("https://build-session/turn", {
@@ -498,6 +513,55 @@ export abstract class OwnerGateCloudDispatch extends OwnerGateDispatch {
         error_code: null,
         error_message: null,
         cloud_thread_id: started.threadId ?? threadId,
+        payload_json: null,
+        payload_expires_at: null,
+        lease_expires_at: null,
+        started_at: now,
+      },
+      now,
+    );
+  }
+
+  /**
+   * A placed agent on pi (Stella's models or the owner's ChatGPT plan) runs
+   * in its conversation as a pi agent, started at once; pi admits each of
+   * its runs itself, so this dispatch's own hold goes back once the
+   * conversation has it. Its report settles the dispatch by its id, as a
+   * BuildSession agent's terminal does.
+   */
+  protected async startPiPlacedAgent(
+    row: DispatchRow,
+    request: CloudAgentTurnStartRequest & { execution: PiAgentExecution },
+    now: number,
+  ): Promise<DispatchRow> {
+    const sessions = this.env.ORCHESTRATOR_SESSIONS;
+    if (!sessions) throw new Error("Orchestrator sessions unavailable.");
+    await sessions.getByName(row.conversation_id).startPiThread({
+      ownerId: request.ownerId,
+      ownerGeneration: request.ownerGeneration,
+      conversationId: row.conversation_id,
+      audience: request.audience as ManagedModelAudience,
+      budgetMicroCents: request.budgetMicroCents,
+      execution: request.execution,
+      prompt: request.prompt,
+      attempt: {
+        threadId: request.threadId,
+        description: request.description,
+        turnId: row.dispatch_id,
+        attemptGeneration: 1,
+      },
+    });
+    await this.releaseGate(row);
+    return await this.patchDispatch(
+      row,
+      {
+        state: "cloud_running",
+        placement: "cloud",
+        cloud_turn_id: row.dispatch_id,
+        cloud_retry_at: null,
+        error_code: null,
+        error_message: null,
+        cloud_thread_id: request.threadId,
         payload_json: null,
         payload_expires_at: null,
         lease_expires_at: null,

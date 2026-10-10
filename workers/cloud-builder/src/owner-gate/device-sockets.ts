@@ -3,6 +3,7 @@ import {
   deviceRequestErrorResponse,
   DeviceRequestRelay,
 } from "../device-request-relay.js";
+import type { DeviceToolDeviceFrame } from "@stella/contracts/turn-plane/device-tools";
 import {
   DEVICE_REQUEST_LIMITS,
   type DeviceRequestDeviceFrame,
@@ -61,6 +62,26 @@ export abstract class OwnerGateDeviceSockets extends OwnerGateBase {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * When a proven device was last heard from. Current devices' keepalives
+   * are answered by the platform without waking this object, so the time of
+   * the last auto-response counts alongside the last frame handled here.
+   */
+  protected lastSeenAt(
+    socket: WebSocket,
+    attachment: PresenceAttachment,
+  ): number {
+    let seen = attachment.lastSeenAtMs;
+    if (attachment.phase !== "connected") return seen;
+    try {
+      const answered = this.ctx.getWebSocketAutoResponseTimestamp(socket);
+      if (answered) seen = Math.max(seen, answered.getTime());
+    } catch {
+      // No timestamp; the last handled frame stands.
+    }
+    return seen;
   }
 
   protected send(socket: WebSocket, frame: DevicePresenceServerFrame): void {
@@ -182,6 +203,7 @@ export abstract class OwnerGateDeviceSockets extends OwnerGateBase {
       for (const other of this.sockets(attachment.deviceId)) {
         if (other === socket) continue;
         this.deviceRequestRelay().onDeviceGone(attachment.deviceId, other);
+        this.deviceToolRelayState?.onDeviceGone(attachment.deviceId, other);
         this.closeSocket(other, DEVICE_PRESENCE_CLOSE.replaced, "replaced");
       }
       attachment.phase = "connected";
@@ -193,6 +215,7 @@ export abstract class OwnerGateDeviceSockets extends OwnerGateBase {
         presenceSessionId: attachment.presenceSessionId,
         serverTimeMs: now,
       });
+      this.deviceToolRelayState?.onDeviceConnected(attachment.deviceId, socket);
       const flushed = await this.ownerStore().internalCall(
         "agentThreads.flushDeviceMessages",
         { deviceId: attachment.deviceId },
@@ -216,8 +239,9 @@ export abstract class OwnerGateDeviceSockets extends OwnerGateBase {
     }
     attachment.lastSeenAtMs = now;
     if (frame.type === "ping") {
+      // Older devices' JSON keepalive. The attachment is where it lands:
+      // `presenceRow` reads last-seen from the socket, so this costs no write.
       socket.serializeAttachment(attachment);
-      this.touchPresence(attachment.deviceId, now);
       this.send(socket, { type: "pong", serverTimeMs: now });
       return;
     }
@@ -271,6 +295,17 @@ export abstract class OwnerGateDeviceSockets extends OwnerGateBase {
         socket,
         attachment.deviceId,
         frame as DeviceRequestDeviceFrame,
+      );
+      return;
+    }
+    if (
+      frame.type === "tool.accepted" ||
+      frame.type === "tool.result" ||
+      frame.type === "tool.error"
+    ) {
+      this.deviceToolRelayState?.onFrame(
+        attachment.deviceId,
+        frame as DeviceToolDeviceFrame,
       );
       return;
     }
@@ -358,6 +393,7 @@ export abstract class OwnerGateDeviceSockets extends OwnerGateBase {
       this.markDisconnected(attachment, now);
     }
     this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
+    this.deviceToolRelayState?.onDeviceGone(attachment.deviceId, socket);
     this.closeSocket(socket, code, reason);
     await this.scheduleAlarm(now);
   }
@@ -403,15 +439,6 @@ export abstract class OwnerGateDeviceSockets extends OwnerGateBase {
     );
   }
 
-  protected touchPresence(deviceId: string, now: number): void {
-    this.ctx.storage.sql.exec(
-      `UPDATE device_presence SET last_seen_at = ?, updated_at = ? WHERE device_id = ?`,
-      now,
-      now,
-      deviceId,
-    );
-  }
-
   /**
    * A device that goes away keeps its row (so the destinations list can say
    * "offline" rather than "unknown") but is immediately ineligible.
@@ -439,7 +466,27 @@ export abstract class OwnerGateDeviceSockets extends OwnerGateBase {
         deviceId,
       )
       .toArray()[0];
-    return row ? presenceState(row) : undefined;
+    if (!row) return undefined;
+    const state = presenceState(row);
+    if (!state.connected) return state;
+    // The row's `last_seen_at` is only written when presence changes; between
+    // changes the socket knows when the device was last heard from.
+    for (const socket of this.sockets(deviceId)) {
+      const attachment = this.attachment(socket);
+      if (
+        attachment?.phase === "connected" &&
+        attachment.connectionId === row.connection_id
+      ) {
+        return {
+          ...state,
+          lastSeenAt: Math.max(
+            state.lastSeenAt,
+            this.lastSeenAt(socket, attachment),
+          ),
+        };
+      }
+    }
+    return state;
   }
 
   protected selectedDeviceRefusal(args: {
@@ -540,7 +587,10 @@ export abstract class OwnerGateDeviceSockets extends OwnerGateBase {
         );
         continue;
       }
-      if (attachment.lastSeenAtMs + DEVICE_PRESENCE_STALE_AFTER_MS <= now) {
+      if (
+        this.lastSeenAt(socket, attachment) + DEVICE_PRESENCE_STALE_AFTER_MS <=
+        now
+      ) {
         await this.dropSocket(
           socket,
           attachment,

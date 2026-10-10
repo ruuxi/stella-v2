@@ -31,6 +31,7 @@ import { getBackendClient, useBackendView } from "../lib/backend";
 import { tapLight } from "../lib/haptics";
 import { type Colors } from "../theme/colors";
 import { fonts } from "../theme/fonts";
+import { fadeHex } from "../theme/oklch";
 import { useColors } from "../theme/theme-context";
 import { useT } from "../i18n";
 
@@ -193,8 +194,11 @@ export function EngineAccountsSettings({ onBack }: { onBack: () => void }) {
  */
 export function EngineAccountSection({
   provider,
+  embedded = false,
 }: {
   provider: EngineProvider | "stella";
+  /** Rows only, laid inside a card that already frames and names them. */
+  embedded?: boolean;
 }) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -210,6 +214,7 @@ export function EngineAccountSection({
       settingsStyles={settingsStyles}
       colors={colors}
       showHeader={false}
+      embedded={embedded}
     />
   );
 }
@@ -498,6 +503,7 @@ function ProviderSection({
   settingsStyles,
   colors,
   showHeader = true,
+  embedded = false,
 }: {
   section: Section;
   settings: EngineSettings | undefined;
@@ -511,6 +517,11 @@ function ProviderSection({
    * On where both providers stack and the headers are what tells them apart.
    */
   showHeader?: boolean;
+  /**
+   * Inside a provider card: the rows sit flush under a hairline instead of
+   * in their own rounded group, and the side notes take the card's inset.
+   */
+  embedded?: boolean;
 }) {
   const t = useT();
   const connect = useEngineConnect(section.provider);
@@ -739,11 +750,11 @@ function ProviderSection({
   };
 
   return (
-    <View style={settingsStyles.section}>
+    <View style={embedded ? null : settingsStyles.section}>
       {showHeader ? (
         <Text style={settingsStyles.sectionLabel}>{t(section.titleKey)}</Text>
       ) : null}
-      <View style={settingsStyles.group}>
+      <View style={embedded ? styles.embeddedGroup : settingsStyles.group}>
         {accounts.map((row, index) => {
           const name = row.email ?? row.name ?? row.label;
           const sub = rowSubtitle(row);
@@ -881,7 +892,7 @@ function ProviderSection({
           <Text style={settingsStyles.rowLabel}>{t(section.connectKey)}</Text>
         </Pressable>
       </View>
-      {!chatgpt ? (
+      {!chatgpt && !embedded ? (
         <Text style={[settingsStyles.rowSub, styles.sectionNote]}>
           {t("mobile.engineAccounts.claudeNote")}
         </Text>
@@ -893,6 +904,7 @@ function ProviderSection({
             settingsStyles.group,
             settingsStyles.groupGap,
             styles.pasteCard,
+            embedded && styles.embeddedPasteCard,
           ]}
         >
           {/* The provider's own page already said to copy the code, so the
@@ -963,7 +975,13 @@ function ProviderSection({
       ) : null}
 
       {chatgpt && accounts.length > 0 ? (
-        <View style={[settingsStyles.group, settingsStyles.groupGap]}>
+        <View
+          style={
+            embedded
+              ? styles.embeddedGroup
+              : [settingsStyles.group, settingsStyles.groupGap]
+          }
+        >
           <Pressable
             onPress={openChatGptUsage}
             accessibilityRole="link"
@@ -1051,5 +1069,10 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "flex-end",
     },
     sectionNote: { marginTop: 8, paddingHorizontal: 16 },
+    embeddedGroup: {
+      borderTopColor: fadeHex(colors.border, 0.8),
+      borderTopWidth: StyleSheet.hairlineWidth,
+    },
+    embeddedPasteCard: { marginBottom: 12, marginHorizontal: 12, marginTop: 0 },
     flexLabel: { flex: 1 },
   });

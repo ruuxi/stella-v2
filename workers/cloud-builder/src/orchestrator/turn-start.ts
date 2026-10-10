@@ -3,6 +3,7 @@ import {
   chatTurnFingerprintSource,
   type CloudChatPreparation,
 } from "../cloud-chat-admission.js";
+import type { PiBrainRecord } from "@stella/contracts/turn-plane/pi-brain";
 import type {
   ConversationCreatedEvent,
   OwnerEvent,
@@ -42,6 +43,8 @@ import type {
 } from "./types.js";
 import {
   CHAT_WATCHDOG_MS,
+  AGENT_RUNTIME_KEY,
+  PI_BRAIN_KEY,
   LOCAL_TURN_LEASE_KEY,
   chatTurnAdmissionKey,
   CONVERSATION_PROJECTED_KEY,
@@ -56,6 +59,7 @@ import {
   isDurableChatTurnAdmissionIntent,
   localTurnRetirementDeadline,
   json,
+  errorMessage,
   log,
 } from "./support.js";
 import { OrchestratorLocalTurn } from "./local-turn.js";
@@ -169,6 +173,58 @@ export abstract class OrchestratorTurnStart extends OrchestratorLocalTurn {
           "That conversation belongs to another account.",
           false,
         );
+      }
+      // Stella runs on one of the owner's computers: a message the user
+      // sent from elsewhere is placed there, and this object answers none.
+      // While that computer can't take it (offline, not ready, gone), this
+      // object answers it as with no record, which stays for once it's back.
+      const brain =
+        authKind === "user" && lane === "chat" && !start.piAgent
+          ? await this.ctx.storage.get<PiBrainRecord>(PI_BRAIN_KEY)
+          : undefined;
+      const refusal =
+        brain?.host === "device"
+          ? await this.piBrainDeviceRefusal(ownerId, brain.deviceId)
+          : undefined;
+      if (brain?.host === "device" && refusal) {
+        log("info", "pi_brain_unavailable", {
+          deviceId: brain.deviceId,
+          reason: refusal,
+        });
+      } else if (brain?.host === "device") {
+        try {
+          const dispatchId = await this.placeOnPiBrain({
+            ownerId,
+            deviceId: brain.deviceId,
+            clientMsgId: start.clientMsgId,
+            prompt: start.prompt,
+            ...(start.attachments?.length
+              ? { attachments: start.attachments }
+              : {}),
+            ...(start.locale ? { locale: start.locale } : {}),
+          });
+          log("info", "pi_brain_turn_placed", {
+            deviceId: brain.deviceId,
+            dispatchId,
+          });
+          return json(
+            {
+              protocol: TURN_PLANE_PROTOCOL,
+              conversationId,
+              turnId: `placed:${dispatchId}`,
+              accepted: true,
+              replayed: false,
+              createdConversation: false,
+            } satisfies CloudTurnStartResponse,
+            202,
+          );
+        } catch (error) {
+          // It went away meanwhile: this object answers instead.
+          log("info", "pi_brain_turn_unplaced", {
+            deviceId: brain.deviceId,
+            message: errorMessage(error),
+          });
+        }
       }
       const receiptKey = chatTurnAdmissionKey(start.clientMsgId);
       const stored =
@@ -409,6 +465,14 @@ export abstract class OrchestratorTurnStart extends OrchestratorLocalTurn {
         // has none yet, and an explicit hint never overwrites a chosen one.
         this.journal.setTitle(conversationTitleFor(start));
       }
+      // Every conversation runs on pi-durable: one the loop started moves to
+      // pi at its next turn, whose first pi turn imports its journal whole.
+      if ((await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) !== "pi") {
+        await this.ctx.storage.put(AGENT_RUNTIME_KEY, "pi");
+        if (!createdConversation) {
+          log("info", "pi_conversation_migrated", { conversationId });
+        }
+      }
       if (this.ownerGeneration !== snapshot.ownerGeneration) {
         this.ownerGeneration = snapshot.ownerGeneration;
         await this.ctx.storage.put(
@@ -437,7 +501,11 @@ export abstract class OrchestratorTurnStart extends OrchestratorLocalTurn {
           : {}),
         ...(start.source ? { source: start.source } : {}),
         ...(start.title ? { title: start.title } : {}),
-        ...(start.hiddenMessage ? { hiddenMessage: true } : {}),
+        // A computer's agent brief is context for the agent, not a message.
+        ...(start.hiddenMessage || start.piAgent
+          ? { hiddenMessage: true }
+          : {}),
+        ...(start.piAgent ? { piAgent: start.piAgent } : {}),
         ...(start.locale ? { locale: start.locale } : {}),
         ...(start.attachments ? { attachments: start.attachments } : {}),
         ...(start.agentThreadControl
@@ -593,13 +661,7 @@ export abstract class OrchestratorTurnStart extends OrchestratorLocalTurn {
       // response/restart can replay without registering a new owner fence or
       // overwriting the original lease/payload.
       let heldForLocalTurn = false;
-      let editConflict = false;
       await this.ctx.blockConcurrencyWhile(async () => {
-        const editLock = await this.activeConversationEditLock();
-        if (editLock) {
-          editConflict = true;
-          return;
-        }
         // Owner-purge cancellation marks the durable lease receipt retiring in
         // this same DO. Recheck inside the admission critical section so a
         // register/assert winner cannot persist after its orphan was retired.
@@ -637,18 +699,6 @@ export abstract class OrchestratorTurnStart extends OrchestratorLocalTurn {
           );
         }
       });
-      if (editConflict) {
-        this.cloudHomePreparations.delete(turnId);
-        await this.unregisterOwnerTurn(turn);
-        await this.releaseOwnerGate(turn);
-        return turnStartErrorResponse(
-          "conversation_locked",
-          "This conversation is being edited. Try again shortly.",
-          true,
-          1_000,
-        );
-      }
-
       const admissionCommitMs = Math.round(performance.now() - commitStarted);
       const projectionStarted = performance.now();
       // Projections, after the durable commit and before the 202: the queue
@@ -692,7 +742,6 @@ export abstract class OrchestratorTurnStart extends OrchestratorLocalTurn {
 
       if (!heldForLocalTurn) {
         this.enqueue(turn, freshAdmission);
-        void this.steerWakeIntoRunningTurn(turn);
       } else this.cloudHomePreparations.delete(turnId);
       log("info", "chat_turn_admitted", {
         turnId,

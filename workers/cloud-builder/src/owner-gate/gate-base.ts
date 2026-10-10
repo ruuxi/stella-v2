@@ -8,10 +8,15 @@ import type {
   OwnerRegistry,
 } from "../owner-store/registry.js";
 import { RpcError } from "../owner-store/errors.js";
+import {
+  SOCKET_KEEPALIVE_PING,
+  SOCKET_KEEPALIVE_PONG,
+} from "@stella/contracts/backend/protocol";
 import { DurableObject } from "cloudflare:workers";
 import type { GatewayUsageEvent } from "@stella/contracts/gateway/usage";
 import type { TelemetryEventV1 } from "@stella/contracts/telemetry";
 import { DeviceRequestRelay } from "../device-request-relay.js";
+import type { DeviceToolRelay } from "../device-tool-relay.js";
 import type { AgentMessageDeviceOutcome } from "@stella/contracts/turn-plane/placement";
 import { sha256Hex } from "@stella/contracts/turn-plane/pairing-proof";
 import { OwnerFenceStore } from "../owner-fence-store.js";
@@ -74,6 +79,8 @@ export abstract class OwnerGateBase extends DurableObject<OwnerGateEnv> {
     (outcome: AgentMessageDeviceOutcome) => void
   >();
   protected deviceRequestRelayState?: DeviceRequestRelay;
+  /** Loaded with the first device tool call; until then no call is pending. */
+  protected deviceToolRelayState?: DeviceToolRelay;
   protected ownerStoreState?: OwnerStore;
   protected ownerHostState?: OwnerHost;
 
@@ -88,6 +95,27 @@ export abstract class OwnerGateBase extends DurableObject<OwnerGateEnv> {
   protected cloudChatReaderPreparationState?: Map<string, Promise<void>>;
   protected cloudChatReaderPreparedState?: Set<string>;
 
+  constructor(ctx: DurableObjectState, env: OwnerGateEnv) {
+    super(ctx, env);
+    // Keepalives from the live socket and device presence sockets are
+    // answered by the platform, so a connected but idle owner can hibernate.
+    // A JSON heartbeat ran this object every 10 seconds, which never let it
+    // go idle long enough to hibernate and billed it around the clock. Set on
+    // every cold start, as the conversation hub does, so whether the pair
+    // survives eviction never matters.
+    try {
+      ctx.setWebSocketAutoResponse(
+        new WebSocketRequestResponsePair(
+          SOCKET_KEEPALIVE_PING,
+          SOCKET_KEEPALIVE_PONG,
+        ),
+      );
+    } catch (error) {
+      log("error", "owner_gate_autoresponse_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   /** The domains this object serves. Test fixtures substitute their own. */
   protected backendRegistry(): OwnerRegistry {
     return ownerRegistry;

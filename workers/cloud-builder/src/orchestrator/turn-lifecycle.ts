@@ -1,8 +1,5 @@
-import type {
-  AgentEvent,
-  AgentMessage,
-} from "@stella/runtime/kernel/agent-core/types.js";
-import type { ImageContent } from "@stella/runtime/ai/types.js";
+import type { ImageContent } from "@earendil-works/pi-ai";
+import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
 import { assistantMessageHasUsableOutput } from "@stella/runtime/kernel/agent-runtime/run-shared.js";
 import type { TurnEventEvent } from "@stella/contracts/turn-plane/owner-events";
 import { deliverOwnerEvents } from "../owner-events.js";
@@ -21,7 +18,6 @@ import {
   LOCAL_TURN_LEASE_KEY,
   turnEventSeqKey,
   TERMINAL_STATUS,
-  LIVE_TOOL_LIMIT,
 } from "./constants.js";
 import {
   json,
@@ -30,8 +26,6 @@ import {
   base64FromBytes,
   truncateMessage,
   terminalNotice,
-  newStreamId,
-  previewArgs,
 } from "./support.js";
 import { OrchestratorOwner } from "./owner.js";
 
@@ -327,91 +321,6 @@ export abstract class OrchestratorTurnLifecycle extends OrchestratorOwner {
     if (turn.title) this.journal.setTitle(turn.title);
   }
 
-  protected onAgentEvent(
-    turn: ChatTurnRequest,
-    event: AgentEvent,
-    cursor: {
-      nextIndex: () => number;
-      streamId: () => string | null;
-      setStreamId: (value: string | null) => void;
-    },
-  ): void {
-    switch (event.type) {
-      // Assistant text is delivered whole: the model's deltas are never
-      // broadcast, and the committed `message` record is the only thing that
-      // carries reply text to a client. The stream id is still allocated
-      // because it is a durable field of that record — it identifies which
-      // generation produced the row.
-      case "message_start": {
-        if ((event.message as { role?: string }).role !== "assistant") break;
-        const id = newStreamId();
-        cursor.setStreamId(id);
-        if (this.live) this.live.streamId = id;
-        break;
-      }
-      case "message_end": {
-        const index = cursor.nextIndex();
-        this.persistProduced(turn, event.message, index, cursor.streamId());
-        if ((event.message as { role?: string }).role === "assistant") {
-          cursor.setStreamId(null);
-          if (this.live) this.live.streamId = null;
-        }
-        break;
-      }
-      case "tool_execution_start": {
-        if (this.live) {
-          this.live.tools.push({
-            toolCallId: event.toolCallId,
-            name: event.toolName,
-            phase: "start",
-          });
-          if (this.live.tools.length > LIVE_TOOL_LIMIT) this.live.tools.shift();
-        }
-        this.hub.broadcastTool({
-          turnId: turn.turnId,
-          toolCallId: event.toolCallId,
-          name: event.toolName,
-          phase: "start",
-          argsPreview: previewArgs(event.args),
-        });
-        break;
-      }
-      case "tool_execution_end": {
-        const entry = this.live?.tools.find(
-          (tool) => tool.toolCallId === event.toolCallId,
-        );
-        if (entry) {
-          entry.phase = "end";
-          entry.isError = event.isError;
-        }
-        this.hub.broadcastTool({
-          turnId: turn.turnId,
-          toolCallId: event.toolCallId,
-          name: event.toolName,
-          phase: "end",
-          isError: event.isError,
-        });
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  protected persistProduced(
-    turn: ChatTurnRequest,
-    message: AgentMessage,
-    index: number,
-    streamId: string | null,
-  ): void {
-    const appended = this.appendProduced(turn, message, {
-      writer: "orchestrator",
-      writerKey: `turn:${turn.turnId}:msg:${index}`,
-      streamId,
-    });
-    if (appended) this.publish(appended.record);
-  }
-
   /**
    * Journal one produced message without publishing it, so a caller can
    * commit several rows (and its own cursor) in one transaction first. Null
@@ -594,7 +503,6 @@ export abstract class OrchestratorTurnLifecycle extends OrchestratorOwner {
   }
 
   protected async turnRunning(): Promise<boolean> {
-    if (await this.activeConversationEditLock()) return true;
     const localLease =
       await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
     if (localLease) return true;

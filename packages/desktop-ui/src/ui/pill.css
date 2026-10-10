@@ -76,6 +76,16 @@
   font-size: var(--font-size-sm);
 }
 
+/* Selected option in a row of pills (a segmented choice). */
+.pill-btn--active,
+.pill-btn--active[data-component="button"],
+.pill-btn--active:hover:not(:disabled),
+.pill-btn--active[data-component="button"]:hover:not(:disabled) {
+  background: var(--select-fill);
+  border-color: var(--select-border);
+  color: var(--select-text);
+}
+
 /* Variants ---------------------------------------------------------------- */
 
 .pill-btn--primary,

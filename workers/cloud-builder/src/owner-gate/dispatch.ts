@@ -2,6 +2,7 @@ import {
   type CloudChatHandoff,
   cloudChatHandoffKey,
 } from "../cloud-chat-admission.js";
+import { cancelCloudAgentAttempt } from "../cloud-agent-dispatch.js";
 import { parseDeviceAgentDispatchKey } from "../owner-store/gate-host.js";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import { CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE } from "@stella/contracts/backend/billing";
@@ -494,15 +495,18 @@ export abstract class OwnerGateDispatch extends OwnerGateDeviceSockets {
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
         });
-      } else if (row.cloud_thread_id) {
-        await this.env.BUILD_SESSIONS?.getByName(row.cloud_thread_id).fetch(
-          "https://build-session/cancel",
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(body),
-          },
-        );
+      } else if (row.cloud_thread_id && row.cloud_turn_id) {
+        await cancelCloudAgentAttempt({
+          env: this.env as unknown as Cloudflare.Env,
+          conversationId: row.conversation_id,
+          threadId: row.cloud_thread_id,
+          ownerId: this.ownerId(),
+          ownerGeneration: row.owner_generation,
+          turnId: row.cloud_turn_id,
+          attemptGeneration: 1,
+          cancelRequestId,
+          reason,
+        });
       }
     } catch (error) {
       // The dispatch stays `cancel_pending`; the executing side's terminal
@@ -851,11 +855,17 @@ export abstract class OwnerGateDispatch extends OwnerGateDeviceSockets {
     for (const socket of this.sockets()) {
       const attachment = this.attachment(socket);
       if (!attachment) continue;
-      next = Math.min(
-        next,
-        attachment.lastSeenAtMs + DEVICE_PRESENCE_STALE_AFTER_MS,
-        attachment.authExpiresAtMs,
-      );
+      next = Math.min(next, attachment.authExpiresAtMs);
+      // A proven device going quiet needs no wake of its own: every reader
+      // checks staleness against `presenceRow`, in-flight device calls have
+      // their own deadlines, and waking to re-check would undo hibernation.
+      // Only a handshake that never finishes is reaped on a timer.
+      if (attachment.phase !== "connected") {
+        next = Math.min(
+          next,
+          attachment.lastSeenAtMs + DEVICE_PRESENCE_STALE_AFTER_MS,
+        );
+      }
     }
     // Each column is one `MIN` seek into a partial index, so a wake reads a
     // handful of rows no matter how many terminal dispatches this object has

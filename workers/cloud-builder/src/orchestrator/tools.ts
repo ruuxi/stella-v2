@@ -1,17 +1,5 @@
-import type { WebSearchResult } from "@stella/contracts/backend/search";
+import { piBrainHandoffPrompt } from "@stella/contracts/turn-plane/pi-brain";
 import type { AgentTool } from "@stella/runtime/kernel/agent-core/types.js";
-import { normalizeSafePublicUrl } from "@stella/runtime/kernel/tools/url-guard.js";
-import { fetchReadableText } from "@stella/runtime/kernel/tools/web-fetch-core.js";
-import {
-  containsSecretLikeToken,
-  sanitizeToolVisibleText,
-} from "@stella/runtime/kernel/tools/safety.js";
-import {
-  WEB_TOOL_DESCRIPTION,
-  WEB_TOOL_NAME,
-  WEB_TOOL_PARAMETERS,
-  WEB_TOOL_REPLAY,
-} from "@stella/runtime/kernel/tools/defs/web-def.js";
 import {
   AGENT_STATUS_TOOL_DESCRIPTOR,
   AGENT_STATUS_TOOL_REPLAY,
@@ -23,6 +11,12 @@ import {
   SPAWN_AGENT_TOOL_DESCRIPTOR,
 } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
 import type { TSchema } from "@sinclair/typebox";
+import {
+  agentDirectoryStatus,
+  agentMessageResult,
+  sendAgentMessage,
+  sessionStatus,
+} from "../agent-messaging.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import { AgentHome } from "../agent-home.js";
 import { createWorldMemory, ownerMemoryWorld } from "../world-memory.js";
@@ -41,12 +35,6 @@ import {
   resolveConversationAgentThread,
   spawnDeviceAgent,
 } from "../device-agent-tools.js";
-import {
-  agentDirectoryStatus,
-  agentMessageResult,
-  sendAgentMessage,
-  sessionStatus,
-} from "../agent-messaging.js";
 import { STELLA_MESSAGE_TARGET } from "@stella/contracts/agent-directory";
 import {
   type CloudAgentControlReceipt,
@@ -57,7 +45,7 @@ import {
   pauseResult as sharedPauseResult,
   toolFingerprint as sharedToolFingerprint,
   toolScopedId as sharedToolScopedId,
-  steerCloudAgent,
+  steerContainerAgent,
 } from "../cloud-agent-dispatch.js";
 import { stellaPromptTools } from "@stella/contracts/stella-prompts";
 import { runHistoryQuery } from "../history-sql.js";
@@ -66,9 +54,11 @@ import {
   createCloudCodeAgentTool,
 } from "../cloud-code-tool.js";
 import { createCloudImageGenTool } from "../cloud-image-gen-tool.js";
+import { createCloudWebTool } from "../cloud-web-tool.js";
 import { createCloudHtmlTool } from "../cloud-html-tool.js";
 import { unwrapRpc } from "../owner-store/errors.js";
 import { createCloudDriveTool } from "../cloud-drive-tool.js";
+import { createCloudSwitchDestinationTool } from "../cloud-switch-destination-tool.js";
 import { createCloudReadTool } from "../cloud-read-tool.js";
 import {
   createDriveFileSession,
@@ -97,12 +87,17 @@ import { mapsServerKey } from "../maps/google-resolve.js";
 import { toolRequiresExplicitApproval } from "@stella/runtime/kernel/tools/code-tool.js";
 import { sleepWithAbort } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import { BACKFILL_BATCH_RECORDS } from "../conversation-types.js";
-import type { ChatTurnRequest } from "./types.js";
-import { CONNECT_CARD_WAIT_MS, CONNECT_CARD_POLL_MS } from "./constants.js";
-import { OrchestratorCloudAgents } from "./cloud-agents.js";
+import type { ChatTurnRequest, BrainHandoff } from "./types.js";
+import {
+  CONNECT_CARD_WAIT_MS,
+  CONNECT_CARD_POLL_MS,
+  BRAIN_HANDOFF_KEY,
+  PI_HARNESS_AGENT_TOOL_NAMES,
+} from "./constants.js";
+import { OrchestratorPi } from "./pi.js";
 
 /** The orchestrator's tool set and connector connection requests. */
-export abstract class OrchestratorTools extends OrchestratorCloudAgents {
+export abstract class OrchestratorTools extends OrchestratorPi {
   /**
    * The cloud orchestrator's tool catalog: the desktop orchestrator's exact
    * model-visible contract (`orchestrator.md`'s allowlist — code, html,
@@ -122,7 +117,17 @@ export abstract class OrchestratorTools extends OrchestratorCloudAgents {
     agentHome: AgentHome,
     skillCatalog: CloudSkillCatalogSnapshot,
     memoryEnabled: boolean,
-  ): Promise<{ tools: AgentTool[]; promptTools: ReadonlySet<string> }> {
+    /**
+     * `pi`: the tools for a pi-durable conversation, whose harness has the
+     * agent tools itself, so code's `tools.<name>` never reaches this loop's.
+     */
+    harness?: "pi",
+  ): Promise<{
+    tools: AgentTool[];
+    promptTools: ReadonlySet<string>;
+    /** Code and every other tool, demoted ones included. */
+    catalog: readonly CloudCodeSourceAgentTool[];
+  }> {
     const toolContext = {
       ownerId: turn.ownerId,
       ownerGeneration: turn.ownerGeneration,
@@ -293,6 +298,8 @@ export abstract class OrchestratorTools extends OrchestratorCloudAgents {
           releaseOwnerGate: async (input) => await this.releaseOwnerGate(input),
           deliverOwnerEvents: async (events) =>
             await this.deferOwnerEvents([...events]),
+          // An agent on Stella's models runs in this conversation, at once.
+          startPiThread: async (input) => await this.startPiThread(input),
         },
         caller: {
           ownerId: turn.ownerId,
@@ -485,17 +492,24 @@ export abstract class OrchestratorTools extends OrchestratorCloudAgents {
                   ? "steered"
                   : "resumed";
             } else if (isCloudAgentControlActive(prior.status)) {
-              const steered = await steerCloudAgent({
-                env: this.env,
+              const steer = {
+                ownerId: turn.ownerId,
+                ownerGeneration: turn.ownerGeneration,
                 threadId: prior.threadId,
-                message: {
-                  id: await toolScopedId("turn", toolCallId),
-                  kind: "input",
-                  text: args.message,
-                  createdAt: Date.now(),
-                },
-                ...(signal ? { signal } : {}),
-              });
+                messageId: await toolScopedId("turn", toolCallId),
+                text: args.message,
+              };
+              // A pi agent here, or else an agent in its own container.
+              const piSteered = await this.steerPiThread(steer);
+              const steered =
+                piSteered.accepted || piSteered.reason === "not_running"
+                  ? piSteered
+                  : await steerContainerAgent({ ...steer, env: this.env });
+              if (!steered.accepted && steered.reason === "busy") {
+                throw new Error(
+                  `${prior.threadId} is starting up or just finishing in its container. Send the message again in a moment.`,
+                );
+              }
               if (steered.accepted) {
                 if (steered.attemptGeneration !== prior.attemptGeneration) {
                   throw new Error(
@@ -675,69 +689,88 @@ export abstract class OrchestratorTools extends OrchestratorCloudAgents {
                 `${control.threadId} has no exact running turn to pause. Wait for its latest lifecycle update and try again.`,
               );
             }
-            const cancelRequestId = await sha256Hex(
-              JSON.stringify([
-                "pause_agent",
-                turn.turnId,
-                control.threadId,
-                toolCallId,
-              ]),
-            );
-            // The BuildSession atomically claims cancellation, stops the
-            // process, and delivers the terminal lifecycle wake. A
-            // pre-dispatch pause is persisted there and consumed as soon as
-            // the delayed turn arrives.
-            const teardown = await this.env.BUILD_SESSIONS.getByName(
-              control.threadId,
-            ).fetch("https://build-session/cancel", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                ownerId: turn.ownerId,
-                ownerGeneration: turn.ownerGeneration,
-                turnId: control.turnId,
-                attemptGeneration: control.attemptGeneration,
-                cancelRequestId,
-                reason: "Paused by orchestrator.",
-              }),
-              ...(signal ? { signal } : {}),
+            // An agent on Stella's models runs here as a pi agent: it stops,
+            // and its canceled report wakes this conversation.
+            const paused = await this.pausePiThread({
+              ownerId: turn.ownerId,
+              ownerGeneration: turn.ownerGeneration,
+              threadId: control.threadId,
+              turnId: control.turnId,
+              attemptGeneration: control.attemptGeneration,
             });
-            const teardownResult = (await teardown
-              .json()
-              .catch(() => ({}))) as {
-              canceled?: boolean;
-              pending?: boolean;
-              reason?: string;
-            };
-            if (teardown.status === 409) {
-              if (teardownResult.reason === "terminal_already_decided") {
-                disposition = "already_terminal";
-              } else {
-                throw new Error(
-                  `${control.threadId} was continued while it was being paused. Try again if the newer turn should also stop.`,
-                );
-              }
-            } else if (!teardown.ok) {
+            if (paused === "changed") {
               throw new Error(
-                `Could not pause ${control.threadId}. Try again.`,
+                `${control.threadId} was continued while it was being paused. Try again if the newer turn should also stop.`,
               );
-            } else if (
-              teardown.status === 202 &&
-              teardownResult.pending === true
-            ) {
-              disposition = "pending";
+            }
+            if (paused !== "unknown") {
+              disposition =
+                paused === "terminal" ? "already_terminal" : "pending";
             } else {
-              disposition = "paused";
-              // The BuildSession decided the terminal; its lifecycle wake
-              // repeats the same status and advances nothing further.
-              finalControl = await this.rememberCloudAgentControlReceipt({
-                ...control,
-                status: "canceled",
-                threadUpdatedAt: Math.max(
-                  Date.now(),
-                  control.threadUpdatedAt + 1,
-                ),
+              const cancelRequestId = await sha256Hex(
+                JSON.stringify([
+                  "pause_agent",
+                  turn.turnId,
+                  control.threadId,
+                  toolCallId,
+                ]),
+              );
+              // The BuildSession atomically claims cancellation, stops the
+              // process, and delivers the terminal lifecycle wake. A
+              // pre-dispatch pause is persisted there and consumed as soon as
+              // the delayed turn arrives.
+              const teardown = await this.env.BUILD_SESSIONS.getByName(
+                control.threadId,
+              ).fetch("https://build-session/cancel", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  ownerId: turn.ownerId,
+                  ownerGeneration: turn.ownerGeneration,
+                  turnId: control.turnId,
+                  attemptGeneration: control.attemptGeneration,
+                  cancelRequestId,
+                  reason: "Paused by orchestrator.",
+                }),
+                ...(signal ? { signal } : {}),
               });
+              const teardownResult = (await teardown
+                .json()
+                .catch(() => ({}))) as {
+                canceled?: boolean;
+                pending?: boolean;
+                reason?: string;
+              };
+              if (teardown.status === 409) {
+                if (teardownResult.reason === "terminal_already_decided") {
+                  disposition = "already_terminal";
+                } else {
+                  throw new Error(
+                    `${control.threadId} was continued while it was being paused. Try again if the newer turn should also stop.`,
+                  );
+                }
+              } else if (!teardown.ok) {
+                throw new Error(
+                  `Could not pause ${control.threadId}. Try again.`,
+                );
+              } else if (
+                teardown.status === 202 &&
+                teardownResult.pending === true
+              ) {
+                disposition = "pending";
+              } else {
+                disposition = "paused";
+                // The BuildSession decided the terminal; its lifecycle wake
+                // repeats the same status and advances nothing further.
+                finalControl = await this.rememberCloudAgentControlReceipt({
+                  ...control,
+                  status: "canceled",
+                  threadUpdatedAt: Math.max(
+                    Date.now(),
+                    control.threadUpdatedAt + 1,
+                  ),
+                });
+              }
             }
           }
           const outcome = await this.commitCloudAgentToolOutcome(
@@ -757,66 +790,7 @@ export abstract class OrchestratorTools extends OrchestratorCloudAgents {
           );
         },
       },
-      // The desktop `web` tool's exact surface (web-def) and fetch pipeline
-      // (web-fetch-core, with per-redirect-hop SSRF re-validation). workerd
-      // has no resolver hook, so the guard runs literal-only here; Cloudflare's
-      // own egress policy backstops DNS-rebinding names.
-      {
-        name: WEB_TOOL_NAME,
-        label: "Web",
-        replay: WEB_TOOL_REPLAY,
-        description: WEB_TOOL_DESCRIPTION,
-        parameters: WEB_TOOL_PARAMETERS as unknown as TSchema,
-        execute: async (_id, params, signal) => {
-          const args = params as {
-            query?: string;
-            url?: string;
-            category?: string;
-            prompt?: string;
-          };
-          const query = args.query?.trim() ?? "";
-          const url = args.url?.trim() ?? "";
-          if (!query && !url) {
-            throw new Error("Either query or url is required.");
-          }
-          if (query && url) {
-            throw new Error("Pass either query or url, not both.");
-          }
-          if (url) {
-            const prompt = args.prompt?.trim() || undefined;
-            const text = await fetchReadableText(
-              { url, ...(prompt ? { prompt } : {}) },
-              {
-                guardUrl: (candidate) => normalizeSafePublicUrl(candidate),
-                // Same two protections the desktop tool applies: refuse a URL
-                // carrying a credential (exfiltration via a model-chosen
-                // query string), and redact secrets out of fetched page text
-                // before it becomes model-visible and lands in the transcript.
-                checkSecretLikeToken: containsSecretLikeToken,
-                sanitize: sanitizeToolVisibleText,
-                userAgent: "Stella/1.0 (Cloud)",
-                ...(signal ? { signal } : {}),
-              },
-            );
-            return {
-              content: [{ type: "text", text }],
-              details: { mode: "fetch", url },
-            };
-          }
-          signal?.throwIfAborted();
-          const category = args.category?.trim();
-          const payload = (await toolContext.ownerInternal("search.web", {
-            query,
-            ...(category ? { category } : {}),
-          })) as WebSearchResult;
-          return {
-            content: [
-              { type: "text", text: payload.text || "No results found." },
-            ],
-            details: { mode: "search", query, ...payload },
-          };
-        },
-      },
+      createCloudWebTool({ ownerInternal: toolContext.ownerInternal }),
       createCloudImageGenTool({
         ownerGeneration: turn.ownerGeneration,
         conversationId: turn.conversationId,
@@ -863,7 +837,10 @@ export abstract class OrchestratorTools extends OrchestratorCloudAgents {
         : undefined;
     const codeTool = await createCloudCodeAgentTool({
       loader: this.env.LOADER,
-      tools,
+      tools:
+        harness === "pi"
+          ? tools.filter((tool) => !PI_HARNESS_AGENT_TOOL_NAMES.has(tool.name))
+          : tools,
       executionScope: `${turn.ownerGeneration}:${turn.conversationId}:${turn.turnId}`,
       connect: createCloudConnectClient(connectors),
       ...(memory ? { memory } : {}),
@@ -889,8 +866,36 @@ export abstract class OrchestratorTools extends OrchestratorCloudAgents {
     const direct = tools.filter(
       (tool) => !tool.demoted || toolRequiresExplicitApproval(tool.approval),
     );
+    // Claude Code's Stella moves herself to one of the owner's computers
+    // with this; pi's has it in her own harness. Direct only, never inside
+    // code, and left out of the prompt's tools: the cloud prompt's
+    // `switch_destination` text is pi's, which moves tools too.
+    const switchDestination =
+      harness === "pi"
+        ? []
+        : [
+            createCloudSwitchDestinationTool({
+              devices: async () =>
+                (await this.ownerGate(turn.ownerId).devices()).devices,
+              workingAgents: () => this.workingAgentDescriptions(),
+              move: async (host, brief, toolCallId) => {
+                await this.putTurnState({
+                  [BRAIN_HANDOFF_KEY]: {
+                    turnId: turn.turnId,
+                    ownerId: turn.ownerId,
+                    ownerGeneration: turn.ownerGeneration,
+                    deviceId: host.deviceId,
+                    clientMsgId: await toolScopedId("message", toolCallId),
+                    prompt: piBrainHandoffPrompt("the cloud", brief),
+                  } satisfies BrainHandoff,
+                });
+                await this.setPiBrain({ host: "device", ...host });
+              },
+            }),
+          ];
     return {
-      tools: [codeTool, ...direct],
+      tools: [codeTool, ...direct, ...switchDestination],
+      catalog: [codeTool, ...tools],
       // The prompt renders against everything this turn can call, demoted
       // tools inside code included, and `history` and `memory` only when
       // code has them.

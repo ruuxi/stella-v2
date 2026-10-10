@@ -16,12 +16,12 @@ import {
   CloudContextBlockedError,
   cloudContextFailure,
 } from "./support.js";
-import { OrchestratorConversationEdit } from "./conversation-edit.js";
+import { OrchestratorTurnQueue } from "./turn-queue.js";
 
 /**
  * Dev acceptance probes and the canonical prompt/journal checks behind them.
  */
-export abstract class OrchestratorDevAcceptance extends OrchestratorConversationEdit {
+export abstract class OrchestratorDevAcceptance extends OrchestratorTurnQueue {
   protected async devAcceptanceProbeSnapshot(
     operation: "status" | "self_abort" | "arm_fault",
     replayed: boolean,

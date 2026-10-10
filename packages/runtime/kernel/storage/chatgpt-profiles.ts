@@ -38,7 +38,7 @@ import {
   refreshChatGptTokens,
   revokeChatGptRefreshToken,
 } from "@stella/contracts/chatgpt-siwc-flows";
-import type { ChatGptSavedRegistration } from "../../ai/utils/oauth/chatgpt.js";
+import type { ChatGptSavedRegistration } from "../integrations/chatgpt-sign-in.js";
 import { protectValue, unprotectValue } from "../shared/protected-storage.js";
 import { writePrivateFileSync } from "../shared/private-fs.js";
 

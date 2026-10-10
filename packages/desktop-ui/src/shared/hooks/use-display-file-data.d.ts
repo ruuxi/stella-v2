@@ -20,4 +20,6 @@ export declare function useDisplayFileBlobs(filePaths: string[], unavailableMess
     error: string | null;
     loading: boolean;
     missing: boolean[];
+    /** Why each missing file can't be shown, in words a viewer can display. */
+    missingMessages: Array<string | null>;
 };

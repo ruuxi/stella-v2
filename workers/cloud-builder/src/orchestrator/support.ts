@@ -1,10 +1,14 @@
 import type { DevicesResponse } from "@stella/contracts/turn-plane/placement";
+import { resolveManagedModelDescriptor } from "@stella/model-catalog/gateway-resolution";
 import {
   createExecutionContextSnapshot,
   type ExecutionContextSnapshot,
   mediaAccessForAudience,
 } from "@stella/contracts/execution-context";
 import type { AgentMessage } from "@stella/runtime/kernel/agent-core/types.js";
+import type { AgentActivityEntry } from "@stella/contracts/conversation-agent-activity";
+import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 import {
   type MintedTurnCapability,
   mintTurnCapability,
@@ -16,6 +20,7 @@ import type {
   ChatTurnRequest,
   ChatTurnAdmissionReceipt,
   LocalTurnLease,
+  AgentsView,
   HarnessExecution,
   CloudContextComponent,
 } from "./types.js";
@@ -24,6 +29,41 @@ import { TERMINAL_NOTICE } from "./constants.js";
 export class OwnerPurgeFenceError extends Error {}
 export class OwnerFenceLeaseConflictError extends Error {}
 export class OwnerFenceRegistrationUncertainError extends Error {}
+
+/**
+ * How a pi agent's report (`[Agent completed]` / `[Task failed]`) ended, and
+ * its result or error, for the agent's lifecycle card.
+ */
+export const piReportOutcome = (
+  text: string,
+): { kind: "completed" | "failed" | "canceled"; body: string } => {
+  const field = (name: string) => {
+    const match = new RegExp(
+      `(?:^|\\n)${name}: ([\\s\\S]*?)(?=\\n(?:agent_state|routing|presentation):|$)`,
+    ).exec(text);
+    return match?.[1]?.trim() ?? "";
+  };
+  if (text.startsWith("[Agent completed]"))
+    return { kind: "completed", body: field("result") };
+  if (
+    text.startsWith("[Task canceled]") ||
+    text.startsWith("[Subagent paused]")
+  ) {
+    return { kind: "canceled", body: field("error") };
+  }
+  return { kind: "failed", body: field("error") };
+};
+
+/** One list, pi's own first where both name an agent, oldest start first. */
+export const listedAgents = (
+  view: AgentsView,
+  limit: number,
+): AgentActivityEntry[] => {
+  const pi = new Set(view.pi.map((agent) => agent.agentId));
+  return [...view.pi, ...view.owner.filter((agent) => !pi.has(agent.agentId))]
+    .sort((a, b) => a.createdAtMs - b.createdAtMs)
+    .slice(0, limit);
+};
 
 /**
  * The model capability for a turn this object's own loop runs. Never called
@@ -75,6 +115,32 @@ export const cloudExecutionContext = (
     destination: { kind: "cloud" },
     media: { stella: mediaAccessForAudience(turn.audience) },
   });
+
+/** A Stella model as pi's `stella` provider serves it, for one agent type and audience. */
+export const piModelSpec = (
+  agentType: "orchestrator" | "general",
+  execution: Extract<CloudExecutionSelection, { engine: "stella" }>,
+  audience: ManagedModelAudience,
+): import("@stella/agent/provider/stella").StellaModelSpec => {
+  const descriptor = resolveManagedModelDescriptor({
+    agentType,
+    requestedModel: execution.model,
+    audience,
+  });
+  return {
+    agentType,
+    alias: execution.model,
+    protocol: descriptor.protocol,
+    reasoning: descriptor.reasoning,
+    supportsImages: descriptor.supportsImages,
+    ...(descriptor.contextWindow !== undefined
+      ? { contextWindow: descriptor.contextWindow }
+      : {}),
+    ...(descriptor.maxOutputTokens !== undefined
+      ? { maxOutputTokens: descriptor.maxOutputTokens }
+      : {}),
+  };
+};
 
 /** A resume that cannot rebuild the turn's exact context fails the turn. */
 export class ChatTurnNotResumableError extends Error {

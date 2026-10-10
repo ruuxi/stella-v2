@@ -52,26 +52,16 @@ import {
   CLOUD_CODE_BROWSER_INTRINSIC,
   CLOUD_CODE_CONNECT_INTRINSIC,
   CLOUD_CODE_DESCRIBE_INTRINSIC,
-  CLOUD_CODE_FS_MAX_FILE_BYTES,
   CLOUD_CODE_HISTORY_INTRINSIC,
   CLOUD_CODE_MEMORY_INTRINSIC,
   CLOUD_CODE_SEARCH_INTRINSIC,
-  CLOUD_CODE_WORLD_INTRINSIC,
-  CLOUD_CODE_WORLD_ROOT,
 } from "./cloud-code-worker-executor.js";
 import { sha256Hex } from "./hash.js";
 import type {
-  ResidentBrowserClient,
-  ResidentBrowserScreenshot,
-} from "./resident-browser.js";
+  CloudBrowserClient,
+  CloudBrowserScreenshot,
+} from "./cloud-browser.js";
 import type { ToolReplayPolicy } from "./tool-replay.js";
-import type { WorldShellFsRpc } from "./worker-shell/protocol.js";
-import type { WorkerShellWorldCommit } from "./worker-shell-runner.js";
-import type { WorldListingEntry } from "./world/types.js";
-import {
-  GENERAL_AGENT_EGRESS_BUDGET_BYTES,
-  GENERAL_AGENT_EGRESS_REQUESTS_PER_MINUTE,
-} from "./sandbox-egress-policy.js";
 
 const CLOUD_CODE_MODEL_OUTPUT_MAX_BYTES = 50_000;
 const CLOUD_CODE_NESTED_RESULT_MAX_BYTES = 128 * 1024;
@@ -83,7 +73,7 @@ const MAX_LIFTED_MAPS = 3;
 /** Screenshots one code call may hand the model. */
 const MAX_LIFTED_SCREENSHOTS = 3;
 
-type LiftedScreenshot = ResidentBrowserScreenshot["image"];
+type LiftedScreenshot = CloudBrowserScreenshot["image"];
 
 /**
  * Tools that never appear inside code. Same set the device kernel excludes:
@@ -101,11 +91,9 @@ const CODE_EXCLUDED_TOOL_NAMES: ReadonlySet<string> = new Set([
  * `connect` client, the same demoted-tool catalog suffix. Only the runtime
  * differs, and the differences are stated rather than hidden: a fresh
  * sandbox per call (no persistent bindings, no cell_id), and no
- * computer-use globals because the cloud has no device. A turn that holds a
- * cloud browser (a resident background agent) also gets the `browser` global
- * over Stella's private Browser Run profile; the orchestrator never does.
- * Neither does it get what a General agent's code reaches (`reach`): `fetch`
- * to the public network and the `fs` global over the owner world.
+ * computer-use globals because the cloud has no device. An agent's code also
+ * gets the `browser` global over Stella's private Browser Run profile; the
+ * orchestrator's never does.
  */
 const cloudCodeToolDescription = (browser: boolean): string =>
   `Run JavaScript with top-level await in Stella's cloud code runtime — a fresh isolated sandbox per call. Call the immutable globals directly: connect, history, tools${browser ? ", and browser" : ""}. End with an expression to return its value; console.log lines come back in a [console] section. Bindings do not persist between calls and there is no cell_id, codeRuntime, or sky${browser ? "" : ", or browser"} in this session, so do the whole computation in one call and return a structured-cloneable value. The sandbox has no network and no secrets of its own; reach the outside world only through tools${browser ? ", connect, and browser" : " and connect"}. ${browser ? `${CLOUD_CODE_BROWSER_SENTENCE} ` : ""}tools exposes allowed Stella tools. Use tools.$list() for exact names/access expressions; non-identifier names require bracket notation such as tools[\"mcp.server/tool\"](...). Use tools.$search({ query: \"<capability>\" }) for ranked signatures, and tools.$describe(name) for a complete unfamiliar schema. Use Promise.all for independent calls. Nested tools retain permissions, cancellation, and route artifacts, and a failing nested call rejects with the tool's own error so you can catch it; tools requiring explicit approval are unavailable inside code and must be called directly. connect is the connector client for the user's connected services (connect.documentation() explains it): discover → actions → schema → call. ` +
@@ -121,23 +109,6 @@ const CLOUD_CODE_BROWSER_SENTENCE =
   `browser drives Stella's private cloud browser (one persistent signed-in profile, kept between turns; it is not the user's own browser). Each method is one awaited command. browser.open(url, { allowedOrigins? }) starts at an https URL and limits navigation to its origin plus allowedOrigins. browser.open, navigate(url), observe(), back(), forward(), and reload() return { url, title, text, elements }: text is the page's visible text, and elements lists the visible controls as { ref, role, name, selector?, href?, checked?, disabled?, sensitive? } (sensitive marks password, email, code, and card fields). Selectors are Playwright selectors (CSS, text=, role=, xpath=, chains) or ref=eN from the latest observation; refs change after navigation, so observe again. Actions: click(selector), fill(selector, value), press(selector, key), select(selector, value), check(selector), uncheck(selector), hover(selector), text(selector), wait(selector, timeoutMs?), and scroll({ direction?, amount?, selector? }). browser.evaluate(script, arg?) runs a JavaScript expression, or a function source string called with arg, in the page and returns its JSON result (use it for DOM reads, localStorage, or same-origin fetch with the page's session). browser.cookies(urls?), setCookies(cookies), and clearCookies() manage the profile's cookies. browser.requests({ limit? }) lists recent network requests and responseBody(url) returns one response's body. browser.screenshot({ fullPage? }) attaches a picture to this code call's result (up to ${MAX_LIFTED_SCREENSHOTS} per call). Also tabs(), focusTab(tabId), and close(). For signing in, prefer handing the login to the user: call browser.requestLoginTakeover({ allowedOrigins: [origin], displayOrigin: origin, startUrl?, displayTitle?, verification: { expectedOrigin: origin, authenticatedSelector, loggedOutSelector, resumeUrl } }) with one exact https origin everywhere. loggedOutSelector names something visible now only when signed out; authenticatedSelector names something that appears only once signed in (such as text=Sign out); they must differ and cannot be refs. It hands the login screen to the user on their phone or desktop and pauses this task until they finish: make it the last call in that code cell. Type a password or card number yourself only when the user gave it to you in this conversation. When the task continues, this code call's result says whether sign-in was approved, canceled, or expired; on approval, browser.open the site again and carry on signed in.`;
 
 export const CLOUD_CODE_TOOL_DESCRIPTION = cloudCodeToolDescription(false);
-
-/**
- * A General agent's `code` reaches more than the orchestrator's: the public
- * network through `fetch` and the owner world through `fs`. It is still a
- * fresh isolate per call, and the description says what that means for state.
- */
-const agentCloudCodeToolDescription = (
-  browser: boolean,
-  world: boolean,
-): string =>
-  `Run JavaScript with top-level await in Stella's cloud code runtime — a fresh isolated sandbox per call. Call the immutable globals directly: ${world ? "fs, " : ""}fetch, connect, history, tools${browser ? ", and browser" : ""}. End with an expression to return its value; console.log lines come back in a [console] section. Bindings do not persist between calls and there is no cell_id, codeRuntime, or sky${browser ? "" : ", or browser"} in this session, so do the whole computation in one call, return a structured-cloneable value, and keep anything a later call needs in a file. There are no Node built-ins, npm packages, child processes, or secrets here; use Bash for those. ${CLOUD_CODE_FETCH_SENTENCE} ${world ? `${CLOUD_CODE_FS_SENTENCE} ` : ""}${browser ? `${CLOUD_CODE_BROWSER_SENTENCE} ` : ""}tools exposes allowed Stella tools. Use tools.$list() for exact names/access expressions; non-identifier names require bracket notation such as tools[\"mcp.server/tool\"](...). Use tools.$search({ query: \"<capability>\" }) for ranked signatures, and tools.$describe(name) for a complete unfamiliar schema. Use Promise.all for independent calls. Nested tools retain permissions, cancellation, and route artifacts, and a failing nested call rejects with the tool's own error so you can catch it; tools requiring explicit approval are unavailable inside code and must be called directly. connect is the connector client for the user's connected services (connect.documentation() explains it): discover → actions → schema → call. ` +
-  `${CODE_TOOL_HISTORY_SENTENCE} ` +
-  `One execution may make at most ${CLOUD_CODE_MAX_TOOL_CALLS} nested tool calls, with at most ${CLOUD_CODE_MAX_CONCURRENT_TOOL_CALLS} running concurrently, and runs for at most ${Math.round(CLOUD_CODE_MAX_TIMEOUT_MS / 1000)} seconds.`;
-
-const CLOUD_CODE_FETCH_SENTENCE = `fetch(url, init) reaches public http(s) URLs: http is upgraded to https, private and local addresses and URLs that carry a credential are refused, every redirect is checked the same way, and requests share the workspace's egress budget (${GENERAL_AGENT_EGRESS_REQUESTS_PER_MINUTE} a minute, ${Math.round(GENERAL_AGENT_EGRESS_BUDGET_BYTES / (1024 * 1024))} MB downloaded).`;
-
-const CLOUD_CODE_FS_SENTENCE = `fs is the workspace — the same files Read, Write, Bash, and the other tools see — at ${CLOUD_CODE_WORLD_ROOT}, which ~ also names; relative paths resolve from it and nothing outside it is reachable. Every method returns a promise: fs.readFile(path, { encoding? }) returns UTF-8 text, or a base64 string or a Uint8Array with encoding "base64" or "bytes"; fs.writeFile(path, data, { encoding? }) takes a string (UTF-8, or base64 with encoding "base64") or bytes and creates missing parent directories; also fs.appendFile(path, data), fs.readdir(path, { withFileTypes? }), fs.stat(path), fs.lstat(path), fs.exists(path), fs.mkdir(path, { recursive? }), fs.rm(path, { recursive?, force? }), and fs.rename(from, to) and fs.copyFile(from, to) for files. A write is saved to the workspace before its promise resolves, so nested tools and later calls see it; it rejects with EAGAIN and writes nothing when a file this call read has changed since. Files over ${CLOUD_CODE_FS_MAX_FILE_BYTES / (1024 * 1024)} MiB need Bash.`;
 
 const CLOUD_CODE_PARAMETERS = {
   type: "object",
@@ -209,27 +180,6 @@ export type CloudHistoryClient = Readonly<{
   read(fromSeq: number, toSeq: number): Promise<unknown>;
 }>;
 
-/**
- * The owner world as an agent's `fs` sees it: the read-only loopback bound
- * into the Worker, and the revision and commit calls only the Durable Object
- * makes. `commitShell` is the worker shell's own check-and-apply.
- */
-export type CloudCodeWorld = Readonly<{
-  loopback: () => WorldShellFsRpc;
-  head: WorkerShellWorldCommit["head"];
-  commitShell: WorkerShellWorldCommit["commitShell"];
-}>;
-
-/**
- * What a General agent's code reaches beyond the orchestrator's: `network`
- * mints the egress entrypoint every `fetch` goes through, and `world`, when
- * present, gives the cell its `fs` global.
- */
-export type CloudCodeAgentReachOptions = Readonly<{
-  network: () => Fetcher;
-  world?: CloudCodeWorld;
-}>;
-
 export type CloudCodeExecute = (
   request: CloudCodeExecutionRequest,
 ) => Promise<CloudCodeExecutionResult>;
@@ -254,12 +204,7 @@ export type CreateCloudCodeAgentToolOptions = Readonly<{
    * a login handoff ends the call as `AgentToolSuspendedError`; absent, there
    * is no `browser` at all, as in the cloud orchestrator.
    */
-  browser?: ResidentBrowserClient;
-  /**
-   * A General agent's network and world. Absent, as for the cloud
-   * orchestrator, the sandbox has no network and no `fs`.
-   */
-  reach?: CloudCodeAgentReachOptions;
+  browser?: CloudBrowserClient;
   /** Test seam; production always uses the official Dynamic Worker executor. */
   executeCode?: CloudCodeExecute;
 }>;
@@ -541,7 +486,7 @@ const connectIntrinsic =
  * isolate's intrinsic and the turn broker, which serves the same call for the
  * container's `code`.
  */
-export const invokeCloudConnect = async (
+const invokeCloudConnect = async (
   client: CloudConnectClient,
   method: string,
   args: readonly unknown[],
@@ -601,148 +546,6 @@ const historyIntrinsic =
     }
   };
 
-/** One `fs` write changes at most a file and the path it moved from. */
-const WORLD_COMMIT_MAX_PATHS = 16;
-const WORLD_COMMIT_MAX_READS = 20_000;
-const WORLD_PATH_MAX_LENGTH = 1_024;
-const WORLD_SYMLINK_TARGET_MAX_LENGTH = 4_096;
-const SHA256_HEX = /^[0-9a-f]{64}$/u;
-
-/**
- * A world-relative path exactly as the store keys it. The empty root is
- * allowed only where a read of it is being reported.
- */
-const worldPathOf = (value: unknown, allowRoot = false): string => {
-  if (typeof value !== "string") throw new Error("fs: a path is invalid.");
-  if (value === "" && allowRoot) return value;
-  if (
-    value.length === 0 ||
-    value.length > WORLD_PATH_MAX_LENGTH ||
-    value.startsWith("/") ||
-    value
-      .split("/")
-      .some((segment) => !segment || segment === "." || segment === "..")
-  ) {
-    throw new Error("fs: a path is invalid.");
-  }
-  return value;
-};
-
-const worldPathsOf = (
-  value: unknown,
-  max: number,
-  allowRoot = false,
-): string[] => {
-  if (!Array.isArray(value) || value.length > max) {
-    throw new Error("fs: a change names too many paths.");
-  }
-  return value.map((entry) => worldPathOf(entry, allowRoot));
-};
-
-const nonNegativeInteger = (value: unknown, max = Number.MAX_SAFE_INTEGER) =>
-  Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= max;
-
-/**
- * Generated code can call `$world` directly, not only through `fs`, so every
- * field of a commit is checked here; the store checks the paths, blobs, and
- * quota again when it applies the change.
- */
-const worldEntryOf = (value: unknown): WorldListingEntry => {
-  const entry = asRecord(value);
-  const path = worldPathOf(entry.path);
-  if (!nonNegativeInteger(entry.mode, 0o7777)) {
-    throw new Error("fs: a file mode is invalid.");
-  }
-  const mode = entry.mode as number;
-  if (entry.kind === "dir") return { path, kind: "dir", mode, size: 0 };
-  if (entry.kind === "file") {
-    if (
-      !nonNegativeInteger(entry.size, CLOUD_CODE_FS_MAX_FILE_BYTES) ||
-      typeof entry.sha256 !== "string" ||
-      !SHA256_HEX.test(entry.sha256)
-    ) {
-      throw new Error("fs: a file's content is invalid.");
-    }
-    return {
-      path,
-      kind: "file",
-      mode,
-      size: entry.size as number,
-      sha256: entry.sha256,
-    };
-  }
-  if (
-    entry.kind === "symlink" &&
-    typeof entry.target === "string" &&
-    entry.target.length > 0 &&
-    entry.target.length <= WORLD_SYMLINK_TARGET_MAX_LENGTH &&
-    nonNegativeInteger(entry.size)
-  ) {
-    return {
-      path,
-      kind: "symlink",
-      mode,
-      size: entry.size as number,
-      target: entry.target,
-    };
-  }
-  throw new Error("fs: a change entry is invalid.");
-};
-
-/**
- * `$world` — the revision an `fs` cell's reads are checked against, and the
- * commit of one write. The commit lands only if nothing the cell read since
- * its last write, nor the path it writes, changed after `baseRevision`; a
- * write made before any read is pinned commits against the current head.
- */
-const worldIntrinsic =
-  (world: CloudCodeWorld): CloudCodeIntrinsic =>
-  async (input) => {
-    const request = asRecord(input);
-    if (request.op === "head") {
-      return { revision: (await world.head()).revision };
-    }
-    if (request.op !== "commit") {
-      throw new Error("$world takes a head or commit operation.");
-    }
-    const entries = Array.isArray(request.entries)
-      ? request.entries.map(worldEntryOf)
-      : [];
-    const deleted = worldPathsOf(request.deleted, WORLD_COMMIT_MAX_PATHS);
-    if (
-      entries.length > WORLD_COMMIT_MAX_PATHS ||
-      entries.length + deleted.length === 0
-    ) {
-      throw new Error("fs: a write must change between one and 16 paths.");
-    }
-    const reads = {
-      paths: worldPathsOf(request.reads, WORLD_COMMIT_MAX_READS),
-      children: worldPathsOf(request.children, WORLD_COMMIT_MAX_READS, true),
-    };
-    let baseRevision: number;
-    if (request.baseRevision === null || request.baseRevision === undefined) {
-      baseRevision = (await world.head()).revision;
-    } else if (nonNegativeInteger(request.baseRevision)) {
-      baseRevision = request.baseRevision as number;
-    } else {
-      throw new Error("fs: the base revision is invalid.");
-    }
-    const outcome = await world.commitShell({
-      baseRevision,
-      reads,
-      entries,
-      deleted,
-    });
-    switch (outcome.status) {
-      case "committed":
-        return { status: "committed", revision: outcome.revision };
-      case "conflict":
-        return { status: "conflict", paths: outcome.paths };
-      case "missing_blobs":
-        return { status: "missing_blobs" };
-    }
-  };
-
 /** `memory.read` / `memory.write` / `memory.list` — forwarded to the memory module. */
 const memoryIntrinsic =
   (client: MemoryClient): CloudCodeIntrinsic =>
@@ -751,7 +554,7 @@ const memoryIntrinsic =
 
 const isScreenshotResult = (
   value: unknown,
-): value is ResidentBrowserScreenshot =>
+): value is CloudBrowserScreenshot =>
   Boolean(value) &&
   typeof value === "object" &&
   typeof (value as { image?: { data?: unknown } }).image?.data === "string";
@@ -764,7 +567,7 @@ const isScreenshotResult = (
  */
 const browserIntrinsic =
   (
-    client: ResidentBrowserClient,
+    client: CloudBrowserClient,
     screenshots: Map<string, LiftedScreenshot[]>,
   ): CloudCodeIntrinsic =>
   async (input, context) => {
@@ -823,9 +626,6 @@ export const createCloudCodeAgentTool = async (
           ),
         }
       : {}),
-    ...(options.reach?.world
-      ? { [CLOUD_CODE_WORLD_INTRINSIC]: worldIntrinsic(options.reach.world) }
-      : {}),
     ...(options.memory
       ? {
           [CLOUD_CODE_MEMORY_INTRINSIC]: memoryIntrinsic(options.memory),
@@ -833,20 +633,12 @@ export const createCloudCodeAgentTool = async (
       : {}),
   };
   const executeCode = options.executeCode ?? executeCloudCode;
-  const reach = options.reach;
 
   return {
     name: CODE_TOOL_NAME,
     label: "Code",
     workingText: "Running code",
-    description: `${
-      reach
-        ? agentCloudCodeToolDescription(
-            Boolean(options.browser),
-            Boolean(reach.world),
-          )
-        : cloudCodeToolDescription(Boolean(options.browser))
-    }${buildDemotedCodeSuffix(demoted)}`,
+    description: `${cloudCodeToolDescription(Boolean(options.browser))}${buildDemotedCodeSuffix(demoted)}`,
     parameters: CLOUD_CODE_PARAMETERS as unknown as TSchema,
     execute: async (toolCallId, params, signal) => {
       const args = params as CloudCodeParameters;
@@ -869,22 +661,14 @@ export const createCloudCodeAgentTool = async (
             ? {}
             : { timeoutMs: args.timeout_ms }),
           ...(signal ? { signal } : {}),
-          ...(reach
-            ? {
-                agentReach: {
-                  network: reach.network(),
-                  ...(reach.world ? { world: reach.world.loopback() } : {}),
-                },
-              }
-            : {}),
         });
       } finally {
         liftedMaps.delete(executionId);
         liftedScreenshots.delete(executionId);
       }
-      // A login handoff parked the profile under human control during this
-      // cell. Whatever the cell did with the error afterwards, the turn waits
-      // for the user; the loop binds this to the outer Code call.
+      // A login handoff put the profile under human control during this
+      // cell. Whatever the cell did with the error afterwards, the call waits
+      // for the user: the agent's run holds it open until the handoff ends.
       const suspension = options.browser?.suspension();
       if (suspension) throw new AgentToolSuspendedError(suspension);
       const text = modelTextForResult(result);

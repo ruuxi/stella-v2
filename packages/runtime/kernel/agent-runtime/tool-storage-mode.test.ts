@@ -3,7 +3,6 @@ import type { ToolContext } from "../tools/types.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
 import {
   buildRuntimeToolContext,
-  createPiTools,
   executeRuntimeToolCall,
 } from "./tool-adapters.js";
 
@@ -27,44 +26,6 @@ describe("runtime tool execution context", () => {
     expect(buildRuntimeToolContext(baseContextArgs)).toMatchObject({
       executionHost: "device",
       storageMode: "local",
-    });
-  });
-
-  test("threads cloud ownership through native Pi tools", async () => {
-    const receivedContexts: ToolContext[] = [];
-    const tools = createPiTools({
-      ...baseContextArgs,
-      storageMode: "cloud",
-      toolsAllowlist: ["capture"],
-      toolCatalog: [
-        {
-          name: "capture",
-          description: "Capture the tool context.",
-          parameters: {
-            type: "object",
-            properties: {},
-            additionalProperties: false,
-          },
-        },
-      ],
-      store: {} as RuntimeStore,
-      toolExecutor: async (_name, _args, context) => {
-        receivedContexts.push(context);
-        return { result: "ok" };
-      },
-    });
-
-    const capture = tools.find((tool) => tool.name === "capture");
-    expect(capture).toBeDefined();
-    await capture!.execute(
-      "tool-1",
-      {},
-      new AbortController().signal,
-      undefined,
-    );
-    expect(receivedContexts.at(-1)).toMatchObject({
-      executionHost: "device",
-      storageMode: "cloud",
     });
   });
 

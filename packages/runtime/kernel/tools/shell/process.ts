@@ -9,7 +9,8 @@ import { spawn } from "child_process";
 import { StringDecoder } from "node:string_decoder";
 import type { ToolProcessIdentity } from "../types.js";
 import { truncate } from "../utils.js";
-import { runToolEffect, toolsRuntime } from "../effect-runtime.js";
+import { terminateProcessTree } from "../../shared/process-tree.js";
+import { runToolEffect } from "../effect-runtime.js";
 import { sanitizeToolVisibleText } from "../safety.js";
 import { isolateToolProcessLaunch } from "../process-isolation.js";
 import {
@@ -203,132 +204,51 @@ export const spawnPtyShellProcess = (
   return { process: subprocess, terminal, write, resize, close };
 };
 
-const killShellProcess = (
-  child: SpawnedShell,
-  signal: NodeJS.Signals = "SIGTERM",
-) => {
-  const pid = child.pid;
-
-  if (!pid) {
-    return;
-  }
-
-  if (process.platform === "win32") {
-    const taskkillArgs = ["/pid", String(pid), "/t"];
-    if (signal === "SIGKILL") {
-      taskkillArgs.push("/f");
-    }
-
-    const killer = spawn("taskkill", taskkillArgs, {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-
-    killer.on("error", () => {
-      try {
-        child.kill(signal);
-      } catch {
-        // Ignore cleanup errors on fallback kill.
-      }
-    });
-    return;
-  }
-
-  try {
-    process.kill(-pid, signal);
-  } catch {
-    try {
-      child.kill(signal);
-    } catch {
-      // Ignore cleanup errors when the child already exited.
-    }
-  }
-};
+const shellTerminations = new WeakMap<object, Promise<void>>();
 
 /**
- * TERM→1s→KILL ladder. The escalation is a forked fiber racing the child's
- * `exit` event against a 1s sleep (replacing the unref'd `setTimeout`): if
- * the child is still alive at the deadline it is SIGKILLed; if it exits
- * first the fiber ends immediately. Bounded to 1s of fiber lifetime per
- * invocation, so repeated kills stay cheap and shutdown never inherits an
- * unbounded timer set.
+ * TERM→1s→KILL for the shell's whole tree. Single-flight per process so
+ * repeated kills join the teardown already in progress. The returned promise
+ * settles once the shell, its process group and any escaped descendants are
+ * gone, or SIGKILL has been dispatched to the survivors.
  */
-export const terminateShellProcess = (child: SpawnedShell) => {
-  if (child.exitCode !== null) {
-    return;
-  }
+const terminateShellTree = (
+  key: object,
+  pid: number | undefined,
+  isRootRunning: () => boolean,
+): Promise<void> => {
+  const existing = shellTerminations.get(key);
+  if (existing) return existing;
+  const termination = terminateProcessTree(pid, {
+    isRootRunning,
+    forceAfterMs: 1_000,
+  }).finally(() => {
+    shellTerminations.delete(key);
+  });
+  shellTerminations.set(key, termination);
+  return termination;
+};
 
-  killShellProcess(child, "SIGTERM");
-
-  toolsRuntime.runFork(
-    Effect.gen(function* () {
-      const exited = yield* Deferred.make<void>();
-      const onExit = () => {
-        Deferred.doneUnsafe(exited, Effect.void);
-      };
-      child.once("exit", onExit);
-      yield* Effect.ensuring(
-        Effect.raceFirst(Effect.sleep(1_000), Deferred.await(exited)),
-        Effect.sync(() => {
-          child.removeListener("exit", onExit);
-        }),
-      );
-      if (child.exitCode === null) {
-        killShellProcess(child, "SIGKILL");
-      }
-    }),
+export const terminateShellProcess = (child: SpawnedShell): Promise<void> =>
+  terminateShellTree(
+    child,
+    child.pid,
+    () => child.exitCode === null && child.signalCode === null,
   );
-};
 
-const killPtyShellProcess = (
+export const terminatePtyShellProcess = (
   pty: SpawnedPtyShell,
-  signal: NodeJS.Signals = "SIGTERM",
-) => {
-  const pid = pty.process.pid;
-  if (!pid || pty.process.exitCode !== null) return;
-
-  if (process.platform === "win32") {
-    const taskkillArgs = ["/pid", String(pid), "/t"];
-    if (signal === "SIGKILL") taskkillArgs.push("/f");
-    const killer = spawn("taskkill", taskkillArgs, {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    killer.on("error", () => {
-      try {
-        pty.process.kill(signal);
-      } catch {
-        // The ConPTY child may already have exited.
-      }
-    });
-    return;
-  }
-
-  try {
-    process.kill(-pid, signal);
-  } catch {
-    try {
-      pty.process.kill(signal);
-    } catch {
-      // The PTY process may already have exited.
-    }
-  }
-};
-
-export const terminatePtyShellProcess = (pty: SpawnedPtyShell) => {
-  if (pty.process.exitCode !== null) {
-    pty.close();
-    return;
-  }
+): Promise<void> => {
+  const isRootRunning = () =>
+    pty.process.exitCode === null && pty.process.signalCode === null;
   // On pre-24H2 Windows, ClosePseudoConsole can block while a live child is
   // flushing. Kill the process first and close the terminal only after exit.
-  killPtyShellProcess(pty, "SIGTERM");
-  const forceKillTimer = setTimeout(() => {
-    if (pty.process.exitCode === null) {
-      killPtyShellProcess(pty, "SIGKILL");
-    }
-  }, 1_000);
-  forceKillTimer.unref?.();
+  if (!isRootRunning()) pty.close();
+  return terminateShellTree(pty.process, pty.process.pid, isRootRunning).then(
+    () => {
+      if (!isRootRunning()) pty.close();
+    },
+  );
 };
 
 export const runShell = async (
@@ -386,11 +306,15 @@ export const runShell = async (
           );
         }
         const child = yield* Effect.acquireRelease(
-          Effect.sync(() => spawnedChild),
+          Effect.sync(() => {
+            state.foregroundShells.add(spawnedChild);
+            return spawnedChild;
+          }),
           (spawned) =>
             Effect.sync(() => {
+              state.foregroundShells.delete(spawned);
               if (!processSettled) {
-                terminateShellProcess(spawned);
+                void terminateShellProcess(spawned);
               }
             }),
         );

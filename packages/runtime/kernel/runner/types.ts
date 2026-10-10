@@ -446,7 +446,7 @@ export type RunnerContext = {
     listRunningShellSessionsOwnedBy: (
       access: import("../tools/shell.js").ShellSessionAccess,
     ) => string[];
-    killAllShells: () => void;
+    killAllShells: () => Promise<void>;
     killShell: (sessionId: string) => Promise<void> | void;
     killShellsByPort: (port: number) => void;
     shutdown: () => Promise<void>;
@@ -472,7 +472,7 @@ export type RunnerPublicApi = {
   stop: () => Promise<void>;
   waitUntilInitialized: () => Promise<void>;
   getStellaSiteAuth: () => { baseUrl: string; authToken: string } | null;
-  killAllShells: () => void;
+  killAllShells: () => Promise<void>;
   killShellsByPort: (port: number) => void;
   executeTool: (
     toolName: string,

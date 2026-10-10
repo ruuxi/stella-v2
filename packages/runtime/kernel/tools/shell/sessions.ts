@@ -44,6 +44,8 @@ import {
 
 export type ShellState = {
   shells: Map<string, ManagedShellRecord>;
+  /** One-shot foreground commands still running (`runShell`). */
+  foregroundShells: Set<SpawnedShell>;
   /** Changes whenever the runtime worker reconstructs its in-memory state. */
   workerGeneration: string;
   /** Compact receipts retained after completed shell records are pruned. */
@@ -241,6 +243,7 @@ export function createShellState(
 
   return {
     shells: new Map(),
+    foregroundShells: new Set(),
     workerGeneration: crypto.randomUUID().slice(0, 8),
     prunedSessions: new Map(),
     secretStateRoot,
@@ -871,12 +874,15 @@ export const waitForShellExit = (
   );
 
 /**
- * Joined, bounded teardown of every managed shell. `kill()` alone only
+ * Joined, bounded teardown of every managed shell and every foreground
+ * command still running. `kill()` alone only
  * *starts* the TERM→1s→KILL ladders — a worker that exits right after would
  * strand TERM-ignoring children as orphans. This joins every running
- * shell's actual exit latch in parallel under a single 3s bound
- * (comfortably past the ladder); anything still alive at the bound is
- * logged and left to the OS, as the ladder's KILL already fired.
+ * shell's exit latch and its whole-tree termination (process group and
+ * escaped descendants, which can outlive the shell itself) in parallel
+ * under a single 3s bound (comfortably past the ladder); anything still
+ * alive at the bound is logged and left to the OS, as the ladder's KILL
+ * already fired.
  * Conversation-scoped shells are deliberately worker-lifetime resources:
  * they die here, never earlier.
  */
@@ -889,19 +895,27 @@ export const shutdownManagedShells = (state: ShellState): Promise<void> =>
           pending.push(record);
         }
       }
-      for (const record of state.shells.values()) {
-        if (record.running) {
-          record.kill();
-        }
+      const terminations: Promise<void>[] = [];
+      for (const record of pending) {
+        const termination = record.kill();
+        if (termination) terminations.push(termination);
       }
-      if (pending.length === 0) {
+      for (const child of state.foregroundShells) {
+        terminations.push(terminateShellProcess(child));
+      }
+      if (pending.length === 0 && terminations.length === 0) {
         return;
       }
       const joined = yield* Effect.raceFirst(
         Effect.forEach(pending, (record) => Deferred.await(record.exitLatch), {
           concurrency: "unbounded",
           discard: true,
-        }).pipe(Effect.as("joined" as const)),
+        }).pipe(
+          Effect.andThen(
+            Effect.promise(() => Promise.allSettled(terminations)),
+          ),
+          Effect.as("joined" as const),
+        ),
         Effect.sleep(3_000).pipe(Effect.as("timeout" as const)),
       );
       if (joined === "timeout") {

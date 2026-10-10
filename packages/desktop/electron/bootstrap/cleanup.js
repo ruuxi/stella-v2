@@ -2,8 +2,34 @@ import { stopAllDesktopAutomationDaemons } from "../services/desktop-automation-
 import { stopOrphanedStellaBrowserDaemons } from "../services/stella-browser-bridge-service.js";
 import { stopNativeHelperDaemons } from "../native-helper-daemon.js";
 import { stopOfficePreviewSessions } from "./office-preview-bridge.js";
+import { joinWithTimeout } from "@stella/runtime/kernel/shared/join-timeout";
+const RUNTIME_SHELLS_SHUTDOWN_TIMEOUT_MS = 4_000;
 export const registerBootstrapProcessCleanups = (context) => {
     const { processRuntime } = context.state;
+    // Agent shells live in the runtime worker, so they can only be reached
+    // while the host is attached: the runtime cleanup joins this teardown
+    // before it detaches. The worker bounds its own teardown at 3s; this bound
+    // keeps a wedged worker from holding quit hostage.
+    let runtimeShellTeardown = null;
+    const startRuntimeShellTeardown = () => {
+        const runner = context.state.stellaHostRunner;
+        if (!runner) {
+            return Promise.resolve();
+        }
+        if (runtimeShellTeardown?.runner !== runner) {
+            runtimeShellTeardown = {
+                runner,
+                promise: joinWithTimeout(Promise.resolve()
+                    .then(() => runner.killAllShells())
+                    .catch((error) => {
+                    console.warn("[cleanup] Runtime shell teardown failed:", error);
+                }), RUNTIME_SHELLS_SHUTDOWN_TIMEOUT_MS, () => {
+                    console.warn("[cleanup] Runtime shell teardown exceeded the quit bound; detaching the runtime anyway.");
+                }),
+            };
+        }
+        return runtimeShellTeardown.promise;
+    };
     processRuntime.registerCleanup("before-quit", "auth-refresh-loop", () => {
         context.services.authService.stopAuthRefreshLoop();
     });
@@ -24,12 +50,16 @@ export const registerBootstrapProcessCleanups = (context) => {
         });
         await context.services.telemetry.close({ timeoutMs: 3000 });
     });
-    processRuntime.registerCleanup("before-quit", "runtime-shells", () => {
-        context.state.stellaHostRunner?.killAllShells();
-    });
     processRuntime.registerCleanup("before-quit", "runtime-worker", async () => {
-        await context.state.stellaHostRunner?.stop({ killWorker: false });
-        context.state.stellaHostRunner = null;
+        const runner = context.state.stellaHostRunner;
+        if (!runner) {
+            return;
+        }
+        await startRuntimeShellTeardown();
+        await runner.stop({ killWorker: false });
+        if (context.state.stellaHostRunner === runner) {
+            context.state.stellaHostRunner = null;
+        }
     });
     processRuntime.registerCleanup("before-quit", "browser-bridge", async () => {
         await context.state.stellaBrowserBridgeService?.stop();
@@ -85,5 +115,11 @@ export const registerBootstrapProcessCleanups = (context) => {
         context.services.globalInputHook.stop();
         context.state.globalInputHooksStarted = false;
         context.state.globalInputHooksStartScheduled = false;
+    });
+    // Registered last so it runs first. Teardown happens in the worker, so
+    // starting it here overlaps it with every other cleanup instead of
+    // leaving it to whatever remains of the quit budget.
+    processRuntime.registerCleanup("before-quit", "runtime-shells", () => {
+        void startRuntimeShellTeardown();
     });
 };

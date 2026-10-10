@@ -738,8 +738,8 @@ export class RuntimeHostAdapter {
     onPiChatEvents(listener) {
         return this.host.on("pi-chat-events", listener);
     }
-    killAllShells() {
-        return void this.host.killAllShells();
+    async killAllShells() {
+        await this.host.killAllShells();
     }
     killShellsByPort(port) {
         return this.host.killShellsByPort(port);

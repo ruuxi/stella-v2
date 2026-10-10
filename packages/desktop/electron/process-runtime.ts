@@ -1,4 +1,5 @@
-import { execFileSync, type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
+import { terminateProcessTree } from "@stella/runtime/kernel/shared/process-tree";
 
 export type ProcessRuntimePhase = "before-quit" | "will-quit";
 
@@ -12,6 +13,12 @@ type CleanupFn = () => void | Promise<void>;
 
 type TimerHandle = ReturnType<typeof setTimeout>;
 
+/**
+ * Stop a child and everything it started, even when the child itself has
+ * already exited: its process group (and on Windows its orphaned children)
+ * is checked and terminated on its own. Spawn the child with
+ * `detached: process.platform !== "win32"` so it leads its own group.
+ */
 export const stopChildProcessTree = async (
   child: ChildProcess | null | undefined,
   options: {
@@ -19,54 +26,14 @@ export const stopChildProcessTree = async (
     forceAfterMs?: number;
   } = {},
 ) => {
-  const { graceSignal = "SIGTERM", forceAfterMs = 1_500 } = options;
-
-  if (!child || !child.pid || child.exitCode !== null || child.signalCode !== null) {
+  if (!child?.pid) {
     return;
   }
-
-  if (process.platform === "win32") {
-    try {
-      execFileSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
-        stdio: "ignore",
-        windowsHide: true,
-      });
-      return;
-    } catch {
-      try {
-        child.kill(graceSignal);
-      } catch {
-        return;
-      }
-    }
-  } else {
-    try {
-      process.kill(-child.pid, graceSignal);
-    } catch {
-      try {
-        child.kill(graceSignal);
-      } catch {
-        return;
-      }
-    }
-  }
-
-  await Promise.race([
-    new Promise<void>((resolve) => {
-      child.once("exit", () => resolve());
-    }),
-    new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          // Best-effort forced cleanup.
-        }
-        resolve();
-      }, forceAfterMs);
-      timer.unref?.();
-    }),
-  ]).catch(() => undefined);
+  await terminateProcessTree(child.pid, {
+    isRootRunning: () => child.exitCode === null && child.signalCode === null,
+    graceSignal: options.graceSignal,
+    forceAfterMs: options.forceAfterMs,
+  });
 };
 
 export class ProcessRuntime {

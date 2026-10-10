@@ -689,11 +689,7 @@ export const createToolHost = ({
     }
   };
 
-  const killAllShells = () => {
-    for (const shell of shellState.shells.values()) {
-      if (shell.running) shell.kill();
-    }
-  };
+  const killAllShells = () => shutdownManagedShells(shellState);
 
   const killShellsByPort = (port: number) => {
     const portStr = String(port);

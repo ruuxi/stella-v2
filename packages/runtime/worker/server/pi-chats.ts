@@ -126,6 +126,12 @@ export const closePiChats = async (session: OpenSession): Promise<void> => {
   await (await chats?.catch(() => undefined))?.close();
 };
 
+/** End the shell commands of the session's pi chats, if they were opened. */
+export const terminatePiChatCommands = async (session: OpenSession): Promise<void> => {
+  const chats = await chatsBySession.get(session)?.catch(() => undefined);
+  await chats?.terminateCommands();
+};
+
 export const piChatsFor = (
   session: OpenSession,
   hostBus: HostBus.Interface,

@@ -18,9 +18,9 @@ const MESSAGES = [
 const DEVICES = ["computer", "phone", "browser"] as const;
 const HOLD_MS = 4200;
 const THEMES: WindowThemeKey[] = [
-  { id: "dracula", dark: false },
-  { id: "default", dark: true },
-  { id: "gruvbox", dark: false },
+  { id: "dracula", dark: true },
+  { id: "nightowl", dark: true },
+  { id: "gruvbox", dark: true },
 ];
 
 export function DevicesAct() {
@@ -100,7 +100,7 @@ export function DevicesAct() {
                     <i />
                   </span>
                   <span className={d.tab}>
-                    <StellaCharacter size={12} eyeColor="#ffffff" />
+                    <StellaCharacter size={12} eyeColor="#1c1c21" />
                     Stella
                   </span>
                   <span className={d.url}>stella.sh/chat</span>

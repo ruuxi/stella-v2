@@ -21,7 +21,7 @@
   "kernel/shared/read-image-file.ts": 1,
   "kernel/shared/readiness-latch.ts": 1,
   "kernel/shared/schedule-scripts.ts": 1,
-  "kernel/thread-runtime.ts": 1,
+  "kernel/thread-compaction-summary.ts": 1,
   "kernel/tools/defs/map.ts": 1,
   "kernel/tools/local-tool-overrides.ts": 2,
   "kernel/tools/media-artifact-store.ts": 1,

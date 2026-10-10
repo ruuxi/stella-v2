@@ -1808,6 +1808,7 @@ const startComputerThread = async (
   if (existing) {
     if (
       existing.placement !== "computer" ||
+      existing.executor_device_id !== null ||
       existing.conversation_id !== args.conversationId ||
       existing.origin_device_id !== args.originDeviceId ||
       existing.owner_generation !== args.ownerGeneration
@@ -1869,6 +1870,7 @@ const readComputerThread = (
   const row = readThread(db, args.threadId);
   return row &&
     row.placement === "computer" &&
+    row.executor_device_id === null &&
     row.origin_device_id === args.originDeviceId &&
     row.owner_generation === args.ownerGeneration
     ? row
@@ -2420,7 +2422,8 @@ export const agentThreadsDomain = {
         return ctx.db
           .all<Pick<ThreadRow, "thread_id" | "conversation_id" | "attempt_generation">>(
             `SELECT thread_id, conversation_id, attempt_generation FROM agent_threads
-              WHERE placement = 'computer' AND origin_device_id = ? AND owner_generation = ? AND status = 'running'
+              WHERE placement = 'computer' AND executor_device_id IS NULL AND origin_device_id = ?
+                AND owner_generation = ? AND status = 'running'
               ORDER BY updated_at DESC LIMIT ?`,
             args.originDeviceId,
             args.ownerGeneration,

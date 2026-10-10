@@ -23,116 +23,41 @@ import {
   runBrowserCommand,
   type BrowserCommandRunner,
 } from "./command-runner.js";
+import {
+  BROWSER_CHAIN_ACTIONS,
+  BROWSER_PROTOCOL_ACTIONS,
+  DEFAULT_BROWSER_CHAIN_DELAY_MAX_MS,
+  DEFAULT_BROWSER_CHAIN_DELAY_MIN_MS,
+  MAX_BROWSER_CHAIN_STEPS,
+  MAX_BROWSER_CHAIN_TIMEOUT_MS,
+  MAX_BROWSER_CHAIN_WAIT_TIMEOUT_MS,
+  requireNonNegativeInteger,
+  requirePositiveInteger,
+  WORKER_BOUND_BACKEND_PARAM,
+  type BrowserChainAction,
+  type BrowserProtocolAction,
+  type BrowserSessionAction,
+} from "./protocol.js";
 
-export const MAX_BROWSER_CHAIN_STEPS = 100;
+export {
+  BROWSER_CHAIN_ACTIONS,
+  BROWSER_PROTOCOL_ACTIONS,
+  CLOUD_BROWSER_SESSION_ACTIONS,
+  MAX_BROWSER_CHAIN_STEPS,
+  WORKER_BOUND_BACKEND_PARAM,
+  type BrowserChainAction,
+  type BrowserProtocolAction,
+  type BrowserSessionAction,
+  type CloudBrowserSessionAction,
+} from "./protocol.js";
 
 const DEFAULT_BROWSER_CHAIN_WAIT_TIMEOUT_MS = 10_000;
 const BROWSER_CHAIN_STEP_BUDGET_MS = 1_000;
 const MIN_BROWSER_CHAIN_TIMEOUT_MS = 3 * 60_000;
-const MAX_BROWSER_CHAIN_TIMEOUT_MS = 4 * 60_000;
 const MAX_BROWSER_TURN_CLEANUP_TIMEOUT_MS = 2_000;
 const BROWSER_COMMAND_TIMEOUT_GRACE_MS = 5_000;
 let lastBrowserOwnerLeaseIssuedAt = Date.now();
 
-// Contract-checked against packages/stella-browser/protocol/actions.json
-// ("chain": true) by tests/runtime/kernel/browser-use/action-contract.test.ts:
-// adding, removing, or renaming an entry fails that test until the manifest
-// and the Rust daemon (is_chain_allowed_action) agree.
-export const BROWSER_CHAIN_ACTIONS = [
-  "healthcheck",
-  "navigate",
-  "back",
-  "forward",
-  "reload",
-  "url",
-  "title",
-  "click",
-  "fill",
-  "type",
-  "hover",
-  "select",
-  "press",
-  "scroll",
-  "clear",
-  "check",
-  "uncheck",
-  "focus",
-  "dblclick",
-  "wait",
-  "screenshot",
-  "snapshot",
-  "content",
-  "evaluate",
-  "gettext",
-  "getattribute",
-  "innertext",
-  "innerhtml",
-  "inputvalue",
-  "boundingbox",
-  "scrollintoview",
-  "isvisible",
-  "isenabled",
-  "ischecked",
-  "count",
-  "styles",
-  "waitforurl",
-  "waitforfunction",
-  "bringtofront",
-  "requests",
-  "responsebody",
-  "route",
-  "unroute",
-  "har_start",
-  "har_stop",
-  "clipboard",
-  "mousemove",
-  "mousedown",
-  "mouseup",
-  "drag",
-  "keydown",
-  "keyup",
-  "inserttext",
-  "tab_new",
-  "tab_list",
-  "tab_switch",
-  "tab_close",
-  "cookies_get",
-  "cookies_set",
-  "cookies_clear",
-  "upload",
-] as const;
-
-export const BROWSER_PROTOCOL_ACTIONS = [
-  ...BROWSER_CHAIN_ACTIONS,
-  "authenticated_request",
-  "authenticated_request_batch",
-  "evaluate_detached",
-  "rewrite_request",
-  "unrewrite_request",
-  "mark_tab",
-  "finalize_tabs",
-  "close_owner",
-  "release_owner_lease",
-] as const;
-
-export type BrowserChainAction = (typeof BROWSER_CHAIN_ACTIONS)[number];
-export type BrowserProtocolAction = (typeof BROWSER_PROTOCOL_ACTIONS)[number];
-/**
- * Host-adapted interaction requests exposed by the code browser API. They are
- * deliberately outside the local daemon protocol manifest: a desktop browser
- * session rejects them, while a trusted cloud adapter maps them to its private
- * gateway contract. The agent loop binds a returned neutral suspension to the
- * active outer Code tool call; the gateway never receives that outer id.
- */
-export const CLOUD_BROWSER_SESSION_ACTIONS = [
-  "cloud_login_takeover",
-  "cloud_device_code_fixture",
-] as const;
-export type CloudBrowserSessionAction =
-  (typeof CLOUD_BROWSER_SESSION_ACTIONS)[number];
-export type BrowserSessionAction =
-  | BrowserProtocolAction
-  | CloudBrowserSessionAction;
 export type BrowserJsonPrimitive = string | number | boolean | null;
 export type BrowserJsonValue =
   | BrowserJsonPrimitive
@@ -293,8 +218,6 @@ export type BrowserSessionCommandErrorCode =
   | "execution_failed";
 
 export type BrowserCommandTimeoutSource = "caller" | "runtime-default";
-
-export const WORKER_BOUND_BACKEND_PARAM = "__stellaBrowserBackend";
 
 export class BrowserSessionCommandError extends Error {
   readonly code: BrowserSessionCommandErrorCode;
@@ -468,20 +391,6 @@ const requireNonEmptyString = (value: unknown, name: string): string => {
   }
   if (value.includes("\0")) {
     throw new TypeError(`${name} must not contain a null byte.`);
-  }
-  return value;
-};
-
-const requirePositiveInteger = (value: unknown, name: string): number => {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
-    throw new TypeError(`${name} must be a positive integer.`);
-  }
-  return value;
-};
-
-const requireNonNegativeInteger = (value: unknown, name: string): number => {
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-    throw new TypeError(`${name} must be a non-negative integer.`);
   }
   return value;
 };
@@ -841,6 +750,14 @@ const validateChainOptions = (
     value.waitTimeoutMs === undefined
       ? undefined
       : requirePositiveInteger(value.waitTimeoutMs, "waitTimeoutMs");
+  if (
+    waitTimeoutMs !== undefined &&
+    waitTimeoutMs > MAX_BROWSER_CHAIN_WAIT_TIMEOUT_MS
+  ) {
+    throw new RangeError(
+      `waitTimeoutMs must be at most ${MAX_BROWSER_CHAIN_WAIT_TIMEOUT_MS}.`,
+    );
+  }
   const timeoutMs =
     value.timeoutMs === undefined
       ? undefined
@@ -860,11 +777,11 @@ const validateChainOptions = (
       throw new TypeError("delay must be an object.");
     }
     const minMs = requireNonNegativeInteger(
-      value.delay.minMs ?? 300,
+      value.delay.minMs ?? DEFAULT_BROWSER_CHAIN_DELAY_MIN_MS,
       "delay.minMs",
     );
     const maxMs = requireNonNegativeInteger(
-      value.delay.maxMs ?? 1_200,
+      value.delay.maxMs ?? DEFAULT_BROWSER_CHAIN_DELAY_MAX_MS,
       "delay.maxMs",
     );
     if (minMs > maxMs) {
@@ -1243,8 +1160,10 @@ export class BrowserSession implements BrowserSessionClient {
     }));
     const delay = validatedOptions.delay
       ? {
-          min: validatedOptions.delay.minMs ?? 300,
-          max: validatedOptions.delay.maxMs ?? 1_200,
+          min:
+            validatedOptions.delay.minMs ?? DEFAULT_BROWSER_CHAIN_DELAY_MIN_MS,
+          max:
+            validatedOptions.delay.maxMs ?? DEFAULT_BROWSER_CHAIN_DELAY_MAX_MS,
         }
       : undefined;
     const chainTimeoutMs = getChainTimeoutMs(

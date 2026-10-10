@@ -17,7 +17,7 @@
   "kernel/agent-runtime/tool-lifecycle.ts": 2,
   "kernel/agents/local-agent-manager.js": 3,
   "kernel/browser-use/client.ts": 1,
-  "kernel/browser-use/worker-api.ts": 1,
+  "kernel/browser-use/worker-api/context.ts": 1,
   "kernel/computer-use/kernel-worker.ts": 2,
   "kernel/computer-use/kernel.ts": 3,
   "kernel/computer-use/stella-computer-executor.ts": 1,

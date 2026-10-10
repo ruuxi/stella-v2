@@ -21,7 +21,12 @@ import { piReplyFileEvents, piStreamingOverlay, projectPiChat } from "./pi-chat-
 
 const NO_SUBSCRIPTION = () => () => {};
 
-export const usePiChat = (conversationId: string | null) => {
+/**
+ * `transcript`: pi supplies the conversation's record too. A conversation
+ * stored in the cloud is shown from its journal for every engine, and pi
+ * supplies only what the journal does not hold yet.
+ */
+export const usePiChat = (conversationId: string | null, { transcript }: { transcript: boolean }) => {
   // The user's engine can move the chat onto or off pi while it is open.
   const enabled = useSyncExternalStore(subscribePiChatEnabled, piChatEnabled) && Boolean(conversationId);
 
@@ -71,7 +76,7 @@ export const usePiChat = (conversationId: string | null) => {
   const hasOlder = state.hasOlder;
   const isLoadingOlder = (loading & 2) === 2;
   useEffect(() => {
-    if (!enabled || !conversationId) return;
+    if (!enabled || !transcript || !conversationId) return;
     provideLineageSource(conversationId, {
       messages: projection.messages,
       hasOlder,
@@ -79,7 +84,7 @@ export const usePiChat = (conversationId: string | null) => {
       loadOlder: () => loadOlderPiChat(conversationId),
     });
     return () => provideLineageSource(conversationId, null);
-  }, [conversationId, enabled, hasOlder, isLoadingOlder, projection.messages]);
+  }, [conversationId, enabled, hasOlder, isLoadingOlder, projection.messages, transcript]);
 
   const cancel = useCallback(() => {
     if (conversationId) abortPiChat(conversationId);
@@ -90,6 +95,7 @@ export const usePiChat = (conversationId: string | null) => {
 
   return {
     enabled,
+    projection,
     messages: projection.messages,
     /** Replies that link files, for the Files panel. */
     replyFiles,

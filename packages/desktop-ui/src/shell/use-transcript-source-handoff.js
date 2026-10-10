@@ -8,14 +8,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 const HANDOFF_TIMEOUT_MS = 3000;
 
 /**
- * The chat renders one conversation from one of two stores: pi-durable's
- * transcript, or the cloud journal with the local replica. Which one follows
- * the user's engine (Claude Code keeps the journal path), so a model pick
- * can change the source mid-conversation. The incoming store starts empty or
- * stale, which blanked the chat or dropped its latest rows until it caught
- * up. Across a source change in the same conversation this keeps showing the
- * transcript that was on screen until the incoming source is current, then
- * swaps in one commit. A conversation change never holds.
+ * A conversation kept on this computer renders from pi-durable's transcript
+ * on pi and from the chat log under Claude Code, so a model pick can change
+ * its source mid-conversation (one stored in the cloud always renders from
+ * its journal). The incoming store starts empty or stale, which would blank
+ * the chat or drop its latest rows until it caught up. Across a source change
+ * in the same conversation this keeps showing the transcript that was on
+ * screen until the incoming source is current, then swaps in one commit. A
+ * conversation change never holds.
  */
 export function useTranscriptSourceHandoff({
   conversationId,

@@ -25,6 +25,8 @@ import {
 
 type Turn = {
   userMessageId?: string;
+  /** The pi user entry that opened it; none for what came before the first one. */
+  entryId?: number;
   assistantMessages: number;
   /**
    * A turn the host started with a prompt the user never sees (a schedule
@@ -34,17 +36,34 @@ type Turn = {
   hidden?: true;
 };
 
+/** One of the transcript's turns, by the user entry that opened it. */
+export type PiTurnIndex = {
+  entryId: number;
+  userMessageId: string;
+  timestamp: number;
+  /** Pi's own turn on this computer, not one written in from the journal or the chat log. */
+  own: boolean;
+};
+
 export type PiChatProjection = {
   records: JournalRecord[];
   messages: MessageRecord[];
   /** The turn the next streamed assistant message belongs to. */
   turn: Turn;
+  turns: PiTurnIndex[];
+};
+
+/** An entry written in from elsewhere: the journal (`journalSeq`) or the chat log (`localLog`). */
+const writtenIn = (entry: PiEntry): boolean => {
+  const data = entry.data as { journalSeq?: unknown; localLog?: unknown } | undefined;
+  return typeof data?.journalSeq === "number" || typeof data?.localLog === "string";
 };
 
 export const projectPiChat = (state: Pick<PiChatState, "entries" | "requestIds">): PiChatProjection => {
   const records: JournalRecord[] = [];
   let turnId = "pi:0";
   let turn: Turn = { assistantMessages: 0 };
+  const turns: PiTurnIndex[] = [];
   for (const entry of state.entries) {
     const message = entry.model?.[0];
     if (!message || message.role === "system") continue;
@@ -64,9 +83,16 @@ export const projectPiChat = (state: Pick<PiChatState, "entries" | "requestIds">
       const automation = hidden && !isPiAgentInput(message);
       turn = {
         userMessageId: clientMsgId ?? `cloud:${turnId}:message:${entry.id}`,
+        entryId: entry.id,
         assistantMessages: 0,
         ...(automation ? { hidden: true as const } : {}),
       };
+      turns.push({
+        entryId: entry.id,
+        userMessageId: turn.userMessageId!,
+        timestamp: message.timestamp,
+        own: !writtenIn(entry),
+      });
       records.push({
         ...base,
         turnId,
@@ -97,7 +123,130 @@ export const projectPiChat = (state: Pick<PiChatState, "entries" | "requestIds">
       records.push({ ...base, role: "toolResult", hidden: false, payload: message as unknown as Record<string, unknown> });
     }
   }
-  return { records, messages: journalRecordsToMessageRecords(records), turn };
+  return { records, messages: journalRecordsToMessageRecords(records), turn, turns };
+};
+
+/** This computer's pi turn as the journal holds it. */
+export type JournaledPiTurn = {
+  userMessageId: string;
+  /** Its turn has ended in the journal: every row it wrote is there. */
+  settled: boolean;
+};
+
+/**
+ * This computer's pi turns in the journal, by the pi user entry that opened
+ * each. The journal names a desktop turn `<source>:<deviceId>:pi:<syncId>:<entryId>`,
+ * with one `syncId` per transcript. This transcript's turns are the ones whose
+ * prompt carries the id pi gave a turn of its own at that entry; failing
+ * that (no such prompt loaded), the ones this device journaled.
+ */
+export const journaledPiTurns = (
+  records: readonly JournalRecord[],
+  turns: readonly PiTurnIndex[],
+  deviceId: string | null,
+): Map<number, JournaledPiTurn> => {
+  type Found = JournaledPiTurn & { writer: string; entryId: number };
+  const found = new Map<string, Found>();
+  for (const record of records) {
+    let turn = found.get(record.turnId);
+    if (!turn) {
+      const match = /^(?:desktop|voice):([^:]+):pi:([^:]+):(\d+)$/.exec(record.turnId);
+      if (!match) continue;
+      turn = { writer: `${match[1]}:${match[2]}`, entryId: Number(match[3]), userMessageId: "", settled: false };
+      found.set(record.turnId, turn);
+    }
+    if (record.kind === "message" && record.role === "user") {
+      turn.userMessageId = record.clientMsgId ?? `cloud:${record.turnId}:message:${record.seq}`;
+    } else if (record.kind === "turn" && record.phase !== "started") {
+      turn.settled = true;
+    }
+  }
+  const own = new Map(turns.filter((turn) => turn.own).map((turn) => [turn.entryId, turn.userMessageId]));
+  let writer = [...found.values()].find((turn) => own.get(turn.entryId) === turn.userMessageId)?.writer;
+  if (!writer && deviceId) writer = [...found.values()].find((turn) => turn.writer.startsWith(`${deviceId}:`))?.writer;
+  const journaled = new Map<number, JournaledPiTurn>();
+  if (!writer) return journaled;
+  for (const turn of found.values()) {
+    if (turn.writer === writer) journaled.set(turn.entryId, { userMessageId: turn.userMessageId, settled: turn.settled });
+  }
+  return journaled;
+};
+
+/** Pi's rows the journal does not hold yet, and the ids its turns go by in the journal. */
+export type PiPendingRows = {
+  messages: MessageRecord[];
+  /** A turn's user message id on pi, to the id its journal row carries where they differ. */
+  journalUserIds: ReadonlyMap<string, string>;
+};
+
+const NO_PENDING_ROWS: PiPendingRows = { messages: [], journalUserIds: new Map() };
+
+/**
+ * The desktop shows a conversation stored in the cloud from its journal, for
+ * every engine. Pi journals a turn as it starts (its prompt) and as it ends
+ * (its replies and tools), so what pi has said in a turn still running, or in
+ * one the journal could not take, is shown from pi until the journal holds
+ * it: a turn the journal lacks shows whole, an open one shows the replies the
+ * journal has not caught up to, and a settled one shows only from the journal.
+ * Turns older than the journal's loaded window stay out (`sinceMs`).
+ */
+export const piPendingRows = (args: {
+  projection: PiChatProjection;
+  journaled: ReadonlyMap<number, JournaledPiTurn>;
+  canonical: readonly MessageRecord[];
+  sinceMs: number | null;
+}): PiPendingRows => {
+  const { projection, journaled, canonical, sinceMs } = args;
+  const pending = projection.turns.filter((turn) => {
+    if (!turn.own || (sinceMs !== null && turn.timestamp < sinceMs)) return false;
+    return journaled.get(turn.entryId)?.settled !== true;
+  });
+  // What pi wrote before the first message (the onboarding greeting) stays
+  // on this computer, so it shows from pi once the journal is loaded from the start.
+  const opening = sinceMs === null;
+  if (pending.length === 0 && !opening) return NO_PENDING_ROWS;
+  const canonicalReplies = new Map<string, number>();
+  for (const message of canonical) {
+    const owner = message.type === "assistant_message" ? message.payload?.userMessageId : undefined;
+    if (typeof owner === "string") canonicalReplies.set(owner, (canonicalReplies.get(owner) ?? 0) + 1);
+  }
+  const byUser = new Map(pending.map((turn) => [turn.userMessageId, turn]));
+  const journalUserIds = new Map<string, string>();
+  const replies = new Map<string, number>();
+  const messages: MessageRecord[] = [];
+  for (const message of projection.messages) {
+    const owner =
+      message.type === "user_message"
+        ? message._id
+        : typeof message.payload?.userMessageId === "string"
+          ? message.payload.userMessageId
+          : undefined;
+    if (!owner) {
+      if (opening && message.type === "assistant_message") messages.push(message);
+      continue;
+    }
+    const turn = byUser.get(owner);
+    if (!turn) continue;
+    const journal = journaled.get(turn.entryId);
+    if (!journal) {
+      messages.push(message);
+      continue;
+    }
+    if (message.type === "user_message") continue;
+    if (journal.userMessageId && journal.userMessageId !== turn.userMessageId) {
+      journalUserIds.set(turn.userMessageId, journal.userMessageId);
+    }
+    const target = journal.userMessageId || turn.userMessageId;
+    const ordinal = (replies.get(target) ?? 0) + 1;
+    replies.set(target, ordinal);
+    if (ordinal <= (canonicalReplies.get(target) ?? 0)) continue;
+    messages.push(
+      target === turn.userMessageId
+        ? message
+        : { ...message, payload: { ...message.payload, userMessageId: target } },
+    );
+  }
+  return messages.length === 0 && journalUserIds.size === 0 ? NO_PENDING_ROWS : { messages, journalUserIds };
 };
 
 /** The assistant message being generated, as the timeline's streaming overlay. */

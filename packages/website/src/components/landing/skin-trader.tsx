@@ -146,8 +146,7 @@ export function TraderSkin() {
             <div className={t.callout} style={{ left: `${(FILL_X / W) * 100}%`, top: `${(yOf(117.9) / H) * 100}%` }}>
               <StellaCharacter size={16} eyeColor="#161b22" />
               <span>
-                <b>Filled 20 NVDA at 118.00</b>
-                Stop set at 112. I&apos;ll tell you before earnings.
+                <b>Filled 20 at 118.00</b>
               </span>
             </div>
           </div>
@@ -157,29 +156,47 @@ export function TraderSkin() {
           {WATCH.map((w) => (
             <div key={w.s} className={t.row}>
               <b>{w.s}</b>
-              <svg viewBox="0 0 60 18" aria-hidden="true" data-up={w.up ? "1" : "0"}>
-                <path d={w.d} />
-              </svg>
               <span>{w.p}</span>
               <em data-up={w.up ? "1" : "0"}>{w.c}</em>
             </div>
           ))}
-          <p className={t.sideHead}>Stella is watching</p>
+          <p className={t.sideHead}>Watching</p>
           <p className={t.watch}>
-            <i /> Alert me if TSLA drops under 200
+            <i /> TSLA under 200
           </p>
           <p className={t.watch}>
-            <i /> Trim AAPL into the earnings pop
+            <i /> Trim AAPL into earnings
           </p>
           <p className={t.watch} data-done="1">
-            <i /> Buy 20 NVDA under 118
+            <i /> NVDA under 118
           </p>
         </aside>
-      </div>
-      <div className={t.cmd}>
-        <StellaCharacter size={18} eyeColor="#11161d" state="working" />
-        <span>Buy 20 NVDA if it dips under 118, stop at 112</span>
-        <kbd>⏎</kbd>
+        <aside className={t.chat}>
+          <p className={t.chatHead}>
+            <StellaCharacter size={18} eyeColor="#0f141a" state="working" />
+            Stella
+          </p>
+          <div className={t.thread}>
+            <p className={t.stamp}>Today 9:31 AM</p>
+            <p className={t.me}>Morning. Anything I should know?</p>
+            <p className={t.her}>CPI came in soft and futures are up 0.6%. TSLA is near your 200 alert.</p>
+            <p className={t.me}>What&apos;s moving NVDA?</p>
+            <p className={t.her}>Down 1.4% on a supplier note. Nothing changed for earnings Thursday.</p>
+            <p className={t.me}>Buy 20 if it dips under 118, stop at 112</p>
+            <p className={t.her}>Limit set. I&apos;ll watch it.</p>
+            <p className={t.her} data-fill="1">
+              Filled 20 at 118.00. Stop is in at 112, and I&apos;ll check in before earnings.
+            </p>
+          </div>
+          <div className={t.prompt}>
+            <span>Do anything</span>
+            <b>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 19V5M5 12l7-7 7 7" />
+              </svg>
+            </b>
+          </div>
+        </aside>
       </div>
     </div>
   );

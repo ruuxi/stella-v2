@@ -23,13 +23,12 @@
   position: absolute;
   inset: 0;
   display: grid;
-  grid-template-columns: 28% 1fr 25%;
-  grid-template-rows: 44px 1fr 22px 30px;
+  grid-template-columns: 25% 1fr 22%;
+  grid-template-rows: 44px 1fr 22px;
   grid-template-areas:
     "top top top"
     "net log gauges"
-    "ticker ticker ticker"
-    "input input input";
+    "ticker ticker ticker";
   gap: 8px;
   padding: 8px;
 }
@@ -302,24 +301,59 @@
   grid-area: log;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px;
   border-color: rgba(228, 0, 43, 0.7);
 }
 
-.directive,
+.logTag {
+  align-self: flex-start;
+  padding: 2px 8px;
+  background: var(--red);
+  color: #000;
+  font-size: clamp(9px, 1cqw, 12px);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.thread {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 10px 12px 8px;
+  overflow: hidden;
+}
+
+.directive {
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: 86%;
+}
+
 .result,
-.exec {
-  position: relative;
+.reply {
+  align-self: flex-start;
+  max-width: 92%;
+}
+
+.reply {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }
 
 .directive p {
   margin: 4px 0 0;
   padding: 8px 10px;
   border: 1.5px solid var(--red);
-  border-left-width: 6px;
+  border-right-width: 6px;
+  text-align: right;
   color: var(--cream);
-  font-size: clamp(14px, 2.3cqw, 28px);
+  font-size: clamp(13px, 1.9cqw, 24px);
   font-weight: 900;
   line-height: 1;
   letter-spacing: 0.01em;
@@ -343,11 +377,11 @@
 .result p {
   position: relative;
   display: grid;
-  grid-template-columns: 9em 5em 1fr;
+  grid-template-columns: 9em 5em minmax(60px, 1fr);
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: clamp(10px, 1.3cqw, 15px);
+  font-size: clamp(10px, 1.25cqw, 15px);
   font-weight: 700;
   letter-spacing: 0.05em;
 }
@@ -376,28 +410,40 @@
 }
 
 .exec {
-  display: flex;
-  align-items: center;
-  height: clamp(24px, 3.4cqw, 38px);
-  font-size: clamp(13px, 2cqw, 24px);
+  display: grid;
+  font-size: clamp(12px, 1.55cqw, 19px);
   font-weight: 900;
-  letter-spacing: 0.04em;
+  line-height: 1.1;
+  letter-spacing: 0.03em;
+}
+
+.ack {
+  margin: 0;
+  padding: 5px 10px;
+  border: 1.5px solid var(--orange);
+  border-left-width: 6px;
+  color: var(--amber);
+  font-size: clamp(12px, 1.55cqw, 19px);
+  font-weight: 900;
+  letter-spacing: 0.03em;
 }
 
 .execRun,
 .execDone {
-  position: absolute;
-  left: 0;
-  padding: 3px 10px;
+  grid-area: 1 / 1;
+  padding: 5px 10px;
 }
 
 .execRun {
+  align-self: start;
+  justify-self: start;
   background: var(--red);
   color: #000;
 }
 
 .execDone {
   border: 1.5px solid var(--green);
+  border-left-width: 6px;
   color: var(--green);
   opacity: 0;
 }
@@ -544,7 +590,7 @@
 
 .warn {
   position: absolute;
-  right: calc(25% + 2px);
+  right: calc(22% + 2px);
   top: 58px;
   z-index: 3;
   display: flex;
@@ -620,13 +666,15 @@
 }
 
 .input {
-  grid-area: input;
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
+  height: 34px;
+  margin: 0 12px 12px;
   padding: 0 10px;
   border: 1.5px solid var(--orange);
-  font-size: 14px;
+  font-size: clamp(12px, 1.3cqw, 15px);
   font-weight: 800;
   letter-spacing: 0.06em;
 }
@@ -869,13 +917,16 @@
 @container (max-width: 640px) {
   .console {
     grid-template-columns: 1fr;
-    grid-template-rows: 44px 1.1fr 1fr 22px 30px;
+    grid-template-rows: 44px 1.9fr 0.8fr 22px;
     grid-template-areas:
       "top"
       "log"
       "net"
-      "ticker"
-      "input";
+      "ticker";
+  }
+
+  .thread > :nth-child(-n + 4) {
+    display: none;
   }
 
   .gauges,

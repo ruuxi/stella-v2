@@ -18,10 +18,10 @@ for (let row = 0; row < 9; row += 1) {
 }
 
 const NODES = [
-  { id: "FILES-02", x: 70, y: 70, state: "ok" },
-  { id: "TABLE-03", x: 236, y: 92, state: "run" },
-  { id: "CAL-04", x: 62, y: 262, state: "ok" },
-  { id: "MAIL-05", x: 228, y: 280, state: "wait" },
+  { id: "FILES-02", x: 100, y: 62, state: "ok" },
+  { id: "TABLE-03", x: 202, y: 96, state: "run" },
+  { id: "CAL-04", x: 98, y: 270, state: "ok" },
+  { id: "MAIL-05", x: 204, y: 292, state: "wait" },
 ];
 
 const TICKER =
@@ -120,35 +120,53 @@ export function OpsSkin() {
         </section>
 
         <section className={o.log}>
-          <div className={o.directive}>
-            <span className={o.tab}>DIRECTIVE 0417{" // "}INPUT</span>
-            <p>CLEAN UP MY DOWNLOADS FOLDER.</p>
+          <span className={o.logTag}>COMMS{" // "}STELLA</span>
+          <div className={o.thread}>
+            <div className={o.directive}>
+              <span className={o.tab}>MAYA ▶ DIRECTIVE 0416</span>
+              <p>WAKE ME AT 0630.</p>
+            </div>
+            <div className={o.reply}>
+              <span className={o.tab} data-c="ok">STELLA ◀ ACKNOWLEDGED</span>
+              <p className={o.ack}>ALARM SET. 06:30. WEATHER CLEAR.</p>
+            </div>
+            <div className={o.directive}>
+              <span className={o.tab}>MAYA ▶ DIRECTIVE 0417</span>
+              <p>CLEAN UP MY DOWNLOADS FOLDER.</p>
+            </div>
+            <div className={o.result}>
+              <span className={o.tab} data-c="ok">STELLA ◀ COMPLETE</span>
+              <p>
+                <span>FILES SORTED</span>
+                <b>214</b>
+                <i style={{ ["--w" as string]: "92%" }} />
+              </p>
+              <p>
+                <span>FOLDERS</span>
+                <b>009</b>
+                <i style={{ ["--w" as string]: "38%" }} />
+              </p>
+              <p>
+                <span>RECLAIMED</span>
+                <b>3.2 GB</b>
+                <i style={{ ["--w" as string]: "71%" }} />
+              </p>
+            </div>
+            <div className={o.directive}>
+              <span className={o.tab}>MAYA ▶ DIRECTIVE 0418</span>
+              <p>TABLE FOR FOUR. FRIDAY. 2000.</p>
+            </div>
+            <div className={o.reply}>
+              <span className={o.tab} data-c="ok">STELLA ◀ RESPONSE</span>
+              <div className={o.exec}>
+                <span className={o.execRun}>EXECUTING</span>
+                <span className={o.execDone}>CONFIRMED. LUCIA 20:00 FRI. SAM AND PRIYA NOTIFIED.</span>
+              </div>
+            </div>
           </div>
-          <div className={o.result}>
-            <span className={o.tab} data-c="ok">RESULT{" // "}COMPLETE</span>
-            <p>
-              <span>FILES SORTED</span>
-              <b>214</b>
-              <i style={{ ["--w" as string]: "92%" }} />
-            </p>
-            <p>
-              <span>FOLDERS</span>
-              <b>009</b>
-              <i style={{ ["--w" as string]: "38%" }} />
-            </p>
-            <p>
-              <span>RECLAIMED</span>
-              <b>3.2 GB</b>
-              <i style={{ ["--w" as string]: "71%" }} />
-            </p>
-          </div>
-          <div className={o.directive}>
-            <span className={o.tab}>DIRECTIVE 0418{" // "}INPUT</span>
-            <p>TABLE FOR FOUR. FRIDAY. 2000.</p>
-          </div>
-          <div className={o.exec}>
-            <span className={o.execRun}>EXECUTING</span>
-            <span className={o.execDone}>CONFIRMED{" // "}LUCIA 20:00 FRI</span>
+          <div className={o.input}>
+            INPUT&gt; <span>DO ANYTHING</span>
+            <i />
           </div>
         </section>
 
@@ -187,10 +205,6 @@ export function OpsSkin() {
             {TICKER}
           </span>
         </footer>
-        <div className={o.input}>
-          INPUT&gt; <span>DO ANYTHING</span>
-          <i />
-        </div>
       </div>
 
       <div className={o.intro} aria-hidden="true">

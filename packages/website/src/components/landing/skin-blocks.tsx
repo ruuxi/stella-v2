@@ -183,9 +183,9 @@ const MARK = [
 ];
 const MARK_ROWS = ["#ff4ac0", "#ff4ac0", "#a141ff", "#703cff", "#5243ff", "#3164ff", "#0e8aff", "#00b5ff", "#00d5ff", "#00eeff"];
 
-function PixelMark() {
+function PixelMark({ className = b.pmark }: { className?: string }) {
   return (
-    <svg className={b.pmark} viewBox="0 0 10 10" shapeRendering="crispEdges" aria-hidden="true">
+    <svg className={className} viewBox="0 0 10 10" shapeRendering="crispEdges" aria-hidden="true">
       {MARK.flatMap((row, y) =>
         row.split("").map((ch, x) =>
           ch === "." ? null : (
@@ -283,20 +283,25 @@ export function BlocksSkin() {
         <span className={b.account}>Account</span>
       </div>
       <span className={b.cross} />
-      <div className={b.chat}>
-        <p>
-          <span className={b.you}>&lt;Maya&gt;</span> Clean up my Downloads folder?
+      <aside className={b.side}>
+        <p className={b.sideHead}>
+          <PixelMark className={b.sideMark} />
+          Stella
         </p>
-        <p>
-          <span className={b.her}>&lt;Stella&gt;</span> Done. 214 files sorted into 9 chests.
-        </p>
-        <p>
-          <span className={b.you}>&lt;Maya&gt;</span> Build us a cabin by the lake
-        </p>
-        <p className={b.late}>
-          <span className={b.her}>&lt;Stella&gt;</span> Placing 1,204 blocks. Fireplace is lit.
-        </p>
-      </div>
+        <div className={b.thread}>
+          <p className={b.me}>Is it going to rain today?</p>
+          <p className={b.her}>Clear skies until 6. Good building weather.</p>
+          <p className={b.me}>Clean up my Downloads folder?</p>
+          <p className={b.her}>Done. 214 files sorted into 9 chests.</p>
+          <p className={b.me}>Build us a cabin by the lake</p>
+          <p className={b.her} data-late="1">
+            Placing 1,204 blocks. The fireplace is lit.
+          </p>
+        </div>
+        <div className={b.input}>
+          <span>&gt;</span> Do anything<i />
+        </div>
+      </aside>
       <div className={b.hud}>
         <div className={b.hearts}>
           {Array.from({ length: 10 }, (_, i) => (
@@ -314,9 +319,6 @@ export function BlocksSkin() {
             </span>
           ))}
         </div>
-      </div>
-      <div className={b.input}>
-        <span>&gt;</span> Do anything<i />
       </div>
     </div>
   );

@@ -18,7 +18,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 55% 100%;
+  object-position: 30% 100%;
   image-rendering: pixelated;
 }
 
@@ -111,7 +111,7 @@
 
 .cross {
   position: absolute;
-  left: 50%;
+  left: calc(8px + min(36%, 410px) + (100% - 8px - min(36%, 410px)) / 2);
   top: 46%;
   width: 18px;
   height: 18px;
@@ -123,57 +123,94 @@
   mix-blend-mode: difference;
 }
 
-.chat {
+.side {
   position: absolute;
-  z-index: 2;
-  left: 10px;
-  bottom: calc(46px + 15cqh);
-  width: min(50%, 470px);
+  z-index: 3;
+  left: 8px;
+  top: 51px;
+  bottom: 8px;
+  width: min(36%, 410px);
   display: flex;
   flex-direction: column;
-  gap: 0;
-  font-size: clamp(11px, 1.55cqw, 17px);
-  line-height: 1.45;
+  padding: 10px;
+  background: #c6c6c6;
+  box-shadow:
+    0 0 0 2px #1b1b1b,
+    inset 3px 3px 0 #ffffff,
+    inset -3px -3px 0 #555555;
+  color: #3f3f3f;
+  font-size: clamp(11px, 1.45cqw, 16px);
+  line-height: 1.35;
 }
 
-.chat p {
+.sideHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 2px 10px;
+  font-size: 1.05em;
+  color: #3f3f3f;
+}
+
+.sideMark {
+  width: 18px;
+  height: 18px;
+  image-rendering: pixelated;
+}
+
+.thread {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+  overflow: hidden;
+  padding: 8px;
+  background: #8b8b8b;
+  box-shadow:
+    inset 2px 2px 0 #373737,
+    inset -2px -2px 0 #ffffff;
+}
+
+.me,
+.her {
   margin: 0;
-  padding: 2px 8px;
-  background: rgba(0, 0, 0, 0.45);
-  color: #fff;
-  text-shadow: 2px 2px 0 #3f3f3f;
+  max-width: 86%;
+  padding: 5px 9px 6px;
 }
 
-.you {
+.me {
+  align-self: flex-end;
+  background: #3c5a9a;
   color: #ffffff;
+  text-shadow: 2px 2px 0 #1d2c4d;
+  box-shadow:
+    inset 2px 2px 0 #6a8ad0,
+    inset -2px -2px 0 #22345c;
 }
 
 .her {
-  color: #55ffff;
+  align-self: flex-start;
+  background: #f0f0f0;
+  color: #3f3f3f;
+  box-shadow:
+    inset 2px 2px 0 #ffffff,
+    inset -2px -2px 0 #a8a8a8;
 }
 
-.blocks[data-play="1"] .chat p {
-  animation: line 1ms steps(1) both;
+.thread [data-late] {
+  display: none;
 }
 
-.blocks[data-play="1"] .chat p:nth-child(1) {
-  animation-delay: 80ms;
+.blocks[data-play="1"] .thread [data-late] {
+  display: block;
+  animation: wait 1.6s linear;
 }
 
-.blocks[data-play="1"] .chat p:nth-child(2) {
-  animation-delay: 260ms;
-}
-
-.blocks[data-play="1"] .chat p:nth-child(3) {
-  animation-delay: 560ms;
-}
-
-.blocks[data-play="1"] .chat p:nth-child(4) {
-  animation-delay: 1250ms;
-}
-
-@keyframes line {
-  from {
+@keyframes wait {
+  from,
+  to {
     visibility: hidden;
   }
 }
@@ -181,14 +218,14 @@
 .hud {
   position: absolute;
   z-index: 2;
-  left: 50%;
+  left: calc(8px + min(36%, 410px) + (100% - 8px - min(36%, 410px)) / 2);
   bottom: calc(34px + 1.5cqh);
   transform: translateX(-50%);
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 4px;
-  width: min(62%, 420px);
+  width: min(48%, 400px);
 }
 
 .hearts {
@@ -277,20 +314,17 @@
 }
 
 .input {
-  position: absolute;
-  z-index: 2;
-  left: 6px;
-  right: 6px;
-  bottom: 6px;
-  height: 24px;
+  flex: none;
+  height: 30px;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 8px;
-  background: rgba(0, 0, 0, 0.55);
+  margin-top: 8px;
+  padding: 0 9px;
+  background: #000000;
+  box-shadow: 0 0 0 2px #a0a0a0;
   font-size: 14px;
-  color: #e0e0e0;
-  text-shadow: 2px 2px 0 #3f3f3f;
+  color: #a8a8a8;
 }
 
 .input span {
@@ -313,13 +347,30 @@
 }
 
 @container (max-width: 640px) {
-  .chat {
-    width: calc(100% - 20px);
-    bottom: calc(40px + 18cqh);
+  .side {
+    top: auto;
+    left: 6px;
+    right: 6px;
+    bottom: 6px;
+    width: auto;
+    height: 50%;
+  }
+
+  .thread > :nth-child(-n + 2) {
+    display: none;
   }
 
   .hud {
+    left: 50%;
+    top: 52px;
+    bottom: auto;
     width: calc(100% - 40px);
+  }
+
+  .hearts,
+  .xp,
+  .cross {
+    display: none;
   }
 
   .account {

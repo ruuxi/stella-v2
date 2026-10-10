@@ -579,6 +579,12 @@ function parseRow(row: unknown): ChatMessage | null {
     ...(typeof o.quotedText === "string" && o.quotedText.trim()
       ? { quotedText: o.quotedText }
       : {}),
+    ...(typeof o.reaction === "string" && o.reaction.trim() && o.reaction.length <= 32
+      ? { reaction: o.reaction }
+      : {}),
+    ...(typeof o.reactionAt === "number" && Number.isFinite(o.reactionAt)
+      ? { reactionAt: o.reactionAt }
+      : {}),
     ...(Array.isArray(o.pastedTexts)
       ? {
           pastedTexts: o.pastedTexts.flatMap((value) =>

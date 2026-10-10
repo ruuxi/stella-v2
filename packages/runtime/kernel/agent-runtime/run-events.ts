@@ -69,9 +69,13 @@ export const createRunEventRecorder = ({
     // citations and never reaches a user-visible copy of the text. The
     // model's own thread history is persisted from the raw AgentMessage, so
     // it still sees the block it wrote.
-    const { text: visibleText, refs: replyRefs } = splitReplyRefs(text);
+    const {
+      text: visibleText,
+      refs: replyRefs,
+      reactions,
+    } = splitReplyRefs(text);
     const trimmedText = visibleText.trim();
-    if (!trimmedText) {
+    if (!trimmedText && reactions.length === 0) {
       return null;
     }
     const firstTextAtMs = pendingSegmentFirstTextAtMs;
@@ -90,6 +94,7 @@ export const createRunEventRecorder = ({
       ...(firstTextAtMs !== null ? { firstTextAtMs } : {}),
       ...(responseTarget ? { responseTarget } : {}),
       ...(replyRefs.length > 0 ? { replyRefs } : {}),
+      ...(reactions.length > 0 ? { reactions } : {}),
       ...(currentUiVisibility ? { uiVisibility: currentUiVisibility } : {}),
     };
   };

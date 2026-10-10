@@ -200,7 +200,7 @@ export default function OneChatPage() {
               <p>
                 Out of the box, Stella runs on her own models. No keys, no
                 accounts, no setup — just open the app and go. Prefer something
-                else? Plug in Claude, Codex, Cursor, or your own key and Stella
+                else? Plug in Claude Code, Codex, your own key or a local model and Stella
                 runs on that instead.
               </p>
             </div>
@@ -222,7 +222,7 @@ export default function OneChatPage() {
                 </span>
                 <span className={styles.engineTile}>
                   <Cpu size={16} />
-                  Cursor
+                  Local model
                 </span>
                 <span className={styles.engineTile}>
                   <KeyRound size={16} />

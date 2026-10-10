@@ -1,30 +1,10 @@
-import { verifyCaller } from "../owner-store/routes.js";
+import { readJsonObject } from "../http/body.js";
+import { requireCaller } from "../http/caller.js";
+import { fail, failRpcError } from "../http/response.js";
 
 const PREFIX = "/api/user-asks";
 const MAX_BODY_BYTES = 192 * 1024;
 const MAX_ASK_ID = 128;
-
-const json = (body: unknown, status = 200) =>
-  Response.json(body, { status, headers: { "cache-control": "no-store" } });
-
-const readBody = async (
-  request: Request,
-): Promise<Record<string, unknown> | null> => {
-  if (request.method === "GET") return {};
-  const length = Number(request.headers.get("content-length") ?? "0");
-  if (length > MAX_BODY_BYTES) return null;
-  const text = await request.text();
-  if (text.length > MAX_BODY_BYTES) return null;
-  if (!text) return {};
-  try {
-    const body = JSON.parse(text) as unknown;
-    return body && typeof body === "object" && !Array.isArray(body)
-      ? (body as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-};
 
 type Resolved = { route: string; askId: string };
 
@@ -64,23 +44,16 @@ const userAskRoute = async (
   url: URL,
 ): Promise<Response> => {
   const resolved = resolve(request.method, url.pathname);
-  if (!resolved) return json({ error: "Not found" }, 404);
-  const header = request.headers.get("authorization") ?? "";
-  const verified = await verifyCaller(
-    env,
-    header.startsWith("Bearer ") ? header.slice(7).trim() : "",
-  );
+  if (!resolved) return fail(404, "Not found");
+  const verified = await requireCaller(request, env, { allowAnonymous: false });
   if (!verified.ok) {
-    return json(
-      { error: verified.error.message, code: verified.error.code },
-      verified.error.code === "UNAUTHENTICATED" ? 401 : 503,
-    );
+    return failRpcError(verified.error, { code: verified.error.code });
   }
-  if (verified.caller.isAnonymous) {
-    return json({ error: "Sign in with an account to use this." }, 403);
-  }
-  const body = await readBody(request);
-  if (!body) return json({ error: "Request body must be a JSON object" }, 400);
+  const body =
+    request.method === "GET"
+      ? ({ ok: true, value: {} } as const)
+      : await readJsonObject(request, MAX_BODY_BYTES, { allowEmpty: true });
+  if (!body.ok) return fail(body.status, body.error);
   const deviceIdHeader = request.headers.get("x-stella-device-id")?.trim() ?? "";
   const result = await env.OWNER_GATES.getByName(
     verified.caller.ownerId,
@@ -88,7 +61,7 @@ const userAskRoute = async (
     route: resolved.route,
     askId: resolved.askId,
     caller: verified.caller,
-    body,
+    body: body.value,
     query: Object.fromEntries(url.searchParams),
     ...(deviceIdHeader ? { deviceIdHeader } : {}),
   });

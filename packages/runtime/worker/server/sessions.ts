@@ -26,6 +26,7 @@ import * as ModelCatalog from "./model-catalog.js";
 import * as RunnerModule from "./runner-module.js";
 import {
   closePiChats,
+  terminatePiChatCommands,
   piChatsBusy,
   piDeliverReport,
   reconcileComputerAgents,
@@ -214,7 +215,13 @@ export interface Interface {
   ) => Effect.Effect<{ ok: true; queued?: true }, Error>;
   readonly shutdown: () => Effect.Effect<void>;
   readonly current: () => OpenSession | null;
-  readonly hasActiveWork: () => boolean;
+  /**
+   * Interrupt the session's turns and end its commands, keeping the session
+   * open. pi keeps interrupted work pending for the next launch.
+   */
+  readonly interruptWork: () => Effect.Effect<void>;
+  /** Bounded database maintenance that needs the detached window to finish. */
+  readonly holdsWorkerAlive: () => boolean;
 }
 
 export class Service extends Context.Service<Service, Interface>()(
@@ -655,13 +662,28 @@ export const layer = Layer.effect(
       );
     };
 
-    // Idle-shutdown keep-alive: session work, plus a DB reclaim that is
-    // running or ready for the zero-client window (maintenance.ts). The
-    // maintenance idle check uses hasSessionWork, never this, so the hold
+    // Idle-shutdown keep-alive: only a DB reclaim or index build that is
+    // running or ready for the zero-client window (maintenance.ts). Turns do
+    // not keep the runtime alive without an app; they are interrupted first.
+    // The maintenance idle check uses hasSessionWork, never this, so the hold
     // cannot make maintenance think the worker is busy.
-    const hasActiveWork = () =>
-      hasSessionWork() ||
-      (currentSession?.storage.maintenance.holdsWorkerAlive() ?? false);
+    const holdsWorkerAlive = () =>
+      currentSession?.storage.maintenance.holdsWorkerAlive() ?? false;
+
+    const interruptWork = Effect.suspend(() => {
+      const session = currentSession;
+      if (!session) return Effect.void;
+      // Commands first, while the chats can still reach them; closing a
+      // chat aborts its turns, and that close waits for any command
+      // termination the abort starts.
+      return Effect.promise(async () => {
+        await Promise.allSettled([
+          terminatePiChatCommands(session),
+          session.runnerCell.get()?.killAllShells(),
+        ]);
+        await closePiChats(session).catch(() => undefined);
+      });
+    });
 
     return {
       initialize,
@@ -670,7 +692,8 @@ export const layer = Layer.effect(
       // interleave with an in-flight initialize and strand its session.
       shutdown: () => sessionLock.withPermit(closeCurrent),
       current: () => currentSession,
-      hasActiveWork,
+      interruptWork: () => interruptWork,
+      holdsWorkerAlive,
     };
   }),
 );

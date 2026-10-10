@@ -35,6 +35,7 @@ type UseChatHomeSurfaceOptions = {
   isInitialLoading: boolean;
   isStreaming: boolean;
   activeConversationId: string | null;
+  hasOpenQuestion?: boolean;
 };
 
 type UseChatHomeSurfaceResult = {
@@ -76,6 +77,7 @@ export function useChatHomeSurface({
   isInitialLoading,
   isStreaming,
   activeConversationId,
+  hasOpenQuestion = false,
 }: UseChatHomeSurfaceOptions): UseChatHomeSurfaceResult {
   const [leftChatOnce, setLeftChatOnce] = useState(() => {
     if (typeof sessionStorage === "undefined") return false;
@@ -108,7 +110,8 @@ export function useChatHomeSurface({
     : firstStintOnChat
       ? !hasMessages || !hasInteractedWithChatThisSession || idleBasedHome
       : idleBasedHome;
-  const showHomeContent = isHomeDismissed ? false : baseShowHomeContent;
+  const showHomeContent =
+    isHomeDismissed || hasOpenQuestion ? false : baseShowHomeContent;
 
   useLayoutEffect(() => {
     if (prevConversationIdRef.current === activeConversationId) return;

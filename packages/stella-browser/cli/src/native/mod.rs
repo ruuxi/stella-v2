@@ -18,6 +18,7 @@ pub mod element;
 pub mod extension_bridge;
 #[allow(dead_code)]
 pub mod native_host;
+pub mod parent_watch;
 #[allow(dead_code)]
 pub mod inspect_server;
 #[allow(dead_code)]

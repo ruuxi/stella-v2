@@ -16,10 +16,53 @@
   gap: 6px;
 }
 
-.pill-btn.execution-target-button {
+/* Both footer controls share the home launcher's treatment (see
+   `home-launcher.css`): borderless icon + label, weak icon, and a soft fill
+   with strong text on hover or while their popover is open. */
+.sidebar-footer-button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 28px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-base);
+  font-family: var(--font-family-sans, "Manrope", sans-serif);
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-medium);
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+  outline: none;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.sidebar-footer-button svg {
+  flex-shrink: 0;
+  color: var(--text-weak);
+  transition: color 0.12s ease;
+}
+
+.sidebar-footer-button:hover,
+.sidebar-footer-button[data-active] {
+  color: var(--text-strong);
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+}
+
+.sidebar-footer-button:hover svg,
+.sidebar-footer-button[data-active] svg {
+  color: var(--text-strong);
+}
+
+.sidebar-footer-button:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+
+.execution-target-button {
   max-width: 170px;
 }
 
@@ -80,18 +123,6 @@
 .work-models-pin-switch [data-slot="switch-label"] {
   color: var(--text-weak);
   font-size: var(--font-size-sm);
-}
-
-.pill-btn.work-models-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid transparent;
-}
-
-.pill-btn.work-models-button[data-active] {
-  background: transparent;
-  color: var(--text-strong);
 }
 
 .work-models-panel .agent-model-picker {

@@ -1,16 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildGeneralSummaryPrompt,
-  countLeadingBootstrapStartupDocs,
-  formatFileOperationsForSummary,
   formatThreadCheckpointMessage,
   getCompactionTriggerTokens,
   resolveCompactionProtectHeadMessages,
   resolveCompactionSplitPolicy,
   resolveKeepRecentTokensForAgent,
+} from "@stella/runtime/kernel/thread-runtime";
+import {
+  countLeadingBootstrapStartupDocs,
   splitGeneralThreadMessagesForCompaction,
   splitThreadMessagesForCompaction,
-} from "@stella/runtime/kernel/thread-runtime";
+} from "@stella/runtime/kernel/thread-compaction-plan";
+import {
+  buildGeneralSummaryPrompt,
+  formatFileOperationsForSummary,
+} from "@stella/runtime/kernel/thread-compaction-summary";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { PersistedRuntimeThreadPayload } from "@stella/runtime/kernel/storage/shared";
 
@@ -274,7 +278,9 @@ describe("thread-runtime compaction planning", () => {
           entryId: "m2",
           timestamp: 2,
           role: "assistant",
-          content: formatThreadCheckpointMessage({ summary: "Earlier summary" }),
+          content: formatThreadCheckpointMessage({
+            summary: "Earlier summary",
+          }),
         },
         {
           entryId: "m3",
@@ -384,7 +390,10 @@ describe("latest user instruction pinning (bounded)", () => {
         timestamp: 6,
         role: "user" as const,
         content: "newest instruction, already in the tail",
-        payload: createUserPayload("newest instruction, already in the tail", 6),
+        payload: createUserPayload(
+          "newest instruction, already in the tail",
+          6,
+        ),
       },
     ];
     const plan = splitThreadMessagesForCompaction(messages, 1, 100, 2);
@@ -473,9 +482,8 @@ describe("latest user instruction pinning (bounded)", () => {
     // Boundedness proof at the plan level: the verbatim tail obeys the token
     // budget instead of stretching back ~100k tokens to the instruction.
     const middleEntryIds = plan!.middleMessages.map((m) => m.entryId);
-    const tailStart = messages.findIndex(
-      (m) => m.entryId === plan!.toEntryId,
-    ) + 1;
+    const tailStart =
+      messages.findIndex((m) => m.entryId === plan!.toEntryId) + 1;
     const tailTokens = messages
       .slice(tailStart)
       .reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
@@ -614,12 +622,12 @@ describe("compaction head protection by agent role", () => {
     // Compaction starts at the first user turn — the bootstrap docs (b1, b2)
     // are never swept into the summarized middle.
     expect(plan?.fromEntryId).toBe("u1");
-    expect(plan?.middleMessages.map((message) => message.entryId)).not.toContain(
-      "b1",
-    );
-    expect(plan?.middleMessages.map((message) => message.entryId)).not.toContain(
-      "b2",
-    );
+    expect(
+      plan?.middleMessages.map((message) => message.entryId),
+    ).not.toContain("b1");
+    expect(
+      plan?.middleMessages.map((message) => message.entryId),
+    ).not.toContain("b2");
   });
 });
 
@@ -638,9 +646,9 @@ describe("role-specific compaction policy", () => {
     expect(
       getCompactionTriggerTokens(route(1_000_000), AGENT_IDS.ORCHESTRATOR),
     ).toBe(500_000);
-    expect(getCompactionTriggerTokens(route(1_000_000), AGENT_IDS.GENERAL)).toBe(
-      600_000,
-    );
+    expect(
+      getCompactionTriggerTokens(route(1_000_000), AGENT_IDS.GENERAL),
+    ).toBe(600_000);
     expect(getCompactionTriggerTokens(route(80_000), AGENT_IDS.GENERAL)).toBe(
       48_000,
     );
@@ -734,7 +742,10 @@ describe("role-specific compaction policy", () => {
         timestamp: 2,
         role: "assistant" as const,
         content: `older work ${"x".repeat(8_000)}`,
-        payload: createAssistantTextPayload(`older work ${"x".repeat(8_000)}`, 2),
+        payload: createAssistantTextPayload(
+          `older work ${"x".repeat(8_000)}`,
+          2,
+        ),
       },
       {
         entryId: "current-user",
@@ -772,11 +783,9 @@ describe("role-specific compaction policy", () => {
     expect(plan?.middleMessages.map((message) => message.entryId)).toEqual([
       "older-reply",
     ]);
-    expect(plan?.turnPrefixMessages?.map((message) => message.entryId)).toEqual([
-      "current-user",
-      "prefix-call",
-      "prefix-result",
-    ]);
+    expect(plan?.turnPrefixMessages?.map((message) => message.entryId)).toEqual(
+      ["current-user", "prefix-call", "prefix-result"],
+    );
     expect(plan?.latestUserMessage).toBeUndefined();
   });
 
@@ -899,5 +908,3 @@ describe("role-specific compaction policy", () => {
     ).toEqual(["new-user", "new-work"]);
   });
 });
-
-

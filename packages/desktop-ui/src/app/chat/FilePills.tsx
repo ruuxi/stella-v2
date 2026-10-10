@@ -9,6 +9,7 @@
  * sits at the bottom of the reply bubble, or on its own when a reply has no
  * text.
  */
+import { fileDisplayName } from "@stella/contracts/file-display-name";
 import { useState } from "react";
 import { ChevronDown } from "@/ui/icons";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
@@ -36,7 +37,7 @@ const PILL_CAP = 5;
 const pillName = (entry: ConversationFileEntry): string =>
   entry.payload.kind === "canvas-html"
     ? getDisplayPayloadTitle(entry.payload)
-    : basenameOf(entry.path);
+    : fileDisplayName(basenameOf(entry.path));
 
 const FilePillView = ({
   entry,

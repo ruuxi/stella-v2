@@ -1,14 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import {
-  USER_ASK_DEFAULT_TIMEOUT_MS,
-  USER_ASK_MAX_TIMEOUT_MS,
-  USER_ASK_MIN_TIMEOUT_MS,
   clampUrgency,
-  userAskDefaultedNote,
-  withSomethingElseOption,
+  clampUserAskTimeoutMs,
+  userAskDefaultedResolution,
   type UserAskAnswer,
-  type UserAskOption,
+  type UserAskDetail,
   type UserAskResolution,
   type UserAskState,
 } from "@stella/contracts/user-ask";
@@ -20,7 +17,6 @@ import type {
 
 export const CLOUD_USER_ASK_PATH = "/api/cloud/user-ask";
 
-const SOMETHING_ELSE_LABEL = "Something else";
 const ANSWER_POLL_MS = 10_000;
 const FIRST_POLL_MS = 1_500;
 
@@ -42,21 +38,6 @@ type AnswerRead = {
 const sleep = (milliseconds: number): Promise<void> =>
   Effect.runPromise(Effect.sleep(milliseconds));
 
-const normalizeTimeout = (value: number | undefined): number =>
-  Math.min(
-    USER_ASK_MAX_TIMEOUT_MS,
-    Math.max(
-      USER_ASK_MIN_TIMEOUT_MS,
-      Number.isFinite(value) && (value ?? 0) > 0
-        ? Math.round(value!)
-        : USER_ASK_DEFAULT_TIMEOUT_MS,
-    ),
-  );
-
-const choiceLabelOf = (
-  options: readonly UserAskOption[],
-  choiceId: string,
-): string => options.find((option) => option.id === choiceId)?.label ?? choiceId;
 
 const answeredResolution = (
   askId: string,
@@ -65,12 +46,11 @@ const answeredResolution = (
   const answer = read.answer;
   if (!answer) return null;
   const answeredAt = read.answeredAt ?? Date.now();
-  if (answer.kind === "choice") {
+  if (answer.kind === "questions") {
     return {
       outcome: "answered",
       askId,
-      choiceId: answer.choiceId,
-      ...(answer.text ? { text: answer.text } : {}),
+      responses: answer.responses,
       answeredAt,
       ...(read.late ? { late: true } : {}),
     };
@@ -190,46 +170,26 @@ export const createCloudUserAskHost = (args: {
   const askUser = async (
     askRequest: AskUserRequest,
   ): Promise<UserAskResolution> => {
-    const options = withSomethingElseOption(
-      askRequest.options ?? [],
-      SOMETHING_ELSE_LABEL,
-    );
     const blocking = askRequest.blocking === true;
-    const timeoutMs = blocking ? null : normalizeTimeout(askRequest.timeoutMs);
-    const defaultChoiceId = blocking
-      ? undefined
-      : options.some((option) => option.id === askRequest.defaultChoiceId)
-        ? askRequest.defaultChoiceId
-        : options[0]?.id;
+    const timeoutMs = blocking ? null : clampUserAskTimeoutMs(askRequest.timeoutMs);
+    const detail: UserAskDetail = {
+      kind: "question",
+      questions: blocking
+        ? askRequest.questions.map(({ defaultChoiceId: _default, ...question }) => question)
+        : askRequest.questions,
+    };
     const askId = await register({
       kind: "question",
       toolCallId: askRequest.toolCallId ?? randomUUID(),
       urgency: clampUrgency(askRequest.urgency),
       blocking,
       ...(timeoutMs === null ? {} : { timeoutMs }),
-      detail: {
-        kind: "question",
-        question: askRequest.question,
-        ...(askRequest.detail ? { detail: askRequest.detail } : {}),
-        options,
-        ...(defaultChoiceId ? { defaultChoiceId } : {}),
-      },
+      detail,
     });
     return await waitForAnswer({
       askId,
       deadlineAt: timeoutMs === null ? null : Date.now() + timeoutMs,
-      onDefault: () => {
-        const choiceId = defaultChoiceId ?? options[0]?.id ?? "";
-        const choiceLabel = choiceLabelOf(options, choiceId);
-        return {
-          outcome: "defaulted",
-          askId,
-          choiceId,
-          choiceLabel,
-          defaultedAt: Date.now(),
-          note: userAskDefaultedNote(choiceLabel),
-        };
-      },
+      onDefault: () => userAskDefaultedResolution(askId, detail, Date.now()),
     });
   };
 

@@ -6,8 +6,8 @@
  * or card chrome — matching how a normal hyperlink reads. Clicking opens
  * the file in the matching workspace-panel viewer (canvas for HTML,
  * media/PDF/markdown/office viewers for those types) via the same
- * `openDisplayPayloadTab` path the end-resource pill uses; types with no
- * in-app viewer fall back to the OS-default app.
+ * `openDisplayPayloadTab` path the end-resource pill uses; folders and
+ * types with no in-app viewer go to the OS (see `openLocalPath`).
  *
  * The element arrives from `remarkStellaFileLinks` as a custom
  * `<stella-file path label>` node, so no real `href` ever exists — an
@@ -22,10 +22,12 @@ import {
   cloudWorldDrivePath,
   isCloudWorkspacePath,
 } from "@stella/contracts/cloud-world-paths";
-import { displayPayloadForStellaFile } from "@/features/chat/lib/stella-file-links";
+import {
+  openLocalPath,
+  showOpenPathError,
+} from "@/features/chat/lib/open-local-path";
 import { useOpenConversationFile } from "@/features/cloud/use-cloud-drive-open";
 import type { ConversationFileEntry } from "@/features/workspace-display/derive-conversation-files";
-import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
 import { basenameOf } from "@/features/workspace-display/path-to-viewer";
 import { useT } from "@/shared/i18n";
 
@@ -121,33 +123,17 @@ const LocalStellaFileLink = ({
   const open = useCallback(() => {
     if (!filePath) return;
     setFailed(false);
-    const payload = displayPayloadForStellaFile(filePath, Date.now());
-    if (payload) {
-      openDisplayPayloadTab(payload);
-      return;
-    }
-    // No in-app viewer for this type — hand it to the OS default app.
-    // `openPath` reports missing/unopenable files as `ok: false`.
-    //
-    // A cloud path has no local file for the OS to open, and the main process
-    // refuses it. Failing here keeps the explanation specific instead of
-    // spending a round trip to arrive at a generic "couldn't open".
     if (cloudOnly) {
       setFailed(true);
+      showOpenPathError(t("app.chat.fileLink.cloudWorkspaceOnly"));
       return;
     }
-    const api = window.electronAPI?.system;
-    if (!api?.openPath) {
+    void openLocalPath(filePath).then((error) => {
+      if (!error) return;
       setFailed(true);
-      return;
-    }
-    void api
-      .openPath(filePath)
-      .then((result) => {
-        if (!result?.ok) setFailed(true);
-      })
-      .catch(() => setFailed(true));
-  }, [cloudOnly, filePath]);
+      showOpenPathError(error);
+    });
+  }, [cloudOnly, filePath, t]);
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent<HTMLAnchorElement>) => {

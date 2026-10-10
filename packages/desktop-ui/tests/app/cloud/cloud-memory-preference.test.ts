@@ -4,13 +4,15 @@ import type { MemoryPreference } from "@stella/contracts/backend/home";
 import type { MemoryPolicy } from "@stella/contracts/turn-plane/memory-policy";
 import {
   CloudMemoryPreferenceError,
-  beginCloudMemoryPreferenceWrite,
   cloudMemoryPreferenceMutationInput,
+  decodeCloudMemoryPreferenceForSubject,
+  normalizeCloudMemoryPreferenceIssue,
+} from "@stella/contracts/cloud-memory-preference";
+import {
+  beginCloudMemoryPreferenceWrite,
   createCloudMemoryPreferenceClient,
   createCloudMemoryPreferenceRequestFence,
-  decodeCloudMemoryPreferenceForSubject,
   isCloudMemoryPreferenceRequestCurrent,
-  normalizeCloudMemoryPreferenceIssue,
 } from "@/features/cloud/cloud-memory-preference";
 
 const subjectA = "https://stella.example|owner-a";
@@ -122,26 +124,37 @@ describe("cloud Memory preference protocol", () => {
         envelope({ ownerGeneration: "", memoryEnabled: false, revision: 1 }),
     });
     await expect(unstamped.write(freshAttempt)).rejects.toMatchObject({
-      code: "invalid_response",
+      code: "owner_generation_changed",
     });
   });
 
   it.each([
-    ["subject", { subject: "https://stella.example|owner-b" }],
-    ["owner generation", { ownerGeneration: "generation-a:2" }],
-    ["value", { memoryEnabled: true }],
-    ["revision", { revision: 9 }],
-  ])("rejects a committed response with the wrong %s", async (_name, patch) => {
-    const client = createCloudMemoryPreferenceClient({
-      write: async () =>
-        envelope({ memoryEnabled: false, revision: 8, ...patch }),
-    });
+    [
+      "subject",
+      { subject: "https://stella.example|owner-b" },
+      "invalid_response",
+    ],
+    [
+      "owner generation",
+      { ownerGeneration: "generation-a:2" },
+      "owner_generation_changed",
+    ],
+    ["value", { memoryEnabled: true }, "invalid_response"],
+    ["revision", { revision: 9 }, "invalid_response"],
+  ] as const)(
+    "rejects a committed response with the wrong %s",
+    async (_name, patch, code) => {
+      const client = createCloudMemoryPreferenceClient({
+        write: async () =>
+          envelope({ memoryEnabled: false, revision: 8, ...patch }),
+      });
 
-    await expect(client.write(attempt())).rejects.toMatchObject({
-      code: "invalid_response",
-      retryable: false,
-    });
-  });
+      await expect(client.write(attempt())).rejects.toMatchObject({
+        code,
+        retryable: false,
+      });
+    },
+  );
 
   it("returns a revision conflict for the live view to resolve", async () => {
     const error = new BackendRequestError({

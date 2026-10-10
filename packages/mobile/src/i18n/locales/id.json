@@ -202,6 +202,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Reaksi {reactions}",
         "showMoreChips": "Tampilkan {count} lagi",
+        "stellaReaction": "Stella bereaksi {emoji}",
         "windowPreviewAlt": "Pratinjau konten jendela"
       },
       "miniModelPicker": {
@@ -1447,8 +1448,6 @@
       "cantRightNow": "Tidak sekarang",
       "deadline": "Sisa {time}",
       "deadlinePassed": "Waktu habis",
-      "deadlineWithDefault": "Sisa {time} — jika tidak, “{option}”",
-      "defaultOption": "Bawaan",
       "hideSecret": "Sembunyikan {label}",
       "missingFields": "Isi semua kolom yang wajib.",
       "notification": {
@@ -1461,14 +1460,11 @@
       "plain": "Dikirim sebagai teks biasa",
       "revealSecret": "Tampilkan {label}",
       "sealFailed": "Tidak bisa mengenkripsi itu di perangkat ini.",
-      "send": "Kirim",
       "sendSecurely": "Kirim dengan aman",
       "sending": "Mengirim…",
       "sensitive": "Terenkripsi ujung ke ujung",
       "sensitiveToggleA11y": "Enkripsi {label}",
       "sensitiveUnavailable": "Perangkat ini belum bisa mengenkripsinya",
-      "somethingElse": "Hal lain",
-      "somethingElsePlaceholder": "Beri tahu Stella apa yang harus dilakukan",
       "unnamedComputer": "Komputer · {id}",
       "waitingBadge": "Menunggumu"
     }
@@ -2716,22 +2712,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "Sisa {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Gunakan jawaban ini",
+      "default": "Default",
+      "next": "Pertanyaan berikutnya",
+      "previous": "Pertanyaan sebelumnya",
+      "progress": "{current} dari {total}",
+      "sending": "Mengirim…",
+      "skip": "Lewati",
+      "skipped": "Dilewati",
+      "somethingElse": "Lainnya",
+      "submit": "Kirim"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

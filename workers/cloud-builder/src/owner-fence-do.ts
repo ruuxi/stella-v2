@@ -11,6 +11,7 @@ import {
   type OwnerFenceLeaseRole,
 } from "./owner-fence-store.js";
 import { handleTurnStateOwnerRoute } from "./turn-state-owner-routes.js";
+import { json } from "./http/response.js";
 
 export const HEADER_OWNER_FENCE_ID = "x-stella-owner-fence-id";
 export const OWNER_FENCE_LEASE_TTL_MS = 30 * 60_000;
@@ -66,12 +67,6 @@ export type OwnerFenceAuthorityChangeHook = (args: {
   path: "begin";
   body: Readonly<Record<string, unknown>>;
 }) => Promise<void>;
-
-const json = (body: unknown, status = 200): Response =>
-  Response.json(body, {
-    status,
-    headers: { "cache-control": "no-store" },
-  });
 
 const log = (
   level: "info" | "error",

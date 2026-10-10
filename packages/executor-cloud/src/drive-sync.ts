@@ -46,6 +46,7 @@ import {
   writeWorkspaceBytesNoFollow,
   type WorkspaceFileIdentity,
 } from "@stella/runtime/kernel/tools/workspace-file-boundary.js";
+import { isEvidenceThumbnailDrivePath } from "@stella/contracts/chat-evidence-thumbnails";
 
 type DriveSyncEntry = {
   path: string;
@@ -945,7 +946,11 @@ export const materializeDriveFiles = async (options: {
       "Drive sync refused an incomplete deletion history; a complete authoritative resync is required before this workspace can run.",
     );
   }
-  const entries = (manifest.files ?? []).slice(0, MANIFEST_FILE_MAX);
+  const visible = (entry: { path?: unknown } | null | undefined) =>
+    !(entry && typeof entry.path === "string" && isEvidenceThumbnailDrivePath(entry.path));
+  manifest.files = manifest.files.filter(visible);
+  manifest.skipped = manifest.skipped.filter(visible);
+  const entries = manifest.files.slice(0, MANIFEST_FILE_MAX);
   const result: DriveSyncResult = {
     known: new Map(),
     uploads: new Set(),

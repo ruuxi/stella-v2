@@ -372,6 +372,9 @@ const trimDuplicatedTransitionUserEvent = (
 ): LocalContextEvent[] => {
   const leadingStoredUserPreviews: string[] = [];
   for (const message of storedThreadMessages) {
+    if (message.role === "runtimeInternal") {
+      continue;
+    }
     if (message.role !== "user") {
       break;
     }
@@ -935,14 +938,14 @@ export const createRunnerContext = ({
       },
       readLocalSession: (conversationId) => {
         const summary =
-          context.runtimeStore?.getConversationSummary(conversationId);
+          context.runtimeStore?.chat.getConversationSummary(conversationId);
         return summary ? localSessionRow(summary) : null;
       },
       readAgentDirectory: async (conversationId) => {
         const { agents, cloudSessions, cloudUnavailable } =
           await readConversationAgents(conversationId);
         const sessions = (
-          context.runtimeStore?.listConversationSummaries({
+          context.runtimeStore?.chat.listConversationSummaries({
             limit: AGENT_DIRECTORY_SESSION_LIMIT,
           }).conversations ?? []
         ).map(localSessionRow);

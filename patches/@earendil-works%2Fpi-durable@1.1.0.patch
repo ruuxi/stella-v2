@@ -1,0 +1,79 @@
+diff --git a/dist/env/node.d.ts b/dist/env/node.d.ts
+index 8c34542861db2f1944ead19a828a940881cec679..157c555100d62ab167cf76a987bcc6ac38edb1ff 100644
+--- a/dist/env/node.d.ts
++++ b/dist/env/node.d.ts
+@@ -9,12 +9,20 @@ export declare class NodeExecutionEnv implements ExecutionEnv {
+     private shellEnv?;
+     private watchOptions;
+     private activeChildPids;
++    private processTreeKiller?;
+     constructor(options: {
+         cwd: string;
+         shellPath?: string;
+         shellEnv?: NodeJS.ProcessEnv;
+         watch?: NodeWatchOptions;
++        /**
++         * Ends one running command and everything it started, given the pid of the process `exec` spawned (the leader
++         * of its own process group outside Windows). Used when a command times out or is aborted, and by `cleanup`,
++         * which waits for it. Without it, the command's process group (its tree on Windows) is sent SIGKILL.
++         */
++        killProcessTree?: (pid: number) => void | Promise<void>;
+     });
++    private killCommandTree;
+     watch(targets: readonly WatchTarget[], onChange: (change: WatchChange) => void, context: Context): Promise<Result<FileWatcher, FileError>>;
+     absolutePath(path: string, _context: Context): Promise<Result<string, FileError>>;
+     joinPath(parts: string[], _context: Context): Promise<Result<string, FileError>>;
+diff --git a/dist/env/node.js b/dist/env/node.js
+index 7aca239b4cadcf41aa0495af436378c3e521193f..43dd864fcac0adf595a2e05e7a9a8ad36017f881 100644
+--- a/dist/env/node.js
++++ b/dist/env/node.js
+@@ -548,11 +548,27 @@ export class NodeExecutionEnv {
+     shellEnv;
+     watchOptions;
+     activeChildPids = new Set();
++    processTreeKiller;
+     constructor(options) {
+         this.cwd = options.cwd;
+         this.shellPath = options.shellPath;
+         this.shellEnv = options.shellEnv;
+         this.watchOptions = options.watch ?? {};
++        this.processTreeKiller = options.killProcessTree;
++    }
++    /** End one command's process tree: with the owner's killer when it gave one, else SIGKILL to its group. */
++    killCommandTree(pid) {
++        if (!this.processTreeKiller) {
++            killProcessTree(pid);
++            return Promise.resolve();
++        }
++        try {
++            return Promise.resolve(this.processTreeKiller(pid)).catch(() => killProcessTree(pid));
++        }
++        catch {
++            killProcessTree(pid);
++            return Promise.resolve();
++        }
+     }
+     async watch(targets, onChange, context) {
+         const aborted = abortResult(context.abortSignal);
+@@ -628,7 +644,7 @@ export class NodeExecutionEnv {
+             let spillBackpressured = false;
+             const onAbort = () => {
+                 if (child?.pid)
+-                    killProcessTree(child.pid);
++                    void this.killCommandTree(child.pid);
+             };
+             const failCallback = (error) => {
+                 if (callbackError !== undefined)
+@@ -1158,9 +1174,9 @@ export class NodeExecutionEnv {
+         }
+     }
+     async cleanup(_context) {
+-        for (const pid of this.activeChildPids)
+-            killProcessTree(pid);
++        const pids = [...this.activeChildPids];
+         this.activeChildPids.clear();
++        await Promise.all(pids.map((pid) => this.killCommandTree(pid)));
+     }
+ }
+ //# sourceMappingURL=node.js.map
+\ No newline at end of file

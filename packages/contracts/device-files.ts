@@ -98,6 +98,19 @@ export const deviceFileMissingMessage = (
     ? `This ${noun} isn't on this computer, and no copy of it was shared to your Drive.`
     : `File no longer available — ${fileNameOf(filePath)} was moved or deleted.`;
 
+/**
+ * What an "open this path" action says when the file or folder is not on this
+ * computer: gone from a folder that is still here, or never here at all (a
+ * path another of the user's computers wrote into the chat).
+ */
+export const localPathNotFoundMessage = (
+  filePath: string,
+  wasOnThisComputer: boolean,
+): string =>
+  wasOnThisComputer
+    ? `${fileNameOf(filePath)} is no longer on this computer. It was moved or deleted.`
+    : `${fileNameOf(filePath)} isn't on this computer. It may be on another of your computers.`;
+
 /** What a viewer says when it can't show `filePath` from `source`. */
 export const deviceFileUnavailableMessage = (
   source: DeviceFileSource | null,

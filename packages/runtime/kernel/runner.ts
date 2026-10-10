@@ -54,6 +54,8 @@ import {
   getReasoningEffort,
   getSubscriptionHarnessEnabled,
 } from "./preferences/local-preferences.js";
+import { desktopPiChatEnabled } from "@stella/contracts/pi-chat";
+import { AGENT_MESSAGE_CUSTOM_TYPE } from "./storage/shared.js";
 
 const VOICE_ORCHESTRATOR_HISTORY_LIMIT = 80;
 
@@ -495,6 +497,30 @@ export const createStellaHostRunner = (
       if (delivery) context.state.piReportDelivery = delivery;
       else delete context.state.piReportDelivery;
     },
+    deliverOrchestratorNote: async (note) => {
+      if (desktopPiChatEnabled(getAgentRuntimeEngine(context.stellaDataDir))) {
+        const deliver = context.state.piReportDelivery;
+        if (!deliver) {
+          throw new Error("Stella's chat is not ready to take this yet.");
+        }
+        await deliver(note);
+        return;
+      }
+      const ownerGeneration = note.conversationId.startsWith("local_")
+        ? undefined
+        : await context.cloudOwnerGeneration().catch(() => undefined);
+      await orchestratorController.sendMessage({
+        conversationId: note.conversationId,
+        text: note.text,
+        uiVisibility: "hidden",
+        agentType: AGENT_IDS.ORCHESTRATOR,
+        deliverAs: "steer",
+        customType: AGENT_MESSAGE_CUSTOM_TYPE,
+        eventId: note.requestId,
+        display: false,
+        ...(ownerGeneration ? { ownerGeneration } : {}),
+      });
+    },
     start: runtimeInitialization.start,
     stop: async () => {
       cloudAgentLifecycle.stop();
@@ -510,6 +536,7 @@ export const createStellaHostRunner = (
       const authToken = context.state.authToken?.trim();
       return baseUrl && authToken ? { baseUrl, authToken } : null;
     },
+    loadExecutionContext: async () => await context.loadExecutionContext?.(),
     killAllShells: () => context.toolHost.killAllShells(),
     killShellsByPort: (port) => context.toolHost.killShellsByPort(port),
     // Voice tool calls are model-issued; validate and run hooks like any
@@ -593,6 +620,8 @@ export const createStellaHostRunner = (
     appendCloudJournal: (request) => context.cloudTranscript.append(request),
     cloudJournal: {
       begin: (request) => context.cloudTranscript.begin(request),
+      promptSeq: (conversationId, ack) =>
+        context.cloudTranscript.promptSeq(conversationId, ack),
       finish: (request) => context.cloudTranscript.finish(request),
       append: (request) => context.cloudTranscript.append(request),
       history: (conversationId) => context.cloudTranscript.history(conversationId),

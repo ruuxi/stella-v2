@@ -336,11 +336,18 @@ export class RuntimeHostAdapter {
         this.activeRun = await this.host.getActiveRun();
         this.emitAvailabilityChange();
     }
-    /** `shutdownRuntime` stops the runtime too, for resets that delete its files. */
+    /**
+     * `shutdownRuntime` stops the runtime too, for quit and for resets that
+     * delete its files; `exitTimeoutMs` bounds how long this waits for it.
+     */
     async stop(options = {}) {
         this.started = false;
         this.clearLocalChatSessions();
-        await this.host.stop({ shutdownRuntime: options.shutdownRuntime === true });
+        await this.host.stop({
+            shutdownRuntime: options.shutdownRuntime === true,
+            quit: options.quit === true,
+            ...(options.exitTimeoutMs !== undefined ? { exitTimeoutMs: options.exitTimeoutMs } : {}),
+        });
     }
     async ensureWorkerStarted() {
         if (!this.started) {
@@ -738,8 +745,8 @@ export class RuntimeHostAdapter {
     onPiChatEvents(listener) {
         return this.host.on("pi-chat-events", listener);
     }
-    killAllShells() {
-        return void this.host.killAllShells();
+    async killAllShells() {
+        await this.host.killAllShells();
     }
     killShellsByPort(port) {
         return this.host.killShellsByPort(port);

@@ -18,6 +18,7 @@ import { worldName } from "../workspace.js";
 import { Hono, type MiddlewareHandler } from "hono";
 import { GATEWAY_NETWORK_POLICY } from "@stella/contracts/gateway/api";
 import { TURN_BROKER_HEADERS } from "@stella/contracts/turn-credential-broker";
+import { JOURNAL_CHECKPOINT_PATH, JOURNAL_CHECKPOINT_SUMMARY_MAX_BYTES } from "@stella/contracts/journal-checkpoint";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import {
   buildMobilePairingChallenge,
@@ -38,6 +39,7 @@ import {
   TURN_OWNER_GENERATION_HEADER,
   TURN_OWNER_ID_HEADER,
 } from "@stella/contracts/turn-plane/turn-start";
+import { bearerCredential } from "../../../shared/bearer.js";
 import { classifyNetwork } from "../../../shared/network-class.js";
 import { verifyUserToken } from "../auth-jwt.js";
 import { noteOwnerIdentity } from "../owner-identity.js";
@@ -187,8 +189,7 @@ const authenticateConversationCaller = async (
     }
     token = offer.token;
   } else {
-    const header = request.headers.get("authorization") ?? "";
-    if (header.startsWith("Bearer ")) token = header.slice(7).trim();
+    token = bearerCredential(request.headers.get("authorization")) ?? "";
   }
   if (!token) {
     return deny(
@@ -1111,6 +1112,13 @@ app.get("/conversations/:id/history", userAuth(), (c) =>
 );
 app.post("/conversations/:id/history/query", userAuth(), jsonBody(tinyControl), (c) =>
   forwardToConversation(c.req.raw, c.env, c.req.param("id"), "/history/query", c.var.caller),
+);
+// A computer's compaction, as the conversation's checkpoint for every host.
+app.post(
+  `/conversations/:id${JOURNAL_CHECKPOINT_PATH}`,
+  userAuth(),
+  jsonBody(JOURNAL_CHECKPOINT_SUMMARY_MAX_BYTES + 4096),
+  (c) => forwardToConversation(c.req.raw, c.env, c.req.param("id"), JOURNAL_CHECKPOINT_PATH, c.var.caller),
 );
 // Where the conversation's Stella runs, read and moved by the owner's devices.
 app.get("/conversations/:id/pi-brain", userAuth(), (c) =>

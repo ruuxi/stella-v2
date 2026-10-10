@@ -18,7 +18,11 @@
 import { sha256Hex } from "./pairing-proof.js";
 
 export const DEVICE_REQUEST_METHODS = [
-  /** `{ filePath, conversationId }` -> the file's bytes, typed by extension. */
+  /**
+   * `{ filePath, conversationId, variant? }` -> the file's bytes, typed by
+   * extension. `variant: "thumbnail"` asks for a small JPEG of an image
+   * instead; a computer that cannot make one sends the file itself.
+   */
   "file.read",
   /** `{ filePath, conversationId }` or `{ sessionId, conversationId }` -> HTML. */
   "officePreview.render",

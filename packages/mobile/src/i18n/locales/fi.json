@@ -208,6 +208,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Reaktiot {reactions}",
         "showMoreChips": "Näytä {count} lisää",
+        "stellaReaction": "Stella reagoi {emoji}",
         "windowPreviewAlt": "Ikkunan sisällön esikatselu"
       },
       "miniModelPicker": {
@@ -1457,8 +1458,6 @@
       "cantRightNow": "En juuri nyt",
       "deadline": "{time} jäljellä",
       "deadlinePassed": "Aika loppui",
-      "deadlineWithDefault": "{time} jäljellä — muuten ”{option}”",
-      "defaultOption": "Oletus",
       "hideSecret": "Piilota {label}",
       "missingFields": "Täytä kaikki pakolliset kentät.",
       "notification": {
@@ -1471,14 +1470,11 @@
       "plain": "Lähetetään selkokielisenä",
       "revealSecret": "Näytä {label}",
       "sealFailed": "Sitä ei voitu salata tällä laitteella.",
-      "send": "Lähetä",
       "sendSecurely": "Lähetä turvallisesti",
       "sending": "Lähetetään…",
       "sensitive": "Salattu päästä päähän",
       "sensitiveToggleA11y": "Salaa {label}",
       "sensitiveUnavailable": "Tämä laite ei voi vielä salata sitä",
-      "somethingElse": "Jotain muuta",
-      "somethingElsePlaceholder": "Kerro Stellalle, mitä tehdä sen sijaan",
       "unnamedComputer": "Tietokone · {id}",
       "waitingBadge": "Odottaa sinua"
     }
@@ -2736,22 +2732,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "{time} jäljellä"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Käytä tätä vastausta",
+      "default": "Oletus",
+      "next": "Seuraava kysymys",
+      "previous": "Edellinen kysymys",
+      "progress": "{current}/{total}",
+      "sending": "Lähetetään…",
+      "skip": "Ohita",
+      "skipped": "Ohitettu",
+      "somethingElse": "Jotain muuta",
+      "submit": "Lähetä"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

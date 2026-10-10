@@ -324,6 +324,20 @@ const webSearchResultsEqual = (
   return true;
 };
 
+const askRecordsEqual = (
+  a: AssistantRowViewModel["askRecords"],
+  b: AssistantRowViewModel["askRecords"],
+): boolean => {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  return a.every(
+    (record, index) =>
+      record.id === b[index]?.id &&
+      record.defaulted === b[index]?.defaulted &&
+      record.answers.length === b[index]?.answers.length,
+  );
+};
+
 const mapArtifactsEqual = (
   a: AssistantRowViewModel["mapArtifacts"],
   b: AssistantRowViewModel["mapArtifacts"],
@@ -364,6 +378,8 @@ const userRowEqual = (a: UserRowViewModel, b: UserRowViewModel): boolean =>
   (a.activityLabel ?? null) === (b.activityLabel ?? null) &&
   (a.pastedTexts?.length ?? 0) === (b.pastedTexts?.length ?? 0) &&
   (a.quotedText ?? null) === (b.quotedText ?? null) &&
+  (a.reaction ?? null) === (b.reaction ?? null) &&
+  (a.reactionAt ?? null) === (b.reactionAt ?? null) &&
   Boolean(a.hidden) === Boolean(b.hidden) &&
   (a.spawnedThreadIds ?? []).join(" ") === (b.spawnedThreadIds ?? []).join(" ") &&
   (a.spawnedDescriptions ?? []).join("\u001f") === (b.spawnedDescriptions ?? []).join("\u001f") &&
@@ -419,6 +435,7 @@ const assistantRowEqual = (
   sourceDiffPayloadsEqual(a.sourceDiffPayloads, b.sourceDiffPayloads) &&
   webSearchResultsEqual(a.webSearchResults, b.webSearchResults) &&
   mapArtifactsEqual(a.mapArtifacts, b.mapArtifacts) &&
+  askRecordsEqual(a.askRecords, b.askRecords) &&
   backgroundWorkEqual(a.backgroundWork, b.backgroundWork) &&
   agentCompletionEqual(a.agentCompletion, b.agentCompletion) &&
   (a.voiceSession?.durationMs ?? null) ===

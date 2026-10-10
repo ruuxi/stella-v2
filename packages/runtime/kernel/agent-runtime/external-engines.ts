@@ -1,4 +1,6 @@
 import crypto from "crypto";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import type {
   AssistantMessage,
   ImageContent,
@@ -19,6 +21,7 @@ import {
   claudeCodeResumableSessionId,
   runClaudeCodeTurn,
   shutdownClaudeCodeRuntime,
+  type ClaudeCodeTurnRequest,
 } from "../integrations/claude-code-session-runtime.js";
 import {
   getClaudeCodeAgentModelId,
@@ -52,6 +55,7 @@ import {
   resolveInterruptionReason,
 } from "./run-completion.js";
 import { superviseExternalEngineTurn } from "./external-engine-lifecycle.js";
+import { createRuntimeLogger } from "../debug.js";
 import {
   createExternalOrchestratorRunSession,
   createExternalSubagentRunSession,
@@ -479,6 +483,40 @@ const buildStellaHistoryBlock = (
   };
 };
 
+const toStellaHistoryEntries = (
+  history: readonly AgentMessage[],
+): StellaHistoryEntry[] =>
+  history
+    .map((message, index): StellaHistoryEntry | null => {
+      if (
+        message.role === "runtimeInternal" &&
+        message.customType === STELLA_HISTORY_CUSTOM_TYPE
+      ) {
+        return null;
+      }
+      const text = contentToText(message.content);
+      if (!text) return null;
+      return {
+        hash: hashHistoryEntry(message.role, text),
+        line: `<history_message index="${index + 1}" role="${message.role}">\n${text}\n</history_message>`,
+      };
+    })
+    .filter((entry): entry is StellaHistoryEntry => entry !== null);
+
+const historyEntryHashesWrittenSince = (args: {
+  opts: BaseRunOptions;
+  threadKey: string;
+  since: number;
+}): string[] =>
+  toStellaHistoryEntries(
+    buildHistorySource({
+      memoryEnabled: args.opts.agentContext.memoryEnabled,
+      threadHistory: args.opts.store
+        .loadThreadMessages(args.threadKey)
+        .filter((row) => row.timestamp >= args.since),
+    }),
+  ).map((entry) => entry.hash);
+
 export type ExternalStellaHistoryDelivery = {
   entryHashes: string[];
   full: RuntimePromptMessage | null;
@@ -512,22 +550,7 @@ export const buildExternalStellaHistoryDelivery = (args: {
   ) {
     trimmedHistory.pop();
   }
-  const entries = trimmedHistory
-    .map((message, index): StellaHistoryEntry | null => {
-      if (
-        message.role === "runtimeInternal" &&
-        message.customType === STELLA_HISTORY_CUSTOM_TYPE
-      ) {
-        return null;
-      }
-      const text = contentToText(message.content);
-      if (!text) return null;
-      return {
-        hash: hashHistoryEntry(message.role, text),
-        line: `<history_message index="${index + 1}" role="${message.role}">\n${text}\n</history_message>`,
-      };
-    })
-    .filter((entry): entry is StellaHistoryEntry => entry !== null);
+  const entries = toStellaHistoryEntries(trimmedHistory);
   if (entries.length === 0) {
     return empty;
   }
@@ -561,11 +584,86 @@ type ClaudeHistoryDelivery = {
 
 const claudeHistoryDeliveries = new Map<string, ClaudeHistoryDelivery>();
 
+const historyDeliveryLogger = createRuntimeLogger(
+  "claude-code-history-delivery",
+);
+
+const claudeHistoryDeliveryFile = (
+  stellaDataDir: string,
+  sessionKey: string,
+): string =>
+  path.join(
+    stellaDataDir,
+    "cache",
+    "claude-code-history",
+    `${crypto.createHash("sha1").update(sessionKey).digest("hex")}.json`,
+  );
+
+const loadClaudeHistoryDelivery = (
+  stellaDataDir: string | undefined,
+  sessionKey: string,
+): ClaudeHistoryDelivery | undefined => {
+  const cached = claudeHistoryDeliveries.get(sessionKey);
+  if (cached || !stellaDataDir) {
+    return cached;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(
+      readFileSync(
+        claudeHistoryDeliveryFile(stellaDataDir, sessionKey),
+        "utf8",
+      ),
+    );
+  } catch {
+    return undefined;
+  }
+  const record = parsed as Partial<ClaudeHistoryDelivery> | null;
+  if (
+    !record ||
+    typeof record.sessionId !== "string" ||
+    !Array.isArray(record.hashes) ||
+    !record.hashes.every((hash) => typeof hash === "string")
+  ) {
+    return undefined;
+  }
+  const state: ClaudeHistoryDelivery = {
+    sessionId: record.sessionId,
+    hashes: record.hashes,
+    staleAfterCompaction: record.staleAfterCompaction === true,
+  };
+  claudeHistoryDeliveries.set(sessionKey, state);
+  return state;
+};
+
+const saveClaudeHistoryDelivery = (
+  stellaDataDir: string | undefined,
+  sessionKey: string,
+  state: ClaudeHistoryDelivery,
+): void => {
+  claudeHistoryDeliveries.set(sessionKey, state);
+  if (!stellaDataDir) {
+    return;
+  }
+  const file = claudeHistoryDeliveryFile(stellaDataDir, sessionKey);
+  const temporary = `${file}.${process.pid}.tmp`;
+  try {
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(temporary, JSON.stringify(state));
+    renameSync(temporary, file);
+  } catch (error) {
+    historyDeliveryLogger.warn("claude-code-history-delivery.save-failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
+
 const readClaudeHistoryDelivery = (
+  stellaDataDir: string | undefined,
   sessionKey: string,
   resumableSessionId: string | undefined,
 ): Set<string> | undefined => {
-  const state = claudeHistoryDeliveries.get(sessionKey);
+  const state = loadClaudeHistoryDelivery(stellaDataDir, sessionKey);
   if (!state) {
     return undefined;
   }
@@ -580,12 +678,16 @@ const readClaudeHistoryDelivery = (
 };
 
 const recordClaudeHistoryDelivery = (args: {
+  stellaDataDir: string | undefined;
   sessionKey: string;
   sessionId: string;
   entryHashes: readonly string[];
   staleAfterCompaction: boolean;
 }): void => {
-  const previous = claudeHistoryDeliveries.get(args.sessionKey);
+  const previous = loadClaudeHistoryDelivery(
+    args.stellaDataDir,
+    args.sessionKey,
+  );
   const merged =
     previous && previous.sessionId === args.sessionId
       ? [...previous.hashes, ...args.entryHashes]
@@ -600,7 +702,7 @@ const recordClaudeHistoryDelivery = (args: {
     if (newest.length >= CLAUDE_HISTORY_DELIVERY_LIMIT) break;
   }
   newest.reverse();
-  claudeHistoryDeliveries.set(args.sessionKey, {
+  saveClaudeHistoryDelivery(args.stellaDataDir, args.sessionKey, {
     sessionId: args.sessionId,
     hashes: newest,
     staleAfterCompaction: args.staleAfterCompaction,
@@ -1245,14 +1347,580 @@ const persistCompletedExternalReply = async (args: {
   return true;
 };
 
-const runClaudeHostedTurn = async (args: {
+type ClaudeHostedTurnArgs = {
   opts: BaseRunOptions;
   session: ExternalOrchestratorRunSession | ExternalSubagentRunSession;
   systemPrompt: string;
   promptMessages: RuntimePromptMessage[];
   callbacks?: Partial<RuntimeRunCallbacks>;
   liveAgent?: ReturnType<typeof createExternalLiveAgent>;
+};
+
+type ClaudeTurnResult = Awaited<ReturnType<typeof runClaudeCodeTurn>>;
+
+type ClaudeHostedPrompt = {
+  prompt: string;
+  resumeFallbackPrompt?: string;
+  historyEntryHashes: readonly string[];
+};
+
+/**
+ * Build one Claude Code prompt of a hosted turn: the turn's first prompt, or
+ * one carrying queued input that continues the same session. Records the
+ * thread-updates deltas it carries on the watermark tracker.
+ *
+ * The mainline delta is anchored at the tracker's cursor. A prompt that may
+ * reseed a fresh session also carries a delta anchored at the persisted
+ * watermark: the first prompt's cursor IS the persisted watermark, so it only
+ * needs a separate one when its history context differs from the reseed's;
+ * queued prompts follow mainline deltas a fresh session never saw, so they
+ * always carry one.
+ */
+const buildClaudeHostedPrompt = (args: {
+  opts: BaseRunOptions;
+  threadKey: string;
+  sessionKey: string;
+  promptMessages: RuntimePromptMessage[];
+  /** Resumable CLI session this prompt continues, if any. */
+  sessionId: string | undefined;
+  deliversHistoryIncrementally: boolean;
+  /** False when the CLI compacted its transcript since the last delivery. */
+  reuseDeliveredHistory: boolean;
+  deliveredThisRun?: readonly string[];
+  watermarkTracker: ReturnType<typeof createExternalDeltaWatermarkTracker>;
+  initialDeliveredEntryId: string | undefined;
+  alwaysCarryReseedDelta: boolean;
+}): ClaudeHostedPrompt => {
+  const recordedHistoryHashes =
+    args.deliversHistoryIncrementally && args.reuseDeliveredHistory
+      ? readClaudeHistoryDelivery(
+          args.opts.stellaDataDir,
+          args.sessionKey,
+          args.sessionId,
+        )
+      : undefined;
+  const deliveredHistoryHashes =
+    args.deliversHistoryIncrementally &&
+    args.reuseDeliveredHistory &&
+    args.sessionId &&
+    args.deliveredThisRun?.length
+      ? new Set([...(recordedHistoryHashes ?? []), ...args.deliveredThisRun])
+      : recordedHistoryHashes;
+  const history = buildExternalStellaHistoryDelivery({
+    opts: args.opts,
+    promptMessages: args.promptMessages,
+    ...(deliveredHistoryHashes
+      ? { deliveredEntryHashes: deliveredHistoryHashes }
+      : {}),
+  });
+  const historyPromptMessage = history.full;
+  const resumedHistoryPromptMessage = args.deliversHistoryIncrementally
+    ? history.undelivered
+    : null;
+  const promptHistoryMessage = args.sessionId
+    ? resumedHistoryPromptMessage
+    : historyPromptMessage;
+  const cursor = args.watermarkTracker.cursor;
+  const threadUpdatesDelta = buildExternalThreadUpdatesDelta({
+    store: args.opts.store,
+    threadKey: args.threadKey,
+    ...(cursor ? { afterEntryId: cursor } : {}),
+    promptMessages: args.promptMessages,
+    ...(promptHistoryMessage
+      ? { deliveredContextTexts: [promptHistoryMessage.text] }
+      : {}),
+  });
+  const fallbackDelta =
+    args.alwaysCarryReseedDelta || (args.sessionId && historyPromptMessage)
+      ? buildExternalThreadUpdatesDelta({
+          store: args.opts.store,
+          threadKey: args.threadKey,
+          ...(args.initialDeliveredEntryId
+            ? { afterEntryId: args.initialDeliveredEntryId }
+            : {}),
+          promptMessages: args.promptMessages,
+          ...(historyPromptMessage
+            ? { deliveredContextTexts: [historyPromptMessage.text] }
+            : {}),
+        })
+      : null;
+  args.watermarkTracker.noteMainlineDelta(threadUpdatesDelta);
+  if (fallbackDelta) {
+    args.watermarkTracker.noteReseedDelta(fallbackDelta);
+  }
+  const { prompt, resumeFallbackPrompt } = buildClaudeCodeTurnPrompts({
+    historyPromptMessage,
+    ...(resumedHistoryPromptMessage ? { resumedHistoryPromptMessage } : {}),
+    promptMessages: args.promptMessages,
+    hasPersistedSession: Boolean(args.sessionId),
+    deltaPromptMessage: threadUpdatesDelta.message,
+    ...(fallbackDelta
+      ? { fallbackDeltaPromptMessage: fallbackDelta.message }
+      : {}),
+  });
+  return {
+    prompt,
+    ...(resumeFallbackPrompt ? { resumeFallbackPrompt } : {}),
+    historyEntryHashes: history.entryHashes,
+  };
+};
+
+/**
+ * Relays Claude Code's tool calls into Stella. Stella tools run through the
+ * host dispatcher; the CLI's own built-ins (Read, Edit, Bash, ...) never reach
+ * the MCP host, so the session runtime mirrors them off the stream. Both are
+ * recorded alike: journal event, working indicator, and the persisted thread
+ * transcript Stella reseeds from.
+ */
+const createClaudeToolRelay = (args: {
+  opts: BaseRunOptions;
+  session: ExternalOrchestratorRunSession | ExternalSubagentRunSession;
+  callbacks?: Partial<RuntimeRunCallbacks>;
+  assistantUpdateBuffer: ReturnType<typeof createExternalAssistantUpdateBuffer>;
+}) => {
+  const { opts, callbacks, assistantUpdateBuffer } = args;
+  const { runId, threadKey, runEvents } = args.session;
+  // Orchestrator sessions own the response-target tracker; subagent sessions
+  // do not (they don't drive the user-facing chat surface).
+  const responseTargetTracker =
+    args.session.kind === "orchestrator"
+      ? args.session.responseTargetTracker
+      : undefined;
+  type ToolCallStart = {
+    toolCallId: string;
+    toolName: string;
+    toolArgs: Record<string, unknown>;
+  };
+  const flushPreambleBeforeTool = (toolCall: ToolCallStart) => {
+    const preamble = assistantUpdateBuffer.flushBeforeTool();
+    if (!preamble) {
+      return;
+    }
+    const preambleEvent = runEvents.recordAssistantMessageEnd(
+      buildPreambleToolBoundaryMessage({
+        preamble,
+        toolCallId: toolCall.toolCallId,
+        toolName: toolCall.toolName,
+        toolArgs: toolCall.toolArgs,
+      }),
+    );
+    if (preambleEvent) {
+      callbacks?.onAssistantMessage?.(preambleEvent);
+    }
+  };
+  const recordToolStart = (toolCall: ToolCallStart): void => {
+    const { toolCallId, toolName, toolArgs } = toolCall;
+    flushPreambleBeforeTool(toolCall);
+    responseTargetTracker?.noteToolStart(toolName, toolArgs);
+    const toolStartEvent = runEvents.recordToolStart({
+      toolCallId,
+      toolName,
+      toolArgs,
+    });
+    callbacks?.onToolStart?.(toolStartEvent);
+    persistThreadPayloadMessage(opts.store, {
+      threadKey,
+      payload: buildToolCallPayload({
+        toolCallId,
+        toolName,
+        toolArgs: toolStartEvent.args,
+      }),
+    });
+  };
+  const recordToolEnd = (
+    toolCallId: string,
+    toolName: string,
+    toolResult: ToolResult,
+    isError: boolean,
+  ): void => {
+    responseTargetTracker?.noteToolEnd(toolName, toolResult.details);
+    callbacks?.onToolEnd?.(
+      runEvents.recordToolEnd({
+        toolCallId,
+        toolName,
+        result: toolResult,
+        details: toolResult.details,
+        isError,
+      }),
+    );
+  };
+  const persistToolResult = (
+    toolCallId: string,
+    toolName: string,
+    content: (TextContent | ImageContent)[],
+    isError: boolean,
+  ): void => {
+    persistThreadPayloadMessage(opts.store, {
+      threadKey,
+      payload: {
+        role: "toolResult",
+        toolCallId,
+        toolName,
+        content,
+        isError,
+        timestamp: now(),
+      },
+    });
+  };
+  return {
+    emitToolUpdateStatus: (update: {
+      result?: unknown;
+      details?: unknown;
+      error?: string;
+    }) => {
+      const details =
+        update.details && typeof update.details === "object"
+          ? (update.details as { statusText?: unknown })
+          : null;
+      const statusText =
+        typeof details?.statusText === "string" && details.statusText.trim()
+          ? details.statusText.trim()
+          : buildToolResultText(update).trim();
+      if (statusText) {
+        callbacks?.onStatus?.(runEvents.recordStatus(statusText));
+      }
+    },
+    executeTool: async (
+      toolCallId: string,
+      toolName: string,
+      toolArgs: Record<string, unknown>,
+      signal?: AbortSignal,
+      onUpdate?: ToolUpdateCallback,
+    ) => {
+      // The Claude Code engine runs on Anthropic; tool-result screenshots get
+      // Anthropic's high-resolution-tier caps (2576px long edge).
+      const imageCapTarget: ImageCapTarget = { provider: "anthropic" };
+      recordToolStart({ toolCallId, toolName, toolArgs });
+      const toolResult = await executeRuntimeToolCall({
+        executionHost: opts.executionHost,
+        toolCallId,
+        toolName,
+        args: toolArgs,
+        runId,
+        rootRunId: opts.rootRunId ?? runId,
+        agentId: opts.agentId,
+        conversationId: opts.conversationId,
+        storageMode: opts.storageMode,
+        ownerGeneration: opts.ownerGeneration,
+        agentType: opts.agentType,
+        deviceId: opts.deviceId,
+        stellaAppDir: opts.stellaAppDir,
+        stellaDataDir: opts.stellaDataDir,
+        toolWorkspaceRoot: opts.toolWorkspaceRoot,
+        agentWorkingDirectory: opts.agentWorkingDirectory,
+        agentDepth: opts.agentContext.agentDepth ?? 0,
+        maxAgentDepth: opts.agentContext.maxAgentDepth,
+        parentAgentId: opts.agentContext.parentAgentId,
+        modelConfigSnapshot: opts.agentContext.modelConfigSnapshot,
+        connectorDeliveryTarget: opts.connectorDeliveryTarget,
+        allowedToolNames: widenAllowlistWithDemotedTools(
+          opts.agentContext.toolsAllowlist,
+          opts.toolCatalog,
+          opts.connectorDeliveryTarget?.provider,
+        ),
+        deferImageDeliveryAck: toolName === "image_gen",
+        store: opts.store,
+        toolExecutor: opts.toolExecutor,
+        hookEmitter: opts.hookEmitter,
+        signal,
+        onUpdate,
+      });
+      const isError = Boolean(toolResult.error);
+      recordToolEnd(toolCallId, toolName, toolResult, isError);
+      const sanitizedToolResult = sanitizeSensitiveData(
+        toolResult,
+      ) as ToolResult;
+      persistToolResult(
+        toolCallId,
+        toolName,
+        await buildToolResultContent(
+          sanitizedToolResult,
+          imageCapTarget,
+          {
+            stellaDataDir: opts.stellaDataDir,
+            runId,
+            toolCallId,
+          },
+          opts.executionHost,
+        ),
+        isError,
+      );
+      return toolResult;
+    },
+    recordNativeToolStart: recordToolStart,
+    recordNativeToolEnd: ({
+      toolCallId,
+      toolName,
+      result,
+      isError,
+    }: {
+      toolCallId: string;
+      toolName: string;
+      result: string;
+      isError: boolean;
+    }): void => {
+      const toolResult: ToolResult = isError ? { error: result } : { result };
+      recordToolEnd(toolCallId, toolName, toolResult, isError);
+      const sanitizedToolResult = sanitizeSensitiveData(
+        toolResult,
+      ) as ToolResult;
+      // Built-in results carry no Stella image markers; text alone is enough
+      // for the transcript, and the CLI already holds the full result.
+      persistToolResult(
+        toolCallId,
+        toolName,
+        [
+          {
+            type: "text",
+            text: truncateModelVisibleToolText(
+              buildToolResultText(sanitizedToolResult),
+            ).text,
+          },
+        ],
+        isError,
+      );
+    },
+  };
+};
+
+/**
+ * Run Claude Code turns on one session until the live agent has nothing left
+ * queued. Steering lands in the running Claude query instead of interrupting
+ * it; input the query could no longer take runs next on the same session.
+ */
+const runClaudeTurnsUntilDrained = async (args: {
+  hosted: ClaudeHostedTurnArgs;
+  /** Request fields that stay fixed across every turn of the session. */
+  turnRequest: Omit<ClaudeCodeTurnRequest, "prompt">;
+  /** Request fields rebuilt for each turn. */
+  perTurnRequest: () => Partial<ClaudeCodeTurnRequest>;
+  persistedSessionId: string | undefined;
+  firstPrompt: ClaudeHostedPrompt;
+  buildQueuedPrompt: (input: {
+    promptMessages: RuntimePromptMessage[];
+    activeSessionId: string | undefined;
+    compactedSincePromptBuild: boolean;
+    deliveredThisRun: readonly string[];
+  }) => ClaudeHostedPrompt;
+  assistantUpdateBuffer: ReturnType<typeof createExternalAssistantUpdateBuffer>;
+  watermarkTracker: ReturnType<typeof createExternalDeltaWatermarkTracker>;
 }): Promise<{
+  finalResult: ClaudeTurnResult | null;
+  latestAttempt: boolean;
+  historyEntryHashes: readonly string[];
+  compactedSincePromptBuild: boolean;
+}> => {
+  const { opts, session, callbacks, liveAgent } = args.hosted;
+  const { runId, threadKey, runEvents } = session;
+  const { assistantUpdateBuffer, watermarkTracker } = args;
+  let finalResult: ClaudeTurnResult | null = null;
+  let activeSessionId = args.persistedSessionId;
+  let nextPrompt = args.firstPrompt.prompt;
+  let nextResumeFallbackPrompt = args.firstPrompt.resumeFallbackPrompt;
+  let nextAttachments = opts.attachments;
+  let historyEntryHashes = args.firstPrompt.historyEntryHashes;
+  let compactedSincePromptBuild = false;
+
+  let latestAttempt = true;
+  // Reply and queued-message boundaries are recorded synchronously, in the
+  // order the CLI reports them; only the durable reply writes run behind, and
+  // a failed one fails the turn.
+  let steeringWrites: Promise<void> = Promise.resolve();
+  let steeringWriteError: unknown;
+  const joinSteeringWrites = async (): Promise<void> => {
+    await steeringWrites;
+    if (steeringWriteError !== undefined) throw steeringWriteError;
+  };
+  const deliverIntermediateReply = (text: string): void => {
+    assistantUpdateBuffer.discard();
+    if (!isLatestExternalAttempt(opts)) {
+      latestAttempt = false;
+      return;
+    }
+    const assistantMessageEvent = runEvents.recordAssistantTextEnd(text);
+    if (assistantMessageEvent) {
+      callbacks?.onAssistantMessage?.(assistantMessageEvent);
+    }
+    steeringWrites = steeringWrites.then(async () => {
+      try {
+        await persistAssistantReply({
+          store: opts.store,
+          threadKey,
+          resolvedLlm: opts.resolvedLlm,
+          agentType: opts.agentType,
+          content: text,
+          stellaDataDir: opts.stellaDataDir,
+          ...(opts.readAgentRoster
+            ? { readAgentRoster: opts.readAgentRoster }
+            : {}),
+          runId,
+          ...(typeof opts.agentContext.attemptGeneration === "number"
+            ? { attemptGeneration: opts.agentContext.attemptGeneration }
+            : {}),
+        });
+      } catch (error) {
+        steeringWriteError ??= error;
+      }
+    });
+  };
+  let deltaInFlight = false;
+  const injectSteering = (
+    inject: ClaudeTurnInject,
+    entries: ExternalQueuedMessage[],
+  ): boolean => {
+    const promptMessages = entries.map(formatQueuedClaudeMessage);
+    // One thread-updates delta is in flight at a time. Two built from the same
+    // cursor would overlap, and counting both would claim rows as delivered
+    // that never were; rows left out here ride the next delta instead.
+    const delta = deltaInFlight
+      ? null
+      : buildExternalThreadUpdatesDelta({
+          store: opts.store,
+          threadKey,
+          ...(watermarkTracker.cursor
+            ? { afterEntryId: watermarkTracker.cursor }
+            : {}),
+          promptMessages,
+        });
+    const accepted = inject({
+      text: buildClaudePromptFromMessages(
+        delta?.message ? [delta.message, ...promptMessages] : promptMessages,
+      ),
+      images: imagesFromQueuedMessages(entries),
+      onConsumed: () => {
+        // Thread updates count as delivered only once the CLI takes them in;
+        // a dropped injection leaves them for the next prompt's delta.
+        if (delta) {
+          watermarkTracker.noteMainlineDelta(delta);
+          deltaInFlight = false;
+        }
+        publishQueuedUserMessageStarts({
+          entries,
+          runEvents,
+          callbacks,
+        });
+      },
+      onDropped: () => {
+        if (delta) deltaInFlight = false;
+        liveAgent?.prepend(entries);
+      },
+    });
+    if (accepted && delta) deltaInFlight = true;
+    return accepted;
+  };
+  for (;;) {
+    let completedThisTurn = false;
+    try {
+      const result = await runClaudeCodeTurn({
+        ...args.turnRequest,
+        ...args.perTurnRequest(),
+        ...(activeSessionId ? { persistedSessionId: activeSessionId } : {}),
+        prompt: nextPrompt,
+        ...(nextResumeFallbackPrompt
+          ? { resumeFallbackPrompt: nextResumeFallbackPrompt }
+          : {}),
+        attachments: nextAttachments,
+        onTurnControl: ({ inject }: { inject: ClaudeTurnInject }) =>
+          liveAgent?.beginSteerableTurn(() => {
+            const entries = liveAgent?.drainSteering() ?? [];
+            if (entries.length === 0) return;
+            if (!injectSteering(inject, entries)) {
+              liveAgent?.prepend(entries);
+            }
+          }),
+        onIntermediateResult: (intermediate: { message: string }) =>
+          deliverIntermediateReply(intermediate.message),
+        onSessionId: (sessionId: string) => {
+          activeSessionId = sessionId;
+        },
+        onStatusChange: (status: {
+          text: string;
+          state?: RuntimeStatusEvent["statusState"];
+        }) => {
+          if (status.state === "compacting") {
+            compactedSincePromptBuild = true;
+          }
+          const state =
+            status.state === "compacting" ? "engine-compacting" : status.state;
+          callbacks?.onStatus?.(runEvents.recordStatus(status.text, state));
+        },
+      });
+      assistantUpdateBuffer.discard();
+      activeSessionId = result.sessionId;
+      finalResult = result;
+      completedThisTurn = true;
+    } catch (error) {
+      await steeringWrites;
+      assistantUpdateBuffer.flushOnTermination();
+      throw error;
+    }
+    await joinSteeringWrites();
+
+    if (
+      completedThisTurn &&
+      finalResult &&
+      latestAttempt &&
+      !(finalResult as { delivered?: boolean }).delivered
+    ) {
+      // Persist this turn's reply before draining follow-ups so a stale
+      // retry attempt can never clobber a newer attempt's transcript.
+      latestAttempt = await persistCompletedExternalReply({
+        opts,
+        session,
+        callbacks,
+        text: finalResult.text,
+      });
+    }
+    if (!latestAttempt) {
+      liveAgent?.finish();
+      break;
+    }
+
+    // Input the running query could no longer take (it arrived as the turn
+    // was finishing) runs next on the same session rather than being lost.
+    const queued = liveAgent?.drain() ?? [];
+    if (queued.length === 0) {
+      // Close the live facade synchronously before any later awaits. The
+      // atomic drained-and-idle check routes a message arriving after this
+      // point into a fresh turn instead of queueing it onto a turn that can
+      // no longer drain.
+      if (!liveAgent || liveAgent.finishIfIdle()) break;
+      continue;
+    }
+    publishQueuedUserMessageStarts({
+      entries: queued,
+      runEvents,
+      callbacks,
+    });
+    // A queued steer or follow-up continues the same external conversation.
+    // If the turn was interrupted before Claude emitted a session id, the
+    // fallback prompt safely reseeds from Stella's durable history.
+    const queuedPrompt = args.buildQueuedPrompt({
+      promptMessages: queued.map(formatQueuedClaudeMessage),
+      activeSessionId,
+      compactedSincePromptBuild,
+      deliveredThisRun: historyEntryHashes,
+    });
+    historyEntryHashes = compactedSincePromptBuild
+      ? queuedPrompt.historyEntryHashes
+      : [...historyEntryHashes, ...queuedPrompt.historyEntryHashes];
+    compactedSincePromptBuild = false;
+    nextPrompt = queuedPrompt.prompt;
+    nextResumeFallbackPrompt = queuedPrompt.resumeFallbackPrompt;
+    nextAttachments = attachmentsFromQueuedMessages(queued);
+  }
+
+  return {
+    finalResult,
+    latestAttempt,
+    historyEntryHashes,
+    compactedSincePromptBuild,
+  };
+};
+
+const runClaudeHostedTurn = async (
+  args: ClaudeHostedTurnArgs,
+): Promise<{
   finalText: string;
   sessionId: string;
   latestAttempt: boolean;
@@ -1265,13 +1933,8 @@ const runClaudeHostedTurn = async (args: {
     ),
   };
   const { runId, threadKey, runEvents } = args.session;
-  // Orchestrator sessions own the response-target tracker; subagent sessions
-  // do not (they don't drive the user-facing chat surface).
-  const responseTargetTracker =
-    args.session.kind === "orchestrator"
-      ? args.session.responseTargetTracker
-      : undefined;
 
+  const turnStartedAt = now();
   persistExternalPromptMessages(args.opts, threadKey, args.promptMessages);
 
   if (args.opts.abortSignal?.aborted) {
@@ -1292,7 +1955,8 @@ const runClaudeHostedTurn = async (args: {
   const localCliCwd = resolveAgentWorkingDirectory({
     agentType: args.opts.agentType,
     stellaAppDir: args.opts.stellaAppDir,
-    workingDirectory: args.opts.toolWorkspaceRoot,
+    workingDirectory:
+      args.opts.toolWorkspaceRoot ?? args.opts.agentWorkingDirectory,
   });
   // General Claude runs are role-split at this boundary. A newly sampled
   // durable snapshot selects Stella's harness by default; false or a legacy
@@ -1330,9 +1994,14 @@ const runClaudeHostedTurn = async (args: {
     args.opts.agentType === AGENT_IDS.ORCHESTRATOR
       ? "orchestrator"
       : "worker";
+  // An agent allowlist bounds the built-ins too: they run with permissions
+  // skipped, so a read-only worker must not get a native writer or shell.
   const nativeTools = vanilla
     ? []
-    : resolveClaudeCodeNativeTools(nativeToolRole);
+    : resolveClaudeCodeNativeTools(
+        nativeToolRole,
+        args.opts.agentContext.toolsAllowlist,
+      );
   // node_repl carries the bounded deferred catalog; profiles without it get
   // the safe direct-schema fallback instead. Stella
   // tools a built-in supersedes are left out so the model sees one spelling.
@@ -1357,23 +2026,6 @@ const runClaudeHostedTurn = async (args: {
         ? spawnEngine?.model
         : undefined,
   );
-  const emitToolUpdateStatus = (update: {
-    result?: unknown;
-    details?: unknown;
-    error?: string;
-  }) => {
-    const details =
-      update.details && typeof update.details === "object"
-        ? (update.details as { statusText?: unknown })
-        : null;
-    const statusText =
-      typeof details?.statusText === "string" && details.statusText.trim()
-        ? details.statusText.trim()
-        : buildToolResultText(update).trim();
-    if (statusText) {
-      args.callbacks?.onStatus?.(runEvents.recordStatus(statusText));
-    }
-  };
   // Buffers the assistant text Claude Code has streamed since the last
   // message boundary (mirrors the external turn preamble flush).
   // Claude Code CAN stream a natural-text preamble before a structured
@@ -1396,192 +2048,12 @@ const runClaudeHostedTurn = async (args: {
     assistantUpdateBuffer.append(chunk);
     runEvents.noteAssistantTextChunk(chunk);
   };
-  const flushPreambleBeforeTool = (toolArgs2: {
-    toolCallId: string;
-    toolName: string;
-    toolArgs: Record<string, unknown>;
-  }) => {
-    const preamble = assistantUpdateBuffer.flushBeforeTool();
-    if (!preamble) {
-      return;
-    }
-    const preambleEvent = runEvents.recordAssistantMessageEnd(
-      buildPreambleToolBoundaryMessage({
-        preamble,
-        toolCallId: toolArgs2.toolCallId,
-        toolName: toolArgs2.toolName,
-        toolArgs: toolArgs2.toolArgs,
-      }),
-    );
-    if (preambleEvent) {
-      args.callbacks?.onAssistantMessage?.(preambleEvent);
-    }
-  };
-  const executeClaudeTool = async (
-    toolCallId: string,
-    toolName: string,
-    toolArgs: Record<string, unknown>,
-    signal?: AbortSignal,
-    onUpdate?: ToolUpdateCallback,
-  ) => {
-    // The Claude Code engine runs on Anthropic; tool-result screenshots get
-    // Anthropic's high-resolution-tier caps (2576px long edge).
-    const imageCapTarget: ImageCapTarget = { provider: "anthropic" };
-    flushPreambleBeforeTool({ toolCallId, toolName, toolArgs });
-    responseTargetTracker?.noteToolStart(toolName, toolArgs);
-    const toolStartEvent = runEvents.recordToolStart({
-      toolCallId,
-      toolName,
-      toolArgs,
-    });
-    args.callbacks?.onToolStart?.(toolStartEvent);
-    persistThreadPayloadMessage(args.opts.store, {
-      threadKey,
-      payload: buildToolCallPayload({
-        toolCallId,
-        toolName,
-        toolArgs: toolStartEvent.args,
-      }),
-    });
-    const toolResult = await executeRuntimeToolCall({
-      executionHost: args.opts.executionHost,
-      toolCallId,
-      toolName,
-      args: toolArgs,
-      runId,
-      rootRunId: args.opts.rootRunId ?? runId,
-      agentId: args.opts.agentId,
-      conversationId: args.opts.conversationId,
-      storageMode: args.opts.storageMode,
-      ownerGeneration: args.opts.ownerGeneration,
-      agentType: args.opts.agentType,
-      deviceId: args.opts.deviceId,
-      stellaAppDir: args.opts.stellaAppDir,
-      stellaDataDir: args.opts.stellaDataDir,
-      toolWorkspaceRoot: args.opts.toolWorkspaceRoot,
-      agentDepth: args.opts.agentContext.agentDepth ?? 0,
-      maxAgentDepth: args.opts.agentContext.maxAgentDepth,
-      parentAgentId: args.opts.agentContext.parentAgentId,
-      modelConfigSnapshot: args.opts.agentContext.modelConfigSnapshot,
-      connectorDeliveryTarget: args.opts.connectorDeliveryTarget,
-      allowedToolNames: widenAllowlistWithDemotedTools(
-        args.opts.agentContext.toolsAllowlist,
-        args.opts.toolCatalog,
-        args.opts.connectorDeliveryTarget?.provider,
-      ),
-      deferImageDeliveryAck: toolName === "image_gen",
-      store: args.opts.store,
-      toolExecutor: args.opts.toolExecutor,
-      hookEmitter: args.opts.hookEmitter,
-      signal,
-      onUpdate,
-    });
-    responseTargetTracker?.noteToolEnd(toolName, toolResult.details);
-    args.callbacks?.onToolEnd?.(
-      runEvents.recordToolEnd({
-        toolCallId,
-        toolName,
-        result: toolResult,
-        details: toolResult.details,
-        isError: Boolean(toolResult.error),
-      }),
-    );
-    const sanitizedToolResult = sanitizeSensitiveData(toolResult) as ToolResult;
-    persistThreadPayloadMessage(args.opts.store, {
-      threadKey,
-      payload: {
-        role: "toolResult",
-        toolCallId,
-        toolName,
-        content: await buildToolResultContent(
-          sanitizedToolResult,
-          imageCapTarget,
-          {
-            stellaDataDir: args.opts.stellaDataDir,
-            runId,
-            toolCallId,
-          },
-          args.opts.executionHost,
-        ),
-        isError: Boolean(toolResult.error),
-        timestamp: now(),
-      },
-    });
-    return toolResult;
-  };
-  // The CLI's own built-ins (Read, Edit, Bash, ...) never reach the MCP
-  // host, so the session runtime mirrors them off the stream and these
-  // record them exactly like an MCP call: journal event, working indicator,
-  // and the persisted thread transcript Stella reseeds from.
-  const recordNativeToolStart = ({
-    toolCallId,
-    toolName,
-    toolArgs,
-  }: {
-    toolCallId: string;
-    toolName: string;
-    toolArgs: Record<string, unknown>;
-  }): void => {
-    flushPreambleBeforeTool({ toolCallId, toolName, toolArgs });
-    responseTargetTracker?.noteToolStart(toolName, toolArgs);
-    const toolStartEvent = runEvents.recordToolStart({
-      toolCallId,
-      toolName,
-      toolArgs,
-    });
-    args.callbacks?.onToolStart?.(toolStartEvent);
-    persistThreadPayloadMessage(args.opts.store, {
-      threadKey,
-      payload: buildToolCallPayload({
-        toolCallId,
-        toolName,
-        toolArgs: toolStartEvent.args,
-      }),
-    });
-  };
-  const recordNativeToolEnd = ({
-    toolCallId,
-    toolName,
-    result,
-    isError,
-  }: {
-    toolCallId: string;
-    toolName: string;
-    result: string;
-    isError: boolean;
-  }): void => {
-    const toolResult: ToolResult = isError ? { error: result } : { result };
-    responseTargetTracker?.noteToolEnd(toolName, undefined);
-    args.callbacks?.onToolEnd?.(
-      runEvents.recordToolEnd({
-        toolCallId,
-        toolName,
-        result: toolResult,
-        isError,
-      }),
-    );
-    const sanitizedToolResult = sanitizeSensitiveData(toolResult) as ToolResult;
-    // Built-in results carry no Stella image markers; text alone is enough
-    // for the transcript, and the CLI already holds the full result.
-    persistThreadPayloadMessage(args.opts.store, {
-      threadKey,
-      payload: {
-        role: "toolResult",
-        toolCallId,
-        toolName,
-        content: [
-          {
-            type: "text",
-            text: truncateModelVisibleToolText(
-              buildToolResultText(sanitizedToolResult),
-            ).text,
-          },
-        ],
-        isError,
-        timestamp: now(),
-      },
-    });
-  };
+  const toolRelay = createClaudeToolRelay({
+    opts: args.opts,
+    session: args.session,
+    callbacks: args.callbacks,
+    assistantUpdateBuffer,
+  });
 
   const deliversHistoryIncrementally = args.session.kind === "orchestrator";
   const resumableSessionId =
@@ -1590,68 +2062,28 @@ const runClaudeHostedTurn = async (args: {
       ? claudeCodeResumableSessionId(sessionKey, localCliCwd)
       : undefined);
   const resumesExistingSession = Boolean(resumableSessionId);
-  const deliveredHistoryHashes = deliversHistoryIncrementally
-    ? readClaudeHistoryDelivery(sessionKey, resumableSessionId)
-    : undefined;
-  const history = buildExternalStellaHistoryDelivery({
-    opts: args.opts,
-    promptMessages: args.promptMessages,
-    ...(deliveredHistoryHashes
-      ? { deliveredEntryHashes: deliveredHistoryHashes }
-      : {}),
-  });
-  const historyPromptMessage = history.full;
-  const resumedHistoryPromptMessage = deliversHistoryIncrementally
-    ? history.undelivered
-    : null;
-  const promptHistoryMessage = resumesExistingSession
-    ? resumedHistoryPromptMessage
-    : historyPromptMessage;
-  let deliveredHistoryEntryHashes: readonly string[] = history.entryHashes;
   const initialDeliveredEntryId = getExternalDeliveredEntryId({
     store: args.opts.store,
     threadKey,
     engine: sessionEngine,
   });
-  const threadUpdatesDelta = buildExternalThreadUpdatesDelta({
-    store: args.opts.store,
-    threadKey,
-    ...(initialDeliveredEntryId
-      ? { afterEntryId: initialDeliveredEntryId }
-      : {}),
-    promptMessages: args.promptMessages,
-    ...(promptHistoryMessage
-      ? { deliveredContextTexts: [promptHistoryMessage.text] }
-      : {}),
-  });
   const watermarkTracker = createExternalDeltaWatermarkTracker(
     initialDeliveredEntryId,
   );
-  watermarkTracker.noteMainlineDelta(threadUpdatesDelta);
-  const mainFallbackDelta =
-    resumesExistingSession && historyPromptMessage
-      ? buildExternalThreadUpdatesDelta({
-          store: args.opts.store,
-          threadKey,
-          ...(initialDeliveredEntryId
-            ? { afterEntryId: initialDeliveredEntryId }
-            : {}),
-          promptMessages: args.promptMessages,
-          deliveredContextTexts: [historyPromptMessage.text],
-        })
-      : null;
-  if (mainFallbackDelta) {
-    watermarkTracker.noteReseedDelta(mainFallbackDelta);
-  }
-  const { prompt, resumeFallbackPrompt } = buildClaudeCodeTurnPrompts({
-    historyPromptMessage,
-    ...(resumedHistoryPromptMessage ? { resumedHistoryPromptMessage } : {}),
+  const promptContext = {
+    opts: args.opts,
+    threadKey,
+    sessionKey,
+    deliversHistoryIncrementally,
+    watermarkTracker,
+    initialDeliveredEntryId,
+  };
+  const firstPrompt = buildClaudeHostedPrompt({
+    ...promptContext,
     promptMessages: args.promptMessages,
-    hasPersistedSession: resumesExistingSession,
-    deltaPromptMessage: threadUpdatesDelta.message,
-    ...(mainFallbackDelta
-      ? { fallbackDeltaPromptMessage: mainFallbackDelta.message }
-      : {}),
+    sessionId: resumableSessionId,
+    reuseDeliveredHistory: true,
+    alwaysCarryReseedDelta: false,
   });
 
   const claudeCodeEffortLevel = getClaudeCodeRuntimeEffortLevel(
@@ -1662,305 +2094,101 @@ const runClaudeHostedTurn = async (args: {
       : args.opts.agentContext.spawnReasoningEffort,
   );
 
-  type ClaudeTurnResult = Awaited<ReturnType<typeof runClaudeCodeTurn>>;
-  let finalResult: ClaudeTurnResult | null = null;
-  let activeSessionId = persistedSessionId;
-  let nextPrompt = prompt;
-  let nextResumeFallbackPrompt = resumeFallbackPrompt;
-  let nextAttachments = args.opts.attachments;
-  let compactedSincePromptBuild = false;
-
-  let latestAttempt = true;
-  // Steering lands in the running Claude query instead of interrupting it.
-  // Reply and queued-message boundaries are recorded synchronously, in the
-  // order the CLI reports them; only the durable reply writes run behind, and
-  // a failed one fails the turn.
-  let steeringWrites: Promise<void> = Promise.resolve();
-  let steeringWriteError: unknown;
-  const joinSteeringWrites = async (): Promise<void> => {
-    await steeringWrites;
-    if (steeringWriteError !== undefined) throw steeringWriteError;
-  };
-  const deliverIntermediateReply = (text: string): void => {
-    assistantUpdateBuffer.discard();
-    if (!isLatestExternalAttempt(args.opts)) {
-      latestAttempt = false;
-      return;
-    }
-    const assistantMessageEvent = runEvents.recordAssistantTextEnd(text);
-    if (assistantMessageEvent) {
-      args.callbacks?.onAssistantMessage?.(assistantMessageEvent);
-    }
-    steeringWrites = steeringWrites.then(async () => {
-      try {
-        await persistAssistantReply({
-          store: args.opts.store,
-          threadKey,
-          resolvedLlm: args.opts.resolvedLlm,
-          agentType: args.opts.agentType,
-          content: text,
-          stellaDataDir: args.opts.stellaDataDir,
-          ...(args.opts.readAgentRoster
-            ? { readAgentRoster: args.opts.readAgentRoster }
-            : {}),
-          runId,
-          ...(typeof args.opts.agentContext.attemptGeneration === "number"
-            ? { attemptGeneration: args.opts.agentContext.attemptGeneration }
-            : {}),
-        });
-      } catch (error) {
-        steeringWriteError ??= error;
-      }
-    });
-  };
-  let deltaInFlight = false;
-  const injectSteering = (
-    inject: ClaudeTurnInject,
-    entries: ExternalQueuedMessage[],
-  ): boolean => {
-    const promptMessages = entries.map(formatQueuedClaudeMessage);
-    // One thread-updates delta is in flight at a time. Two built from the same
-    // cursor would overlap, and counting both would claim rows as delivered
-    // that never were; rows left out here ride the next delta instead.
-    const delta = deltaInFlight
-      ? null
-      : buildExternalThreadUpdatesDelta({
-          store: args.opts.store,
-          threadKey,
-          ...(watermarkTracker.cursor
-            ? { afterEntryId: watermarkTracker.cursor }
-            : {}),
-          promptMessages,
-        });
-    const accepted = inject({
-      text: buildClaudePromptFromMessages(
-        delta?.message ? [delta.message, ...promptMessages] : promptMessages,
-      ),
-      images: imagesFromQueuedMessages(entries),
-      onConsumed: () => {
-        // Thread updates count as delivered only once the CLI takes them in;
-        // a dropped injection leaves them for the next prompt's delta.
-        if (delta) {
-          watermarkTracker.noteMainlineDelta(delta);
-          deltaInFlight = false;
-        }
-        publishQueuedUserMessageStarts({
-          entries,
-          runEvents,
-          callbacks: args.callbacks,
-        });
-      },
-      onDropped: () => {
-        if (delta) deltaInFlight = false;
-        args.liveAgent?.prepend(entries);
-      },
-    });
-    if (accepted && delta) deltaInFlight = true;
-    return accepted;
-  };
-  for (;;) {
-    let completedThisTurn = false;
-    try {
-      const result = await runClaudeCodeTurn({
-        runId,
-        sessionKey,
-        ...(activeSessionId ? { persistedSessionId: activeSessionId } : {}),
-        modelId: claudeCodeModelId,
-        stellaAppDir: args.opts.stellaAppDir,
-        // The CLI's native Bash replaces Stella's shell tool, so it needs
-        // the same Stella variables (checkout, drafts, agent id).
-        ...(args.opts.executionHost !== "sandbox"
-          ? {
-              shellEnv: stellaAgentShellEnvironment({
-                stellaAppDir: args.opts.stellaAppDir,
-                stellaDataDir: args.opts.stellaDataDir,
-                agentId: args.opts.agentId,
-              }),
-            }
-          : {}),
-        ...(args.opts.cliBridgeSocketPath
-          ? { cliBridgeSocketPath: args.opts.cliBridgeSocketPath }
-          : {}),
-        ...(vanilla ? { vanilla } : {}),
-        ...(claudeCodeEffortLevel
-          ? { effortLevel: claudeCodeEffortLevel }
-          : {}),
-        prompt: nextPrompt,
-        ...(nextResumeFallbackPrompt
-          ? { resumeFallbackPrompt: nextResumeFallbackPrompt }
-          : {}),
-        systemPrompt: args.systemPrompt,
-        cwd: localCliCwd,
-        attachments: nextAttachments,
-        tools: toolMetadata,
-        nativeTools,
-        onNativeToolStart: recordNativeToolStart,
-        onNativeToolEnd: recordNativeToolEnd,
-        abortSignal: args.opts.abortSignal,
-        onTurnControl: ({ inject }: { inject: ClaudeTurnInject }) =>
-          args.liveAgent?.beginSteerableTurn(() => {
-            const entries = args.liveAgent?.drainSteering() ?? [];
-            if (entries.length === 0) return;
-            if (!injectSteering(inject, entries)) {
-              args.liveAgent?.prepend(entries);
-            }
-          }),
-        onIntermediateResult: (intermediate: { message: string }) =>
-          deliverIntermediateReply(intermediate.message),
-        onSessionId: (sessionId: string) => {
-          activeSessionId = sessionId;
-        },
-        onStatusChange: (status: {
-          text: string;
-          state?: RuntimeStatusEvent["statusState"];
-        }) => {
-          if (status.state === "compacting") {
-            compactedSincePromptBuild = true;
-          }
-          const state =
-            status.state === "compacting" ? "engine-compacting" : status.state;
-          args.callbacks?.onStatus?.(
-            runEvents.recordStatus(status.text, state),
-          );
-        },
-        onStream: acceptClaudeStreamChunk,
-        onToolUpdate: ({ update }: { update: ToolResult }) =>
-          emitToolUpdateStatus(update),
-        onToolResponseWritten: ({
-          toolCallId,
-          toolName,
-        }: {
-          toolCallId: string;
-          toolName: string;
-        }) => {
-          if (toolName !== "image_gen") return;
-          markImageOperationDelivered({
-            stellaDataDir: args.opts.stellaDataDir ?? args.opts.stellaAppDir,
+  const nativeShellEnv = (): Record<string, string> =>
+    args.opts.buildAgentShellEnvironment
+      ? args.opts.buildAgentShellEnvironment(
+          {
+            executionHost: args.opts.executionHost,
             conversationId: args.opts.conversationId,
-            toolCallId,
-          });
-        },
-        executeTool: executeClaudeTool,
-      });
-      assistantUpdateBuffer.discard();
-      activeSessionId = result.sessionId;
-      finalResult = result;
-      completedThisTurn = true;
-    } catch (error) {
-      await steeringWrites;
-      assistantUpdateBuffer.flushOnTermination();
-      throw error;
-    }
-    await joinSteeringWrites();
+            deviceId: args.opts.deviceId,
+            requestId: runId,
+            runId,
+            rootRunId: args.opts.rootRunId ?? runId,
+            agentType: args.opts.agentType,
+            stellaAppDir: args.opts.stellaAppDir,
+            stellaDataDir: args.opts.stellaDataDir,
+            toolWorkspaceRoot: args.opts.toolWorkspaceRoot,
+            ...(args.opts.agentWorkingDirectory
+              ? { agentWorkingDirectory: args.opts.agentWorkingDirectory }
+              : {}),
+            ...(args.opts.agentId ? { agentId: args.opts.agentId } : {}),
+          },
+          // The CLI spawns in the process cwd when it has none of its own.
+          localCliCwd ?? process.cwd(),
+        )
+      : stellaAgentShellEnvironment({
+          stellaAppDir: args.opts.stellaAppDir,
+          stellaDataDir: args.opts.stellaDataDir,
+          agentId: args.opts.agentId,
+        });
+  const drained = await runClaudeTurnsUntilDrained({
+    hosted: args,
+    turnRequest: {
+      runId,
+      sessionKey,
+      modelId: claudeCodeModelId,
+      stellaAppDir: args.opts.stellaAppDir,
+      ...(args.opts.cliBridgeSocketPath
+        ? { cliBridgeSocketPath: args.opts.cliBridgeSocketPath }
+        : {}),
+      ...(vanilla ? { vanilla } : {}),
+      ...(claudeCodeEffortLevel ? { effortLevel: claudeCodeEffortLevel } : {}),
+      systemPrompt: args.systemPrompt,
+      cwd: localCliCwd,
+      tools: toolMetadata,
+      nativeTools,
+      onNativeToolStart: toolRelay.recordNativeToolStart,
+      onNativeToolEnd: toolRelay.recordNativeToolEnd,
+      abortSignal: args.opts.abortSignal,
+      onStream: acceptClaudeStreamChunk,
+      onToolUpdate: ({ update }: { update: ToolResult }) =>
+        toolRelay.emitToolUpdateStatus(update),
+      onToolResponseWritten: ({
+        toolCallId,
+        toolName,
+      }: {
+        toolCallId: string;
+        toolName: string;
+      }) => {
+        if (toolName !== "image_gen") return;
+        markImageOperationDelivered({
+          stellaDataDir: args.opts.stellaDataDir ?? args.opts.stellaAppDir,
+          conversationId: args.opts.conversationId,
+          toolCallId,
+        });
+      },
+      executeTool: toolRelay.executeTool,
+    },
+    // The CLI's native Bash replaces Stella's shell tool, so it needs the
+    // same environment that tool gives its commands (CLI shims on PATH,
+    // entrypoint variables, media / X auth, checkout, drafts, agent id).
+    perTurnRequest: () =>
+      args.opts.executionHost !== "sandbox"
+        ? { shellEnv: nativeShellEnv() }
+        : {},
+    persistedSessionId,
+    firstPrompt,
+    buildQueuedPrompt: ({
+      promptMessages,
+      activeSessionId,
+      compactedSincePromptBuild,
+      deliveredThisRun,
+    }) =>
+      buildClaudeHostedPrompt({
+        ...promptContext,
+        promptMessages,
+        sessionId:
+          activeSessionId ??
+          (deliversHistoryIncrementally ? resumableSessionId : undefined),
+        reuseDeliveredHistory: !compactedSincePromptBuild,
+        deliveredThisRun,
+        alwaysCarryReseedDelta: true,
+      }),
+    assistantUpdateBuffer,
+    watermarkTracker,
+  });
 
-    if (
-      completedThisTurn &&
-      finalResult &&
-      latestAttempt &&
-      !(finalResult as { delivered?: boolean }).delivered
-    ) {
-      // Persist this turn's reply before draining follow-ups so a stale
-      // retry attempt can never clobber a newer attempt's transcript.
-      latestAttempt = await persistCompletedExternalReply({
-        opts: args.opts,
-        session: args.session,
-        callbacks: args.callbacks,
-        text: finalResult.text,
-      });
-    }
-    if (!latestAttempt) {
-      args.liveAgent?.finish();
-      break;
-    }
-
-    // Input the running query could no longer take (it arrived as the turn
-    // was finishing) runs next on the same session rather than being lost.
-    const queued = args.liveAgent?.drain() ?? [];
-    if (queued.length === 0) {
-      // Close the live facade synchronously before any later awaits. The
-      // atomic drained-and-idle check routes a message arriving after this
-      // point into a fresh turn instead of queueing it onto a turn that can
-      // no longer drain.
-      if (!args.liveAgent || args.liveAgent.finishIfIdle()) break;
-      continue;
-    }
-    publishQueuedUserMessageStarts({
-      entries: queued,
-      runEvents,
-      callbacks: args.callbacks,
-    });
-    const queuedPromptMessages = queued.map(formatQueuedClaudeMessage);
-    const queuedAttachments = attachmentsFromQueuedMessages(queued);
-    const queuedSessionId =
-      activeSessionId ??
-      (deliversHistoryIncrementally ? resumableSessionId : undefined);
-    const queuedDeliveredHistoryHashes =
-      deliversHistoryIncrementally && !compactedSincePromptBuild
-        ? readClaudeHistoryDelivery(sessionKey, queuedSessionId)
-        : undefined;
-    const queuedHistory = buildExternalStellaHistoryDelivery({
-      opts: args.opts,
-      promptMessages: queuedPromptMessages,
-      ...(queuedDeliveredHistoryHashes
-        ? { deliveredEntryHashes: queuedDeliveredHistoryHashes }
-        : {}),
-    });
-    const queuedHistoryPromptMessage = queuedHistory.full;
-    const queuedResumedHistoryPromptMessage = deliversHistoryIncrementally
-      ? queuedHistory.undelivered
-      : null;
-    const queuedPromptHistoryMessage = queuedSessionId
-      ? queuedResumedHistoryPromptMessage
-      : queuedHistoryPromptMessage;
-    deliveredHistoryEntryHashes = queuedHistory.entryHashes;
-    const queuedThreadUpdatesDelta = buildExternalThreadUpdatesDelta({
-      store: args.opts.store,
-      threadKey,
-      ...(watermarkTracker.cursor
-        ? { afterEntryId: watermarkTracker.cursor }
-        : {}),
-      promptMessages: queuedPromptMessages,
-      ...(queuedPromptHistoryMessage
-        ? { deliveredContextTexts: [queuedPromptHistoryMessage.text] }
-        : {}),
-    });
-    const queuedFallbackDelta = buildExternalThreadUpdatesDelta({
-      store: args.opts.store,
-      threadKey,
-      ...(initialDeliveredEntryId
-        ? { afterEntryId: initialDeliveredEntryId }
-        : {}),
-      promptMessages: queuedPromptMessages,
-      ...(queuedHistoryPromptMessage
-        ? { deliveredContextTexts: [queuedHistoryPromptMessage.text] }
-        : {}),
-    });
-    watermarkTracker.noteMainlineDelta(queuedThreadUpdatesDelta);
-    watermarkTracker.noteReseedDelta(queuedFallbackDelta);
-    // A queued steer or follow-up continues the same external conversation.
-    // If the turn was interrupted before Claude emitted a session id, the
-    // fallback prompt safely reseeds from Stella's durable history.
-    const {
-      prompt: queuedPrompt,
-      resumeFallbackPrompt: queuedResumeFallbackPrompt,
-    } = buildClaudeCodeTurnPrompts({
-      historyPromptMessage: queuedHistoryPromptMessage,
-      ...(queuedResumedHistoryPromptMessage
-        ? {
-            resumedHistoryPromptMessage: queuedResumedHistoryPromptMessage,
-          }
-        : {}),
-      promptMessages: queuedPromptMessages,
-      hasPersistedSession: Boolean(queuedSessionId),
-      deltaPromptMessage: queuedThreadUpdatesDelta.message,
-      fallbackDeltaPromptMessage: queuedFallbackDelta.message,
-    });
-    compactedSincePromptBuild = false;
-    nextPrompt = queuedPrompt;
-    nextResumeFallbackPrompt = queuedResumeFallbackPrompt;
-    nextAttachments = queuedAttachments;
-  }
-
+  const { finalResult, latestAttempt } = drained;
   if (!finalResult) {
     throw new Error("Claude Code completed without a final result.");
   }
@@ -1975,10 +2203,18 @@ const runClaudeHostedTurn = async (args: {
       const reseeded =
         resumesExistingSession && finalResult.sessionId !== resumableSessionId;
       recordClaudeHistoryDelivery({
+        stellaDataDir: args.opts.stellaDataDir,
         sessionKey,
         sessionId: finalResult.sessionId,
-        entryHashes: deliveredHistoryEntryHashes,
-        staleAfterCompaction: compactedSincePromptBuild || reseeded,
+        entryHashes: [
+          ...drained.historyEntryHashes,
+          ...historyEntryHashesWrittenSince({
+            opts: args.opts,
+            threadKey,
+            since: turnStartedAt,
+          }),
+        ],
+        staleAfterCompaction: drained.compactedSincePromptBuild || reseeded,
       });
     }
     const resolvedWatermark = watermarkTracker.resolve();
@@ -2085,16 +2321,13 @@ export const runExternalSubagentTurn = async (
     runId: opts.runId ?? `local:sub:${crypto.randomUUID()}`,
   });
   const liveAgent = createExternalLiveAgent();
-  const detachLiveAgent = opts.steering?.attach(
-    liveAgent.agent,
-    {
-      store: opts.store,
-      runId: session.runId,
-      ...(typeof opts.agentContext.attemptGeneration === "number"
-        ? { attemptGeneration: opts.agentContext.attemptGeneration }
-        : {}),
-    },
-  );
+  const detachLiveAgent = opts.steering?.attach(liveAgent.agent, {
+    store: opts.store,
+    runId: session.runId,
+    ...(typeof opts.agentContext.attemptGeneration === "number"
+      ? { attemptGeneration: opts.agentContext.attemptGeneration }
+      : {}),
+  });
 
   try {
     const promptMessages = await buildSubagentPromptMessages({

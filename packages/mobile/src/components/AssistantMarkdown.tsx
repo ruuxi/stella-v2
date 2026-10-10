@@ -30,6 +30,7 @@ import { fonts } from "../theme/fonts";
 import type { Colors } from "../theme/colors";
 import { SelectableMarkdownText, nativeMarkdownSelectionAvailable } from "./SelectableMarkdownText";
 import { AssistantMarkdownTable } from "./AssistantMarkdownTable";
+import { useT } from "../i18n";
 
 const BASE_FONT_SIZE = 17;
 
@@ -230,6 +231,8 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
     [moreLinksKey],
   );
   const nodeStyles = useMemo(() => buildNodeStyles(colors), [colors]);
+  const t = useT();
+  const showMoreLabel = t("app.chat.userMessage.showMore");
 
   const onLinkPress = useCallback(
     (url: string): boolean => {
@@ -317,9 +320,9 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
             accessibilityRole="link"
             accessibilityLabel={label}
             onPress={() => moreLinksRef.current?.[index]?.onPress()}
-            style={{ color: colors.textMuted, fontFamily: fonts.sans.regular, fontSize: BASE_FONT_SIZE - 2 }}
+            style={{ color: colors.textMuted, fontFamily: fonts.sans.medium, fontSize: BASE_FONT_SIZE }}
           >
-            more
+            {showMoreLabel}
           </Text>
         );
       },
@@ -334,7 +337,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         />
       ),
     }),
-    [colors, selectable, nodeStyles, onLinkPress, onAskStella, moreLabels],
+    [colors, selectable, nodeStyles, onLinkPress, onAskStella, moreLabels, showMoreLabel],
   );
 
   const content: ReactNode = (

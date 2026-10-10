@@ -80,8 +80,9 @@ const startInCloud = async (
     prompt: input.prompt,
     lane: "schedule",
     // The prompt is the model's own wake instruction, not the owner's
-    // words; the chat surface renders it as the scheduled run it is.
+    // words: journaled hidden, so every client shows only the answer.
     source: "schedule",
+    hiddenMessage: true,
     ...(input.title.trim() ? { title: input.title.trim().slice(0, TURN_TITLE_MAX_CHARS) } : {}),
   };
   const response = await deps.env.ORCHESTRATOR_SESSIONS.getByName(input.conversationId).fetch(

@@ -3,6 +3,7 @@
  * and name, tap to open, at most `FILE_PILL_CAP` before a "+N more" pill
  * expands the rest (desktop `FilePills` parity).
  */
+import { fileDisplayName } from "@stella/contracts/file-display-name";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import type { Colors } from "../theme/colors";
@@ -10,7 +11,7 @@ import { fonts } from "../theme/fonts";
 import { fadeHex } from "../theme/oklch";
 import type { ChatArtifact } from "../types";
 import { artifactIconName, artifactTitle } from "../lib/mobile-artifacts";
-import { AGENT_ACTIVITY_INK, deriveFilePillRow } from "../lib/agent-activity-presentation";
+import { deriveFilePillRow } from "../lib/agent-activity-presentation";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import { Icon, type IconName } from "./Icon";
 
@@ -41,15 +42,15 @@ export function ReplyFilePills({
         >
           <Icon
             name={artifactIconName(artifact.payload) as IconName}
-            size={13}
-            color={colors.textMuted}
+            size={14}
+            color={fadeHex(colors.assistantBubbleText, 0.8)}
           />
           <Text
             style={styles.pillLabel}
             numberOfLines={1}
             maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
           >
-            {artifactTitle(artifact.payload)}
+            {fileDisplayName(artifactTitle(artifact.payload))}
           </Text>
         </Pressable>
       ))}
@@ -83,18 +84,16 @@ const makeStyles = (colors: Colors) =>
       gap: 5,
       maxWidth: "100%",
       borderRadius: 999,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: fadeHex(colors[AGENT_ACTIVITY_INK.pillBorderInk], AGENT_ACTIVITY_INK.pillBorderAlpha),
-      backgroundColor: fadeHex(colors[AGENT_ACTIVITY_INK.pillBorderInk], 0.03),
-      paddingHorizontal: 10,
-      paddingVertical: 5,
+      backgroundColor: fadeHex(colors.assistantBubbleText, 0.12),
+      paddingHorizontal: 11,
+      paddingVertical: 6,
     },
     pillPressed: { opacity: 0.72 },
     pillLabel: {
-      color: colors.text,
+      color: colors.assistantBubbleText,
       flexShrink: 1,
       fontFamily: fonts.sans.medium,
-      fontSize: 12,
+      fontSize: 14,
       letterSpacing: -0.1,
     },
   });

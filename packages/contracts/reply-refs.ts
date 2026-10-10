@@ -50,6 +50,47 @@ const FENCE_RE = new RegExp(
   `(?:^|\\n)[ \\t]*(\`{3,}|~{3,})[ \\t]*${REPLY_REFS_FENCE_TAG}[ \\t]*\\n([\\s\\S]*?)\\n?[ \\t]*\\1[ \\t]*$`,
 );
 
+export type ReplyReaction = { sequence: number; emoji: string };
+
+export type MessageReaction = { emoji: string; at: number };
+
+const REACTION_LINE_RE =
+  /^react(?:ion)?s?\s*[:=]?\s*(?:#|m(?:essage)?\s*#?)?\s*(\d{1,9})\s*[:=]?\s*(\S+)$/i;
+const EMOJI_CHAR_RE =
+  /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\u{2190}-\u{21FF}\u{3030}\u{303D}\u{3297}\u{3299}\u{00A9}\u{00AE}\u{203C}\u{2049}\u{2122}\u{2139}\u{20E3}]/u;
+const MAX_REACTION_CHARS = 32;
+
+const normalizeReactionEmoji = (value: string): string | null => {
+  const emoji = value.trim().replace(/^[`'"]+|[`'"]+$/g, "");
+  if (!emoji || emoji.length > MAX_REACTION_CHARS) return null;
+  if (!EMOJI_CHAR_RE.test(emoji) || /[A-Za-z]/.test(emoji)) return null;
+  return emoji;
+};
+
+const parseReactionLine = (line: string): ReplyReaction | null => {
+  const match = REACTION_LINE_RE.exec(line);
+  if (!match) return null;
+  const sequence = Number.parseInt(match[1]!, 10);
+  const emoji = normalizeReactionEmoji(match[2]!);
+  return Number.isSafeInteger(sequence) && sequence >= 0 && emoji
+    ? { sequence, emoji }
+    : null;
+};
+
+export const readMessageReaction = (
+  payload: unknown,
+): MessageReaction | null => {
+  if (!payload || typeof payload !== "object") return null;
+  const reaction = (payload as { reaction?: unknown }).reaction;
+  if (!reaction || typeof reaction !== "object") return null;
+  const { emoji, at } = reaction as { emoji?: unknown; at?: unknown };
+  if (typeof emoji !== "string") return null;
+  const normalized = normalizeReactionEmoji(emoji);
+  return normalized
+    ? { emoji: normalized, at: typeof at === "number" ? at : 0 }
+    : null;
+};
+
 const MESSAGE_LINE_RE = /^(?:#|m(?:essage)?\s*#?)\s*(\d{1,9})$/i;
 const AGENT_LINE_RE = /^(?:agent|thread|thread_id)\s*[:=]\s*(.+)$/i;
 const BARE_AGENT_LINE_RE = /^[a-z0-9][a-z0-9_.-]{0,199}$/i;
@@ -85,16 +126,28 @@ const parseRefLine = (line: string): RawReplyRef | null => {
  */
 export const splitReplyRefs = (
   text: string,
-): { text: string; refs: RawReplyRef[] } => {
+): { text: string; refs: RawReplyRef[]; reactions: ReplyReaction[] } => {
   const trimmedEnd = text.replace(/\s+$/, "");
   const match = FENCE_RE.exec(trimmedEnd);
   if (!match || match.index === undefined) {
-    return { text, refs: [] };
+    return { text, refs: [], reactions: [] };
   }
   const body = match[2] ?? "";
   const seen = new Set<string>();
   const refs: RawReplyRef[] = [];
+  const reactionsBySequence = new Map<number, ReplyReaction>();
   for (const line of body.split(/\r?\n/)) {
+    const cleaned = line
+      .trim()
+      .replace(/^[-*•]\s+/, "")
+      .replace(/[,;]$/, "");
+    const reaction = parseReactionLine(cleaned);
+    if (reaction) {
+      reactionsBySequence.delete(reaction.sequence);
+      reactionsBySequence.set(reaction.sequence, reaction);
+      continue;
+    }
+    if (/^react/i.test(cleaned)) continue;
     const ref = parseRefLine(line);
     if (!ref) continue;
     const key =
@@ -104,7 +157,7 @@ export const splitReplyRefs = (
     refs.push(ref);
   }
   const stripped = trimmedEnd.slice(0, match.index).replace(/\s+$/, "");
-  return { text: stripped, refs };
+  return { text: stripped, refs, reactions: [...reactionsBySequence.values()] };
 };
 
 /** Trailing tag that tells the model a user message's sequence number. */

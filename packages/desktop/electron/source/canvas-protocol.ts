@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
+import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { Readable } from "node:stream";
 import { app, session } from "electron";
 import { injectCanvasBridge } from "./canvas-bridge.js";
 
@@ -16,13 +18,15 @@ import { injectCanvasBridge } from "./canvas-bridge.js";
  * cookies or preload API, open popups, or navigate the window.
  *
  * Two hosts:
- * - `outputs/<path>`: an `.html` file under the data dir's `outputs/`, read
- *   from disk per request.
+ * - `dir/<token>/<path>`: a local `.html` file and what sits beside it, read
+ *   from disk per request. The token stands for the document's own folder,
+ *   so its relative images, styles and scripts load, and nothing outside
+ *   that folder does.
  * - `memory/<id>`: HTML the renderer registered (a cloud canvas, or a file
- *   from elsewhere), under a random id.
+ *   kept on another device), under a random id.
  */
 export const CANVAS_SCHEME = "stella-canvas";
-const OUTPUTS_HOST = "outputs";
+const DIRECTORY_HOST = "dir";
 const MEMORY_HOST = "memory";
 
 export const CANVAS_SCHEME_PRIVILEGES = {
@@ -33,6 +37,35 @@ export const CANVAS_SCHEME_PRIVILEGES = {
 export const MAX_CANVAS_HTML_BYTES = 16 * 1024 * 1024;
 const MAX_REGISTERED_CANVASES = 32;
 const MAX_REGISTERED_BYTES = 64 * 1024 * 1024;
+const MAX_DOCUMENT_DIRECTORIES = 256;
+const MAX_CANVAS_ASSET_BYTES = 256 * 1024 * 1024;
+
+const ASSET_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".bmp": "image/bmp",
+  ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".json": "application/json",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mov": "video/quicktime",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".ogg": "audio/ogg",
+  ".m4a": "audio/mp4",
+};
 
 /**
  * Where a canvas may load scripts, styles and fonts from, and fetch. Never
@@ -58,7 +91,7 @@ const CANVAS_CSP = [
   `style-src 'self' 'unsafe-inline' ${CANVAS_CDN_SOURCES}`,
   `font-src 'self' data: ${CANVAS_CDN_SOURCES}`,
   "img-src 'self' https: data: blob:",
-  "media-src https: data: blob:",
+  "media-src 'self' https: data: blob:",
   `connect-src ${CANVAS_CDN_SOURCES}`,
   "frame-src 'none'",
   "form-action 'none'",
@@ -67,12 +100,14 @@ const CANVAS_CSP = [
 
 const canvasResponse = (
   status: number,
-  body: string,
+  body: string | ReadableStream<Uint8Array>,
   contentType = "text/plain; charset=utf-8",
+  extraHeaders: Record<string, string> = {},
 ) =>
   new Response(body, {
     status,
     headers: {
+      ...extraHeaders,
       "content-type": contentType,
       "content-security-policy": CANVAS_CSP,
       "referrer-policy": "no-referrer",
@@ -137,43 +172,85 @@ const realpathOrNull = async (target: string) => {
   }
 };
 
-/**
- * The real path of an existing `.html` file inside `outputs/`, or null.
- * Symlinks are resolved before the containment check, so a link planted in
- * `outputs/` cannot serve a file from outside it.
- */
-const resolveOutputsHtml = async (stellaDataDir: string, candidate: string) => {
-  if (path.extname(candidate).toLowerCase() !== ".html") return null;
-  const root = await realpathOrNull(path.join(stellaDataDir, "outputs"));
-  const file = await realpathOrNull(candidate);
-  if (!root || !file || !file.startsWith(root + path.sep)) return null;
-  if (path.extname(file).toLowerCase() !== ".html") return null;
-  const stats = await fs.stat(file).catch(() => null);
-  if (!stats?.isFile()) return null;
-  return { root, file, size: stats.size };
+const isHtmlPath = (target: string) => {
+  const extension = path.extname(target).toLowerCase();
+  return extension === ".html" || extension === ".htm";
+};
+
+// Insertion order is recency, as for `registered` above.
+const directoryByToken = new Map<string, string>();
+const tokenByDirectory = new Map<string, string>();
+
+const tokenForDirectory = (directory: string) => {
+  const existing = tokenByDirectory.get(directory);
+  if (existing) {
+    directoryByToken.delete(existing);
+    directoryByToken.set(existing, directory);
+    return existing;
+  }
+  const token = randomBytes(18).toString("base64url");
+  directoryByToken.set(token, directory);
+  tokenByDirectory.set(directory, token);
+  for (const [oldestToken, oldestDirectory] of directoryByToken) {
+    if (directoryByToken.size <= MAX_DOCUMENT_DIRECTORIES) break;
+    directoryByToken.delete(oldestToken);
+    tokenByDirectory.delete(oldestDirectory);
+  }
+  return token;
 };
 
 /**
- * The `stella-canvas://outputs/...` URL for a local file, or null when it is
- * not an existing `.html` file under the data dir's `outputs/`.
+ * The `stella-canvas://dir/...` URL for an `.html` file on this computer, or
+ * null when there is no such file here. Symlinks are resolved first, so the
+ * folder its assets load from is the one the file really lives in.
  */
-export const canvasUrlForOutputsFile = async (
-  stellaDataDir: string,
+export const canvasUrlForLocalFile = async (
   filePath: string,
 ): Promise<string | null> => {
-  const resolved = await resolveOutputsHtml(stellaDataDir, path.resolve(filePath));
-  if (!resolved) return null;
-  const segments = path
-    .relative(resolved.root, resolved.file)
-    .split(path.sep)
-    .map(encodeURIComponent);
-  return `${CANVAS_SCHEME}://${OUTPUTS_HOST}/${segments.join("/")}`;
+  if (!isHtmlPath(filePath)) return null;
+  const file = await realpathOrNull(path.resolve(filePath));
+  if (!file || !isHtmlPath(file)) return null;
+  const stats = await fs.stat(file).catch(() => null);
+  if (!stats?.isFile()) return null;
+  const token = tokenForDirectory(path.dirname(file));
+  return `${CANVAS_SCHEME}://${DIRECTORY_HOST}/${token}/${encodeURIComponent(path.basename(file))}`;
 };
 
-const readCanvasDocument = async (
-  url: string,
-  stellaDataDir: string,
-): Promise<string | null> => {
+type CanvasDocument =
+  | { kind: "html"; html: string }
+  | { kind: "file"; file: string; size: number };
+
+/**
+ * A file inside a registered document folder. Hidden files and folders are
+ * never served, and the real path must stay inside the folder, so neither
+ * `..` nor a symlink reaches anything beside or above it.
+ */
+const resolveDirectoryFile = async (
+  token: string,
+  segments: string[],
+): Promise<{ file: string; size: number } | null> => {
+  const directory = directoryByToken.get(token);
+  if (!directory || segments.length === 0) return null;
+  if (
+    segments.some(
+      (segment) =>
+        !segment || segment.startsWith(".") || /[\\/\0]/.test(segment),
+    )
+  ) {
+    return null;
+  }
+  const root = await realpathOrNull(directory);
+  const file = await realpathOrNull(path.join(directory, ...segments));
+  if (!root || !file || !file.startsWith(root + path.sep)) return null;
+  if (path.relative(root, file).split(path.sep).some((part) => part.startsWith("."))) {
+    return null;
+  }
+  const stats = await fs.stat(file).catch(() => null);
+  if (!stats?.isFile()) return null;
+  return { file, size: stats.size };
+};
+
+const readCanvasDocument = async (url: string): Promise<CanvasDocument | null> => {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -181,41 +258,53 @@ const readCanvasDocument = async (
     return null;
   }
   if (parsed.host === MEMORY_HOST) {
-    return touchRegistered(parsed.pathname.slice(1))?.html ?? null;
+    const html = touchRegistered(parsed.pathname.slice(1))?.html;
+    return html === undefined ? null : { kind: "html", html };
   }
-  if (parsed.host !== OUTPUTS_HOST) return null;
+  if (parsed.host !== DIRECTORY_HOST) return null;
   let segments: string[];
   try {
     segments = parsed.pathname.split("/").slice(1).map(decodeURIComponent);
   } catch {
     return null;
   }
-  if (
-    segments.length === 0 ||
-    segments.some(
-      (segment) =>
-        !segment || segment === "." || segment === ".." || /[\\/\0]/.test(segment),
-    )
-  ) {
-    return null;
+  const [token, ...rest] = segments;
+  if (!token) return null;
+  const resolved = await resolveDirectoryFile(token, rest);
+  if (!resolved) return null;
+  if (!isHtmlPath(resolved.file)) {
+    return resolved.size > MAX_CANVAS_ASSET_BYTES
+      ? null
+      : { kind: "file", ...resolved };
   }
-  const resolved = await resolveOutputsHtml(
-    stellaDataDir,
-    path.join(stellaDataDir, "outputs", ...segments),
-  );
-  if (!resolved || resolved.size > MAX_CANVAS_HTML_BYTES) return null;
-  return await fs.readFile(resolved.file, "utf8").catch(() => null);
+  if (resolved.size > MAX_CANVAS_HTML_BYTES) return null;
+  const html = await fs.readFile(resolved.file, "utf8").catch(() => null);
+  return html === null ? null : { kind: "html", html };
+};
+
+const assetResponse = (file: string, size: number) => {
+  const contentType =
+    ASSET_TYPES[path.extname(file).toLowerCase()] ?? "application/octet-stream";
+  const stream = Readable.toWeb(createReadStream(file)) as ReadableStream<Uint8Array>;
+  return canvasResponse(200, stream, contentType, {
+    "content-length": String(size),
+  });
 };
 
 /** Serve canvases on a session partition (each renderer partition needs it). */
-export const serveCanvasProtocol = (partition: string, stellaDataDir: string) => {
+export const serveCanvasProtocol = (partition: string) => {
   const partitionSession = session.fromPartition(partition);
   if (partitionSession.protocol.isProtocolHandled(CANVAS_SCHEME)) return;
   partitionSession.protocol.handle(CANVAS_SCHEME, async (request) => {
     if (request.method !== "GET") return canvasResponse(405, "Method not allowed");
-    const html = await readCanvasDocument(request.url, stellaDataDir);
-    if (html === null) return canvasResponse(404, "Not found");
-    return canvasResponse(200, injectCanvasBridge(html), "text/html; charset=utf-8");
+    const document = await readCanvasDocument(request.url);
+    if (document === null) return canvasResponse(404, "Not found");
+    if (document.kind === "file") return assetResponse(document.file, document.size);
+    return canvasResponse(
+      200,
+      injectCanvasBridge(document.html),
+      "text/html; charset=utf-8",
+    );
   });
 };
 

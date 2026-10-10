@@ -6,7 +6,7 @@
  * the app (`@stella/contracts/pi-chat`).
  */
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { AssistantMessage, Message, ModelThinkingLevel, TextContent } from "@earendil-works/pi-ai";
@@ -32,7 +32,7 @@ import {
   type AgentMessageSender,
 } from "@stella/contracts/agent-directory";
 import type { AgentMessageDelivery } from "@stella/contracts/backend/agent-threads";
-import type { ExecutionDestination } from "@stella/contracts/execution-context";
+import type { ExecutionContextSnapshot, ExecutionDestination } from "@stella/contracts/execution-context";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import { splitReplyRefs } from "@stella/contracts/reply-refs";
 import {
@@ -75,6 +75,7 @@ import {
   parseModelPick,
   stellaCredentialStore,
   storeOnlyAuthContext,
+  type DirectModelResolver,
   type StellaCredentialAccess,
 } from "../provider/byok.ts";
 import { openBunSqliteStorage } from "../storage/bun-sqlite.ts";
@@ -94,6 +95,7 @@ import { journalMirror, type DesktopJournal, type JournalMirror } from "./deskto
 import { localLogMirror, writtenReply, type DesktopLocalLog, type LocalLogMirror } from "./desktop-local-log.ts";
 import { desktopGatewayAccess, resolveStellaModels } from "./desktop-gateway.ts";
 import { desktopContextSources } from "./desktop-sources.ts";
+import { stopStella } from "../stella/stop.ts";
 
 /** The newest entries a client gets when it attaches, and per older page. */
 const HISTORY_PAGE = 200;
@@ -115,6 +117,8 @@ const FOLLOW_WINDOW_MS = 60_000;
 const BRAIN_TTL_MS = 5_000;
 /** How long a moved brain's brief waits for Stella's turn here to end. */
 const BRAIN_HANDOFF_WAIT_MS = 5 * 60_000;
+/** How long the owner's device list and media access are trusted before they are read again. */
+const EXECUTION_CONTEXT_TTL_MS = 30_000;
 /** Until signed in, recovered work retries the provider this often. */
 const PROVIDER_RETRY_MS = 5_000;
 /** How long the agents' directory waits for the cloud; a message waits out the cloud's own device wait. */
@@ -131,10 +135,18 @@ export type DesktopChatsOptions = {
   refreshAuthToken?(): Promise<string | null | undefined>;
   getDeviceSigner(): Promise<DeviceSigner> | DeviceSigner;
   memoryEnabled?(): boolean;
+  /** The owner's devices and media access, as the app reads them; the destination is this computer's own. */
+  executionContext?(): Promise<ExecutionContextSnapshot | undefined>;
   /** The model the user picked for the orchestrator (`stella/<alias>`, or another provider's). */
   stellaModel?(): string | undefined;
   /** The keys the user brought for other providers' models (BYOK), as the app keeps them. */
   credentials?: StellaCredentialAccess;
+  /**
+   * A pick on the user's own key resolved through the app's model registry,
+   * the one the model picker lists (models.json and extension providers,
+   * builtin overrides). Absent, such picks run on pi-ai's builtin providers only.
+   */
+  resolveDirectModel?: DirectModelResolver;
   /** The orchestrator's thinking level, from the user's reasoning effort. */
   thinkingLevel?(): ModelThinkingLevel;
   /** Stella's own tools (web, html, image_gen, ask_user, …) for one conversation. */
@@ -260,6 +272,26 @@ const fileName = (conversationId: string): string => {
 
 export function desktopChats(options: DesktopChatsOptions) {
   const chats = new Map<string, Promise<Chat>>();
+  /**
+   * The owner's devices and media access for every conversation's prompt,
+   * read once per `EXECUTION_CONTEXT_TTL_MS`: the first request waits for it,
+   * later ones get the last answer while a newer one loads, and a failed
+   * read keeps the last answer, so a moment offline does not rewrite the prompt.
+   */
+  let executionContextRead: { snapshot?: ExecutionContextSnapshot; at: number; pending?: Promise<void> } = { at: 0 };
+  const sharedExecutionContext = async (): Promise<ExecutionContextSnapshot | undefined> => {
+    const loadOnce = () =>
+      (executionContextRead.pending ??= (async () => {
+        const snapshot = await options.executionContext?.().catch(() => undefined);
+        executionContextRead = {
+          snapshot: snapshot?.devicesKnown || !executionContextRead.snapshot ? snapshot : executionContextRead.snapshot,
+          at: Date.now(),
+        };
+      })());
+    if (executionContextRead.at === 0) await loadOnce();
+    else if (Date.now() - executionContextRead.at >= EXECUTION_CONTEXT_TTL_MS) void loadOnce();
+    return executionContextRead.snapshot;
+  };
   /** The conversation each agent placed here runs in, by its key at the placing host. */
   const placedIn = new Map<string, string>();
   /** Runs of agents placed here, until they settle, so the host that placed one can stop it. */
@@ -389,7 +421,7 @@ export function desktopChats(options: DesktopChatsOptions) {
       ? { credentials: stellaCredentialStore(options.credentials), authContext: storeOnlyAuthContext }
       : {},
   );
-  const byok = byokModels(models);
+  const byok = byokModels(models, options.resolveDirectModel);
   let gateway: Promise<{ access: StellaGatewayAccess; gatewayOrigin: string }> | undefined;
   /** Each Stella model alias in use, resolved for the orchestrator and agents. */
   const specsByAlias = new Map<string, Promise<StellaModelSpec[]>>();
@@ -604,6 +636,7 @@ export function desktopChats(options: DesktopChatsOptions) {
               backendUrl: options.siteAuth()?.baseUrl,
               ...(options.memoryEnabled ? { memoryEnabled: options.memoryEnabled } : {}),
               destination,
+              ...(options.executionContext ? { executionContext: sharedExecutionContext } : {}),
               locale: async () =>
                 opened && (await opened.harness.snapshot(LocaleDoc, opened.root.id, context))?.locale,
               cloudStored: !conversationId.startsWith("local_"),
@@ -621,7 +654,9 @@ export function desktopChats(options: DesktopChatsOptions) {
                 ...(options.deviceId ? { deviceId: options.deviceId } : {}),
                 ...(cloud ? { cloud } : {}),
                 directory: directoryFor(conversationId),
+                dataDir: options.dataDir,
                 execution: execution.host,
+                ensureModel: (model) => ensureModel(model),
                 beginAgentRun: async (run) => {
                   // Stella's own agents, not their subagents.
                   if (!opened || run.parentConversationId !== opened.root.id) return;
@@ -698,17 +733,21 @@ export function desktopChats(options: DesktopChatsOptions) {
         // Recovered work needs its models: a Stella alias waits for sign-in; a
         // model on the user's own key is ready at once.
         const rootModel = (await root.agent(context)).model;
+        /** The Stella aliases the orchestrator and its unfinished agents run on. */
+        const aliases = new Set<string>();
         for (const agent of Object.values((await harness.snapshot(StellaAgentsDoc, root.id, context))?.agents ?? {})) {
           if (agent.remote) continue;
           const model = (await (await harness.conversation(agent.conversationId as ConversationId, context))?.agent(context))?.model;
           if (model && model.provider !== STELLA_PROVIDER_ID) byok.restore(model);
+          // A finished agent's alias is registered when it is next messaged.
+          else if (model && (await harness.snapshot(LiveDoc, agent.conversationId as ConversationId, context))?.run) {
+            aliases.add(aliasOf(model));
+          }
         }
-        if (rootModel && rootModel.provider !== STELLA_PROVIDER_ID) {
-          byok.restore(rootModel);
-          void harness.resume();
-        } else {
-          void waitForProvider(aliasOf(rootModel)).then(() => harness.resume());
-        }
+        if (rootModel && rootModel.provider !== STELLA_PROVIDER_ID) byok.restore(rootModel);
+        else aliases.add(aliasOf(rootModel));
+        if (aliases.size === 0) void harness.resume();
+        else void Promise.all([...aliases].map((alias) => waitForProvider(alias))).then(() => harness.resume());
         const journal = options.journal?.(conversationId);
         const mirror = journal
           ? await journalMirror({
@@ -976,7 +1015,7 @@ export function desktopChats(options: DesktopChatsOptions) {
   const stopPlacement = async ({ chat, submission }: Placement) => {
     if (!chat || !submission) return;
     const withdrawn = await chat.harness.abortSubmission(submission.id, context, chat.root.id);
-    if (withdrawn === "already_placed") await chat.root.abort(context);
+    if (withdrawn === "already_placed") await stopStella(chat.harness, chat.root, context);
   };
 
   /**
@@ -1160,6 +1199,10 @@ export function desktopChats(options: DesktopChatsOptions) {
 
   /** The conversation's agents, as the app lists them. */
   const agents = async (conversationId: string): Promise<PiChatAgentsResult> => {
+    // A conversation pi never ran has no agents of pi's; asking must not open one.
+    if (!chats.has(conversationId) && !(await stat(path.join(directory, fileName(conversationId))).catch(() => undefined))) {
+      return { agents: [] };
+    }
     const chat = await open(conversationId);
     const records = await chat.agentRecords(context);
     return {
@@ -1299,9 +1342,11 @@ export function desktopChats(options: DesktopChatsOptions) {
       switch (request.op) {
         case "submit":
           return submit(request.conversationId, request.requestId, request.text);
-        case "abort":
-          await (await open(request.conversationId)).root.abort(context);
+        case "abort": {
+          const chat = await open(request.conversationId);
+          await stopStella(chat.harness, chat.root, context);
           return { ok: true };
+        }
         case "watch":
           return watch(request.conversationId);
         case "unwatch":
@@ -1322,6 +1367,10 @@ export function desktopChats(options: DesktopChatsOptions) {
         case "brain":
           return brainPlacement(request.conversationId);
       }
+    },
+    /** End every shell command the chats' agents have running on this computer. */
+    async terminateCommands(): Promise<void> {
+      await environments.terminateCommands(context);
     },
     async close(): Promise<void> {
       const opened = await Promise.all([...chats.values()].map((chat) => chat.catch(() => undefined)));

@@ -11,6 +11,7 @@ import {
   requestDevice,
 } from "./device-requests";
 import type { StoredPhoneAccess } from "./phone-access";
+import { EVIDENCE_THUMBNAIL_VARIANT } from "@stella/contracts/chat-evidence-thumbnails";
 
 /**
  * Files and office previews that live on the paired computer. The phone asks
@@ -90,6 +91,22 @@ export const readDesktopArtifactFile = async (
     }
     throw error;
   }
+};
+
+export const readDesktopArtifactThumbnail = async (
+  access: StoredPhoneAccess,
+  conversationId: string,
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<{ bytes: Uint8Array; mimeType: string }> => {
+  assertReadableOnPairedComputer(filePath);
+  const { bytes, contentType } = await requestDevice(
+    access,
+    "file.read",
+    { filePath, conversationId, variant: EVIDENCE_THUMBNAIL_VARIANT },
+    { signal, timeoutMs: FILE_READ_TIMEOUT_MS },
+  );
+  return { bytes, mimeType: contentType };
 };
 
 export const locateDeviceFile = async (

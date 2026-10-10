@@ -202,6 +202,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "リアクション {reactions}",
         "showMoreChips": "他 {count} 件を表示",
+        "stellaReaction": "Stella が {emoji} でリアクションしました",
         "windowPreviewAlt": "ウィンドウ内容のプレビュー"
       },
       "miniModelPicker": {
@@ -1447,8 +1448,6 @@
       "cantRightNow": "今はできない",
       "deadline": "残り {time}",
       "deadlinePassed": "時間切れ",
-      "deadlineWithDefault": "残り {time} — それ以降は「{option}」",
-      "defaultOption": "既定",
       "hideSecret": "{label} を隠す",
       "missingFields": "必須項目をすべて入力してください。",
       "notification": {
@@ -1461,14 +1460,11 @@
       "plain": "平文で送信されます",
       "revealSecret": "{label} を表示",
       "sealFailed": "この端末では暗号化できませんでした。",
-      "send": "送信",
       "sendSecurely": "安全に送信",
       "sending": "送信中…",
       "sensitive": "エンドツーエンドで暗号化",
       "sensitiveToggleA11y": "{label} を暗号化",
       "sensitiveUnavailable": "この端末ではまだ暗号化できません",
-      "somethingElse": "ほかのこと",
-      "somethingElsePlaceholder": "代わりに何をするか Stella に伝える",
       "unnamedComputer": "コンピュータ · {id}",
       "waitingBadge": "あなたを待っています"
     }
@@ -2716,22 +2712,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "残り {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "この回答を使う",
+      "default": "既定",
+      "next": "次の質問",
+      "previous": "前の質問",
+      "progress": "{current} / {total}",
+      "sending": "送信中…",
+      "skip": "スキップ",
+      "skipped": "スキップ済み",
+      "somethingElse": "その他",
+      "submit": "送信"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

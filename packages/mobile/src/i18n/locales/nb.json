@@ -208,6 +208,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Reaksjoner {reactions}",
         "showMoreChips": "Vis {count} til",
+        "stellaReaction": "Stella reagerte med {emoji}",
         "windowPreviewAlt": "Forhåndsvisning av vindusinnhold"
       },
       "miniModelPicker": {
@@ -1457,8 +1458,6 @@
       "cantRightNow": "Kan ikke nå",
       "deadline": "{time} igjen",
       "deadlinePassed": "Tiden er ute",
-      "deadlineWithDefault": "{time} igjen — ellers «{option}»",
-      "defaultOption": "Standard",
       "hideSecret": "Skjul {label}",
       "missingFields": "Fyll ut alle obligatoriske felt.",
       "notification": {
@@ -1471,14 +1470,11 @@
       "plain": "Sendes som vanlig tekst",
       "revealSecret": "Vis {label}",
       "sealFailed": "Kunne ikke kryptere det på denne enheten.",
-      "send": "Send",
       "sendSecurely": "Send sikkert",
       "sending": "Sender…",
       "sensitive": "Ende-til-ende-kryptert",
       "sensitiveToggleA11y": "Krypter {label}",
       "sensitiveUnavailable": "Denne enheten kan ikke kryptere det ennå",
-      "somethingElse": "Noe annet",
-      "somethingElsePlaceholder": "Fortell Stella hva som skal skje i stedet",
       "unnamedComputer": "Datamaskin · {id}",
       "waitingBadge": "Venter på deg"
     }
@@ -2736,22 +2732,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "{time} igjen"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Bruk dette svaret",
+      "default": "Standard",
+      "next": "Neste spørsmål",
+      "previous": "Forrige spørsmål",
+      "progress": "{current} av {total}",
+      "sending": "Sender…",
+      "skip": "Hopp over",
+      "skipped": "Hoppet over",
+      "somethingElse": "Noe annet",
+      "submit": "Send"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

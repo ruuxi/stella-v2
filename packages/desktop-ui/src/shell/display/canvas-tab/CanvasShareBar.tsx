@@ -19,6 +19,7 @@ import {
   Copy,
   ExternalLink,
   Globe,
+  Link,
   LoaderCircle,
   Lock,
   Trash2,
@@ -494,10 +495,11 @@ export const CanvasShareBar = ({ item }: { item: CanvasHtmlItem }) => {
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="canvas-share__btn"
+            className="canvas-share__btn canvas-share__btn--icon"
             aria-label={t("shell.display.canvasShare.sharedLinks")}
+            title={t("shell.display.canvasShare.sharedLinks")}
           >
-            <span>{t("shell.display.canvasShare.links")}</span>
+            <Link size={15} strokeWidth={1.6} aria-hidden />
           </button>
         </PopoverTrigger>
         <PopoverContent

@@ -39,73 +39,23 @@ export const SCHEDULE_SEARCH_TERMS = [
   "task",
 ] as const;
 
+/**
+ * Flat on purpose: the handlers validate the shape per kind, so the schema
+ * carries only the one-line contract instead of a oneOf per kind.
+ */
 export const SCHEDULE_DEFINITION_PROPERTY = {
+  type: "object",
   description:
-    "When to fire: { kind: 'at', atMs } for one-shots (epoch ms) | { kind: 'every', everyMs, anchorMs? } | { kind: 'cron', expr, tz? } (5-field cron).",
-  oneOf: [
-    {
-      type: "object",
-      additionalProperties: false,
-      required: ["kind", "atMs"],
-      properties: {
-        kind: {
-          type: "string",
-          const: "at",
-          description: "Run once at an absolute time.",
-        },
-        atMs: {
-          type: "number",
-          exclusiveMinimum: 0,
-          description: "Absolute Unix epoch timestamp in milliseconds.",
-        },
-      },
-    },
-    {
-      type: "object",
-      additionalProperties: false,
-      required: ["kind", "everyMs"],
-      properties: {
-        kind: {
-          type: "string",
-          const: "every",
-          description: "Run repeatedly at a fixed interval.",
-        },
-        everyMs: {
-          type: "number",
-          exclusiveMinimum: 0,
-          description: "Positive repeat interval in milliseconds.",
-        },
-        anchorMs: {
-          type: "number",
-          description:
-            "Optional Unix epoch timestamp used to anchor the interval cadence.",
-        },
-      },
-    },
-    {
-      type: "object",
-      additionalProperties: false,
-      required: ["kind", "expr"],
-      properties: {
-        kind: {
-          type: "string",
-          const: "cron",
-          description: "Run on a cron expression.",
-        },
-        expr: {
-          type: "string",
-          minLength: 1,
-          description: "Five-field cron expression accepted by the scheduler.",
-        },
-        tz: {
-          type: "string",
-          minLength: 1,
-          description:
-            "Optional IANA time-zone name; omitted uses the scheduler default.",
-        },
-      },
-    },
-  ],
+    "When to fire: { kind: 'at', atMs } once at an epoch ms | { kind: 'every', everyMs, anchorMs? } | { kind: 'cron', expr, tz? } (5-field cron, IANA tz).",
+  properties: {
+    kind: { type: "string", enum: ["at", "every", "cron"] },
+    atMs: { type: "number" },
+    everyMs: { type: "number" },
+    anchorMs: { type: "number" },
+    expr: { type: "string" },
+    tz: { type: "string" },
+  },
+  required: ["kind"],
 } as const;
 
 export const SCHEDULE_JOB_ID_PROPERTY = {
@@ -127,11 +77,7 @@ export const SCHEDULE_ADD_TOOL_DESCRIPTOR: ScheduleToolDescriptor = {
   label: "Add schedule",
   workingText: "Adding schedule",
   description:
-    "Create a scheduled trigger. Three kinds: " +
-    "'reminder' delivers a fixed message word for word at fire time; " +
-    "'task' fires the stored intent prompt as a turn to you (the assistant), which then acts as normal; " +
-    "'watch' runs a deterministic check script each cycle — silent when unchanged, and it escalates a detected change or a sensor failure to you as a turn. " +
-    "For a watch, first have an agent investigate the target, author the check script (fetch + extract + diff against a `<scriptPath>.state.json` baseline), and dry-run-verify it with ScriptDraft; only pass a scriptPath that ran successfully. Reminders and tasks are kept with the user's account and fire even while this computer is off; a watch runs on this computer and only while Stella is running here.",
+    "Create a scheduled trigger. 'reminder' delivers message word for word; 'task' fires prompt as a turn to you; 'watch' runs a check script verified with ScriptDraft each cycle and escalates a change or failure to you as a turn.",
   parameters: {
     type: "object",
     properties: {

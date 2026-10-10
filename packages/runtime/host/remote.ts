@@ -3,7 +3,11 @@ import { EventEmitter } from "node:events";
 import { rm } from "node:fs/promises";
 import { attachJsonRpcPeerToStreams } from "@stella/contracts/protocol/jsonl";
 import { RPC_ERROR_CODES } from "@stella/contracts/protocol";
-import { RpcError, type JsonRpcPeer } from "@stella/contracts/protocol/rpc-peer";
+import {
+  RpcError,
+  createRuntimeUnavailableError,
+  type JsonRpcPeer,
+} from "@stella/contracts/protocol/rpc-peer";
 import {
   RUNTIME_CLIENT_METHODS,
   STELLA_RUNTIME_CLIENT_PROTOCOL_VERSION,
@@ -99,6 +103,8 @@ export class RemoteRuntimeHost {
   private connection: Connection | null = null;
   private connecting: Promise<Connection> | null = null;
   private started = false;
+  /** Detached by `stop()`: calls fail instead of reattaching until `start()`. */
+  private stopped = false;
   private reconnectTimer: HostTimerHandle | null = null;
   private reconnectAttempt = 0;
   private readonly fenceLogAt = new Map<string, number>();
@@ -120,17 +126,29 @@ export class RemoteRuntimeHost {
 
   async start(): Promise<void> {
     this.started = true;
+    this.stopped = false;
     await this.ensureConnected();
   }
 
   /**
    * Detach from the runtime. The runtime keeps running for the next app,
-   * unless `shutdownRuntime` asks it to exit (a reset that deletes its
-   * files); then this returns once it has released everything.
+   * unless `shutdownRuntime` asks it to exit (quit, or a reset that deletes
+   * its files); then this returns once it has released everything, or after
+   * `exitTimeoutMs` with the runtime still finishing its own bounded exit.
    */
-  async stop(options: { shutdownRuntime?: boolean } = {}): Promise<void> {
+  async stop(
+    options: {
+      shutdownRuntime?: boolean;
+      /** The app is quitting: the runtime interrupts its turns and exits once detached. */
+      quit?: boolean;
+      exitTimeoutMs?: number;
+    } = {},
+  ): Promise<void> {
     this.started = false;
-    if (options.shutdownRuntime) await this.shutdownRuntime();
+    this.stopped = true;
+    const shutdownRequested = options.shutdownRuntime
+      ? await this.requestRuntimeShutdown(options.quit === true)
+      : false;
     this.reconnectTimer?.cancel();
     this.reconnectTimer = null;
     const connection = this.connection;
@@ -148,23 +166,38 @@ export class RemoteRuntimeHost {
       () => undefined,
     );
     this.events.emit("runtime-disconnected", { reason: "stopped" });
+    // Detached first: a quitting runtime exits once its app has gone.
+    if (shutdownRequested) {
+      await this.waitForRuntimeExit(
+        options.exitTimeoutMs ?? RUNTIME_EXIT_TIMEOUT_MS,
+      );
+    }
   }
 
-  private async shutdownRuntime(): Promise<void> {
+  private async requestRuntimeShutdown(quit: boolean): Promise<boolean> {
     const connection = this.connection;
-    if (!connection || connection.peer.isClosed()) return;
+    if (!connection || connection.peer.isClosed()) return false;
     await connection.peer
-      .request(RUNTIME_CLIENT_METHODS.SHUTDOWN, {})
+      .request(RUNTIME_CLIENT_METHODS.SHUTDOWN, quit ? { mode: "quit" } : {})
       .catch(() => undefined);
+    return true;
+  }
+
+  private async waitForRuntimeExit(exitTimeoutMs: number): Promise<void> {
     // The runtime drops its pidfile last, after its databases are closed.
     const stellaAppDir = this.options.initializeParams.stellaAppDir;
-    const deadline = Date.now() + RUNTIME_EXIT_TIMEOUT_MS;
+    const deadline = Date.now() + exitTimeoutMs;
     while (Date.now() < deadline && (await probeRunningWorker(stellaAppDir)) != null) {
       await runHostEffect(Effect.sleep(50));
     }
   }
 
   async call(method: RuntimeHostCall, args: unknown[]): Promise<any> {
+    // A late call (a window still polling while the app quits) must not
+    // reattach: a reattached app would hold the quitting runtime open.
+    if (this.stopped) {
+      throw createRuntimeUnavailableError("Stella's runtime has been stopped.");
+    }
     const connection = await this.ensureConnected();
     return await connection.peer.request(RUNTIME_CLIENT_METHODS.CALL, {
       method,
@@ -225,7 +258,11 @@ export class RemoteRuntimeHost {
     });
     const connection: Connection = {
       peer: handle.peer,
-      dispose: handle.dispose,
+      // Ending the socket is what tells the runtime this app has detached.
+      dispose: () => {
+        handle.dispose();
+        attached.socket.end();
+      },
       pid: attached.identity?.pid ?? attached.pid,
       attachmentId: randomUUID(),
       serverId: attached.identity?.serverId ?? null,

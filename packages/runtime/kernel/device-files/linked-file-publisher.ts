@@ -8,7 +8,13 @@ import {
   DEVICE_FILE_COPY_LIMITS,
   deviceFileCopyDrivePath,
 } from "@stella/contracts/device-files";
+import { relativeHtmlAssetPaths } from "@stella/contracts/html-relative-assets";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
+import {
+  EVIDENCE_THUMBNAIL_CONTENT_TYPE,
+  evidenceThumbnailDrivePath,
+} from "@stella/contracts/chat-evidence-thumbnails";
+import { renderEvidenceThumbnail } from "../shared/evidence-thumbnail.js";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".png": "image/png",
@@ -62,6 +68,7 @@ export const contentTypeFor = (filePath: string): string =>
   "application/octet-stream";
 
 const PUBLISHED_MEMORY = 2_000;
+const RECORD_BATCH = 50;
 
 export type LinkedFilePublisher = {
   publishText: (markdown: string) => void;
@@ -96,6 +103,50 @@ const readBounded = async (
   }
 };
 
+/**
+ * The images, stylesheets and scripts a linked HTML document loads from its
+ * own folder, so the website and the phone can render it whole from Drive.
+ * Each must really live inside that folder (symlinks resolved).
+ */
+const htmlDocumentAssets = async (documentPath: string): Promise<string[]> => {
+  const bytes = await readBounded(
+    documentPath,
+    DEVICE_FILE_COPY_LIMITS.maxFileBytes,
+  ).catch(() => null);
+  if (!bytes) return [];
+  const root = await fs.realpath(path.dirname(documentPath)).catch(() => null);
+  if (!root) return [];
+  const assets: string[] = [];
+  for (const candidate of relativeHtmlAssetPaths(
+    bytes.toString("utf8"),
+    documentPath,
+  )) {
+    const real = await fs.realpath(candidate).catch(() => null);
+    if (
+      real &&
+      real.startsWith(root + path.sep) &&
+      !path
+        .relative(root, real)
+        .split(path.sep)
+        .some((part) => part.startsWith("."))
+    ) {
+      assets.push(candidate);
+    }
+  }
+  return assets;
+};
+
+const withHtmlDocumentAssets = async (paths: string[]): Promise<string[]> => {
+  const expanded = new Set(paths);
+  for (const sourcePath of paths) {
+    if (!/\.html?$/iu.test(sourcePath)) continue;
+    for (const asset of await htmlDocumentAssets(sourcePath)) {
+      expanded.add(asset);
+    }
+  }
+  return [...expanded];
+};
+
 export const createLinkedFilePublisher = (deps: {
   deviceId: string;
   deviceName: string;
@@ -118,6 +169,57 @@ export const createLinkedFilePublisher = (deps: {
     }
   };
 
+  const uploadToDrive = async (
+    client: BackendClient,
+    drivePath: string,
+    bytes: Uint8Array,
+    contentType: string,
+  ) => {
+    const prepared = await client.call("drive.prepareUpload", {
+      path: drivePath,
+      sizeBytes: bytes.byteLength,
+      contentType,
+    });
+    const response = await (deps.fetchImpl ?? fetch)(prepared.uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": prepared.contentType },
+      body: bytes,
+    });
+    if (!response.ok) {
+      throw new Error(`Drive upload failed (${response.status}).`);
+    }
+    return await client.call("drive.finalizeUpload", {
+      path: prepared.path,
+      uploadId: prepared.uploadId,
+      contentType: prepared.contentType,
+      source: "agent",
+    });
+  };
+
+  const publishThumbnail = async (
+    client: BackendClient,
+    copyPath: string,
+    bytes: Uint8Array,
+  ): Promise<void> => {
+    const thumbnailPath = evidenceThumbnailDrivePath(copyPath);
+    if (!thumbnailPath) return;
+    try {
+      const thumbnail = await renderEvidenceThumbnail(bytes);
+      if (!thumbnail) return;
+      await uploadToDrive(
+        client,
+        thumbnailPath,
+        thumbnail,
+        EVIDENCE_THUMBNAIL_CONTENT_TYPE,
+      );
+    } catch (error) {
+      deps.onLog?.("device_file_thumbnail_failed", {
+        file: path.basename(copyPath),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
   const copyToDrive = async (
     client: BackendClient,
     sourcePath: string,
@@ -133,31 +235,19 @@ export const createLinkedFilePublisher = (deps: {
         sizeBytes: DEVICE_FILE_COPY_LIMITS.maxFileBytes + 1,
       };
     }
-    const prepared = await client.call("drive.prepareUpload", {
-      path: deviceFileCopyDrivePath({
+    const record = await uploadToDrive(
+      client,
+      deviceFileCopyDrivePath({
         deviceName: deps.deviceName,
         sourceDigest: createHash("sha256")
           .update(`${deps.deviceId}\0${sourcePath}`)
           .digest("hex"),
         fileName: path.basename(sourcePath),
       }),
-      sizeBytes: bytes.byteLength,
+      bytes,
       contentType,
-    });
-    const response = await (deps.fetchImpl ?? fetch)(prepared.uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": prepared.contentType },
-      body: bytes,
-    });
-    if (!response.ok) {
-      throw new Error(`Drive upload failed (${response.status}).`);
-    }
-    const record = await client.call("drive.finalizeUpload", {
-      path: prepared.path,
-      uploadId: prepared.uploadId,
-      contentType: prepared.contentType,
-      source: "agent",
-    });
+    );
+    await publishThumbnail(client, record.path, bytes);
     return { kind: "copied", drivePath: record.path, sizeBytes: record.sizeBytes };
   };
 
@@ -202,7 +292,7 @@ export const createLinkedFilePublisher = (deps: {
     try {
       const records: DeviceFileRecordInput[] = [];
       const settled = new Map<string, string>();
-      for (const sourcePath of paths) {
+      for (const sourcePath of await withHtmlDocumentAssets(paths)) {
         let stat: Awaited<ReturnType<typeof fs.stat>>;
         try {
           stat = await fs.stat(sourcePath);
@@ -228,11 +318,13 @@ export const createLinkedFilePublisher = (deps: {
         if (copy) settled.set(key, signature);
       }
       if (records.length === 0 || !stillSameOwner()) return;
-      await client.call("drive.recordDeviceFiles", {
-        deviceId: deps.deviceId,
-        deviceName: deps.deviceName,
-        files: records,
-      });
+      for (let start = 0; start < records.length; start += RECORD_BATCH) {
+        await client.call("drive.recordDeviceFiles", {
+          deviceId: deps.deviceId,
+          deviceName: deps.deviceName,
+          files: records.slice(start, start + RECORD_BATCH),
+        });
+      }
       for (const [key, signature] of settled) {
         remember(key, signature);
       }

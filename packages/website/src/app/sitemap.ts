@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { ANSWER_PAGES } from "@/lib/answers";
 import { FIX_PAGES } from "@/lib/fix-pages";
 import { getSiteUrl } from "@/lib/site-url";
 
@@ -47,6 +48,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     })),
   ];
 
+  const answerEntries: MetadataRoute.Sitemap = ANSWER_PAGES.map((page) => ({
+    url: new URL(`/ai/${page.slug}`, base).href,
+    lastModified: now,
+    changeFrequency: "monthly" as const,
+    priority: 0.8,
+  }));
+
   const docsEntries: MetadataRoute.Sitemap = [
     {
       url: new URL("/docs/media", base).href,
@@ -56,5 +64,5 @@ export default function sitemap(): MetadataRoute.Sitemap {
     },
   ];
 
-  return [...pages, ...fixEntries, ...docsEntries];
+  return [...pages, ...answerEntries, ...fixEntries, ...docsEntries];
 }

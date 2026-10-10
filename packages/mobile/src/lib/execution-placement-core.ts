@@ -1,4 +1,5 @@
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import { splitReplyRefs } from "@stella/contracts/reply-refs";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import {
@@ -317,17 +318,18 @@ export const automaticExecutionResultText = (
   }
   const raw = dispatch.resultJson?.trim();
   if (!raw) return "Done.";
+  const visible = (text: string) => splitReplyRefs(text).text.trim();
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (parsed && typeof parsed === "object") {
       const finalText = (parsed as { finalText?: unknown }).finalText;
       if (typeof finalText === "string" && finalText.trim()) {
-        return finalText.trim();
+        return visible(finalText);
       }
     }
-    if (typeof parsed === "string" && parsed.trim()) return parsed.trim();
+    if (typeof parsed === "string" && parsed.trim()) return visible(parsed);
   } catch {
-    return raw;
+    return visible(raw);
   }
   return "Done.";
 };

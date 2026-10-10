@@ -13,7 +13,7 @@ import { Popover } from "@/ui/popover";
 import { useT } from "@/shared/i18n";
 import { useCloudAgentReport } from "@/features/cloud/use-cloud-agent-report";
 import { useAgentTitle } from "@/features/cloud/use-agent-title";
-import { piAgentReport, piChatEnabled } from "@/features/chat/pi/pi-chat-store";
+import { piAgentReport, piChatAvailable } from "@/features/chat/pi/pi-chat-store";
 import "./reply-preview.css";
 
 const reportCache = new Map<string, Promise<LocalChatAgentReport | null>>();
@@ -26,12 +26,18 @@ const fetchAgentReport = (
   if (cached) return cached;
   const api =
     typeof window === "undefined" ? undefined : window.electronAPI?.localChat;
-  // On pi-durable the conversation's agents hold their reports.
-  const request = piChatEnabled()
-    ? piAgentReport(conversationId, threadId).catch(() => null)
-    : api?.getAgentReport
+  // Pi's agents hold their own reports; the agent loops' are on this
+  // computer. Whichever engine runs the chat now, an agent's report is where
+  // its engine kept it.
+  const local = () =>
+    api?.getAgentReport
       ? api.getAgentReport({ threadId }).catch(() => null)
       : Promise.resolve(null);
+  const request = piChatAvailable()
+    ? piAgentReport(conversationId, threadId)
+        .catch(() => null)
+        .then((report) => report ?? local())
+    : local();
   reportCache.set(threadId, request);
   // A running task's report changes; only a settled one is worth keeping.
   void request.then((report) => {
@@ -146,7 +152,10 @@ export function TaskReportButton({
               inline ? `${t("app.chat.replyPreview.showReport")}: ${title}` : undefined
             }
           >
-            {children ?? t("app.chat.replyPreview.showReport")}
+            {children ??
+              (inline
+                ? t("app.chat.userMessage.showMore")
+                : t("app.chat.replyPreview.showReport"))}
           </button>
         </Popover.Trigger>
         <Popover.Content

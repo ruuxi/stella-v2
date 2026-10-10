@@ -25,6 +25,7 @@ import {
 import { shapeResidentMemoryDoc } from "@stella/runtime/kernel/memory/resident-doc-shape";
 import { responseLanguageSection } from "@stella/runtime/kernel/runner/locale-prompt";
 import { StellaAgentDoc, type StellaAgentRole } from "./agent-doc.ts";
+import { messageIdsHook } from "./message-ids.ts";
 import { processableImagesHook } from "./processable-images.ts";
 import { residentContextHook } from "./resident-context.ts";
 import type { StellaAgentPromptId, StellaContextSources } from "./context.ts";
@@ -54,6 +55,37 @@ const role = async (input: PromptInput, context: Context): Promise<StellaAgentRo
 const promptIdFor = (agent: StellaAgentRole): StellaAgentPromptId =>
   agent.agentType === "orchestrator" ? "agents/orchestrator.md" : "agents/general.md";
 
+/** How much of a project's AGENTS.md an agent is shown. */
+const AGENTS_MD_MAX_CHARS = 32_000;
+
+/**
+ * Where a spawned agent starts, and that directory's AGENTS.md when it has
+ * one. Read from the environment on each request, so an edit to the file
+ * reaches the agent on its next step.
+ */
+const workingDirectory: PromptSection["render"] = async (input, context) => {
+  const cwd = input.agent.cwd;
+  const env = input.env;
+  if (!cwd || !env || (await role(input, context)).agentType === "orchestrator") return undefined;
+  // Tools moved elsewhere start in that place's home, not here.
+  const placement = placementOf(await input.read.snapshot(StellaPlacementDoc, input.conversationId, context));
+  if (placement && placement.kind !== "local") return undefined;
+  const lines = [
+    `Your working directory is ${cwd}: shell commands and relative paths start there. You can still read and change files anywhere the work needs.`,
+  ];
+  const file = await env.joinPath([env.cwd, "AGENTS.md"], context);
+  const text = file.ok ? await env.readTextFile(file.value, context) : undefined;
+  if (file.ok && text?.ok && text.value.trim()) {
+    const body = text.value.trim();
+    const shown =
+      body.length > AGENTS_MD_MAX_CHARS
+        ? `${body.slice(0, AGENTS_MD_MAX_CHARS)}\n\n[Truncated: read ${file.value} for the rest.]`
+        : body;
+    lines.push(`The project's instructions for agents, from ${file.value}:`, startupDoc(file.value, shown)!);
+  }
+  return lines.join("\n\n");
+};
+
 /** Sections the orchestrator alone carries. */
 const orchestratorOnly = (
   render: (input: PromptInput, context: Context) => Promise<string | undefined>,
@@ -65,7 +97,7 @@ export function stellaPromptExtension(sources: StellaContextSources) {
   return defineExtension({
     name: STELLA_PROMPT_EXTENSION,
     // Every Stella conversation selects this extension, so its requests all pass here.
-    hooks: [processableImagesHook, residentContextHook],
+    hooks: [processableImagesHook, residentContextHook, messageIdsHook],
     sections: [
       section(
         "preamble",
@@ -140,6 +172,7 @@ export function stellaPromptExtension(sources: StellaContextSources) {
         }
         return snapshot && renderExecutionDestination(snapshot);
       }),
+      section("working-directory", workingDirectory),
       section("media-access", async (input, context) => {
         const snapshot = await sources.executionContext(input.conversationId, context);
         return snapshot && renderMediaAccess(snapshot);

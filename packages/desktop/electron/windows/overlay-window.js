@@ -1,7 +1,23 @@
-import { BrowserWindow, ipcMain, screen, } from 'electron';
+import { BrowserWindow, screen } from 'electron';
 import { loadWindow } from './window-load.js';
 import { createSharedWebPreferences } from './shared-window-preferences.js';
 import { STELLA_CAPTURE_EXCLUDED_TITLE_PREFIXES, getWindowInfoAtPoint, } from '../window-capture.js';
+import {
+  IPC_OVERLAY_DISPLAY_CHANGE,
+  IPC_OVERLAY_SET_INTERACTIVE,
+  IPC_OVERLAY_SHOW_WINDOW_HIGHLIGHT,
+  IPC_OVERLAY_HIDE_WINDOW_HIGHLIGHT,
+  IPC_OVERLAY_PREVIEW_WINDOW_HIGHLIGHT_AT_POINT,
+  IPC_OVERLAY_WINDOW_HIGHLIGHT,
+  IPC_OVERLAY_START_REGION_CAPTURE,
+  IPC_OVERLAY_END_REGION_CAPTURE,
+  IPC_OVERLAY_SHOW_SCREEN_GUIDE,
+  IPC_OVERLAY_HIDE_SCREEN_GUIDE,
+} from "@stella/contracts/desktop/ipc-channels";
+import {
+  onIpc,
+  offIpc,
+} from "../ipc/typed-ipc.js";
 const getAllDisplaysBounds = () => {
     const displays = screen.getAllDisplays();
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -208,7 +224,7 @@ class OverlayWindow {
         const bounds = getAllDisplaysBounds();
         this.overlayOrigin = { x: bounds.x, y: bounds.y };
         this.window.setBounds(bounds);
-        this.window.webContents.send('overlay:displayChange', {
+        this.window.webContents.send(IPC_OVERLAY_DISPLAY_CHANGE, {
             origin: this.overlayOrigin,
             bounds,
         });
@@ -436,10 +452,10 @@ export class OverlayWindowController {
     }
     constructor(options) {
         this.overlayWindow = new OverlayWindow(options);
-        ipcMain.on('overlay:setInteractive', this.handleOverlaySetInteractive);
-        ipcMain.on('overlay:showWindowHighlight', this.handleOverlayShowWindowHighlight);
-        ipcMain.on('overlay:hideWindowHighlight', this.handleOverlayHideWindowHighlight);
-        ipcMain.on('overlay:previewWindowHighlightAtPoint', this.handleOverlayPreviewWindowHighlightAtPoint);
+        onIpc(IPC_OVERLAY_SET_INTERACTIVE, this.handleOverlaySetInteractive);
+        onIpc(IPC_OVERLAY_SHOW_WINDOW_HIGHLIGHT, this.handleOverlayShowWindowHighlight);
+        onIpc(IPC_OVERLAY_HIDE_WINDOW_HIGHLIGHT, this.handleOverlayHideWindowHighlight);
+        onIpc(IPC_OVERLAY_PREVIEW_WINDOW_HIGHLIGHT_AT_POINT, this.handleOverlayPreviewWindowHighlightAtPoint);
     }
     getWindow() {
         return this.overlayWindow.getWindow();
@@ -522,7 +538,7 @@ export class OverlayWindowController {
             this.overlayWindow.setFocusable(false);
         }
         const origin = this.overlayWindow.getOverlayOrigin();
-        this.overlayWindow.send('overlay:windowHighlight', {
+        this.overlayWindow.send(IPC_OVERLAY_WINDOW_HIGHLIGHT, {
             x: bounds.x - origin.x,
             y: bounds.y - origin.y,
             width: bounds.width,
@@ -532,7 +548,7 @@ export class OverlayWindowController {
     }
     clearWindowHighlight() {
         this.activeWindowHighlight = false;
-        this.overlayWindow.send('overlay:windowHighlight', null);
+        this.overlayWindow.send(IPC_OVERLAY_WINDOW_HIGHLIGHT, null);
         this.hideOverlayIfIdle();
     }
     hideOverlayIfIdle() {
@@ -581,7 +597,7 @@ export class OverlayWindowController {
             setActive: () => {
                 this.activeRegionCapture = true;
             },
-            channel: 'overlay:startRegionCapture',
+            channel: IPC_OVERLAY_START_REGION_CAPTURE,
             payload: { mode: 'capture' },
             showOptions: { focus: true },
             interactive: true,
@@ -613,7 +629,7 @@ export class OverlayWindowController {
             setInactive: () => {
                 this.activeRegionCapture = false;
             },
-            channel: 'overlay:endRegionCapture',
+            channel: IPC_OVERLAY_END_REGION_CAPTURE,
             restoreIgnoreMouseEvents: true,
             focusable: false,
         });
@@ -635,13 +651,13 @@ export class OverlayWindowController {
             x: a.x - origin.x,
             y: a.y - origin.y,
         }));
-        this.overlayWindow.send('overlay:showScreenGuide', {
+        this.overlayWindow.send(IPC_OVERLAY_SHOW_SCREEN_GUIDE, {
             annotations: adjusted,
         });
     }
     hideScreenGuide() {
         this.activeScreenGuide = false;
-        this.overlayWindow.send('overlay:hideScreenGuide');
+        this.overlayWindow.send(IPC_OVERLAY_HIDE_SCREEN_GUIDE);
         this.hideOverlayIfIdle();
     }
     // ─── Cleanup ──────────────────────────────────────────────────────────
@@ -653,10 +669,10 @@ export class OverlayWindowController {
         if (this.destroyed)
             return;
         this.destroyed = true;
-        ipcMain.removeListener('overlay:setInteractive', this.handleOverlaySetInteractive);
-        ipcMain.removeListener('overlay:showWindowHighlight', this.handleOverlayShowWindowHighlight);
-        ipcMain.removeListener('overlay:hideWindowHighlight', this.handleOverlayHideWindowHighlight);
-        ipcMain.removeListener('overlay:previewWindowHighlightAtPoint', this.handleOverlayPreviewWindowHighlightAtPoint);
+        offIpc(IPC_OVERLAY_SET_INTERACTIVE, this.handleOverlaySetInteractive);
+        offIpc(IPC_OVERLAY_SHOW_WINDOW_HIGHLIGHT, this.handleOverlayShowWindowHighlight);
+        offIpc(IPC_OVERLAY_HIDE_WINDOW_HIGHLIGHT, this.handleOverlayHideWindowHighlight);
+        offIpc(IPC_OVERLAY_PREVIEW_WINDOW_HIGHLIGHT_AT_POINT, this.handleOverlayPreviewWindowHighlightAtPoint);
         // Clear the idle-reclaim timer so it can't fire after teardown.
         this.cancelIdleDestroy();
         this.overlayWindow.destroy();

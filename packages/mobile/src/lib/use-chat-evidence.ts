@@ -55,7 +55,9 @@ const imageCard = (
   id: `image:${source.filePath}`,
   kind: "image",
   title: evidenceTitleFor(source),
-  subtitle: `${preview.width} × ${preview.height}`,
+  ...(preview.width && preview.height
+    ? { subtitle: `${preview.width} × ${preview.height}` }
+    : {}),
   sourcePaths: [source.filePath],
   thumbnail: preview.uri,
 });

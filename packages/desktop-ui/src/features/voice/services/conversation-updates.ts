@@ -22,8 +22,8 @@ import {
   activateCloudConversationClientAuthority,
   conversationStore,
 } from "@/features/cloud/conversation-store";
-import { messageText } from "@/features/cloud/conversation-protocol";
-import type { JournalRecord } from "@/features/cloud/conversation-protocol";
+import { messageText } from "@stella/contracts/conversation-protocol";
+import type { JournalRecord } from "@stella/contracts/conversation-protocol";
 import { parseCloudAgentLifecycleCard } from "@stella/contracts/cloud-agent-lifecycle";
 import { getChatStorageMode } from "@/features/chat/services/chat-storage-preference";
 import { resolveAuthSessionCacheScope } from "@/global/auth/lib/auth-session-scope";
@@ -35,6 +35,7 @@ import {
 import type { EventRecord } from "@stella/contracts/local-chat";
 import {
   isPiAgentInput,
+  isPiScheduledInput,
   PI_REPORT_RE,
   piMessageText,
   piUserView,
@@ -396,8 +397,8 @@ const createPiFeed = (args: {
       if (PI_REPORT_RE.test(text)) {
         hiddenTurn = false;
         update = reportUpdate(entry, text);
-      } else if (isPiAgentInput(user)) {
-        // A note an agent sent Stella: nothing to say, but Stella's answer to it is relayed.
+      } else if (isPiAgentInput(user) || isPiScheduledInput(user)) {
+        // A note an agent sent Stella, or a schedule's prompt: nothing to say, but Stella's answer to it is relayed.
         hiddenTurn = false;
       } else {
         const typed = piUserView(user).text.trim();

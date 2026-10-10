@@ -11,7 +11,7 @@
  * on macOS a short tap of Option is recognised by the low-level input hook
  * (see input/mouse-hook.js) and routed to the same toggle.
  */
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow } from "electron";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import path from "node:path";
@@ -19,6 +19,22 @@ import { getDictationSoundEffectsEnabled, loadLocalPreferences, saveLocalPrefere
 import { runNativeHelper } from "../native-helper.js";
 import { hasOpenRouterDictationKey, transcribeWithOpenRouter, } from "../services/dictation-openrouter.js";
 import { applyShortcutRegistration, } from "./shortcut-registration.js";
+import {
+  IPC_DICTATION_TOGGLE,
+  IPC_DICTATION_SET_SHORTCUT,
+  IPC_DICTATION_GET_SHORTCUT,
+  IPC_DICTATION_HAS_OPENROUTER_KEY,
+  IPC_DICTATION_TRANSCRIBE_WITH_OPENROUTER,
+  IPC_DICTATION_CANCEL_OPENROUTER,
+  IPC_DICTATION_GET_SOUND_EFFECTS_ENABLED,
+  IPC_DICTATION_SET_SOUND_EFFECTS_ENABLED,
+  IPC_DICTATION_ACTIVE_CHANGED,
+  IPC_DICTATION_PLAY_SOUND,
+} from "@stella/contracts/desktop/ipc-channels";
+import {
+  handleIpc,
+  onIpc,
+} from "./typed-ipc.js";
 const DEFAULT_DICTATION_SHORTCUT = "Alt";
 const DEFAULT_NON_MAC_DICTATION_SHORTCUT = "Control+M";
 const LEGACY_DEFAULT_DICTATION_SHORTCUT = "Control+M";
@@ -193,7 +209,7 @@ export const registerDictationHandlers = (options) => {
         const target = pickFocusedStellaWindow();
         if (target) {
             playEnabledDictationSound(isRendererRecording(target) ? "stopRecording" : "startRecording");
-            target.webContents.send("dictation:toggle", { startId: randomUUID() });
+            target.webContents.send(IPC_DICTATION_TOGGLE, { startId: randomUUID() });
             return;
         }
         const companion = options.getCompanionController();
@@ -207,7 +223,7 @@ export const registerDictationHandlers = (options) => {
             .then((shown) => {
             if (!shown)
                 return;
-            companion.sendToPanel("dictation:toggle", {
+            companion.sendToPanel(IPC_DICTATION_TOGGLE, {
                 startId: randomUUID(),
                 source: "companion",
             });
@@ -273,7 +289,7 @@ export const registerDictationHandlers = (options) => {
     if (!initial.ok) {
         console.warn("[dictation]", initial.error);
     }
-    ipcMain.handle("dictation:setShortcut", (_event, shortcut) => {
+    handleIpc(IPC_DICTATION_SET_SHORTCUT, (_event, shortcut) => {
         const result = applyDictationShortcutRegistration(shortcut);
         if (!result.ok) {
             console.warn("[dictation]", result.error);
@@ -283,16 +299,16 @@ export const registerDictationHandlers = (options) => {
         }
         return result;
     });
-    ipcMain.handle("dictation:getShortcut", () => currentShortcut);
+    handleIpc(IPC_DICTATION_GET_SHORTCUT, () => currentShortcut);
     let openRouterTranscription = null;
-    ipcMain.handle("dictation:hasOpenRouterKey", (event) => {
-        if (!options.assertPrivilegedSender(event, "dictation:hasOpenRouterKey")) {
+    handleIpc(IPC_DICTATION_HAS_OPENROUTER_KEY, (event) => {
+        if (!options.assertPrivilegedSender(event, IPC_DICTATION_HAS_OPENROUTER_KEY)) {
             throw new Error("Blocked untrusted dictation request.");
         }
         return hasOpenRouterDictationKey(options.getStellaDataDir());
     });
-    ipcMain.handle("dictation:transcribeWithOpenRouter", async (event, payload) => {
-        if (!options.assertPrivilegedSender(event, "dictation:transcribeWithOpenRouter")) {
+    handleIpc(IPC_DICTATION_TRANSCRIBE_WITH_OPENROUTER, async (event, payload) => {
+        if (!options.assertPrivilegedSender(event, IPC_DICTATION_TRANSCRIBE_WITH_OPENROUTER)) {
             throw new Error("Blocked untrusted dictation request.");
         }
         const requestId = typeof payload?.requestId === "string" ? payload.requestId : "";
@@ -313,16 +329,16 @@ export const registerDictationHandlers = (options) => {
                 openRouterTranscription = null;
         }
     });
-    ipcMain.on("dictation:cancelOpenRouter", (event, payload) => {
-        if (!options.assertPrivilegedSender(event, "dictation:cancelOpenRouter"))
+    onIpc(IPC_DICTATION_CANCEL_OPENROUTER, (event, payload) => {
+        if (!options.assertPrivilegedSender(event, IPC_DICTATION_CANCEL_OPENROUTER))
             return;
         if (openRouterTranscription && openRouterTranscription.requestId === payload?.requestId) {
             openRouterTranscription.controller.abort();
             openRouterTranscription = null;
         }
     });
-    ipcMain.handle("dictation:getSoundEffectsEnabled", () => areDictationSoundsEnabled());
-    ipcMain.handle("dictation:setSoundEffectsEnabled", (_event, enabled) => {
+    handleIpc(IPC_DICTATION_GET_SOUND_EFFECTS_ENABLED, () => areDictationSoundsEnabled());
+    handleIpc(IPC_DICTATION_SET_SOUND_EFFECTS_ENABLED, (_event, enabled) => {
         const nextEnabled = enabled === true;
         const stellaDataDir = options.getStellaDataDir();
         if (stellaDataDir) {
@@ -332,14 +348,14 @@ export const registerDictationHandlers = (options) => {
         }
         return { enabled: nextEnabled };
     });
-    ipcMain.on("dictation:activeChanged", (event, payload) => {
+    onIpc(IPC_DICTATION_ACTIVE_CHANGED, (event, payload) => {
         const source = `renderer:${event.sender.id}`;
         setDictationSourceActive(source, payload?.active === true);
         if (payload?.active === true) {
             event.sender.once("destroyed", () => setDictationSourceActive(source, false));
         }
     });
-    ipcMain.on("dictation:playSound", (_event, payload) => {
+    onIpc(IPC_DICTATION_PLAY_SOUND, (_event, payload) => {
         if (payload?.sound !== "startRecording" &&
             payload?.sound !== "stopRecording" &&
             payload?.sound !== "cancel") {

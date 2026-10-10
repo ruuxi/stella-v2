@@ -211,19 +211,18 @@
      this side padding keeps comfortable air inside the pill. */
   padding: 2px 4px;
   border-radius: 999px;
-  /* A translucent ink hairline: it reads on the chat background and on the
-     reply bubble alike, a step quieter than `--text-weaker`. Mobile pills
-     use the same 28% foreground recipe. */
-  border: 1px solid color-mix(in srgb, var(--foreground) 28%, transparent);
-  background: color-mix(in oklch, var(--foreground) 3%, transparent);
+  /* Every file chip in the chat is a wash of the text colour of the message
+     it sits in (the @mention chip's recipe), so it reads as part of that
+     bubble in any theme. Mobile chips use the same recipe. */
+  border: none;
+  background: color-mix(in srgb, var(--chat-text-color, var(--text-strong)) 12%, transparent);
   transition:
     border-color 120ms ease,
     background 120ms ease;
 }
 
 .agent-activity-files__pill:hover {
-  border-color: color-mix(in srgb, var(--foreground) 44%, transparent);
-  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  background: color-mix(in srgb, var(--chat-text-color, var(--text-strong)) 18%, transparent);
 }
 
 .agent-activity-files__pill-open {
@@ -236,16 +235,17 @@
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: var(--text-base);
+  color: var(--chat-text-color, var(--text-strong));
   font: inherit;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-medium);
   line-height: 1.2;
   cursor: default;
   transition: color 120ms ease;
 }
 
 .agent-activity-files__pill-open:hover {
-  color: var(--text-strong);
+  color: var(--chat-text-color, var(--text-strong));
 }
 
 .agent-activity-files__pill-open:focus-visible {
@@ -258,7 +258,8 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: var(--text-base);
+  color: inherit;
+  opacity: 0.8;
 }
 
 .agent-activity-files__pill-name {

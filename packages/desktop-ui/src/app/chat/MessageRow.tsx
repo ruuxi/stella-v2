@@ -17,6 +17,7 @@
  * Reasoning text is intentionally NOT rendered anywhere in this surface
  * (the underlying data still flows through state for model history).
  */
+import { UserAskRecordCard } from "@/features/user-ask/UserAskRecordCard";
 import {
   Fragment,
   memo,
@@ -28,7 +29,6 @@ import {
 } from "react";
 
 import {
-  describePastedText,
   pastedTextPreview,
   type PastedTextDescriptor,
 } from "@/features/chat/lib/paste-context";
@@ -226,7 +226,6 @@ function UserPastedTextChip({
 }) {
   const t = useT();
   const { triggerRef, open, previewProps } = useHoverPreview<HTMLSpanElement>();
-  const stats = describePastedText(descriptor);
   const preview = pastedTextPreview(descriptor);
   return (
     <span className="event-window-badge-hovercard">
@@ -236,7 +235,6 @@ function UserPastedTextChip({
         label={t("app.chat.messageRow.pastedTextLabel")}
         data-has-preview={preview ? "true" : undefined}
         tabIndex={preview ? 0 : undefined}
-        title={t("app.chat.messageRow.pastedTextTitle", { stats })}
       />
       {preview && (
         <ChipPreviewPortal
@@ -500,12 +498,6 @@ export const UserMessageRow = memo(
         node: <ContextPill kind="activity" label={activityLabel} />,
       });
     }
-    pastedTexts.forEach((descriptor, index) => {
-      chips.push({
-        key: `pasted-text-${index}`,
-        node: <UserPastedTextChip descriptor={descriptor} />,
-      });
-    });
     if (row.quotedText?.trim()) {
       chips.push({
         key: "quoted-text",
@@ -586,7 +578,7 @@ export const UserMessageRow = memo(
             text OR attachment/context chips — so attachment-only messages keep
             the same actions. Copy falls back to the attachment when there is
             no text to copy. */}
-        {(text.trim() || chips.length > 0) && (
+        {(text.trim() || chips.length > 0 || pastedTexts.length > 0) && (
           <div className="message-line message-line--user">
             <MessageActions
               text={text}
@@ -596,11 +588,38 @@ export const UserMessageRow = memo(
               copyAttachment={copyAttachment ?? undefined}
               onReply={reply ?? undefined}
             />
-            {text.trim() && (
-              <div className="event-item user chat-bubble-text">
-                <UserMessageBody text={text} />
+            {text.trim() || pastedTexts.length > 0 ? (
+              <div
+                className={`event-item user chat-bubble-text${pastedTexts.length > 0 ? " event-item--with-pastes" : ""}${row.reaction ? " event-item--reacted" : ""}`}
+              >
+                {row.reaction ? (
+                  <span
+                    key={row.reaction}
+                    className={`event-item__reaction${row.reactionAt && Date.now() - row.reactionAt < 10_000 ? " event-item__reaction--fresh" : ""}`}
+                    role="img"
+                    aria-label={t("app.chat.messageRow.stellaReaction", {
+                      emoji: row.reaction,
+                    })}
+                    title={t("app.chat.messageRow.stellaReaction", {
+                      emoji: row.reaction,
+                    })}
+                  >
+                    {row.reaction}
+                  </span>
+                ) : null}
+                {text.trim() ? <UserMessageBody text={text} /> : null}
+                {pastedTexts.length > 0 ? (
+                  <div className="event-item__pastes">
+                    {pastedTexts.map((descriptor, index) => (
+                      <UserPastedTextChip
+                        key={`pasted-text-${index}`}
+                        descriptor={descriptor}
+                      />
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            )}
+            ) : null}
           </div>
         )}
       </div>
@@ -613,12 +632,17 @@ type AssistantRowProps = {
   row: AssistantRowViewModel;
   conversationId?: string | null;
   agentModelConfigByThread?: AgentModelConfigsByThread;
+  hideAgentChip?: boolean;
 };
 
 export const AssistantMessageRow = memo(
   // `agentModelConfigByThread` stays on the props (the memo comparator keys
   // on it) but the row no longer renders anything per-thread that needs it.
-  function AssistantMessageRow({ row, conversationId }: AssistantRowProps) {
+  function AssistantMessageRow({
+    row,
+    conversationId,
+    hideAgentChip = false,
+  }: AssistantRowProps) {
     const reply = useMessageReply();
     const text = row.text;
     const hasText = text.trim().length > 0;
@@ -709,6 +733,7 @@ export const AssistantMessageRow = memo(
             <VoiceSessionCard durationMs={row.voiceSession.durationMs} />
           )}
           {conversationId &&
+          !hideAgentChip &&
           ((row.replyRefs && row.replyRefs.length > 0) || hasAgentCompletion) ? (
             <ReplyPreview
               refs={row.replyRefs ?? []}
@@ -716,6 +741,9 @@ export const AssistantMessageRow = memo(
               conversationId={conversationId}
             />
           ) : null}
+          {row.askRecords?.map((record) => (
+            <UserAskRecordCard key={record.id} record={record} />
+          ))}
           {hasBody && (
             // Bubble + its hover control share one horizontal line, so the
             // ellipsis sits to the RIGHT of the bubble and reserves no height.
@@ -827,5 +855,6 @@ export const AssistantMessageRow = memo(
   (prev, next) =>
     prev.conversationId === next.conversationId &&
     prev.agentModelConfigByThread === next.agentModelConfigByThread &&
+    prev.hideAgentChip === next.hideAgentChip &&
     eventRowEqual(prev.row, next.row),
 );

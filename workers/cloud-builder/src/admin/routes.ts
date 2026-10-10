@@ -15,6 +15,8 @@
 
 import { OWNER_ENFORCEMENT_STATUSES, type OwnerEnforcementStatus } from "@stella/contracts/gateway/usage";
 import { rpcErrorStatus, type RpcResponse } from "@stella/contracts/backend/protocol";
+import { bearerCredential } from "../../../shared/bearer.js";
+import { fail, json } from "../http/response.js";
 import { fixedWorkSha256SecretEqual } from "../service-bearer.js";
 
 type AdminEnv = Pick<Cloudflare.Env, "OWNER_GATES" | "DB" | "WORLDS" | "ORCHESTRATOR_SESSIONS">;
@@ -22,12 +24,6 @@ type AdminEnv = Pick<Cloudflare.Env, "OWNER_GATES" | "DB" | "WORLDS" | "ORCHESTR
 const OWNER_ID_MAX = 512;
 const TOP_DEFAULT_LIMIT = 50;
 const TOP_MAX_LIMIT = 200;
-
-const json = (body: unknown, status = 200): Response =>
-  Response.json(body, { status, headers: { "cache-control": "no-store" } });
-
-const fail = (status: number, error: string, extra: Record<string, unknown> = {}): Response =>
-  json({ error, ...extra }, status);
 
 const failRpc = (response: Extract<RpcResponse, { ok: false }>): Response =>
   fail(rpcErrorStatus(response.error.code), response.error.message, {
@@ -55,8 +51,7 @@ const authorized = async (request: Request, env: AdminEnv): Promise<Response | n
   const raw = (env as unknown as Record<string, unknown>).STELLA_ADMIN_API_SECRET;
   const expected = typeof raw === "string" ? raw.trim() : "";
   if (!expected) return fail(503, "Admin API disabled.", { env: "STELLA_ADMIN_API_SECRET" });
-  const header = request.headers.get("authorization") ?? "";
-  const provided = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  const provided = bearerCredential(request.headers.get("authorization")) ?? "";
   return (await fixedWorkSha256SecretEqual(provided, expected)) ? null : fail(401, "Invalid admin credentials.");
 };
 

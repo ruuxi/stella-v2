@@ -669,6 +669,12 @@ async function readTail(entry: TimelineEntry) {
     return true;
   } catch (error) {
     if (entry.requestId === requestId) {
+      // What waited for the read still lands, as it would have without it.
+      for (const event of entry.pendingEventsDuringRead.values()) {
+        if (event.type !== "user_message" && event.type !== "assistant_message") {
+          patchNotifiedEvent(entry, event);
+        }
+      }
       entry.pendingEventsDuringRead.clear();
       entry.failedRead = "tail";
       publish(entry, { ...entry.snapshot, error: normalizeError(error) });
@@ -949,6 +955,11 @@ function handleLocalUpdate(payload: LocalChatUpdatedPayload | null) {
     if (entry.inFlight) {
       entry.pendingEventsDuringRead.set(payload.event._id, payload.event);
       entry.queuedTailRefresh = true;
+      // A tail read is fetching a message that was just written; an event
+      // after it belongs to that message, which is not here yet. Patched now,
+      // it would land on the previous message and the timeline would pin it
+      // there. It is replayed once the read brings the message in.
+      if (entry.inFlight === "tail") return;
     }
     const patched = patchNotifiedEvent(entry, payload.event);
     const authored =

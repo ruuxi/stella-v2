@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import type { JournalRecord } from "../../../src/features/cloud/conversation-protocol";
+import type { JournalRecord } from "@stella/contracts/conversation-protocol";
 import type { ConversationSocketEvent } from "../../../src/features/cloud/conversation-socket";
 import {
   activateCloudConversationClientAuthority,
   conversationStore,
-  pendingPrompts,
   retireCloudConversationClientAuthority,
 } from "../../../src/features/cloud/conversation-store";
 import {
   cloudConversationOutbox,
+  pendingPrompts,
   setCloudConversationOutboxStorageForTests,
   type CloudConversationOutboxAuthority,
   type CloudConversationOutboxStorage,

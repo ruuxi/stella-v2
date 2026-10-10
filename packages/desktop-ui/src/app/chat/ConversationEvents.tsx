@@ -17,6 +17,7 @@ import type { LegendListRef } from "@legendapp/list/react";
 import type { MessageRecord } from "@stella/contracts/local-chat";
 import { useEventRows } from "@/features/chat/hooks/use-event-rows";
 import { useThreadActivity } from "@/features/chat/hooks/use-thread-activity";
+import { useDriveAttachmentPreviews } from "@/features/cloud/drive-attachment-previews";
 import { ChatTimeline } from "./ChatTimeline";
 import type { InlineWorkingIndicatorMountProps } from "./InlineWorkingIndicator";
 import type { QueuedUserMessage } from "@/features/chat/hooks/use-streaming-chat";
@@ -188,8 +189,9 @@ export const ConversationEvents = memo(function ConversationEvents({
     }
     return titles;
   }, [agentTitlesKey]);
+  const presentedMessages = useDriveAttachmentPreviews(messages);
   const { rows: projectedRows } = useEventRows({
-    messages,
+    messages: presentedMessages,
     maxItems,
     agentTitles,
   });

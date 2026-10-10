@@ -7,9 +7,12 @@
  * only its tools there (`execution`), as does any conversation whose tools
  * `switch_destination` moved.
  */
+import { mkdir } from "node:fs/promises";
 import type { Context } from "@earendil-works/chord";
 import type { EnvTarget } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+import { defaultAgentDirectory } from "@stella/runtime/kernel/agents/agent-directory";
+import { terminateProcessTree } from "@stella/runtime/kernel/shared/process-tree";
 import type { RemoteAgentHost, StellaAgentsHost } from "../stella/agents.ts";
 
 export function desktopAgentsHost(
@@ -19,10 +22,13 @@ export function desktopAgentsHost(
     agentReported?: StellaAgentsHost["agentReported"];
     agentPaused?: StellaAgentsHost["agentPaused"];
     beginAgentRun?: StellaAgentsHost["beginAgentRun"];
+    ensureModel?: StellaAgentsHost["ensureModel"];
     /** Reports and notes for Stella, which go where she runs. */
     deliverReport?: StellaAgentsHost["deliverReport"];
     deliverNote?: StellaAgentsHost["deliverNote"];
     directory?: StellaAgentsHost["directory"];
+    /** The Stella data directory (`~/.stella`): new agents start in a folder of their own under it. */
+    dataDir?: string;
     /** Where a conversation's tools can run away from this computer. */
     execution?: StellaAgentsHost["execution"];
   } = {},
@@ -31,9 +37,11 @@ export function desktopAgentsHost(
     ...(options.agentReported ? { agentReported: options.agentReported } : {}),
     ...(options.agentPaused ? { agentPaused: options.agentPaused } : {}),
     ...(options.beginAgentRun ? { beginAgentRun: options.beginAgentRun } : {}),
+    ...(options.ensureModel ? { ensureModel: options.ensureModel } : {}),
     ...(options.deliverReport ? { deliverReport: options.deliverReport } : {}),
     ...(options.deliverNote ? { deliverNote: options.deliverNote } : {}),
     ...(options.directory ? { directory: options.directory } : {}),
+    ...(options.dataDir ? { agentDirectory: (threadId: string) => defaultAgentDirectory(options.dataDir!, threadId) } : {}),
     ...(options.execution ? { execution: options.execution } : {}),
     rootPlacement: { kind: "local" },
     place: (destination, caller) => {
@@ -58,23 +66,58 @@ export function desktopAgentsHost(
   };
 }
 
+const isPidAlive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException)?.code === "EPERM";
+  }
+};
+
 /** One environment per working directory; agents on this computer share it. */
 export function desktopEnvironments(defaultCwd: string) {
   const envs = new Map<string, NodeExecutionEnv>();
+  /**
+   * Terminations still running. pi starts one without waiting when a command
+   * times out or is aborted (a closing harness aborts every command), and its
+   * command then counts as settled, so `cleanup()` alone would not wait for it.
+   */
+  const terminations = new Set<Promise<void>>();
+  /**
+   * How a command's processes end, for a timeout, an abort or `cleanup`: the
+   * whole tree, TERM before KILL, including descendants that left the
+   * command's process group (pi-durable's own default only SIGKILLs the group).
+   */
+  const killCommandTree = (pid: number) => {
+    const termination = terminateProcessTree(pid, { isRootRunning: () => isPidAlive(pid) }).finally(() => {
+      terminations.delete(termination);
+    });
+    terminations.add(termination);
+    return termination;
+  };
+  const terminateCommands = async (context: Context) => {
+    await Promise.all([...envs.values()].map((env) => env.cleanup(context)));
+    while (terminations.size > 0) await Promise.allSettled([...terminations]);
+  };
   return {
+    /** End every command the agents have running here, with everything it started. */
+    terminateCommands,
     env: async ({ cwd }: EnvTarget, _context: Context) => {
       // A conversation whose tools run elsewhere reaches them through its
       // tools (`desktopCoding`); its prompt still reads this one.
       const directory = cwd ?? defaultCwd;
       let env = envs.get(directory);
       if (!env) {
-        env = new NodeExecutionEnv({ cwd: directory });
+        // An agent's own folder exists once it first works there.
+        if (cwd) await mkdir(directory, { recursive: true }).catch(() => undefined);
+        env = new NodeExecutionEnv({ cwd: directory, killProcessTree: killCommandTree });
         envs.set(directory, env);
       }
       return env;
     },
     cleanup: async (context: Context) => {
-      for (const env of envs.values()) await env.cleanup(context);
+      await terminateCommands(context);
       envs.clear();
     },
   };

@@ -1410,7 +1410,7 @@ describe("cloud transcript writer", () => {
       payloadJson: "{}",
       recoveryJson: null,
     });
-    expect(opened.store.listEvents("conversation-1")).toContainEqual(
+    expect(opened.store.chat.listEvents("conversation-1")).toContainEqual(
       expect.objectContaining({
         _id: "cloud-sync-error:device-1:local-turn-1",
         type: "assistant_message",

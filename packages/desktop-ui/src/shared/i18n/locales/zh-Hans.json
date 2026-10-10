@@ -202,6 +202,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "回应 {reactions}",
         "showMoreChips": "再显示 {count} 个",
+        "stellaReaction": "Stella 回应了 {emoji}",
         "windowPreviewAlt": "窗口内容预览"
       },
       "miniModelPicker": {
@@ -1447,8 +1448,6 @@
       "cantRightNow": "现在不行",
       "deadline": "还剩 {time}",
       "deadlinePassed": "时间到了",
-      "deadlineWithDefault": "还剩 {time} — 否则选「{option}」",
-      "defaultOption": "默认",
       "hideSecret": "隐藏{label}",
       "missingFields": "请填写所有必填项。",
       "notification": {
@@ -1461,14 +1460,11 @@
       "plain": "将以明文发送",
       "revealSecret": "显示{label}",
       "sealFailed": "无法在此设备上加密。",
-      "send": "发送",
       "sendSecurely": "安全发送",
       "sending": "发送中…",
       "sensitive": "端到端加密",
       "sensitiveToggleA11y": "加密{label}",
       "sensitiveUnavailable": "此设备暂时无法加密",
-      "somethingElse": "别的",
-      "somethingElsePlaceholder": "告诉 Stella 该做什么",
       "unnamedComputer": "电脑 · {id}",
       "waitingBadge": "正在等你"
     }
@@ -2716,22 +2712,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "剩余 {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "使用这个回答",
+      "default": "默认",
+      "next": "下一个问题",
+      "previous": "上一个问题",
+      "progress": "{current}/{total}",
+      "sending": "正在发送…",
+      "skip": "跳过",
+      "skipped": "已跳过",
+      "somethingElse": "其他",
+      "submit": "提交"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

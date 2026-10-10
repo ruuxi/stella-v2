@@ -12,12 +12,14 @@ import { backendClient } from "@/platform/backend/backend-client";
 import { useBackendView } from "@/platform/backend/use-backend-view";
 import {
   CloudMemoryPreferenceError,
-  beginCloudMemoryPreferenceWrite,
-  createCloudMemoryPreferenceClient,
   decodeCloudMemoryPreferenceForSubject,
   followsOwnerGeneration,
   normalizeCloudMemoryPreferenceIssue,
   type CloudMemoryPreferenceIssue,
+} from "@stella/contracts/cloud-memory-preference";
+import {
+  beginCloudMemoryPreferenceWrite,
+  createCloudMemoryPreferenceClient,
   type CloudMemoryPreferenceRequestFence,
   type CloudMemoryPreferenceWriteAttempt,
 } from "./cloud-memory-preference";

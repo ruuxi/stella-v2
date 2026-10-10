@@ -1,5 +1,5 @@
 import type { AgentMessage } from "../agent-core/types.js";
-import type { RawReplyRef } from "@stella/contracts/reply-refs";
+import type { RawReplyRef, ReplyReaction } from "@stella/contracts/reply-refs";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
 import type { LocalAgentContext } from "../agents/local-agent-manager.js";
@@ -125,6 +125,7 @@ export type RuntimeAssistantMessageEvent = {
    * row (see `reply-refs`).
    */
   replyRefs?: RawReplyRef[];
+  reactions?: ReplyReaction[];
   /**
    * True when this assistant message ends with a tool call, i.e. it is an
    * interim/preamble message rather than the run's final answer. The renderer
@@ -229,6 +230,14 @@ export type BaseRunOptions = {
     signal?: AbortSignal,
     onUpdate?: ToolUpdateCallback,
   ) => Promise<ToolResult>;
+  /**
+   * Stella's managed-shell environment (CLI shims, entrypoint variables,
+   * media / X auth) for engines whose CLIs bring their own shell.
+   */
+  buildAgentShellEnvironment?: (
+    context: ToolContext,
+    cwd: string,
+  ) => Record<string, string>;
   deviceId: string;
   stellaDataDir: string;
   /** Private action-broker endpoint injected only into connector-capable children. */
@@ -238,6 +247,11 @@ export type BaseRunOptions = {
   abortSignal?: AbortSignal;
   stellaAppDir?: string;
   toolWorkspaceRoot?: string;
+  /**
+   * Where a spawned agent starts: its own folder, or the directory its
+   * spawner named. Unlike `toolWorkspaceRoot` it confines nothing.
+   */
+  agentWorkingDirectory?: string;
   hookEmitter?: HookEmitter;
   /**
    * Registers run-owned resources (provider streams, tool calls) into the

@@ -15,6 +15,7 @@ import type { AgentCompletionSection } from "@/features/chat/lib/agent-completio
 import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import type { VoiceSessionSummaryMetadata } from "@stella/contracts/local-chat";
 import type { ReplyRef } from "@stella/contracts/reply-refs";
+import type { UserAskRecord } from "@stella/contracts/user-ask-deck";
 
 export type UserRowViewModel = {
   kind: "user";
@@ -37,6 +38,8 @@ export type UserRowViewModel = {
    * dedicated hidden context message and is never part of the visible body.
    */
   quotedText?: string;
+  reaction?: string;
+  reactionAt?: number;
   attachments: Attachment[];
   channelEnvelope?: ChannelEnvelope;
   /**
@@ -131,6 +134,8 @@ export type AssistantRowViewModel = {
    * See `deriveTurnMapArtifacts`.
    */
   mapArtifacts?: TurnMapArtifact[];
+  /** Compact records of this turn's answered orchestrator `ask_user` calls. */
+  askRecords?: UserAskRecord[];
   /**
    * Developer-resource source-diff payloads for this turn, in edit
    * order. Populated only when the developer-file-previews setting

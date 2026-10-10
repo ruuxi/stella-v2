@@ -1,19 +1,7 @@
 import fs from "node:fs";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { spawn, type StdioOptions } from "node:child_process";
-import net from "node:net";
-import { resolveStatePath } from "../cli/shared.js";
-import {
-  automationSocketsRootDir,
-  maxAutomationSocketPathBytes,
-  resolveAutomationSocketPath,
-} from "./automation-socket-paths.js";
-import {
-  resolveNativeHelperPath,
-  runNativeHelper,
-} from "../cli/native-helper.js";
 import { screenshotPixelToScreenPoint } from "../cli/screenshot-coordinates.js";
 import {
   cleanupWindowsStellaComputerSessionDaemon,
@@ -21,27 +9,13 @@ import {
 } from "../cli/stella-computer-windows.js";
 import { sanitizeStellaComputerSessionId } from "../tools/stella-computer-session.js";
 import {
-  requestAutomationDaemonSpawnFromBridge,
-  requestDesktopPermissionFromBridge,
-  type DesktopPermissionRequestResult,
-} from "../connectors/cli-broker-client.js";
-import {
-  loadLocalPreferences,
-  saveLocalPreferences,
-} from "../preferences/local-preferences.js";
-import {
-  computeStateDiff,
   formatStateDiffBlock,
   shouldUseDiffOnly,
-  type StateDiff,
-  type StateDiffTarget,
 } from "../cli/stella-computer-state-diff.js";
 import { forkCancelableTimeout } from "./effect-runtime.js";
 import {
   abortableComputerDelay,
   getComputerExecutionEnv,
-  getComputerExecutionSignal,
-  getComputerExecutionTimeoutMs,
   runWithComputerExecutionContext,
   throwIfComputerExecutionAborted,
   writeComputerStderr,
@@ -67,267 +41,68 @@ import {
   ComputerUseResourceStaleError,
   macComputerUseResourceArbiter,
 } from "./resource-arbiter.js";
-
-type Rect = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-
-type Screenshot = {
-  mimeType: string;
-  data: string;
-  path?: string | null;
-  widthPx?: number | null;
-  heightPx?: number | null;
-  byteCount?: number | null;
-  captureMethod?: string | null;
-  exactWindowMatch?: boolean | null;
-  occludedRectFallback?: boolean | null;
-  treeRevision?: number | null;
-  reliableFinalFrame?: boolean | null;
-};
-
-type SnapshotNode = {
-  index?: number | null;
-  ref?: string | null;
-  role: string;
-  subrole?: string | null;
-  title?: string | null;
-  description?: string | null;
-  value?: string | null;
-  valueType?: string | null;
-  settable?: boolean | null;
-  details?: string | null;
-  help?: string | null;
-  identifier?: string | null;
-  url?: string | null;
-  enabled?: boolean | null;
-  focused?: boolean | null;
-  selected?: boolean | null;
-  expanded?: boolean | null;
-  placeholder?: string | null;
-  frame?: Rect | null;
-  actions: string[];
-  children: SnapshotNode[];
-};
-
-type OverlayEntry = {
-  frame?: Rect | null;
-};
-
-type SnapshotDocument = {
-  ok: boolean;
-  appName: string;
-  bundleId?: string | null;
-  pid: number;
-  windowTitle?: string | null;
-  windowFrame?: Rect | null;
-  windowId?: number | null;
-  nodeCount: number;
-  refCount: number;
-  refs?: Record<string, OverlayEntry> | null;
-  indices?: Record<string, OverlayEntry> | null;
-  warnings: string[];
-  screenshotPath?: string | null;
-  screenshot?: Screenshot | null;
-  appInstructions?: string | null;
-  selectedText?: string | null;
-  focusedSummary?: string | null;
-  nodes: SnapshotNode[];
-  capturedAt?: string | null;
-  maxDepth?: number | null;
-  maxNodes?: number | null;
-  allWindows?: boolean | null;
-  revision?: number | null;
-  materializedRevision?: number | null;
-  cacheHit?: boolean | null;
-  pendingActionCount?: number | null;
-  screenshotPolicy?: string | null;
-  settle?: AutomationSettle | null;
-};
-
-type ActionPayload = {
-  ok: boolean;
-  action: string;
-  ref?: string | null;
-  message: string;
-  matchedRef?: string | null;
-  usedAction?: string | null;
-  warnings: string[];
-  screenshotPath?: string | null;
-  screenshot?: Screenshot | null;
-  appInstructions?: string | null;
-  snapshotText?: string | null;
-  settle?: AutomationSettle | null;
-  receipt?: {
-    id: string;
-    baselineRevision: number;
-    invalidatedRevision: number;
-    deferred: boolean;
-  } | null;
-  revision?: number | null;
-  deferred?: boolean | null;
-  stateUpdated?: boolean | null;
-};
-
-type AutomationSettle = {
-  observed: boolean;
-  quietMs: number;
-  waitedMs: number;
-  eventCount: number;
-  timedOut: boolean;
-  reason?: string | null;
-  lastEventAt?: string | null;
-  baselineRevision?: number | null;
-  finalRevision?: number | null;
-  pendingActionCount?: number | null;
-  dirtyElementCount?: number | null;
-  dirtyScopes?: string[] | null;
-};
-
-type ListedAppPayload = {
-  name: string;
-  bundleId?: string | null;
-  pid: number;
-  activationPolicy: string;
-  isRunning?: boolean | null;
-  isActive: boolean;
-  // Spotlight-tracked usage data populated by the desktop_automation
-  // daemon. Either or both can be null when the bundle isn't indexed
-  // (sandboxed apps without read perms, network-mounted bundles, etc.).
-  lastUsedDate?: string | null;
-  useCount?: number | null;
-};
-
-type ListAppsPayload = {
-  ok: boolean;
-  apps: ListedAppPayload[];
-  warnings: string[];
-};
-
-type ListWindowsPayload = {
-  ok: boolean;
-  windows: Array<{
-    appName: string;
-    bundleId?: string | null;
-    pid: number;
-    windowId: number;
-    title?: string | null;
-    frame: Rect;
-    isActive: boolean;
-  }>;
-  warnings: string[];
-};
-
-type ErrorPayload = {
-  ok: boolean;
-  error: string;
-  warnings?: string[];
-  screenshotPath?: string | null;
-  screenshot?: Screenshot | null;
-};
-
-type SessionPaths = {
-  sessionId: string;
-  sessionDir: string;
-  statePath: string;
-  screenshotPath: string;
-};
-
-type AutomationDaemonRequestPayload = {
-  seq: number;
-  argv: string[];
-  env: Record<string, string>;
-};
-
-type AutomationDaemonResponsePayload = {
-  seq: number;
-  status: number;
-  stdout: string;
-  stderr: string;
-};
-
-type TypedAutomationTarget = {
-  pid?: number;
-  appName?: string;
-  bundleId?: string;
-};
-
-type TypedAutomationState = {
-  path: string;
-  sessionId: string;
-  screenshotPath?: string;
-  screenshotPolicy?: "auto" | "always" | "never";
-  inlineScreenshot?: boolean;
-};
-
-type TypedAutomationAction = {
-  kind: string;
-  ref?: string;
-  text?: string;
-  name?: string;
-  key?: string;
-  direction?: string;
-  selection?: string;
-  prefix?: string;
-  suffix?: string;
-  mouseButton?: string;
-  clickCount?: number;
-  pages?: number;
-  x?: number;
-  y?: number;
-  fromX?: number;
-  fromY?: number;
-  toX?: number;
-  toY?: number;
-  options?: {
-    allowHid?: boolean;
-    coordinateFallback?: boolean;
-    raise?: boolean;
-    showOverlay?: boolean;
-    deferObservation?: boolean;
-  };
-};
-
-type TypedAutomationObservationPrecondition = {
-  observedStateId: string;
-  observedVisualStateId?: string;
-  targetPid: number;
-  targetBundleId?: string;
-  windowId?: number;
-  windowTitle?: string;
-  windowFrame?: Rect;
-  observerRevision?: number;
-  materializedRevision?: number;
-  visualTreeRevision?: number;
-  screenshotWidthPx?: number;
-  screenshotHeightPx?: number;
-};
-
-type TypedAutomationOperation = {
-  type: string;
-  target?: TypedAutomationTarget;
-  state?: TypedAutomationState;
-  action?: TypedAutomationAction;
-  precondition?: TypedAutomationObservationPrecondition;
-  operations?: TypedAutomationOperation[];
-  durationMs?: number;
-};
-
-type TypedAutomationDaemonResponsePayload = {
-  schemaVersion: number;
-  protocolVersion: number;
-  seq: number;
-  ok: boolean;
-  status: number;
-  result?: unknown;
-  error?: { code: string; message: string; details?: JsonObject };
-};
-
-const TYPED_AUTOMATION_SCHEMA_VERSION = 2;
-const TYPED_AUTOMATION_PROTOCOL_VERSION = 2;
+import {
+  DEFAULT_COMPUTER_SESSION_ID,
+  computerStateDir,
+  getOptionValue,
+  hasOption,
+  isTruthyEnv,
+  normalizeTargetKey,
+  pruneComputerSessions,
+  readJsonFile,
+  stripOptionValue,
+  targetStatePathForKey,
+  writeJsonAtomic,
+} from "./session-fs.js";
+import {
+  appStateLines,
+  formatAction,
+  formatError,
+  formatListApps,
+  formatListWindows,
+  formatSnapshot,
+  snapshotDiff,
+  snapshotStateId,
+  snapshotVisualStateId,
+  type ActionPayload,
+  type ErrorPayload,
+  type ListAppsPayload,
+  type ListedAppPayload,
+  type ListWindowsPayload,
+  type SnapshotDocument,
+} from "./mac/ax-format.js";
+import {
+  automationDaemonRequestTimeoutMs,
+  automationHostPidPath,
+  automationPidPath,
+  automationSocketPath,
+  automationSocketsDir,
+  parseJson,
+  recoverAutomationDaemon,
+  runAutomationDaemonCommand,
+  runAutomationDaemonTypedOperation,
+  stopAutomationDaemon,
+  type TypedAutomationAction,
+  type TypedAutomationObservationPrecondition,
+  type TypedAutomationOperation,
+  type TypedAutomationState,
+  type TypedAutomationTarget,
+} from "./mac/daemon.js";
+import {
+  acquireLocks,
+  endLockedUseLease,
+  maybeBeginLockedUseLease,
+  resolveLockKeys,
+  runLockedUseManagementCommand,
+} from "./mac/locked-use.js";
+import {
+  deriveScreenshotPath,
+  ensureStateDirectory,
+  locksDir,
+  readSnapshotDocument,
+  resolveSessionPaths,
+  type SessionPaths,
+} from "./mac/session-paths.js";
 
 type TypedAutomationBatchPayload = {
   completed: number;
@@ -337,32 +112,6 @@ type TypedAutomationBatchPayload = {
     status: number;
     result: unknown;
   }>;
-};
-
-type AutomationHelperResult = {
-  status: number;
-  stdout: string;
-  stderr: string;
-  error?: Error;
-  timedOut?: boolean;
-};
-
-type AccessibilityPermissionPayload = {
-  ok: boolean;
-  granted: boolean;
-  message: string;
-  warnings: string[];
-};
-
-type LockedUsePayload = {
-  ok: boolean;
-  enabled: boolean;
-  installed?: boolean | null;
-  active: boolean;
-  locked: boolean;
-  suppressedUntilManualUnlock: boolean;
-  message: string;
-  warnings: string[];
 };
 
 type SessionTargetSelector = {
@@ -388,61 +137,12 @@ type SessionTargetRegistry = {
   targets: Record<string, SessionTargetRecord>;
 };
 
-type AutomationDaemonReadyResult = { ok: true } | { ok: false; error: string };
-
-const stateDir = () =>
-  path.join(resolveStatePath(getComputerExecutionEnv()), "stella-computer");
-const sessionsDir = () => path.join(stateDir(), "sessions");
-const locksDir = () => path.join(stateDir(), "locks");
-const lockedUseDir = () => path.join(stateDir(), "locked-use");
-const defaultSessionId = "manual";
 const defaultSessionStateExample = path.join(
-  stateDir(),
+  computerStateDir(),
   "sessions",
   "<session>",
   "last-snapshot.json",
 );
-const defaultLockTimeoutMs = 30_000;
-const staleLockTimeoutMs = 90_000;
-const lockPollIntervalMs = 125;
-const automationDaemonStartupBudgetMs = 7_500;
-const parseNonNegativeIntegerEnv = (
-  value: string | undefined,
-  fallback: number,
-) => {
-  if (value === undefined || value.trim() === "") {
-    return fallback;
-  }
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  return Math.max(0, parsed);
-};
-const automationAccessibilityWaitMs = () =>
-  parseNonNegativeIntegerEnv(
-    getComputerExecutionEnv().STELLA_COMPUTER_ACCESSIBILITY_WAIT_MS,
-    30_000,
-  );
-const automationAccessibilityPollIntervalMs = 500;
-// 30s covers heavy AppKit apps (Mail with thousands of messages, Notes with
-// large note bodies, Music with full library indexed) where the AX walk
-// reaches the maxNodes cap of 1500 before the daemon can return. Lighter
-// apps (Spotify, Notes empty) finish in 1–3s.
-const automationDaemonRequestTimeoutMs = 30_000;
-const lockedUseLeaseDurationMs = 30_000;
-const lockedUseInstallerTimeoutMs = 120_000;
-const sessionPruneIntervalMs = 24 * 60 * 60 * 1000;
-const sessionRetentionMs = 24 * 60 * 60 * 1000;
-const pruneStatePath = () => path.join(stateDir(), "last-prune.json");
-
-const resolveStellaDataDir = () => {
-  const env = getComputerExecutionEnv();
-  if (env.STELLA_DATA_DIR) {
-    return path.resolve(env.STELLA_DATA_DIR);
-  }
-  return resolveStatePath(env);
-};
 
 const usage = `stella-computer - control macOS apps through Accessibility, in the background
 
@@ -511,49 +211,6 @@ const stripFlag = (args: string[], flag: string) => {
   return { found, args: nextArgs };
 };
 
-const stripOptionValue = (args: string[], flag: string) => {
-  const nextArgs: string[] = [];
-  let value: string | null = null;
-  let missingValue = false;
-
-  for (let index = 0; index < args.length; index += 1) {
-    const current = args[index];
-    if (current === flag) {
-      const nextValue = args[index + 1];
-      if (!nextValue || nextValue.startsWith("--")) {
-        missingValue = true;
-      } else {
-        value = nextValue;
-        index += 1;
-      }
-      continue;
-    }
-    if (current.startsWith(`${flag}=`)) {
-      value = current.slice(flag.length + 1);
-      continue;
-    }
-    nextArgs.push(current);
-  }
-
-  return { value, args: nextArgs, missingValue };
-};
-
-const getOptionValue = (args: string[], flag: string) => {
-  for (let index = 0; index < args.length; index += 1) {
-    const current = args[index];
-    if (current === flag) {
-      return index + 1 < args.length ? args[index + 1] : null;
-    }
-    if (current.startsWith(`${flag}=`)) {
-      return current.slice(flag.length + 1);
-    }
-  }
-  return null;
-};
-
-const hasOption = (args: string[], flag: string) =>
-  args.includes(flag) || args.some((arg) => arg.startsWith(`${flag}=`));
-
 const splitArgsIntoPositionalsAndOptions = (args: string[]) => {
   const positionals: string[] = [];
   const options: string[] = [];
@@ -582,215 +239,11 @@ const splitArgsIntoPositionalsAndOptions = (args: string[]) => {
   return { positionals, options };
 };
 
-const deriveScreenshotPath = (statePath: string) => {
-  const parsed = path.parse(statePath);
-  return path.join(parsed.dir, `${parsed.name}.png`);
-};
-
-const resolveSessionPaths = (sessionOverride?: string | null): SessionPaths => {
-  const sessionId =
-    sanitizeStellaComputerSessionId(sessionOverride) ??
-    sanitizeStellaComputerSessionId(
-      getComputerExecutionEnv().STELLA_COMPUTER_SESSION,
-    ) ??
-    defaultSessionId;
-  const sessionDir = path.join(sessionsDir(), sessionId);
-  const statePath = path.join(sessionDir, "last-snapshot.json");
-  return {
-    sessionId,
-    sessionDir,
-    statePath,
-    screenshotPath: deriveScreenshotPath(statePath),
-  };
-};
-
 const withStatePath = (args: string[], statePath: string) => {
   if (hasOption(args, "--state")) {
     return args;
   }
   return ["--state", statePath, ...args];
-};
-
-const ensureStateDirectory = (sessionPaths: SessionPaths) => {
-  fs.mkdirSync(stateDir(), { recursive: true });
-  fs.mkdirSync(locksDir(), { recursive: true });
-  fs.mkdirSync(lockedUseDir(), { recursive: true });
-  fs.mkdirSync(sessionPaths.sessionDir, { recursive: true });
-};
-
-const pidIsRunning = (pid: number) => {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-const killDetachedProcess = (pid: number | null | undefined) => {
-  if (!pid || !Number.isInteger(pid) || pid <= 0) {
-    return;
-  }
-  try {
-    if (process.platform !== "win32") {
-      process.kill(-pid, "SIGKILL");
-      return;
-    }
-  } catch {
-    // fall through to direct pid kill
-  }
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    // ignore kill failures
-  }
-};
-
-const readPidFile = (pidPath: string) => {
-  try {
-    const raw = fs.readFileSync(pidPath, "utf8").trim();
-    const pid = Number.parseInt(raw, 10);
-    return Number.isFinite(pid) ? pid : null;
-  } catch {
-    return null;
-  }
-};
-
-const safeDirectoryEntries = (directory: string) => {
-  try {
-    return fs.readdirSync(directory, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-};
-
-const latestMtimeMs = (targetPath: string): number => {
-  let newest = 0;
-  let stats: fs.Stats;
-  try {
-    stats = fs.statSync(targetPath);
-  } catch {
-    return newest;
-  }
-  newest = Math.max(newest, stats.mtimeMs);
-  if (!stats.isDirectory()) {
-    return newest;
-  }
-  for (const entry of safeDirectoryEntries(targetPath)) {
-    newest = Math.max(newest, latestMtimeMs(path.join(targetPath, entry.name)));
-  }
-  return newest;
-};
-
-const lastPrunedAtMs = () => {
-  try {
-    const raw = JSON.parse(fs.readFileSync(pruneStatePath(), "utf8")) as {
-      prunedAtMs?: unknown;
-    };
-    return typeof raw.prunedAtMs === "number" && Number.isFinite(raw.prunedAtMs)
-      ? raw.prunedAtMs
-      : 0;
-  } catch {
-    return 0;
-  }
-};
-
-const writeLastPrunedAt = (prunedAtMs: number) => {
-  try {
-    fs.writeFileSync(
-      pruneStatePath(),
-      JSON.stringify({ prunedAtMs }, null, 2),
-      "utf8",
-    );
-  } catch {
-    // Best-effort cache maintenance.
-  }
-};
-
-const pruneGeneratedStateEntries = (
-  directory: string,
-  nowMs: number,
-  maxAgeMs: number,
-) => {
-  if (!fs.existsSync(directory)) return;
-  for (const entry of safeDirectoryEntries(directory)) {
-    const entryPath = path.join(directory, entry.name);
-    let mtimeMs = 0;
-    try {
-      mtimeMs = fs.statSync(entryPath).mtimeMs;
-    } catch {
-      continue;
-    }
-    if (nowMs - mtimeMs > maxAgeMs) {
-      fs.rmSync(entryPath, { recursive: true, force: true });
-    }
-  }
-};
-
-const pruneStellaComputerSessions = (activeSessionId: string) => {
-  const nowMs = Date.now();
-  if (nowMs - lastPrunedAtMs() < sessionPruneIntervalMs) {
-    return;
-  }
-  writeLastPrunedAt(nowMs);
-
-  for (const entry of safeDirectoryEntries(sessionsDir())) {
-    if (!entry.isDirectory() || entry.name === activeSessionId) {
-      continue;
-    }
-    const sessionPath = path.join(sessionsDir(), entry.name);
-    const pid = readPidFile(path.join(sessionPath, "automation.pid"));
-    if (pid !== null && pidIsRunning(pid)) {
-      continue;
-    }
-    const newestMtime = latestMtimeMs(sessionPath);
-    if (newestMtime > 0 && nowMs - newestMtime > sessionRetentionMs) {
-      fs.rmSync(sessionPath, { recursive: true, force: true });
-    }
-  }
-
-  pruneGeneratedStateEntries(automationSocketsDir(), nowMs, sessionRetentionMs);
-  pruneGeneratedStateEntries(locksDir(), nowMs, sessionRetentionMs);
-};
-
-const delayMs = abortableComputerDelay;
-
-// Sockets live under a short home-anchored directory (not the state dir) so
-// the path stays inside the 104-byte macOS sockaddr_un cap; see
-// automation-socket-paths.ts for the layout and collision rationale.
-const automationSocketsDir = () => automationSocketsRootDir();
-
-const automationSocketPath = (sessionPaths: SessionPaths) =>
-  resolveAutomationSocketPath(stateDir(), sessionPaths.sessionId);
-
-const automationPidPath = (sessionPaths: SessionPaths) =>
-  path.join(sessionPaths.sessionDir, "automation.pid");
-
-/** Daemon stdout/stderr sink; read back to surface startup failures. */
-const automationLogPath = (sessionPaths: SessionPaths) =>
-  path.join(sessionPaths.sessionDir, "automation-daemon.log");
-
-/**
- * Pid of the Electron host that spawned the current daemon. macOS TCC
- * attribution follows the responsible process recorded at spawn time, so a
- * daemon spawned by a host that has since exited loses its "Stella"
- * Accessibility attribution — it must be restarted by the current live host.
- */
-const automationHostPidPath = (sessionPaths: SessionPaths) =>
-  path.join(sessionPaths.sessionDir, "automation.host-pid");
-
-const resetAutomationDaemonFiles = (sessionPaths: SessionPaths) => {
-  fs.rmSync(automationPidPath(sessionPaths), { force: true });
-  fs.rmSync(automationSocketPath(sessionPaths), { force: true });
-  fs.rmSync(automationHostPidPath(sessionPaths), { force: true });
-};
-
-const recoverAutomationDaemon = (sessionPaths: SessionPaths) => {
-  const pid = readPidFile(automationPidPath(sessionPaths));
-  killDetachedProcess(pid);
-  resetAutomationDaemonFiles(sessionPaths);
-  return pid;
 };
 
 export const __testOnlyRecoverAutomationDaemon = (sessionId: string) => {
@@ -802,713 +255,6 @@ export const __testOnlyRecoverAutomationDaemon = (sessionId: string) => {
     socketPath: automationSocketPath(sessionPaths),
     hostPidPath: automationHostPidPath(sessionPaths),
   };
-};
-
-const writeAutomationHostPid = (sessionPaths: SessionPaths, pid: number) => {
-  try {
-    fs.writeFileSync(automationHostPidPath(sessionPaths), String(pid), "utf8");
-  } catch {
-    // Best-effort bookkeeping; worst case the staleness check is skipped.
-  }
-};
-
-const automationDaemonSpawnedByDeadHost = (sessionPaths: SessionPaths) => {
-  const hostPid = readPidFile(automationHostPidPath(sessionPaths));
-  return hostPid !== null && !pidIsRunning(hostPid);
-};
-
-const automationLogTail = (sessionPaths: SessionPaths, maxChars = 700) => {
-  try {
-    const raw = fs.readFileSync(automationLogPath(sessionPaths), "utf8").trim();
-    if (!raw) return "";
-    return raw.length > maxChars ? `…${raw.slice(-maxChars)}` : raw;
-  } catch {
-    return "";
-  }
-};
-
-const truncateAutomationLog = (sessionPaths: SessionPaths) => {
-  try {
-    fs.mkdirSync(sessionPaths.sessionDir, { recursive: true });
-    fs.writeFileSync(automationLogPath(sessionPaths), "", "utf8");
-  } catch {
-    // Best-effort; an unwritable log only degrades error detail.
-  }
-};
-
-const accessibilityGuidance =
-  'Open System Settings → Privacy & Security → Accessibility and enable "Stella" (toggle it off and on if it is already listed), then retry.';
-
-const describeDaemonStartupFailure = (
-  sessionPaths: SessionPaths,
-  fallback: string,
-) => {
-  const tail = automationLogTail(sessionPaths);
-  if (!tail) {
-    return fallback;
-  }
-  if (/accessibility permission/i.test(tail)) {
-    return `desktop_automation daemon exited: macOS Accessibility is not granted for the process that runs Stella's automation. ${accessibilityGuidance} (daemon output: ${tail})`;
-  }
-  return `desktop_automation daemon failed to start: ${tail}`;
-};
-
-const helperNewerThanDaemon = (helperPath: string, pidPath: string) => {
-  try {
-    const helperMtimeMs = fs.statSync(helperPath).mtimeMs;
-    const pidFileMtimeMs = fs.statSync(pidPath).mtimeMs;
-    return helperMtimeMs > pidFileMtimeMs + 500;
-  } catch {
-    return false;
-  }
-};
-
-const filteredAutomationDaemonEnv = () =>
-  Object.fromEntries(
-    Object.entries(getComputerExecutionEnv()).filter(
-      ([key, value]) =>
-        key.startsWith("STELLA_COMPUTER_") && typeof value === "string",
-    ),
-  ) as Record<string, string>;
-
-type AutomationAccessibilityState =
-  | {
-      ok: true;
-      /**
-       * True when the helper's own AXIsProcessTrusted() check (run from this
-       * process tree) passed. False when only the Electron host vouched for
-       * the grant — valid for a host-spawned daemon (the host's TCC identity
-       * is what matters there) but not for a locally spawned one.
-       */
-      helperTrusted: boolean;
-      hostGranted: boolean;
-    }
-  | { ok: false; error: string };
-
-const promptForAutomationAccessibility = async (
-  sessionPaths: SessionPaths,
-): Promise<AutomationAccessibilityState> => {
-  const accessibilityWaitMs = automationAccessibilityWaitMs();
-  if (process.platform !== "darwin" || accessibilityWaitMs <= 0) {
-    return { ok: true, helperTrusted: true, hostGranted: false };
-  }
-
-  const checkAccessibility = async (
-    openSettings: boolean,
-  ): Promise<AutomationDaemonReadyResult> => {
-    const helperArgs = [
-      "accessibility-permission",
-      ...(openSettings ? ["--open-settings"] : []),
-      "--wait-ms",
-      "0",
-    ];
-    const result = await runNativeHelper({
-      helperName: "desktop_automation",
-      helperArgs,
-      env: {
-        ...getComputerExecutionEnv(),
-        STELLA_COMPUTER_SESSION: sessionPaths.sessionId,
-        STELLA_COMPUTER_STATE_DIR: stateDir(),
-      },
-      timeoutMs: 5_000,
-    });
-
-    if (result.error) {
-      return { ok: false, error: result.error.message };
-    }
-    if (!result.stdout) {
-      return {
-        ok: false,
-        error:
-          result.stderr ||
-          "Accessibility permission is required for the desktop_automation daemon.",
-      };
-    }
-
-    try {
-      const payload = parseJson<AccessibilityPermissionPayload>(result.stdout);
-      if (payload.granted) {
-        return { ok: true };
-      }
-      return { ok: false, error: payload.message };
-    } catch {
-      return {
-        ok: false,
-        error:
-          result.stderr ||
-          "Accessibility permission is required for the desktop_automation daemon.",
-      };
-    }
-  };
-
-  const requestViaHost = async (): Promise<DesktopPermissionRequestResult> => {
-    const socketPath = getComputerExecutionEnv().STELLA_CLI_BRIDGE_SOCK;
-    if (!socketPath) {
-      return { ok: false, reason: "no_bridge" as const };
-    }
-    try {
-      return await requestDesktopPermissionFromBridge({
-        socketPath,
-        kind: "accessibility",
-        timeoutMs: accessibilityWaitMs,
-      });
-    } catch (error) {
-      return {
-        ok: false,
-        reason: (error as Error).message || "bridge_failed",
-      };
-    }
-  };
-
-  let lastResult = await checkAccessibility(false);
-  if (lastResult.ok) {
-    return { ok: true, helperTrusted: true, hostGranted: false };
-  }
-
-  const hostRequest = await requestViaHost();
-  if (hostRequest.ok && hostRequest.granted) {
-    // Re-verify with the helper's own check instead of trusting the host
-    // blindly: the host answers for the Stella.app TCC identity, while a
-    // helper spawned from this (worker) process tree can carry a different —
-    // possibly orphaned — attribution. A disagreement here is expected when
-    // the worker outlived a previous Stella.app instance; the daemon must
-    // then be spawned by the live host (see ensureAutomationDaemon).
-    lastResult = await checkAccessibility(false);
-    return { ok: true, helperTrusted: lastResult.ok, hostGranted: true };
-  }
-
-  const shouldOpenSettingsFallback =
-    !hostRequest.ok && hostRequest.reason === "no_bridge";
-  if (shouldOpenSettingsFallback) {
-    lastResult = await checkAccessibility(true);
-  }
-  if (lastResult.ok) {
-    return { ok: true, helperTrusted: true, hostGranted: false };
-  }
-
-  const deadline = Date.now() + accessibilityWaitMs;
-  while (Date.now() < deadline) {
-    await delayMs(automationAccessibilityPollIntervalMs);
-    lastResult = await checkAccessibility(false);
-    if (lastResult.ok) {
-      return { ok: true, helperTrusted: true, hostGranted: false };
-    }
-  }
-
-  return {
-    ok: false,
-    error: `${
-      lastResult.ok
-        ? "Accessibility permission is required for the desktop_automation daemon."
-        : lastResult.error
-    } ${accessibilityGuidance}`,
-  };
-};
-
-/**
- * Spawn the daemon via the Electron host (single "Stella" TCC identity) when
- * a CLI bridge is available. Returns null when host spawning is unavailable
- * so the caller can fall back to a local spawn.
- */
-const spawnAutomationDaemonViaHost = async (
-  sessionPaths: SessionPaths,
-  socketPath: string,
-  pidPath: string,
-): Promise<{ ok: true } | { ok: false; reason: string } | null> => {
-  if (process.platform !== "darwin") {
-    return null;
-  }
-  const bridgeSocketPath = getComputerExecutionEnv().STELLA_CLI_BRIDGE_SOCK;
-  if (!bridgeSocketPath) {
-    return null;
-  }
-  const result = await requestAutomationDaemonSpawnFromBridge({
-    socketPath: bridgeSocketPath,
-    params: {
-      daemonSocketPath: socketPath,
-      pidPath,
-      logPath: automationLogPath(sessionPaths),
-      sessionId: sessionPaths.sessionId,
-      stateDir: stateDir(),
-      env: filteredAutomationDaemonEnv(),
-    },
-    timeoutMs: 15_000,
-  });
-  if (result.ok) {
-    writeAutomationHostPid(sessionPaths, result.hostPid);
-    return { ok: true };
-  }
-  // "unsupported" means the running host predates this RPC; let the caller
-  // fall back to the legacy local spawn rather than hard-failing.
-  if (result.reason === "unsupported") {
-    return null;
-  }
-  return { ok: false, reason: result.reason };
-};
-
-const spawnAutomationDaemonLocally = (
-  sessionPaths: SessionPaths,
-  helperPath: string,
-  socketPath: string,
-  pidPath: string,
-): { onSpawnError: () => Error | null; hasExited: () => boolean } => {
-  // Pipe daemon output to a per-session log instead of discarding it; the
-  // startup poll reads it back so a daemon that exits with "Accessibility
-  // permission is required…" surfaces that message instead of an opaque
-  // "failed to start after 7500ms".
-  let stdio: StdioOptions = "ignore";
-  let logFd: number | null = null;
-  try {
-    logFd = fs.openSync(automationLogPath(sessionPaths), "a");
-    stdio = ["ignore", logFd, logFd];
-  } catch {
-    // Unwritable log only degrades error detail.
-  }
-  let child: ReturnType<typeof spawn>;
-  try {
-    child = spawn(
-      helperPath,
-      ["daemon", "--socket-path", socketPath, "--pid-file", pidPath],
-      {
-        detached: process.platform !== "win32",
-        stdio,
-        windowsHide: true,
-        env: {
-          ...getComputerExecutionEnv(),
-          STELLA_COMPUTER_SESSION: sessionPaths.sessionId,
-          STELLA_COMPUTER_STATE_DIR: stateDir(),
-        },
-      },
-    );
-  } finally {
-    if (logFd !== null) {
-      fs.closeSync(logFd);
-    }
-  }
-  const startup: { error: Error | null; exited: boolean } = {
-    error: null,
-    exited: false,
-  };
-  child.once("error", (error) => {
-    startup.error = error;
-  });
-  child.once("exit", () => {
-    startup.exited = true;
-  });
-  child.unref();
-  return {
-    onSpawnError: () => startup.error,
-    hasExited: () => startup.exited,
-  };
-};
-
-const ensureAutomationDaemon = async (
-  sessionPaths: SessionPaths,
-): Promise<AutomationDaemonReadyResult> => {
-  const pidPath = automationPidPath(sessionPaths);
-  const socketPath = automationSocketPath(sessionPaths);
-  const socketPathBytes = Buffer.byteLength(socketPath, "utf8");
-  if (socketPathBytes > maxAutomationSocketPathBytes) {
-    // The daemon enforces the 104-byte BSD sockaddr_un cap with an opaque
-    // "Daemon socket path is too long"; fail here with the actual path so
-    // the problem (an unusually long home directory) is diagnosable.
-    return {
-      ok: false,
-      error: `desktop_automation daemon socket path "${socketPath}" is ${socketPathBytes} bytes, above the ${maxAutomationSocketPathBytes}-byte limit imposed by the macOS 104-byte Unix socket path cap. Your home directory path is too long for desktop automation.`,
-    };
-  }
-  const helperPath = resolveNativeHelperPath("desktop_automation");
-  if (!helperPath) {
-    return {
-      ok: false,
-      error:
-        'Native helper "desktop_automation" was not found. Build desktop/native first.',
-    };
-  }
-  const existingPid = readPidFile(pidPath);
-  if (existingPid && pidIsRunning(existingPid) && fs.existsSync(socketPath)) {
-    const staleHost =
-      process.platform === "darwin" &&
-      automationDaemonSpawnedByDeadHost(sessionPaths);
-    if (!helperNewerThanDaemon(helperPath, pidPath) && !staleHost) {
-      return { ok: true };
-    }
-    // Either the helper binary changed under the daemon, or the Electron host
-    // that spawned it exited (which orphans the daemon's TCC attribution).
-    // Restart it under the current host.
-    killDetachedProcess(existingPid);
-    resetAutomationDaemonFiles(sessionPaths);
-  }
-  if (existingPid && pidIsRunning(existingPid) && !fs.existsSync(socketPath)) {
-    killDetachedProcess(existingPid);
-  }
-  resetAutomationDaemonFiles(sessionPaths);
-  fs.mkdirSync(automationSocketsDir(), { recursive: true });
-
-  const permission = await promptForAutomationAccessibility(sessionPaths);
-  if (!permission.ok) {
-    return permission;
-  }
-
-  truncateAutomationLog(sessionPaths);
-  let onSpawnError: (() => Error | null) | null = null;
-  let hasExited: (() => boolean) | null = null;
-  const hostSpawn = await spawnAutomationDaemonViaHost(
-    sessionPaths,
-    socketPath,
-    pidPath,
-  );
-  if (hostSpawn && !hostSpawn.ok) {
-    return {
-      ok: false,
-      error: `desktop_automation daemon could not be spawned by the Stella app process: ${hostSpawn.reason}`,
-    };
-  }
-  if (!hostSpawn) {
-    if (
-      process.platform === "darwin" &&
-      permission.hostGranted &&
-      !permission.helperTrusted
-    ) {
-      // The Stella app has Accessibility, but this detached worker's process
-      // tree no longer inherits that grant (its spawning app instance is
-      // gone) and no live host is reachable to spawn the daemon under the
-      // app's identity. A locally spawned daemon would just exit; fail with
-      // an actionable message instead.
-      return {
-        ok: false,
-        error: `Stella has macOS Accessibility, but the automation daemon cannot inherit it because the Stella app that granted it is no longer running. Fully quit and reopen Stella, then retry. ${accessibilityGuidance}`,
-      };
-    }
-    const local = spawnAutomationDaemonLocally(
-      sessionPaths,
-      helperPath,
-      socketPath,
-      pidPath,
-    );
-    onSpawnError = local.onSpawnError;
-    hasExited = local.hasExited;
-  }
-
-  for (
-    let attempt = 0;
-    attempt < Math.ceil(automationDaemonStartupBudgetMs / 25);
-    attempt += 1
-  ) {
-    await delayMs(25);
-    const spawnError = onSpawnError?.();
-    if (spawnError) {
-      resetAutomationDaemonFiles(sessionPaths);
-      return {
-        ok: false,
-        error: `desktop_automation daemon failed to start: ${spawnError.message}`,
-      };
-    }
-    const pid = readPidFile(pidPath);
-    if (pid && pidIsRunning(pid) && fs.existsSync(socketPath)) {
-      return { ok: true };
-    }
-    if (hasExited?.() && (!pid || !pidIsRunning(pid))) {
-      // The locally spawned daemon already died (e.g. its Accessibility
-      // check failed); no point polling out the rest of the budget.
-      break;
-    }
-  }
-  resetAutomationDaemonFiles(sessionPaths);
-  return {
-    ok: false,
-    error: describeDaemonStartupFailure(
-      sessionPaths,
-      `desktop_automation daemon failed to start after ${automationDaemonStartupBudgetMs}ms`,
-    ),
-  };
-};
-
-const runAutomationDaemonCommand = async (
-  sessionPaths: SessionPaths,
-  helperArgs: string[],
-  timeoutMs = automationDaemonRequestTimeoutMs,
-): Promise<AutomationHelperResult> => {
-  const daemonReady = await ensureAutomationDaemon(sessionPaths);
-  if (!daemonReady.ok) {
-    resetAutomationDaemonFiles(sessionPaths);
-    return {
-      status: 1,
-      stdout: "",
-      stderr:
-        daemonReady.error ||
-        `desktop_automation daemon failed to start after ${automationDaemonStartupBudgetMs}ms`,
-    };
-  }
-
-  const seq = Date.now() * 1000 + Math.floor(Math.random() * 1000);
-  const payload = JSON.stringify({
-    seq,
-    argv: helperArgs,
-    env: {
-      ...filteredAutomationDaemonEnv(),
-      STELLA_COMPUTER_SESSION: sessionPaths.sessionId,
-      STELLA_COMPUTER_STATE_DIR: stateDir(),
-    },
-  } satisfies AutomationDaemonRequestPayload);
-
-  return await new Promise<AutomationHelperResult>((resolve) => {
-    let settled = false;
-    const responseChunks: Buffer[] = [];
-    const socket = net.createConnection({
-      path: automationSocketPath(sessionPaths),
-    });
-    const signal = getComputerExecutionSignal();
-    const settle = (result: AutomationHelperResult) => {
-      if (settled) return;
-      settled = true;
-      cancelTimer();
-      signal?.removeEventListener("abort", onAbort);
-      socket.destroy();
-      resolve(result);
-    };
-    const onAbort = () => {
-      const reason = signal?.reason;
-      // Helper-style requests share the same serial daemon as typed
-      // operations. Revoke it on cancellation as well, otherwise a blocked
-      // helper remains at the head of the queue and wedges the next call.
-      recoverAutomationDaemon(sessionPaths);
-      settle({
-        status: 1,
-        stdout: "",
-        stderr:
-          reason instanceof Error
-            ? reason.message
-            : "Computer command aborted.",
-        error:
-          reason instanceof Error
-            ? reason
-            : new Error("Computer command aborted."),
-      });
-    };
-    // The request deadline is a forked timeout fiber interrupted by settle
-    // (the clearTimeout analogue); duration and daemon-reset path unchanged.
-    const cancelTimer = forkCancelableTimeout(timeoutMs, () => {
-      recoverAutomationDaemon(sessionPaths);
-      settle({
-        status: 1,
-        stdout: "",
-        stderr: `desktop_automation daemon timed out after ${timeoutMs}ms`,
-        timedOut: true,
-      });
-    });
-
-    socket.on("connect", () => {
-      socket.write(`${payload}\n`);
-    });
-    socket.on("data", (chunk) => {
-      responseChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    });
-    socket.on("end", () => {
-      try {
-        const responseText = Buffer.concat(responseChunks).toString("utf8");
-        const response =
-          parseJson<AutomationDaemonResponsePayload>(responseText);
-        if (response.seq !== seq) {
-          settle({
-            status: 1,
-            stdout: "",
-            stderr:
-              "desktop_automation daemon returned a mismatched response sequence",
-          });
-          return;
-        }
-        settle({
-          status: response.status,
-          stdout: response.stdout,
-          stderr: response.stderr,
-        });
-      } catch {
-        settle({
-          status: 1,
-          stdout: "",
-          stderr: "desktop_automation daemon returned an invalid response",
-        });
-      }
-    });
-    socket.on("error", (error) => {
-      const pid = readPidFile(automationPidPath(sessionPaths));
-      if (pid && !pidIsRunning(pid)) {
-        resetAutomationDaemonFiles(sessionPaths);
-      }
-      settle({
-        status: 1,
-        stdout: "",
-        stderr:
-          error instanceof Error
-            ? `desktop_automation daemon connection failed: ${error.message}`
-            : "desktop_automation daemon connection failed",
-      });
-    });
-    signal?.addEventListener("abort", onAbort, { once: true });
-    if (signal?.aborted) onAbort();
-  });
-};
-
-const runAutomationDaemonTypedOperation = async (
-  sessionPaths: SessionPaths,
-  operation: TypedAutomationOperation,
-  timeoutMs = getComputerExecutionTimeoutMs() ??
-    automationDaemonRequestTimeoutMs,
-): Promise<unknown> => {
-  const daemonReady = await ensureAutomationDaemon(sessionPaths);
-  if (!daemonReady.ok) {
-    resetAutomationDaemonFiles(sessionPaths);
-    throw new Error(
-      daemonReady.error ||
-        `desktop_automation daemon failed to start after ${automationDaemonStartupBudgetMs}ms`,
-    );
-  }
-
-  const seq = Date.now() * 1000 + Math.floor(Math.random() * 1000);
-  const payload = JSON.stringify({
-    schemaVersion: TYPED_AUTOMATION_SCHEMA_VERSION,
-    protocolVersion: TYPED_AUTOMATION_PROTOCOL_VERSION,
-    seq,
-    operation,
-  });
-
-  return await new Promise<unknown>((resolve, reject) => {
-    let settled = false;
-    const responseChunks: Buffer[] = [];
-    const socket = net.createConnection({
-      path: automationSocketPath(sessionPaths),
-    });
-    const signal = getComputerExecutionSignal();
-    const settle = (error?: Error, value?: unknown) => {
-      if (settled) return;
-      settled = true;
-      cancelTimer();
-      signal?.removeEventListener("abort", onAbort);
-      socket.destroy();
-      if (error) reject(error);
-      else resolve(value);
-    };
-    const onAbort = () => {
-      const reason = signal?.reason;
-      // The daemon serves requests serially. Dropping only this socket leaves
-      // a wedged native operation blocking every later request, so revoke the
-      // daemon generation and let the next call start a clean process.
-      recoverAutomationDaemon(sessionPaths);
-      settle(
-        reason instanceof Error
-          ? reason
-          : new Error("Computer request aborted."),
-      );
-    };
-    // The request deadline is a forked timeout fiber interrupted by settle
-    // (the clearTimeout analogue); duration and daemon-reset path unchanged.
-    const cancelTimer = forkCancelableTimeout(timeoutMs, () => {
-      recoverAutomationDaemon(sessionPaths);
-      settle(
-        new Error(`desktop_automation daemon timed out after ${timeoutMs}ms`),
-      );
-    });
-
-    socket.on("connect", () => socket.write(`${payload}\n`));
-    socket.on("data", (chunk) => {
-      responseChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    });
-    socket.on("end", () => {
-      try {
-        const response = parseJson<TypedAutomationDaemonResponsePayload>(
-          Buffer.concat(responseChunks).toString("utf8"),
-        );
-        if (
-          response.schemaVersion !== TYPED_AUTOMATION_SCHEMA_VERSION ||
-          response.protocolVersion !== TYPED_AUTOMATION_PROTOCOL_VERSION ||
-          response.seq !== seq
-        ) {
-          const pid = readPidFile(automationPidPath(sessionPaths));
-          killDetachedProcess(pid);
-          resetAutomationDaemonFiles(sessionPaths);
-          settle(
-            new Error(
-              "desktop_automation returned a mismatched typed response",
-            ),
-          );
-          return;
-        }
-        if (!response.ok || response.status !== 0) {
-          if (response.error?.code === "stale_observation") {
-            const details = response.error.details;
-            const observed = details?.observed;
-            const current = details?.current;
-            const observedObject =
-              observed &&
-              typeof observed === "object" &&
-              !Array.isArray(observed)
-                ? (observed as JsonObject)
-                : undefined;
-            const currentObject =
-              current && typeof current === "object" && !Array.isArray(current)
-                ? (current as JsonObject)
-                : undefined;
-            const observedStateId =
-              typeof observedObject?.state_id === "string"
-                ? observedObject.state_id
-                : "state_observed";
-            const currentStateId =
-              typeof currentObject?.state_id === "string"
-                ? currentObject.state_id
-                : "native_state_changed";
-            settle(
-              new ComputerUseResourceStaleError(
-                observedStateId,
-                currentStateId,
-                {
-                  ...(observedObject ? { nativeObserved: observedObject } : {}),
-                  ...(currentObject ? { nativeCurrent: currentObject } : {}),
-                  ...(typeof details?.reason === "string"
-                    ? { nativeReason: details.reason }
-                    : {}),
-                },
-              ),
-            );
-            return;
-          }
-          settle(
-            new Error(
-              response.error?.message ||
-                `desktop_automation typed request failed with status ${response.status}`,
-            ),
-          );
-          return;
-        }
-        settle(undefined, response.result);
-      } catch (error) {
-        const pid = readPidFile(automationPidPath(sessionPaths));
-        killDetachedProcess(pid);
-        resetAutomationDaemonFiles(sessionPaths);
-        settle(
-          error instanceof Error
-            ? new Error(
-                `desktop_automation returned an invalid typed response: ${error.message}`,
-              )
-            : new Error(
-                "desktop_automation returned an invalid typed response",
-              ),
-        );
-      }
-    });
-    socket.on("error", (error) => {
-      const pid = readPidFile(automationPidPath(sessionPaths));
-      killDetachedProcess(pid);
-      resetAutomationDaemonFiles(sessionPaths);
-      settle(
-        new Error(
-          `desktop_automation daemon connection failed: ${error.message}`,
-        ),
-      );
-    });
-    signal?.addEventListener("abort", onAbort, { once: true });
-    if (signal?.aborted) onAbort();
-  });
 };
 
 const ensureSnapshotArgs = (args: string[], sessionPaths: SessionPaths) => {
@@ -1545,721 +291,6 @@ const ensureSnapshotArgs = (args: string[], sessionPaths: SessionPaths) => {
   return nextArgs;
 };
 
-const truncate = (value: string | null | undefined, limit = 80) => {
-  if (!value) {
-    return "";
-  }
-  return value.length > limit ? `${value.slice(0, limit)}...` : value;
-};
-
-const ACTIONS_TO_HIDE = new Set([
-  "AXPress",
-  "AXShowMenu",
-  "AXScrollToVisible",
-  "AXIncrement",
-  "AXDecrement",
-  "AXRaise",
-  // AppKit table/outline rows expose Show Default UI / Show Alternate UI
-  // alongside the user-meaningful AX actions. They flip an internal styling
-  // pair and are not actuatable affordances; surface only the real actions
-  // (e.g. swipe-to-Read on Mail message rows).
-  "AXShowDefaultUI",
-  "AXShowAlternateUI",
-]);
-
-const ROLES_WITH_VISIBLE_SETTABLE_STATE = new Set([
-  "AXCell",
-  "AXCheckBox",
-  "AXComboBox",
-  "AXGenericElement",
-  "AXGroup",
-  "AXPopUpButton",
-  "AXRadioButton",
-  "AXSearchField",
-  "AXSecureTextField",
-  "AXSlider",
-  "AXSplitGroup",
-  "AXSplitter",
-  "AXSwitch",
-  "AXTextArea",
-  "AXTextField",
-  "AXUnknown",
-  "AXWebArea",
-]);
-
-// Subrole-aware names for buttons so the model can tell window controls apart
-// instead of seeing a row of identical "button" entries.
-// Mirrors the role labels used by macOS desktop-automation renderers.
-const BUTTON_SUBROLE_LABELS: Record<string, string> = {
-  AXCloseButton: "close button",
-  AXMinimizeButton: "minimize button",
-  AXZoomButton: "full screen button",
-  AXFullScreenButton: "full screen button",
-  AXToolbarButton: "toolbar button",
-  AXSortButton: "sort button",
-  AXIncrementor: "incrementor button",
-  AXDecrementor: "decrementor button",
-};
-
-const formatUrlLike = (value: string) => value.replace(/^https?:\/\//, "");
-
-const escapeMarkdownLinkText = (value: string) =>
-  value.replace(/\\/g, "\\\\").replace(/\[/g, "\\[").replace(/\]/g, "\\]");
-
-const humanActionName = (action: string) => {
-  const trimmed = action.startsWith("AX") ? action.slice(2) : action;
-  return trimmed.replace(/([a-z])([A-Z])/g, "$1 $2");
-};
-
-const humanRole = (node: Pick<SnapshotNode, "role" | "subrole">): string => {
-  switch (node.role) {
-    case "AXWindow":
-      return node.subrole === "AXStandardWindow" ? "standard window" : "window";
-    case "AXWebArea":
-      return "HTML content";
-    case "AXGroup":
-    case "AXGenericElement":
-    case "AXUnknown":
-    case "AXSplitGroup":
-      return "container";
-    case "AXStaticText":
-      return "text";
-    case "AXCheckBox":
-      return node.subrole === "AXSwitch" ? "switch" : "checkbox";
-    case "AXList":
-      return "list box";
-    case "AXButton":
-      return (node.subrole && BUTTON_SUBROLE_LABELS[node.subrole]) || "button";
-    default: {
-      const trimmed = node.role.startsWith("AX")
-        ? node.role.slice(2)
-        : node.role;
-      return trimmed.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
-    }
-  }
-};
-
-const secondaryActions = (actions: string[]) =>
-  actions
-    .filter((action) => !ACTIONS_TO_HIDE.has(action))
-    .map((action) => humanActionName(action));
-
-const displayValue = (node: SnapshotNode) => {
-  if (!node.value) return null;
-  if (node.subrole === "AXSwitch" && inferredValueType(node) === "boolean") {
-    if (node.value === "1") return "on";
-    if (node.value === "0") return "off";
-  }
-  return node.value;
-};
-
-const shouldSurfaceSettable = (node: SnapshotNode) =>
-  !!node.settable &&
-  (ROLES_WITH_VISIBLE_SETTABLE_STATE.has(node.role) ||
-    node.subrole === "AXSwitch" ||
-    !!node.value);
-
-const inferredValueType = (node: SnapshotNode) => {
-  if (node.role === "AXSlider") return "float";
-  if (node.subrole === "AXSwitch") return "boolean";
-  if (node.valueType && node.valueType !== "error") return node.valueType;
-  if (!shouldSurfaceSettable(node)) return null;
-  return "string";
-};
-
-const choosePrimaryLabel = (node: SnapshotNode) => {
-  if (node.title) return node.title;
-  if (node.role === "AXStaticText" && node.value) return node.value;
-  if (
-    (node.role === "AXButton" ||
-      node.role === "AXComboBox" ||
-      node.role === "AXMenuItem" ||
-      node.role === "AXRow" ||
-      node.role === "AXWindow" ||
-      node.role === "AXGroup" ||
-      node.role === "AXGenericElement" ||
-      node.role === "AXHeading" ||
-      node.role === "AXList" ||
-      // Brave/Chrome/Safari toolbar dropdowns (Brave Shields, Wallet, VPN,
-      // Extensions, profile picker, address-bar lock icon) and AppKit
-      // window-resize splitters all carry their human-readable label on
-      // AXDescription. Without surfacing it, browser/window chrome reads
-      // as a row of unnamed `(settable, string)` placeholders.
-      node.role === "AXPopUpButton" ||
-      node.role === "AXMenuButton" ||
-      node.role === "AXSplitter" ||
-      node.role === "AXWebArea") &&
-    node.description
-  ) {
-    return node.description;
-  }
-  // AppKit outline rows leave their description on a child AXCell. When the
-  // row has exactly one AXCell child whose description is the only label
-  // available, present that description as the row's own primary label so
-  // sidebars (Mail mailboxes, Finder source list, Notes accounts, etc.)
-  // surface readable names like "Inbox" / "Junk" instead of bare "row".
-  if (
-    node.role === "AXRow" &&
-    node.children.length === 1 &&
-    node.children[0]?.role === "AXCell" &&
-    node.children[0].description
-  ) {
-    return node.children[0].description;
-  }
-  if (!node.title && !node.description && node.value) return node.value;
-  return null;
-};
-
-const primaryLabelForLine = (
-  node: SnapshotNode,
-  primaryLabel: string | null,
-) => {
-  if (node.role !== "AXLink" || !node.url || !primaryLabel) {
-    return primaryLabel;
-  }
-  if (primaryLabel === node.url) {
-    return primaryLabel;
-  }
-  return `[${escapeMarkdownLinkText(primaryLabel)}](${node.url})`;
-};
-
-const annotationSegment = (node: SnapshotNode) => {
-  const flags: string[] = [];
-  if (node.enabled === false) flags.push("disabled");
-  if (node.selected) flags.push("selected");
-  // AppKit's outline/table cells inherit the parent table's focus bit, so
-  // every cell in a focused table reports `focused=true`. That tells the
-  // model nothing useful about which element actually has keyboard focus.
-  // Suppress the flag for cells; meaningful focus on a cell's text field
-  // child still surfaces normally.
-  if (node.focused && node.role !== "AXCell") flags.push("focused");
-  // Outline rows + disclosure groups expose AXExpanded so the model can
-  // tell whether sidebars/sections (Mail Favorites/Smart Mailboxes,
-  // Finder source list, Notes accounts) are open or collapsed before
-  // deciding whether to actuate the disclosure triangle.
-  if (node.expanded === true) flags.push("expanded");
-  else if (node.expanded === false) flags.push("collapsed");
-  if (shouldSurfaceSettable(node)) {
-    flags.push("settable");
-    const valueType = inferredValueType(node);
-    if (valueType) flags.push(valueType);
-  }
-  return flags.length > 0 ? ` (${flags.join(", ")})` : "";
-};
-
-// Internal AppKit selector identifiers (e.g. `_NS:355`, `_recentItemRequested:`)
-// are pure noise to the agent: not stable across builds, never useful for
-// targeting (the numeric ID already addresses the element). Hide them.
-const isInternalAppKitIdentifier = (identifier: string) =>
-  /^_[A-Za-z0-9_]+:?$/.test(identifier);
-
-// Cancel/Pick are present on every menu/menu-item via the AX API. They're
-// universal noise — surfacing them on every menu line would balloon the
-// snapshot without giving the agent any new affordance.
-const filterMenuActions = (actions: string[], role: string) =>
-  role === "AXMenuItem" || role === "AXMenuBarItem" || role === "AXMenu"
-    ? actions.filter((action) => action !== "AXCancel" && action !== "AXPick")
-    : actions;
-
-// Container roles that may be skipped from the rendered tree when the node
-// adds no information of its own. Their children re-attach at the parent's
-// depth so the model sees one tight tree instead of a deep stack of empty
-// `container` lines (e.g. web-area wrapper chains).
-const COLLAPSIBLE_CONTAINER_ROLES = new Set([
-  "AXGroup",
-  "AXGenericElement",
-  "AXUnknown",
-  "AXSplitGroup",
-]);
-
-export const formatNodeLines = (node: SnapshotNode, depth = 0): string[] => {
-  const indent = "\t".repeat(depth);
-  const id =
-    typeof node.index === "number" && Number.isFinite(node.index)
-      ? String(node.index)
-      : (node.ref ?? "_");
-
-  // Menu bar items are globally positioned app chrome, not the target window
-  // content. Hiding them prevents the agent from opening menus while trying
-  // to act on visible app UI.
-  if (node.role === "AXMenuBarItem") {
-    return [];
-  }
-
-  const role = humanRole(node);
-  const rawPrimaryLabel = choosePrimaryLabel(node);
-  const primaryLabel = primaryLabelForLine(node, rawPrimaryLabel);
-  const extras: string[] = [];
-
-  if (
-    node.description &&
-    node.description !== rawPrimaryLabel &&
-    node.description !== primaryLabel &&
-    (node.role === "AXLink" ||
-      node.role === "AXCheckBox" ||
-      node.subrole === "AXSwitch" ||
-      // Browser/Mail/Notes address-bar style fields name themselves on
-      // AXDescription ("Address and search bar", "Search field", "To:",
-      // "Subject:"). The value attribute carries the typed text, so
-      // surface description as a separate prefix rather than collapsing
-      // it into the primary label.
-      node.role === "AXTextField" ||
-      node.role === "AXSearchField" ||
-      node.role === "AXSecureTextField" ||
-      node.role === "AXTextArea")
-  ) {
-    extras.push(`Description: ${truncate(node.description, 120)}`);
-  }
-
-  const renderedValue = displayValue(node);
-  if (
-    renderedValue &&
-    renderedValue !== rawPrimaryLabel &&
-    renderedValue !== primaryLabel
-  ) {
-    extras.push(`Value: ${truncate(renderedValue, 120)}`);
-  }
-
-  if (
-    node.details &&
-    node.details !== primaryLabel &&
-    node.details !== renderedValue
-  ) {
-    extras.push(`Details: ${truncate(node.details, 120)}`);
-  }
-
-  if (node.help && node.help !== primaryLabel) {
-    extras.push(`Help: ${truncate(node.help, 120)}`);
-  }
-
-  if (
-    node.identifier &&
-    node.identifier !== rawPrimaryLabel &&
-    node.identifier !== primaryLabel &&
-    node.identifier !== node.description &&
-    node.identifier !== node.value &&
-    !isInternalAppKitIdentifier(node.identifier)
-  ) {
-    extras.push(`ID: ${truncate(node.identifier, 120)}`);
-  }
-
-  if (node.url) {
-    const renderedUrl = truncate(formatUrlLike(node.url), 100);
-    if (node.role === "AXLink" && primaryLabel !== rawPrimaryLabel) {
-      // The markdown link already carries the destination.
-    } else if (node.role === "AXLink" && !renderedValue) {
-      extras.push(`Value: ${renderedUrl}`);
-    } else {
-      extras.push(`URL: ${renderedUrl}`);
-    }
-  }
-
-  // Placeholder text for empty input fields (Brave's "Search Google or
-  // type a URL", Spotlight's "Spotlight Search", Mail's "To:" hint).
-  // Only meaningful for text-bearing roles, and only when the field
-  // doesn't already carry a typed value to display.
-  if (
-    node.placeholder &&
-    node.placeholder !== rawPrimaryLabel &&
-    node.placeholder !== primaryLabel &&
-    node.placeholder !== node.description &&
-    node.placeholder !== renderedValue &&
-    (node.role === "AXTextField" ||
-      node.role === "AXSearchField" ||
-      node.role === "AXSecureTextField" ||
-      node.role === "AXTextArea" ||
-      node.role === "AXComboBox")
-  ) {
-    extras.push(`Placeholder: ${truncate(node.placeholder, 120)}`);
-  }
-
-  const actions = secondaryActions(
-    filterMenuActions(node.actions ?? [], node.role),
-  );
-  if (actions.length > 0) {
-    extras.push(`Secondary Actions: ${actions.join(", ")}`);
-  }
-
-  const annotation = annotationSegment(node);
-
-  // Collapse / skip empty container nodes. Spotify alone emits ~140 such
-  // anonymous `container` lines per snapshot — they're pure DOM
-  // structural scaffolding from the web view, with no label, no extras,
-  // and no flag annotation worth surfacing. The model gets nothing from
-  // them. Two cases:
-  //
-  //   (a) Empty container with no children → drop entirely. Emitting
-  //       `\t\t\t\t\t<id> container` is just noise.
-  //   (b) Empty container with exactly one child → fold the wrapper:
-  //       render the child at the parent's depth. Most macOS
-  //       web-wrapped apps (Spotify, Slack, Discord, Notion, Cursor,
-  //       VS Code) produce 5–10 nested AXGroup/AXSplitGroup wrappers
-  //       around the actual UI. This rule subsumes the previous
-  //       same-role chain-collapse and applies even when the single
-  //       child is a meaningful node (button/text/link).
-  //
-  // "Empty" requires no primary label, no extras (description / value /
-  // url / placeholder / etc.), and no annotation flags (no
-  // disabled/focused/selected/expanded/settable). Containers that
-  // expose `settable` are still part of the actionable tree; we never
-  // collapse those.
-  const isEmptyCollapsibleContainer =
-    COLLAPSIBLE_CONTAINER_ROLES.has(node.role) &&
-    !primaryLabel &&
-    extras.length === 0 &&
-    annotation === "";
-  if (isEmptyCollapsibleContainer) {
-    if (node.children.length === 0) {
-      return [];
-    }
-    if (node.children.length === 1) {
-      return formatNodeLines(node.children[0]!, depth);
-    }
-  }
-
-  let line = `${indent}${id} ${role}${annotation}`;
-  if (primaryLabel) {
-    line += ` ${truncate(primaryLabel, 120)}`;
-    if (extras.length > 0) {
-      line += `, ${extras.join(", ")}`;
-    }
-  } else if (extras.length > 0) {
-    // When there's no primary label, extras hang directly off the role with a
-    // single space, no comma. The extras among themselves are still ", "-joined.
-    line += ` ${extras.join(", ")}`;
-  }
-  // Skip rendering the lone AXCell child of an AXRow when its description
-  // was already folded up into the row's primary label (see
-  // `choosePrimaryLabel`). Otherwise sidebars duplicate every label as a
-  // child cell line right under the row.
-  const childrenToRender =
-    node.role === "AXRow" &&
-    node.children.length === 1 &&
-    node.children[0]?.role === "AXCell" &&
-    primaryLabel === node.children[0].description
-      ? []
-      : node.children;
-  return [
-    line,
-    ...childrenToRender.flatMap((child) => formatNodeLines(child, depth + 1)),
-  ];
-};
-
-const findFocusedElement = (
-  nodes: SnapshotNode[],
-): { index: number | string; role: string } | null => {
-  for (const node of nodes) {
-    if (node.focused) {
-      return {
-        index:
-          typeof node.index === "number" && Number.isFinite(node.index)
-            ? node.index
-            : (node.ref ?? "_"),
-        role: humanRole(node),
-      };
-    }
-    const nested = findFocusedElement(node.children);
-    if (nested) return nested;
-  }
-  return null;
-};
-
-const printWarnings = (warnings: string[] | undefined) => {
-  for (const warning of warnings ?? []) {
-    writeComputerStdout(`[warning] ${warning}\n`);
-  }
-};
-
-const parseJson = <T>(text: string): T => {
-  try {
-    return JSON.parse(text) as T;
-  } catch (error) {
-    throw new Error(
-      `Failed to parse desktop automation response: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
-};
-
-// Emit a "[stella-attach-image]" marker line that the runtime layer can
-// detect when reading shell output to auto-attach the image as a vision
-// content block to the next assistant turn. The line is also human-readable
-// so it does no harm if the host doesn't auto-detect it. We include the
-// width/height so callers can pre-budget vision token cost without a follow-
-// up `Read` step.
-const formatScreenshotMarker = (
-  screenshot?: Screenshot | null,
-  fallbackPath?: string | null,
-) => {
-  const path = screenshot?.path ?? fallbackPath ?? null;
-  if (!path && !screenshot?.data) return "";
-  const dims =
-    screenshot?.widthPx && screenshot?.heightPx
-      ? ` ${screenshot.widthPx}x${screenshot.heightPx}`
-      : "";
-  const sizeKb = screenshot?.byteCount
-    ? ` ${(screenshot.byteCount / 1024).toFixed(0)}KB`
-    : "";
-  const inline = screenshot?.data ? " inline=image/png" : "";
-  if (path) {
-    return `[stella-attach-image]${dims}${sizeKb}${inline} path=${JSON.stringify(path)}\n`;
-  }
-  return `[stella-attach-image]${dims}${sizeKb}${inline}\n`;
-};
-
-const formatAppInstructions = (instructions?: string | null) => {
-  if (!instructions) return "";
-  const trimmed = instructions.trim();
-  if (!trimmed) return "";
-  return `<app_specific_instructions>\n${trimmed}\n</app_specific_instructions>\n`;
-};
-
-const formatBundleSpecificStateNote = (snapshot: SnapshotDocument) => {
-  if (snapshot.bundleId !== "com.spotify.client") {
-    return "";
-  }
-  return (
-    "Note: In order to be usable, Spotify app links must be rewritten as regular links " +
-    "(e.g. use open.spotify.com instead of xpui.app.spotify.com). Only use Spotify links " +
-    "that are written verbatim in the UI above. Note that IDs are only valid with their " +
-    'associated type (e.g. you cannot change an "album" URL to a "track" URL).'
-  );
-};
-
-/** Stable, capture-independent state used for freshness and diffs. */
-const appSemanticStateLines = (snapshot: SnapshotDocument) => {
-  const lines: string[] = ["<app_state>"];
-  lines.push(
-    snapshot.bundleId
-      ? `App=${snapshot.bundleId} (pid ${snapshot.pid})`
-      : `App=${snapshot.appName} (pid ${snapshot.pid})`,
-  );
-  if (snapshot.windowTitle) {
-    lines.push(`Window: "${snapshot.windowTitle}", App: ${snapshot.appName}.`);
-  }
-  if (snapshot.windowFrame) {
-    const frame = snapshot.windowFrame;
-    lines.push(
-      `Window frame: x=${frame.x}, y=${frame.y}, width=${frame.width}, height=${frame.height}.`,
-    );
-  }
-  for (const node of snapshot.nodes) {
-    lines.push(...formatNodeLines(node));
-  }
-  if (snapshot.selectedText) {
-    lines.push("", `Selected text: [${snapshot.selectedText}]`);
-  } else if (snapshot.focusedSummary) {
-    lines.push("", `The focused UI element is ${snapshot.focusedSummary}.`);
-  } else {
-    const focused = findFocusedElement(snapshot.nodes);
-    if (focused) {
-      lines.push(
-        "",
-        `The focused UI element is ${focused.index} ${focused.role}.`,
-      );
-    }
-  }
-  const bundleNote = formatBundleSpecificStateNote(snapshot);
-  if (bundleNote) lines.push("", bundleNote);
-  lines.push("</app_state>");
-  return lines;
-};
-
-const appStateLines = (snapshot: SnapshotDocument) => {
-  const semanticLines = appSemanticStateLines(snapshot);
-  const headerLineCount =
-    2 + (snapshot.windowTitle ? 1 : 0) + (snapshot.windowFrame ? 1 : 0);
-  const lines = semanticLines.slice(0, headerLineCount);
-  if (snapshot.revision != null) {
-    lines.push(
-      `State revision: ${snapshot.revision} (materialized ${snapshot.materializedRevision ?? snapshot.revision}, cache_hit=${snapshot.cacheHit === true ? "true" : "false"}, pending_actions=${snapshot.pendingActionCount ?? 0}).`,
-    );
-  }
-  if (snapshot.screenshot) {
-    lines.push(
-      `Screenshot context: method=${snapshot.screenshot.captureMethod ?? "unknown"}, reliable_final_frame=${snapshot.screenshot.reliableFinalFrame === false ? "false" : "true"}, exact_window=${snapshot.screenshot.exactWindowMatch === true ? "true" : "false"}.`,
-    );
-  }
-  lines.push(...semanticLines.slice(headerLineCount));
-  return lines;
-};
-
-const snapshotStateId = (snapshot: SnapshotDocument): string =>
-  `state_${createHash("sha256")
-    .update(appSemanticStateLines(snapshot).join("\n"))
-    .digest("hex")
-    .slice(0, 20)}`;
-
-const snapshotVisualStateId = (
-  snapshot: SnapshotDocument,
-): string | undefined => {
-  const imagePath = snapshot.screenshot?.path ?? snapshot.screenshotPath;
-  let bytes: Buffer | string | undefined;
-  if (imagePath && path.isAbsolute(imagePath)) {
-    try {
-      bytes = fs.readFileSync(imagePath);
-    } catch {
-      // A missing image is represented as no visual identity, not a semantic
-      // state change.
-    }
-  }
-  if (!bytes && snapshot.screenshot?.data) bytes = snapshot.screenshot.data;
-  return bytes
-    ? `visual_${createHash("sha256").update(bytes).digest("hex").slice(0, 20)}`
-    : undefined;
-};
-
-const formatAppStateBlock = (snapshot: SnapshotDocument) => {
-  writeComputerStdout(`${appStateLines(snapshot).join("\n")}\n`);
-};
-
-const diffTargetFromSnapshot = (
-  snapshot: SnapshotDocument,
-  lineCount: number,
-): StateDiffTarget => ({
-  appName: snapshot.appName,
-  bundleId: snapshot.bundleId ?? null,
-  pid: snapshot.pid,
-  windowTitle: snapshot.windowTitle ?? null,
-  windowId: snapshot.windowId ?? null,
-  capturedAt: snapshot.capturedAt ?? null,
-  nodeCount: snapshot.nodeCount,
-  lineCount,
-});
-
-const snapshotDiff = (
-  previous: SnapshotDocument | null,
-  current: SnapshotDocument,
-): StateDiff => {
-  const previousLines = previous ? appSemanticStateLines(previous) : null;
-  const currentLines = appSemanticStateLines(current);
-  return computeStateDiff({
-    previousLines,
-    currentLines,
-    previousTarget: previous
-      ? diffTargetFromSnapshot(previous, previousLines?.length ?? 0)
-      : null,
-    currentTarget: diffTargetFromSnapshot(current, currentLines.length),
-  });
-};
-
-const formatActionSettle = (settle?: AutomationSettle | null) => {
-  if (!settle) return;
-  const reason = settle.reason ? ` reason=${settle.reason}` : "";
-  const source = settle.observed ? "AX quiet" : "fixed post-action wait";
-  writeComputerStdout(
-    `Action settle: ${source}; waited=${settle.waitedMs}ms quiet=${settle.quietMs}ms events=${settle.eventCount} timed_out=${settle.timedOut ? "true" : "false"}${reason}\n`,
-  );
-};
-
-const formatSnapshot = (snapshot: SnapshotDocument) => {
-  const instructions = formatAppInstructions(snapshot.appInstructions);
-  if (instructions) {
-    writeComputerStdout(instructions);
-  }
-  formatAppStateBlock(snapshot);
-
-  writeComputerStdout(
-    formatScreenshotMarker(snapshot.screenshot, snapshot.screenshotPath),
-  );
-  printWarnings(snapshot.warnings);
-};
-
-const formatAction = (
-  payload: ActionPayload,
-  snapshot: SnapshotDocument | null,
-  stateDiff: StateDiff | null,
-) => {
-  writeComputerStdout(
-    payload.message.replace(/\bAX[A-Za-z]+\b/g, (action) =>
-      humanActionName(action),
-    ),
-  );
-  writeComputerStdout("\n");
-  formatActionSettle(payload.settle);
-  if (snapshot) {
-    if (stateDiff && shouldUseDiffOnly(stateDiff)) {
-      writeComputerStdout(formatStateDiffBlock(stateDiff));
-    } else {
-      if (stateDiff) {
-        writeComputerStdout(formatStateDiffBlock(stateDiff));
-      }
-      formatAppStateBlock(snapshot);
-    }
-  }
-  writeComputerStdout(
-    formatScreenshotMarker(payload.screenshot, payload.screenshotPath),
-  );
-  printWarnings(payload.warnings);
-};
-
-// Return only "regular" (user-launchable) apps. macOS exposes accessory and
-// background helpers (Spotlight, LoginWindow, WindowManager, renderer helpers)
-// that pollute the list and have no addressable UI for the agent.
-const LISTED_ACTIVATION_POLICIES = new Set(["regular"]);
-
-const formatListApps = (payload: ListAppsPayload) => {
-  const visible = payload.apps.filter((app) =>
-    LISTED_ACTIVATION_POLICIES.has(app.activationPolicy),
-  );
-  // Put the user's current app first, then keep the usage prior for the rest.
-  visible.sort((a, b) => {
-    if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
-    const usesA = a.useCount ?? -1;
-    const usesB = b.useCount ?? -1;
-    if (usesA !== usesB) return usesB - usesA;
-    return a.name.localeCompare(b.name);
-  });
-
-  for (const app of visible) {
-    const flags: string[] = [];
-    if (app.isRunning !== false) {
-      flags.push("running");
-    }
-    if (app.isActive) {
-      flags.push("frontmost");
-    }
-    if (app.lastUsedDate) {
-      flags.push(`last-used=${app.lastUsedDate}`);
-    }
-    if (typeof app.useCount === "number" && Number.isFinite(app.useCount)) {
-      flags.push(`uses=${app.useCount}`);
-    }
-    const bundle = app.bundleId ? ` — ${app.bundleId}` : "";
-    writeComputerStdout(`${app.name}${bundle} [${flags.join(", ")}]\n`);
-  }
-  printWarnings(payload.warnings);
-};
-
-const formatListWindows = (payload: ListWindowsPayload) => {
-  for (const window of payload.windows) {
-    const title = window.title ? ` — ${window.title}` : "";
-    const bundle = window.bundleId ? ` — ${window.bundleId}` : "";
-    const active = window.isActive ? " frontmost" : "";
-    writeComputerStdout(
-      `${window.appName}${title}${bundle} [window-id=${window.windowId}, pid=${window.pid}, frame=${window.frame.x},${window.frame.y},${window.frame.width},${window.frame.height}${active}]\n`,
-    );
-  }
-  printWarnings(payload.warnings);
-};
-
-const formatError = (payload: ErrorPayload) => {
-  writeComputerStderr(payload.error);
-  writeComputerStderr("\n");
-  // Mirror the action/snapshot screenshot-marker contract on the error path
-  // so failures still expose the diagnostic capture without requiring an
-  // extra Read step.
-  const marker = formatScreenshotMarker(
-    payload.screenshot,
-    payload.screenshotPath,
-  );
-  if (marker) writeComputerStderr(marker);
-  for (const warning of payload.warnings ?? []) {
-    writeComputerStderr(`[warning] ${warning}\n`);
-  }
-};
-
 const emitError = (payload: ErrorPayload, jsonMode: boolean) => {
   if (jsonMode) {
     writeComputerStdout(`${JSON.stringify(payload, null, 2)}\n`);
@@ -2275,34 +306,9 @@ class StellaComputerExitError extends Error {
   }
 }
 
-const isTruthyEnv = (value: string | undefined) =>
-  typeof value === "string" && /^(1|true|yes)$/i.test(value.trim());
-
 const hidAllowed = (args: string[]) =>
   hasOption(args, "--allow-hid") ||
   isTruthyEnv(getComputerExecutionEnv().STELLA_COMPUTER_ALLOW_HID);
-
-const normalizeLockKey = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 160);
-
-const fallbackStateLockKey = (statePath: string) => {
-  const relative = path.relative(stateDir(), path.resolve(statePath));
-  return `state-${normalizeLockKey(relative || path.basename(statePath)) || "default"}`;
-};
-
-const readSnapshotDocument = (statePath: string): SnapshotDocument | null => {
-  try {
-    return parseJson<SnapshotDocument>(fs.readFileSync(statePath, "utf8"));
-  } catch {
-    return null;
-  }
-};
 
 const sessionTargetsDir = (sessionPaths: SessionPaths) =>
   path.join(sessionPaths.sessionDir, "targets");
@@ -2311,46 +317,30 @@ const sessionTargetRegistryPath = (sessionPaths: SessionPaths) =>
   path.join(sessionPaths.sessionDir, "targets.json");
 
 const targetKeyFromSnapshot = (snapshot: SnapshotDocument) => {
-  const bundleId = normalizeLockKey(snapshot.bundleId ?? "");
+  const bundleId = normalizeTargetKey(snapshot.bundleId ?? "");
   if (bundleId) {
     return `bundle-${bundleId}`;
   }
-  const appName = normalizeLockKey(snapshot.appName ?? "");
+  const appName = normalizeTargetKey(snapshot.appName ?? "");
   if (appName) {
     return `app-${appName}`;
   }
   return `pid-${snapshot.pid}`;
 };
 
-const targetStatePathForKey = (sessionPaths: SessionPaths, key: string) =>
-  path.join(sessionTargetsDir(sessionPaths), key, "last-snapshot.json");
-
-const writeJsonAtomic = (finalPath: string, value: unknown) => {
-  fs.mkdirSync(path.dirname(finalPath), { recursive: true });
-  const tempPath = `${finalPath}.tmp`;
-  fs.writeFileSync(tempPath, JSON.stringify(value, null, 2));
-  fs.renameSync(tempPath, finalPath);
-};
+const sessionTargetStatePath = (sessionPaths: SessionPaths, key: string) =>
+  targetStatePathForKey(sessionTargetsDir(sessionPaths), key);
 
 const readSessionTargetRegistry = (
   sessionPaths: SessionPaths,
 ): SessionTargetRegistry => {
-  try {
-    const raw = fs.readFileSync(
-      sessionTargetRegistryPath(sessionPaths),
-      "utf8",
-    );
-    const parsed = parseJson<SessionTargetRegistry>(raw);
-    return {
-      activeTargetKey: parsed.activeTargetKey ?? null,
-      targets: parsed.targets ?? {},
-    };
-  } catch {
-    return {
-      activeTargetKey: null,
-      targets: {},
-    };
-  }
+  const parsed = readJsonFile<SessionTargetRegistry>(
+    sessionTargetRegistryPath(sessionPaths),
+  );
+  return {
+    activeTargetKey: parsed?.activeTargetKey ?? null,
+    targets: parsed?.targets ?? {},
+  };
 };
 
 const writeSessionTargetRegistry = (
@@ -2400,7 +390,7 @@ const syncSessionTargetSnapshot = (
     return;
   }
   const key = targetKeyFromSnapshot(snapshot);
-  const targetStatePath = targetStatePathForKey(sessionPaths, key);
+  const targetStatePath = sessionTargetStatePath(sessionPaths, key);
   const targetScreenshotPath = deriveScreenshotPath(targetStatePath);
   mirrorSnapshotToPath(snapshot, targetStatePath, targetScreenshotPath);
   if (statePath !== sessionPaths.statePath) {
@@ -2492,9 +482,9 @@ const resolveTargetRecord = (
     );
   }
   if (selector.bundleId) {
-    const needle = normalizeLockKey(selector.bundleId);
+    const needle = normalizeTargetKey(selector.bundleId);
     const exact = targets.find(
-      (target) => normalizeLockKey(target.bundleId ?? "") === needle,
+      (target) => normalizeTargetKey(target.bundleId ?? "") === needle,
     );
     if (exact) return exact;
     throw new Error(
@@ -2502,9 +492,9 @@ const resolveTargetRecord = (
     );
   }
   if (selector.appName) {
-    const needle = normalizeLockKey(selector.appName);
+    const needle = normalizeTargetKey(selector.appName);
     const exact = targets.filter(
-      (target) => normalizeLockKey(target.appName ?? "") === needle,
+      (target) => normalizeTargetKey(target.appName ?? "") === needle,
     );
     if (exact.length === 1) {
       return exact[0]!;
@@ -2515,8 +505,8 @@ const resolveTargetRecord = (
       );
     }
     const fuzzy = targets.filter((target) => {
-      const appName = normalizeLockKey(target.appName ?? "");
-      const bundleId = normalizeLockKey(target.bundleId ?? "");
+      const appName = normalizeTargetKey(target.appName ?? "");
+      const bundleId = normalizeTargetKey(target.bundleId ?? "");
       return appName.includes(needle) || bundleId.includes(needle);
     });
     if (fuzzy.length === 1) {
@@ -2614,77 +604,6 @@ const translateScreenshotCoordinateCommand = (
   };
 };
 
-const snapshotLockKeys = (
-  snapshot: SnapshotDocument | null,
-  statePath: string,
-) => {
-  const keys: string[] = [];
-  if (snapshot?.appName) {
-    keys.push(`app-${normalizeLockKey(snapshot.appName)}`);
-  }
-  if (snapshot?.bundleId) {
-    keys.push(`bundle-${normalizeLockKey(snapshot.bundleId)}`);
-  }
-  if (typeof snapshot?.pid === "number" && Number.isFinite(snapshot.pid)) {
-    keys.push(`pid-${snapshot.pid}`);
-  }
-  return keys.length > 0 ? keys : [fallbackStateLockKey(statePath)];
-};
-
-const resolveLockKeys = (
-  command: string,
-  args: string[],
-  sessionPaths: SessionPaths,
-) => {
-  if (command === "list-apps") {
-    return [];
-  }
-
-  const keys = new Set<string>();
-
-  if (command === "snapshot") {
-    const pidValue = getOptionValue(args, "--pid");
-    const bundleId = getOptionValue(args, "--bundle-id");
-    const appName = getOptionValue(args, "--app");
-
-    if (pidValue) {
-      keys.add(`pid-${pidValue}`);
-    }
-    if (bundleId) {
-      keys.add(`bundle-${normalizeLockKey(bundleId)}`);
-    }
-    if (appName) {
-      keys.add(`app-${normalizeLockKey(appName)}`);
-    }
-    if (keys.size === 0) {
-      keys.add("frontmost-app");
-    }
-  } else {
-    const statePath = getOptionValue(args, "--state") ?? sessionPaths.statePath;
-    for (const key of snapshotLockKeys(
-      readSnapshotDocument(statePath),
-      statePath,
-    )) {
-      keys.add(key);
-    }
-  }
-
-  if (
-    command === "drag" ||
-    command === "drag-element" ||
-    command === "click-point" ||
-    command === "type" ||
-    command === "press" ||
-    (command === "click" && hasOption(args, "--coordinate-fallback"))
-  ) {
-    keys.add("global-hid");
-  }
-
-  keys.add(`session-${sessionPaths.sessionId}`);
-
-  return [...keys].sort();
-};
-
 const ensureCommandPaths = (command: string, args: string[]) => {
   if (command === "list-apps") {
     return;
@@ -2701,450 +620,6 @@ const ensureCommandPaths = (command: string, args: string[]) => {
       fs.mkdirSync(path.dirname(screenshotPath), { recursive: true });
     }
   }
-};
-
-const getLockTimeoutMs = () => {
-  const parsed = Number(
-    getComputerExecutionEnv().STELLA_COMPUTER_LOCK_TIMEOUT_MS,
-  );
-  if (Number.isFinite(parsed) && parsed > 0) {
-    return parsed;
-  }
-  return defaultLockTimeoutMs;
-};
-
-const sleep = abortableComputerDelay;
-
-const acquireLock = async (key: string, sessionId: string) => {
-  const lockPath = path.join(locksDir(), normalizeLockKey(key) || "lock");
-  const deadlineAt = Date.now() + getLockTimeoutMs();
-
-  while (Date.now() <= deadlineAt) {
-    try {
-      fs.mkdirSync(lockPath);
-      fs.writeFileSync(
-        path.join(lockPath, "owner.json"),
-        JSON.stringify(
-          {
-            pid: process.pid,
-            key,
-            sessionId,
-            acquiredAt: new Date().toISOString(),
-          },
-          null,
-          2,
-        ),
-        "utf8",
-      );
-      return () => {
-        fs.rmSync(lockPath, { recursive: true, force: true });
-      };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        throw error;
-      }
-
-      try {
-        const stats = fs.statSync(lockPath);
-        if (Date.now() - stats.mtimeMs > staleLockTimeoutMs) {
-          fs.rmSync(lockPath, { recursive: true, force: true });
-          continue;
-        }
-      } catch {
-        continue;
-      }
-
-      await sleep(lockPollIntervalMs);
-    }
-  }
-
-  throw new Error(`Timed out waiting for desktop automation lock: ${key}`);
-};
-
-const acquireLocks = async (keys: string[], sessionId: string) => {
-  const releases: Array<() => void> = [];
-  try {
-    for (const key of keys) {
-      releases.push(await acquireLock(key, sessionId));
-    }
-    return () => {
-      while (releases.length > 0) {
-        const release = releases.pop();
-        release?.();
-      }
-    };
-  } catch (error) {
-    while (releases.length > 0) {
-      const release = releases.pop();
-      release?.();
-    }
-    throw error;
-  }
-};
-
-const readLockedUseEnabled = () => {
-  if (isTruthyEnv(getComputerExecutionEnv().STELLA_COMPUTER_LOCKED_USE)) {
-    return true;
-  }
-  try {
-    return loadLocalPreferences(resolveStellaDataDir())
-      .lockedComputerUseEnabled;
-  } catch {
-    return false;
-  }
-};
-
-const writeLockedUseEnabled = (enabled: boolean) => {
-  const stellaDataDir = resolveStellaDataDir();
-  const prefs = loadLocalPreferences(stellaDataDir);
-  saveLocalPreferences(stellaDataDir, {
-    ...prefs,
-    lockedComputerUseEnabled: enabled,
-  });
-};
-
-const runProcessCapture = async (
-  command: string,
-  args: string[],
-  timeoutMs: number,
-): Promise<AutomationHelperResult> =>
-  await new Promise((resolve) => {
-    let settled = false;
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    const child = spawn(command, args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    const settle = (result: AutomationHelperResult) => {
-      if (settled) return;
-      settled = true;
-      cancelTimer();
-      resolve(result);
-    };
-    // The capture deadline is a forked timeout fiber interrupted by settle
-    // (the clearTimeout analogue); duration and kill path unchanged.
-    const cancelTimer = forkCancelableTimeout(timeoutMs, () => {
-      killDetachedProcess(child.pid);
-      settle({
-        status: 1,
-        stdout: Buffer.concat(stdoutChunks).toString("utf8").trim(),
-        stderr:
-          Buffer.concat(stderrChunks).toString("utf8").trim() ||
-          `${command} timed out after ${timeoutMs}ms`,
-        timedOut: true,
-      });
-    });
-    child.stdout?.on("data", (chunk) => stdoutChunks.push(Buffer.from(chunk)));
-    child.stderr?.on("data", (chunk) => stderrChunks.push(Buffer.from(chunk)));
-    child.once("error", (error) => {
-      settle({
-        status: 1,
-        stdout: Buffer.concat(stdoutChunks).toString("utf8").trim(),
-        stderr: error.message,
-        error,
-      });
-    });
-    child.once("exit", (status) => {
-      settle({
-        status: status ?? 1,
-        stdout: Buffer.concat(stdoutChunks).toString("utf8").trim(),
-        stderr: Buffer.concat(stderrChunks).toString("utf8").trim(),
-      });
-    });
-  });
-
-const lockedUseInstallerPaths = () => {
-  const installerPath = resolveNativeHelperPath("locked_use_installer");
-  if (!installerPath) {
-    throw new Error(
-      'Native helper "locked_use_installer" was not found. Build desktop/native first.',
-    );
-  }
-  return {
-    installerPath,
-    resourceDir: path.dirname(installerPath),
-  };
-};
-
-const lockedUseAuthorizerPath = () => {
-  const helperPath = resolveNativeHelperPath(
-    "Stella.app/Contents/MacOS/Stella",
-  );
-  if (!helperPath) {
-    throw new Error(
-      'Native helper "Stella.app" was not found. Build desktop/native first.',
-    );
-  }
-  return helperPath;
-};
-
-const runLockedUseInstaller = async (
-  action: "install" | "uninstall" | "status",
-  options: { admin?: boolean } = {},
-) => {
-  const { installerPath, resourceDir } = lockedUseInstallerPaths();
-  if (
-    options.admin &&
-    process.platform === "darwin" &&
-    typeof process.getuid === "function" &&
-    process.getuid() !== 0
-  ) {
-    return await runProcessCapture(
-      lockedUseAuthorizerPath(),
-      [action, resourceDir],
-      lockedUseInstallerTimeoutMs,
-    );
-  }
-  return await runNativeHelper({
-    helperName: "locked_use_installer",
-    helperArgs: [action, resourceDir],
-    timeoutMs: lockedUseInstallerTimeoutMs,
-  });
-};
-
-const lockedUseStatus = async () => {
-  let installed = false;
-  let statusText = "";
-  try {
-    const status = await runLockedUseInstaller("status");
-    statusText = [status.stdout, status.stderr]
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-    installed =
-      /\binstalled\b/.test(statusText) && !/\bnot-installed\b/.test(statusText);
-  } catch (error) {
-    statusText = error instanceof Error ? error.message : String(error);
-  }
-  return {
-    enabled: readLockedUseEnabled(),
-    installed,
-    statusText,
-  };
-};
-
-const runLockedUseManagementCommand = async (
-  action: string | undefined,
-  jsonMode: boolean,
-) => {
-  const requested = action ?? "status";
-  if (
-    !["status", "enable", "disable", "install", "uninstall"].includes(requested)
-  ) {
-    writeComputerStderr(`Unknown locked-use action: ${requested}\n`);
-    return 1;
-  }
-
-  if (requested === "status") {
-    const status = await lockedUseStatus();
-    const payload = {
-      ok: true,
-      enabled: status.enabled,
-      installed: status.installed,
-      active: false,
-      locked: false,
-      suppressedUntilManualUnlock: false,
-      message: status.statusText || "Locked computer use status unavailable.",
-      warnings: [],
-    } satisfies LockedUsePayload;
-    if (jsonMode) {
-      writeComputerStdout(`${JSON.stringify(payload, null, 2)}\n`);
-    } else {
-      writeComputerStdout(
-        `Locked computer use: ${status.enabled ? "enabled" : "disabled"} (${status.installed ? "installed" : "not installed"})\n`,
-      );
-      if (status.statusText) writeComputerStdout(`${status.statusText}\n`);
-    }
-    return 0;
-  }
-
-  if (requested === "disable") {
-    writeLockedUseEnabled(false);
-    const status = await lockedUseStatus();
-    const payload = {
-      ok: true,
-      enabled: status.enabled,
-      installed: status.installed,
-      active: false,
-      locked: false,
-      suppressedUntilManualUnlock: false,
-      message: status.statusText || "OK",
-      warnings: [],
-    } satisfies LockedUsePayload;
-    if (jsonMode) {
-      writeComputerStdout(`${JSON.stringify(payload, null, 2)}\n`);
-    } else {
-      writeComputerStdout(`${status.statusText || "OK"}\n`);
-    }
-    return 0;
-  }
-
-  const shouldInstall = requested === "enable" || requested === "install";
-  const currentStatus = await lockedUseStatus();
-  if (shouldInstall && currentStatus.installed) {
-    writeLockedUseEnabled(true);
-    const status = await lockedUseStatus();
-    const payload = {
-      ok: true,
-      enabled: status.enabled,
-      installed: status.installed,
-      active: false,
-      locked: false,
-      suppressedUntilManualUnlock: false,
-      message: status.statusText || "OK",
-      warnings: [],
-    } satisfies LockedUsePayload;
-    if (jsonMode) {
-      writeComputerStdout(`${JSON.stringify(payload, null, 2)}\n`);
-    } else {
-      writeComputerStdout(`${status.statusText || "OK"}\n`);
-    }
-    return 0;
-  }
-  if (requested === "uninstall" && !currentStatus.installed) {
-    writeLockedUseEnabled(false);
-    const status = await lockedUseStatus();
-    const payload = {
-      ok: true,
-      enabled: status.enabled,
-      installed: status.installed,
-      active: false,
-      locked: false,
-      suppressedUntilManualUnlock: false,
-      message: status.statusText || "OK",
-      warnings: [],
-    } satisfies LockedUsePayload;
-    if (jsonMode) {
-      writeComputerStdout(`${JSON.stringify(payload, null, 2)}\n`);
-    } else {
-      writeComputerStdout(`${status.statusText || "OK"}\n`);
-    }
-    return 0;
-  }
-
-  const installerResult = await runLockedUseInstaller(
-    shouldInstall ? "install" : "uninstall",
-    { admin: true },
-  );
-  if (installerResult.status !== 0) {
-    const message =
-      installerResult.stderr ||
-      installerResult.stdout ||
-      `locked-use ${requested} failed`;
-    if (jsonMode) {
-      writeComputerStdout(
-        `${JSON.stringify(
-          {
-            ok: false,
-            enabled: readLockedUseEnabled(),
-            installed: false,
-            active: false,
-            locked: false,
-            suppressedUntilManualUnlock: false,
-            message,
-            warnings: [],
-          } satisfies LockedUsePayload,
-          null,
-          2,
-        )}\n`,
-      );
-    } else {
-      writeComputerStderr(`${message}\n`);
-    }
-    return 1;
-  }
-
-  const status = await lockedUseStatus();
-  const installIncomplete = shouldInstall && !status.installed;
-  const uninstallIncomplete = requested === "uninstall" && status.installed;
-  if (installIncomplete || uninstallIncomplete) {
-    const message =
-      installerResult.stderr ||
-      installerResult.stdout ||
-      `locked-use ${requested} did not complete`;
-    if (jsonMode) {
-      writeComputerStdout(
-        `${JSON.stringify(
-          {
-            ok: false,
-            enabled: readLockedUseEnabled(),
-            installed: status.installed,
-            active: false,
-            locked: false,
-            suppressedUntilManualUnlock: false,
-            message,
-            warnings: [],
-          } satisfies LockedUsePayload,
-          null,
-          2,
-        )}\n`,
-      );
-    } else {
-      writeComputerStderr(`${message}\n`);
-    }
-    return 1;
-  }
-
-  writeLockedUseEnabled(shouldInstall);
-  if (jsonMode) {
-    writeComputerStdout(
-      `${JSON.stringify(
-        {
-          ok: true,
-          enabled: status.enabled,
-          installed: status.installed,
-          active: false,
-          locked: false,
-          suppressedUntilManualUnlock: false,
-          message: installerResult.stdout || installerResult.stderr || "OK",
-          warnings: [],
-        } satisfies LockedUsePayload,
-        null,
-        2,
-      )}\n`,
-    );
-  } else {
-    writeComputerStdout(
-      `${installerResult.stdout || installerResult.stderr || "OK"}\n`,
-    );
-  }
-  return 0;
-};
-
-const maybeBeginLockedUseLease = async (sessionPaths: SessionPaths) => {
-  if (process.platform !== "darwin" || !readLockedUseEnabled()) {
-    return false;
-  }
-  const result = await runAutomationDaemonCommand(
-    sessionPaths,
-    ["locked-use-begin", "--duration-ms", String(lockedUseLeaseDurationMs)],
-    7_500,
-  );
-  if (result.status !== 0 || !result.stdout) {
-    throw new Error(
-      result.stderr || "Failed to open locked computer use lease.",
-    );
-  }
-  const payload = parseJson<LockedUsePayload>(result.stdout);
-  if (!payload.ok) {
-    throw new Error(payload.message || "Locked computer use lease was denied.");
-  }
-  return true;
-};
-
-const endLockedUseLease = async (sessionPaths: SessionPaths) => {
-  if (process.platform !== "darwin" || !readLockedUseEnabled()) {
-    return;
-  }
-  await runAutomationDaemonCommand(
-    sessionPaths,
-    ["locked-use-end"],
-    5_000,
-  ).catch(() => {
-    // Best-effort cleanup; command result handling should not be masked by a
-    // failed lease close.
-  });
 };
 
 const validateHidAccess = (
@@ -3188,6 +663,12 @@ const validateHidAccess = (
   }
 };
 
+// The argv CLI path. It deliberately does not route through
+// executeMacComputerUseRequest: it forwards native argv (target resolution,
+// --state/--screenshot files, HID opt-in) to the daemon, takes the directory
+// locks and locked-use lease itself, and prints human-readable output, while
+// the typed path resolves targets from list_apps, requires observed state ids
+// for actions, and returns structured responses.
 const runCommand = async (
   command: string,
   args: string[],
@@ -3196,7 +677,10 @@ const runCommand = async (
 ): Promise<number> => {
   const sessionPaths = resolveSessionPaths(sessionOverride);
   ensureStateDirectory(sessionPaths);
-  pruneStellaComputerSessions(sessionPaths.sessionId);
+  pruneComputerSessions(sessionPaths.sessionId, [
+    automationSocketsDir(),
+    locksDir(),
+  ]);
 
   let effectiveCommand = command === "get-state" ? "snapshot" : command;
   let effectiveArgs = args;
@@ -3575,9 +1059,9 @@ const computerUseErrorResponse = (
 });
 
 const typedTargetKey = (target: TypedAutomationTarget) => {
-  const bundleId = normalizeLockKey(target.bundleId ?? "");
+  const bundleId = normalizeTargetKey(target.bundleId ?? "");
   if (bundleId) return `bundle-${bundleId}`;
-  const appName = normalizeLockKey(target.appName ?? "");
+  const appName = normalizeTargetKey(target.appName ?? "");
   if (appName) return `app-${appName}`;
   return `pid-${target.pid}`;
 };
@@ -3689,7 +1173,10 @@ const actionState = (
   sessionPaths: SessionPaths,
   target: TypedAutomationTarget,
 ): TypedAutomationState => {
-  const statePath = targetStatePathForKey(sessionPaths, typedTargetKey(target));
+  const statePath = sessionTargetStatePath(
+    sessionPaths,
+    typedTargetKey(target),
+  );
   if (!readSnapshotDocument(statePath)?.ok) {
     throw new Error(
       `No cached state exists for ${target.appName ?? target.bundleId ?? target.pid}. Call get_app_state first.`,
@@ -3903,7 +1390,7 @@ const actionReceiptFromNative = (
 const macStatePath = (
   sessionPaths: SessionPaths,
   target: TypedAutomationTarget,
-) => targetStatePathForKey(sessionPaths, typedTargetKey(target));
+) => sessionTargetStatePath(sessionPaths, typedTargetKey(target));
 
 const captureMacState = async (
   sessionPaths: SessionPaths,
@@ -4035,7 +1522,10 @@ const executeMacComputerUseRequest = async (
 ): Promise<ComputerUseResponse> => {
   const sessionPaths = resolveSessionPaths(request.sessionId);
   ensureStateDirectory(sessionPaths);
-  pruneStellaComputerSessions(sessionPaths.sessionId);
+  pruneComputerSessions(sessionPaths.sessionId, [
+    automationSocketsDir(),
+    locksDir(),
+  ]);
   const envelope = typedResponseEnvelope(request);
 
   if (request.type === "list_apps") {
@@ -4136,8 +1626,8 @@ const executeMacComputerUseRequest = async (
         const semanticChanged = pollStateId !== request.afterStateId;
         const visualChanged = Boolean(
           request.afterVisualStateId &&
-          pollVisualStateId &&
-          pollVisualStateId !== request.afterVisualStateId,
+            pollVisualStateId &&
+            pollVisualStateId !== request.afterVisualStateId,
         );
         if (semanticChanged || visualChanged) {
           const finalSnapshot = await captureMacState(
@@ -4332,11 +1822,7 @@ export const shutdownMacStellaComputerSession = (
   if (sanitized !== sessionId) {
     macComputerUseResourceArbiter.forgetSession(sanitized);
   }
-  const sessionPaths = resolveSessionPaths(sanitized);
-  const pid = readPidFile(automationPidPath(sessionPaths));
-  if (pid && pidIsRunning(pid)) killDetachedProcess(pid);
-  resetAutomationDaemonFiles(sessionPaths);
-  return pid !== null;
+  return stopAutomationDaemon(resolveSessionPaths(sanitized));
 };
 
 const SUPPORTED_COMMANDS = new Set([
@@ -4375,7 +1861,8 @@ const executeArgv = async (rawArgv: string[]): Promise<number> => {
 
   if (process.platform === "win32" && argv[0] === "shutdown-session") {
     const sessionId =
-      sanitizeStellaComputerSessionId(sessionOverride) ?? defaultSessionId;
+      sanitizeStellaComputerSessionId(sessionOverride) ??
+      DEFAULT_COMPUTER_SESSION_ID;
     const stopped = await cleanupWindowsStellaComputerSessionDaemon(sessionId);
     const { found: jsonMode } = stripFlag(argv.slice(1), "--json");
     if (jsonMode) {
@@ -4416,7 +1903,8 @@ const executeArgv = async (rawArgv: string[]): Promise<number> => {
 
   if (command === "shutdown-session") {
     const sessionId =
-      sanitizeStellaComputerSessionId(sessionOverride) ?? defaultSessionId;
+      sanitizeStellaComputerSessionId(sessionOverride) ??
+      DEFAULT_COMPUTER_SESSION_ID;
     const stopped = shutdownMacStellaComputerSession(sessionId);
     if (jsonMode) {
       writeComputerStdout(

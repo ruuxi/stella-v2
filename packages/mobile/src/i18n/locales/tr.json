@@ -208,6 +208,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Tepkiler {reactions}",
         "showMoreChips": "{count} tane daha göster",
+        "stellaReaction": "Stella {emoji} ile tepki verdi",
         "windowPreviewAlt": "Pencere içeriği önizlemesi"
       },
       "miniModelPicker": {
@@ -1457,8 +1458,6 @@
       "cantRightNow": "Şimdi olmaz",
       "deadline": "{time} kaldı",
       "deadlinePassed": "Süre doldu",
-      "deadlineWithDefault": "{time} kaldı — yoksa “{option}”",
-      "defaultOption": "Varsayılan",
       "hideSecret": "{label} alanını gizle",
       "missingFields": "Zorunlu alanların tümünü doldur.",
       "notification": {
@@ -1471,14 +1470,11 @@
       "plain": "Düz metin olarak gönderilir",
       "revealSecret": "{label} alanını göster",
       "sealFailed": "Bu cihazda şifrelenemedi.",
-      "send": "Gönder",
       "sendSecurely": "Güvenle gönder",
       "sending": "Gönderiliyor…",
       "sensitive": "Uçtan uca şifreli",
       "sensitiveToggleA11y": "{label} alanını şifrele",
       "sensitiveUnavailable": "Bu cihaz bunu henüz şifreleyemiyor",
-      "somethingElse": "Başka bir şey",
-      "somethingElsePlaceholder": "Stella'ya onun yerine ne yapacağını söyle",
       "unnamedComputer": "Bilgisayar · {id}",
       "waitingBadge": "Seni bekliyor"
     }
@@ -2736,22 +2732,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "{time} kaldı"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Bu yanıtı kullan",
+      "default": "Varsayılan",
+      "next": "Sonraki soru",
+      "previous": "Önceki soru",
+      "progress": "{current}/{total}",
+      "sending": "Gönderiliyor…",
+      "skip": "Atla",
+      "skipped": "Atlandı",
+      "somethingElse": "Başka bir şey",
+      "submit": "Gönder"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

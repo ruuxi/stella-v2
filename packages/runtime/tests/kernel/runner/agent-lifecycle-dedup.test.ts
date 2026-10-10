@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { buildAgentEventPrompt } from "@stella/runtime/kernel/runner/shared";
 import { createAgentOrchestration } from "@stella/runtime/kernel/runner/agent-orchestration";
@@ -5,6 +8,22 @@ import {
   AGENT_PAUSE_CANCEL_REASON,
   AGENT_SHUTDOWN_CANCEL_REASON,
 } from "@stella/runtime/kernel/agents/local-agent-manager";
+import {
+  loadLocalPreferences,
+  saveLocalPreferences,
+} from "@stella/runtime/kernel/preferences/local-preferences";
+
+// On Stella's own engine (pi) a lifecycle report goes to the pi chat. These
+// tests cover the orchestrator-turn path (`sendMessage`) that chat on Claude
+// Code still takes, so their data dir selects that engine.
+const claudeCodeDataDir = (prefix: string) => {
+  const dir = mkdtempSync(path.join(tmpdir(), prefix));
+  saveLocalPreferences(dir, {
+    ...loadLocalPreferences(dir),
+    agentRuntimeEngine: "claude_code_local",
+  });
+  return dir;
+};
 
 describe("task lifecycle deduping", () => {
   it("delivers one distinct completion once as hidden ordinary parent history", async () => {
@@ -28,7 +47,7 @@ describe("task lifecycle deduping", () => {
       runtimeStore: {
         loadRawThreadMessages: () => persistedMessages,
       },
-      stellaDataDir: "/tmp/stella-test",
+      stellaDataDir: claudeCodeDataDir("stella-lifecycle-dedup-"),
     } as never;
     createAgentOrchestration(context, {
       buildAgentContext: vi.fn(),
@@ -89,7 +108,7 @@ describe("task lifecycle deduping", () => {
       runtimeStore: {
         loadRawThreadMessages: () => persistedMessages,
       },
-      stellaDataDir: "/tmp/stella-test",
+      stellaDataDir: claudeCodeDataDir("stella-lifecycle-dedup-"),
     } as never;
     createAgentOrchestration(context, {
       buildAgentContext: vi.fn(),
@@ -148,7 +167,7 @@ describe("task lifecycle deduping", () => {
           },
         ],
       },
-      stellaDataDir: "/tmp/stella-test",
+      stellaDataDir: claudeCodeDataDir("stella-lifecycle-dedup-"),
     } as never;
     createAgentOrchestration(context, {
       buildAgentContext: vi.fn(),
@@ -196,7 +215,7 @@ describe("task lifecycle deduping", () => {
       runtimeStore: {
         loadRawThreadMessages: () => persistedMessages,
       },
-      stellaDataDir: "/tmp/stella-test",
+      stellaDataDir: claudeCodeDataDir("stella-lifecycle-dedup-"),
     } as never;
     createAgentOrchestration(context, {
       buildAgentContext: vi.fn(),
@@ -294,14 +313,16 @@ describe("task lifecycle deduping", () => {
       listAgentRecordsByStatus: (status: string) =>
         record.status === status ? [record] : [],
       loadRawThreadMessages: () => persistedMessages,
-      hasEvent: (
-        candidateConversationId: string,
-        eventId: string,
-        type: string,
-      ) =>
-        candidateConversationId === conversationId &&
-        eventId.endsWith(`:${type}`) &&
-        activityEventIds.has(eventId),
+      chat: {
+        hasEvent: (
+          candidateConversationId: string,
+          eventId: string,
+          type: string,
+        ) =>
+          candidateConversationId === conversationId &&
+          eventId.endsWith(`:${type}`) &&
+          activityEventIds.has(eventId),
+      },
     };
     const context = {
       state: {
@@ -316,7 +337,7 @@ describe("task lifecycle deduping", () => {
         activityEventIds.add(eventId);
         insertedActivityEventIds.push(eventId);
       },
-      stellaDataDir: "/tmp/stella-terminal-recovery-test",
+      stellaDataDir: claudeCodeDataDir("stella-terminal-recovery-"),
     } as never;
     const bootAndDrainRecovery = async () => {
       const orchestration = createAgentOrchestration(context, {

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
-import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import {
   IPC_DISPLAY_CANVAS_FILE_URL,
   IPC_DISPLAY_CANVAS_HTML_URL,
@@ -28,7 +28,12 @@ import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
 import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 import { planDisplayFileRead } from "./display-read-limit.js";
 import {
-  canvasUrlForOutputsFile,
+  EVIDENCE_THUMBNAIL_CONTENT_TYPE,
+  isEvidenceThumbnailSource,
+} from "@stella/contracts/chat-evidence-thumbnails";
+import { renderDesktopEvidenceThumbnail } from "../services/evidence-thumbnail.js";
+import {
+  canvasUrlForLocalFile,
   MAX_CANVAS_HTML_BYTES,
   registerCanvasHtml,
 } from "../source/canvas-protocol.js";
@@ -46,6 +51,7 @@ import {
   resolveDeviceFileSource,
   type DeviceFileSourceDeps,
 } from "../services/device-file-source.js";
+import { handleIpc } from "./typed-ipc.js";
 
 type DisplayHandlersOptions = {
   getStellaAppDir: () => string | null;
@@ -147,7 +153,9 @@ const canvasDocumentTitle = async (
     handle = await fs.open(filePath, "r");
     const buffer = Buffer.alloc(CANVAS_TITLE_SCAN_BYTES);
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    const title = CANVAS_TITLE_RE.exec(buffer.subarray(0, bytesRead).toString("utf8"))?.[1];
+    const title = CANVAS_TITLE_RE.exec(
+      buffer.subarray(0, bytesRead).toString("utf8"),
+    )?.[1];
     if (!title) return null;
     const decoded = title
       .replace(/&amp;/g, "&")
@@ -164,7 +172,6 @@ const canvasDocumentTitle = async (
     await handle?.close().catch(() => {});
   }
 };
-
 
 export const isDisplayReadPathInLocalChatFiles = (
   events: ReadonlyArray<LocalChatEventRecord>,
@@ -315,7 +322,10 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
     maxBytes: unknown,
     mimeType: string,
   ) => {
-    const source = await resolveDeviceFileSource(requestedPath, deviceFileDeps());
+    const source = await resolveDeviceFileSource(
+      requestedPath,
+      deviceFileDeps(),
+    );
     switch (source.kind) {
       case "drive": {
         const locator = options.deviceFileLocator!;
@@ -353,12 +363,11 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
     }
   };
 
-  const readDisplayFile = async (
+  const authorizeDisplayRead = async (
     payload:
       | {
           filePath?: unknown;
           conversationId?: unknown;
-          maxBytes?: unknown;
         }
       | undefined,
     access: { remote: boolean },
@@ -448,8 +457,24 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
         `display:readFile only supports: ${Array.from(ALLOWED_EXTENSIONS).join(", ")}`,
       );
     }
-    const mimeType =
-      MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
+    const mimeType = MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
+    return { requestedPath, resolved, mimeType };
+  };
+
+  const readDisplayFile = async (
+    payload:
+      | {
+          filePath?: unknown;
+          conversationId?: unknown;
+          maxBytes?: unknown;
+        }
+      | undefined,
+    access: { remote: boolean },
+  ) => {
+    const { requestedPath, resolved, mimeType } = await authorizeDisplayRead(
+      payload,
+      access,
+    );
 
     // Paths can outlive the file they point at — e.g. an `image_gen` /
     // tool-result registered a path in `generatedMediaItems`, and the
@@ -515,7 +540,7 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
     };
   };
 
-  ipcMain.handle(
+  handleIpc(
     IPC_DISPLAY_READ_FILE,
     async (
       event,
@@ -532,14 +557,16 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_DISPLAY_MEDIA_SOURCE,
     async (
       event,
       payload?: { filePath?: unknown },
     ): Promise<DeviceFileSource> => {
       if (!options.assertPrivilegedSender(event, IPC_DISPLAY_MEDIA_SOURCE)) {
-        throw new Error(`Blocked untrusted ${IPC_DISPLAY_MEDIA_SOURCE} request.`);
+        throw new Error(
+          `Blocked untrusted ${IPC_DISPLAY_MEDIA_SOURCE} request.`,
+        );
       }
       const filePath =
         typeof payload?.filePath === "string" ? payload.filePath.trim() : "";
@@ -558,7 +585,7 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
     },
   );
 
-  ipcMain.handle(IPC_DISPLAY_LIST_CANVAS_HTML, async (event) => {
+  handleIpc(IPC_DISPLAY_LIST_CANVAS_HTML, async (event) => {
     if (!options.assertPrivilegedSender(event, IPC_DISPLAY_LIST_CANVAS_HTML)) {
       throw new Error(
         `Blocked untrusted ${IPC_DISPLAY_LIST_CANVAS_HTML} request.`,
@@ -603,7 +630,7 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
     return items.sort((a, b) => a.createdAt - b.createdAt);
   });
 
-  ipcMain.handle(
+  handleIpc(
     IPC_DISPLAY_OPEN_SHARED_CANVAS,
     async (event, payload?: { url?: unknown }) => {
       if (
@@ -624,21 +651,25 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
   );
 
   // Canvases render from `stella-canvas://` (source/canvas-protocol.ts). A
-  // file under `outputs/` is served from disk; any other file (elsewhere on
-  // disk, or kept on another device) is read through the display lane above
-  // and held in memory, like a cloud canvas's HTML.
-  ipcMain.handle(
+  // file on this computer is served from disk with its own folder, so its
+  // relative images, styles and scripts load; a file kept on another device
+  // is read through the display lane above and held in memory, like a cloud
+  // canvas's HTML.
+  handleIpc(
     IPC_DISPLAY_CANVAS_FILE_URL,
     async (event, payload?: { filePath?: unknown }) => {
       if (!options.assertPrivilegedSender(event, IPC_DISPLAY_CANVAS_FILE_URL)) {
-        throw new Error(`Blocked untrusted ${IPC_DISPLAY_CANVAS_FILE_URL} request.`);
+        throw new Error(
+          `Blocked untrusted ${IPC_DISPLAY_CANVAS_FILE_URL} request.`,
+        );
       }
       const filePath =
         typeof payload?.filePath === "string" ? payload.filePath.trim() : "";
       if (!filePath) {
         throw new Error(`${IPC_DISPLAY_CANVAS_FILE_URL} requires a filePath.`);
       }
-      const url = await canvasUrlForOutputsFile(requireStellaDataDir(), filePath);
+      assertNotCloudWorkspacePath(filePath);
+      const url = await canvasUrlForLocalFile(filePath);
       if (url) return { url };
       const read = await readDisplayFile(
         { filePath, maxBytes: MAX_CANVAS_HTML_BYTES },
@@ -664,11 +695,13 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_DISPLAY_CANVAS_HTML_URL,
     (event, payload?: { html?: unknown }) => {
       if (!options.assertPrivilegedSender(event, IPC_DISPLAY_CANVAS_HTML_URL)) {
-        throw new Error(`Blocked untrusted ${IPC_DISPLAY_CANVAS_HTML_URL} request.`);
+        throw new Error(
+          `Blocked untrusted ${IPC_DISPLAY_CANVAS_HTML_URL} request.`,
+        );
       }
       const html = typeof payload?.html === "string" ? payload.html : "";
       if (!html) {
@@ -678,14 +711,14 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
     },
   );
 
-  ipcMain.handle(IPC_DISPLAY_TRASH_LIST, async (event) => {
+  handleIpc(IPC_DISPLAY_TRASH_LIST, async (event) => {
     if (!options.assertPrivilegedSender(event, IPC_DISPLAY_TRASH_LIST)) {
       throw new Error(`Blocked untrusted ${IPC_DISPLAY_TRASH_LIST} request.`);
     }
     return await listDeferredDeletes({ stellaDataDir: requireStellaDataDir() });
   });
 
-  ipcMain.handle(
+  handleIpc(
     IPC_DISPLAY_TRASH_FORCE_DELETE,
     async (event, payload?: { id?: unknown; all?: unknown }) => {
       if (
@@ -711,5 +744,26 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
       filePath?: unknown;
       conversationId?: unknown;
     }) => readDisplayFile(payload, { remote: true }),
+    readThumbnailForRequest: async (payload: {
+      filePath?: unknown;
+      conversationId?: unknown;
+    }) => {
+      const { resolved } = await authorizeDisplayRead(payload, { remote: true });
+      const thumbnail = isEvidenceThumbnailSource(resolved)
+        ? await renderDesktopEvidenceThumbnail(resolved)
+        : null;
+      if (thumbnail) {
+        return {
+          missing: false as const,
+          bytes: new Uint8Array(
+            thumbnail.buffer,
+            thumbnail.byteOffset,
+            thumbnail.byteLength,
+          ),
+          mimeType: EVIDENCE_THUMBNAIL_CONTENT_TYPE,
+        };
+      }
+      return await readDisplayFile(payload, { remote: true });
+    },
   };
 };

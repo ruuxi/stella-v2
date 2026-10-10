@@ -20,12 +20,15 @@ const SWIPE_VELOCITY = 700;
 /** How far an edge drag follows the finger when there is nothing beyond it. */
 const EDGE_RESISTANCE = 0.3;
 const SETTLE = { damping: 26, stiffness: 260, mass: 0.9 };
+const DISMISS_DISTANCE_FRACTION = 0.16;
+const DISMISS_VELOCITY = 900;
 
 /**
  * A full-bleed image that pinch-zooms around the fingers, pans while zoomed,
  * and double-taps between fit and 2.5x. At fit size a horizontal drag follows
  * the finger and, past a threshold, hands off to `onSwipe` so the viewer can
- * step to the neighbouring image.
+ * step to the neighbouring image, and a vertical drag hands off to
+ * `onDismiss` so the viewer can close.
  *
  * Every transform lives in Reanimated shared values written on the UI thread,
  * so zooming stays at display rate while the JS thread streams a reply.
@@ -36,12 +39,14 @@ export function ZoomableImageView({
   hasPrevious = false,
   hasNext = false,
   onSwipe,
+  onDismiss,
 }: {
   uri: string;
   accessibilityLabel: string;
   hasPrevious?: boolean;
   hasNext?: boolean;
   onSwipe?: (direction: SwipeDirection) => void;
+  onDismiss?: () => void;
 }) {
   const width = useSharedValue(0);
   const height = useSharedValue(0);
@@ -52,6 +57,9 @@ export function ZoomableImageView({
   const x = useSharedValue(0);
   const y = useSharedValue(0);
   const swipeX = useSharedValue(0);
+  const swipeY = useSharedValue(0);
+  const axis = useSharedValue<"none" | "horizontal" | "vertical">("none");
+  const canDismiss = Boolean(onDismiss);
 
   const startScale = useSharedValue(1);
   const startX = useSharedValue(0);
@@ -74,6 +82,7 @@ export function ZoomableImageView({
       x.value = withTiming(0, { duration: 180 });
       y.value = withTiming(0, { duration: 180 });
       swipeX.value = 0;
+      swipeY.value = 0;
     }
   };
 
@@ -143,12 +152,23 @@ export function ZoomableImageView({
     .onStart(() => {
       startX.value = x.value;
       startY.value = y.value;
+      axis.value = "none";
     })
     .onUpdate((event) => {
       if (event.numberOfPointers > 1) return;
       if (scale.value > 1) {
         x.value = startX.value + event.translationX;
         y.value = startY.value + event.translationY;
+        return;
+      }
+      if (axis.value === "none") {
+        axis.value =
+          canDismiss && Math.abs(event.translationY) > Math.abs(event.translationX)
+            ? "vertical"
+            : "horizontal";
+      }
+      if (axis.value === "vertical") {
+        swipeY.value = event.translationY;
         return;
       }
       const dx = event.translationX;
@@ -160,6 +180,18 @@ export function ZoomableImageView({
         const { maxX, maxY } = bounds(scale.value);
         x.value = withSpring(clampTo(x.value, maxX), SETTLE);
         y.value = withSpring(clampTo(y.value, maxY), SETTLE);
+        return;
+      }
+      if (axis.value === "vertical") {
+        const dy = event.translationY;
+        const dismiss =
+          Math.abs(dy) > height.value * DISMISS_DISTANCE_FRACTION ||
+          Math.abs(event.velocityY) > DISMISS_VELOCITY;
+        if (dismiss && onDismiss) {
+          runOnJS(onDismiss)();
+          return;
+        }
+        swipeY.value = withSpring(0, SETTLE);
         return;
       }
       const dx = event.translationX;
@@ -206,7 +238,7 @@ export function ZoomableImageView({
   const imageStyle = useAnimatedStyle(() => ({
     transform: [
       { translateX: x.value + swipeX.value },
-      { translateY: y.value },
+      { translateY: y.value + swipeY.value },
       { scale: scale.value },
     ],
   }));

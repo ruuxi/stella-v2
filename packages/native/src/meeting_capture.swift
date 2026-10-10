@@ -900,6 +900,28 @@ func sendString(_ fd: Int32, _ s: String) {
 
 // MARK: - Daemon
 
+/// The app names itself in `STELLA_PARENT_PID` when it spawns this daemon. If
+/// it is killed without stopping the daemon (a crash, a force quit), `onExit`
+/// runs instead of the daemon living on with no app. A process that is not
+/// the named parent's child (one that inherited the variable) does not watch.
+func watchParentExit(queue: DispatchQueue, _ onExit: @escaping () -> Void) -> DispatchSourceProcess? {
+    guard let raw = ProcessInfo.processInfo.environment["STELLA_PARENT_PID"],
+          let parent = pid_t(raw.trimmingCharacters(in: .whitespaces)),
+          parent > 1,
+          getppid() == parent
+    else { return nil }
+    let source = DispatchSource.makeProcessSource(identifier: parent, eventMask: .exit, queue: queue)
+    source.setEventHandler(handler: onExit)
+    source.resume()
+    // The parent may have exited before the watch was registered.
+    if getppid() != parent {
+        queue.async(execute: onExit)
+    }
+    return source
+}
+
+var parentExitWatch: DispatchSourceProcess?
+
 func runDaemon(paths: MeetingPaths, defaultSegmentSeconds: Int) {
     do {
         try paths.ensureStateDir()
@@ -945,6 +967,9 @@ func runDaemon(paths: MeetingPaths, defaultSegmentSeconds: Int) {
     sigintSource.setEventHandler { shutdown(); exit(0) }
     sigintSource.resume()
     signal(SIGINT, SIG_IGN)
+
+    // A recording in progress is finalized, as on SIGTERM.
+    parentExitWatch = watchParentExit(queue: .main) { shutdown(); exit(0) }
 
     let acceptQueue = DispatchQueue(label: "com.stella.meeting_capture.accept")
     acceptQueue.async {

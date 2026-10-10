@@ -1,7 +1,7 @@
 import { registerAgentHandlers } from "../ipc/agent-handlers.js";
 import { registerRuntimeAvailabilityBridge } from "../ipc/runtime-availability-bridge.js";
 import { registerBrowserHandlers } from "../ipc/browser-handlers.js";
-import { registerInAppBrowserHandlers, IN_APP_BROWSER_CHANNELS, } from "../ipc/in-app-browser-handlers.js";
+import { registerInAppBrowserHandlers } from "../ipc/in-app-browser-handlers.js";
 import { registerDiscoveryHandlers } from "../ipc/discovery-handlers.js";
 import { registerRemoteExecutionConsentHandlers } from "../ipc/remote-execution-consent-handlers.js";
 import { registerCaptureHandlers } from "../ipc/capture-handlers.js";
@@ -13,11 +13,11 @@ import { registerHomeHandlers } from "../ipc/home-handlers.js";
 import { registerLocalChatHandlers } from "../ipc/local-chat-handlers.js";
 import { registerNativeIntegrationHandlers } from "../ipc/native-integration-handlers.js";
 import { registerOnboardingHandlers } from "../ipc/onboarding-handlers.js";
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, shell } from "electron";
 import { toggleRealtimeVoice, } from "../services/realtime-voice-control.js";
 import { WakewordService } from "../services/wakeword-service.js";
 import { loadLocalPreferences, saveLocalPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
-import { IPC_APP_SOURCE_STATE, IPC_PREFERENCES_GET_WAKE_WORD, IPC_PREFERENCES_SET_WAKE_WORD, } from "@stella/contracts/desktop/ipc-channels";
+import { IPC_APP_SOURCE_STATE, IPC_BROWSER_VIEW_STATE, IPC_PREFERENCES_GET_WAKE_WORD, IPC_PREFERENCES_SET_WAKE_WORD, } from "@stella/contracts/desktop/ipc-channels";
 import { registerOfficePreviewHandlers } from "../ipc/office-preview-handlers.js";
 import { registerChatEvidenceHandlers } from "../ipc/chat-evidence-handlers.js";
 import { createCloudConversationFileGrants } from "../services/cloud-conversation-file-grants.js";
@@ -56,6 +56,9 @@ import { assertHeadSigned, signHead } from "../launcher-client.js";
 import { getMainLogger } from "../observability/main-logger.js";
 import { openDraftPreview } from "../services/app-source/draft-preview.js";
 import { holdForRelaunch, relaunchApp } from "../launcher-client.js";
+import {
+  handleIpc,
+} from "../ipc/typed-ipc.js";
 const DEFAULT_STELLA_WEB_URL = "https://stella.sh";
 // Delay native-service startup ~4s past app-ready so the bridge/office-preview
 // spawns stay off the first-paint (TTI) path. Previously Windows-only; now
@@ -118,7 +121,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             openPreview: (name) => openDraftPreview({
                 name,
                 stellaAppDir: state.stellaAppDir ?? config.stellaAppDir,
-                stellaDataDir: state.stellaDataDirPath ?? config.stellaDataDirPath,
                 preloadPath: path.join(config.electronDir, "preload.js"),
             }),
             connectionTimeoutMs: 4 * 60 * 1000,
@@ -127,7 +129,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             onStateChanged: (browserState) => {
                 for (const window of getAllWindows(context)) {
                     if (!window.isDestroyed()) {
-                        window.webContents.send(IN_APP_BROWSER_CHANNELS.state, browserState);
+                        window.webContents.send(IPC_BROWSER_VIEW_STATE, browserState);
                     }
                 }
             },
@@ -565,7 +567,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     state.processRuntime.registerCleanup("will-quit", "wakeword-service", () => {
         wakeword?.dispose();
     });
-    ipcMain.handle(IPC_PREFERENCES_GET_WAKE_WORD, (event) => {
+    handleIpc(IPC_PREFERENCES_GET_WAKE_WORD, (event) => {
         if (!services.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_GET_WAKE_WORD)) {
             throw new Error("Blocked untrusted preferences:getWakeWord request.");
         }
@@ -574,7 +576,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             return false;
         return loadLocalPreferences(root).wakeWordEnabled;
     });
-    ipcMain.handle(IPC_PREFERENCES_SET_WAKE_WORD, (event, enabled) => {
+    handleIpc(IPC_PREFERENCES_SET_WAKE_WORD, (event, enabled) => {
         if (!services.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_SET_WAKE_WORD)) {
             throw new Error("Blocked untrusted preferences:setWakeWord request.");
         }
@@ -597,6 +599,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     // handlers above apply to a remote caller.
     state.deviceRequestHandlers = {
         readFile: display.readFileForRequest,
+        readThumbnail: display.readThumbnailForRequest,
         renderOfficePreview: officePreview.renderForRequest,
         voiceConfig: voice.configForRequest,
         voiceExecuteTool: voice.executeToolForRequest,

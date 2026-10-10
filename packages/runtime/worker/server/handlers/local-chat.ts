@@ -16,7 +16,7 @@ const chatSession = WorkerSessions.sessionOrFail(
 export const localChatHandlers: WorkerRpcHandlers = {
   [METHOD_NAMES.INTERNAL_WORKER_LOCAL_CHAT_GET_OR_CREATE_DEFAULT]: () =>
     Effect.map(chatSession, (session) =>
-      session.storage.chatStore.getOrCreateDefaultConversationId(),
+      session.storage.chatStore.chat.getOrCreateDefaultConversationId(),
     ),
 
   [METHOD_NAMES.INTERNAL_WORKER_LOCAL_CHAT_APPEND_EVENT]: (params) =>
@@ -42,7 +42,7 @@ export const localChatHandlers: WorkerRpcHandlers = {
         conversationId?: string;
         maxItems?: number;
       };
-      return session.storage.chatStore.listEvents(
+      return session.storage.chatStore.chat.listEvents(
         payload.conversationId ?? "",
         payload.maxItems,
       );
@@ -51,7 +51,7 @@ export const localChatHandlers: WorkerRpcHandlers = {
   [METHOD_NAMES.INTERNAL_WORKER_LOCAL_CHAT_GET_EVENT_COUNT]: (params) =>
     Effect.map(chatSession, (session) => {
       const payload = params as { conversationId?: string };
-      return session.storage.chatStore.getEventCount(
+      return session.storage.chatStore.chat.getEventCount(
         payload.conversationId ?? "",
       );
     }),
@@ -71,7 +71,7 @@ export const localChatHandlers: WorkerRpcHandlers = {
           typeof payload.message === "string" ? payload.message : "";
         let latestEvent: LocalChatEventRecord | undefined;
         if (message.trim().length > 0) {
-          latestEvent = session.storage.chatStore.appendEvent({
+          latestEvent = session.storage.chatStore.chat.appendEvent({
             conversationId,
             type: "assistant_message",
             payload: prepareStoredLocalChatPayload({
@@ -113,7 +113,7 @@ export const localChatHandlers: WorkerRpcHandlers = {
           await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
           await fsPromises.writeFile(filePath, reportHtml, "utf8");
           const bytes = Buffer.byteLength(reportHtml, "utf8");
-          latestEvent = session.storage.chatStore.appendEvent({
+          latestEvent = session.storage.chatStore.chat.appendEvent({
             conversationId,
             type: "tool_result",
             requestId: `onboarding-first-report-${timestamp}`,
@@ -149,7 +149,7 @@ export const localChatHandlers: WorkerRpcHandlers = {
         conversationId?: string;
         maxMessages?: number;
       };
-      return session.storage.chatStore.listSyncMessages(
+      return session.storage.chatStore.chat.listSyncMessages(
         payload.conversationId ?? "",
         payload.maxMessages,
       );

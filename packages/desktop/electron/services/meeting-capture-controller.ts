@@ -150,6 +150,9 @@ export class MeetingCaptureController {
     const child = spawn(bin, ["daemon", "--root", this.stellaDataDir], {
       detached: true,
       stdio: "ignore",
+      // The daemon finishes any recording and exits if this process dies
+      // without stopping it.
+      env: { ...process.env, STELLA_PARENT_PID: String(process.pid) },
     });
     this.child = child;
     // Persist the pid so quit can reap the daemon even after the in-memory

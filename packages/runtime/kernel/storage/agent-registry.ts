@@ -52,6 +52,8 @@ export type PersistedAgentRecord = {
   parentAgentId?: string;
   modelConfigSnapshot?: AgentModelConfigSnapshot;
   toolWorkspaceRoot?: string;
+  /** Where the agent starts; it is not confined there. */
+  workingDirectory?: string;
   status: TaskLifecycleStatus;
   /** Persisted ownership epoch so lifecycle ids remain unique after restart. */
   attemptGeneration: number;
@@ -116,6 +118,7 @@ export type AgentRecordInput = {
   parentAgentId?: string;
   modelConfigSnapshot?: unknown;
   toolWorkspaceRoot?: string;
+  workingDirectory?: string;
   status: string;
   startedAt: number;
   completedAt?: number | null;
@@ -157,13 +160,13 @@ export class AgentRegistry {
            thread_id, conversation_id, storage_mode, owner_generation,
            agent_type, description, prompt,
            prompt_created_at, agent_depth, max_agent_depth, parent_agent_id,
-           model_config_json, tool_workspace_root, status, started_at,
-           completed_at, result, error, updated_at, root_run_id,
+           model_config_json, tool_workspace_root, working_directory, status,
+           started_at, completed_at, result, error, updated_at, root_run_id,
            attempt_generation, cloud_terminal_receipt_generation,
            terminal_lifecycle_receipt_generation, descendant_boundary_state_json,
            record_revision
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
          ON CONFLICT(thread_id) DO UPDATE SET
            conversation_id = excluded.conversation_id,
            storage_mode = excluded.storage_mode,
@@ -177,6 +180,7 @@ export class AgentRegistry {
            parent_agent_id = excluded.parent_agent_id,
            model_config_json = excluded.model_config_json,
            tool_workspace_root = excluded.tool_workspace_root,
+           working_directory = COALESCE(excluded.working_directory, agent.working_directory),
            status = excluded.status,
            started_at = excluded.started_at,
            completed_at = excluded.completed_at,
@@ -209,6 +213,7 @@ export class AgentRegistry {
         record.parentAgentId ?? null,
         toJsonValueString(record.modelConfigSnapshot) ?? null,
         record.toolWorkspaceRoot ?? null,
+        record.workingDirectory ?? null,
         record.status,
         record.startedAt,
         record.completedAt ?? null,
@@ -257,6 +262,9 @@ export class AgentRegistry {
       ...(row.tool_workspace_root
         ? { toolWorkspaceRoot: row.tool_workspace_root }
         : {}),
+      ...(row.working_directory
+        ? { workingDirectory: row.working_directory }
+        : {}),
       status: row.status,
       attemptGeneration: row.attempt_generation,
       recordRevision: row.record_revision,
@@ -286,8 +294,8 @@ export class AgentRegistry {
     thread_id, conversation_id, storage_mode, owner_generation,
     agent_type, description, prompt,
     prompt_created_at, agent_depth, max_agent_depth, parent_agent_id,
-    model_config_json, tool_workspace_root, status, started_at,
-    completed_at, result, error, updated_at, root_run_id,
+    model_config_json, tool_workspace_root, working_directory, status,
+    started_at, completed_at, result, error, updated_at, root_run_id,
     attempt_generation, cloud_terminal_receipt_generation,
     terminal_lifecycle_receipt_generation, descendant_boundary_state_json,
     record_revision

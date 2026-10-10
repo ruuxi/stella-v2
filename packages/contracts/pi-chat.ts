@@ -32,6 +32,14 @@ export type PiPartMarks = {
    * pending message binds to the row instead of showing twice.
    */
   clientMsgId?: string;
+  /**
+   * The message's seq in its conversation's record (the journal, or the chat
+   * log of one kept on this computer): its `message #N` id for the model.
+   * Set where a message is written from that record.
+   */
+  seq?: number;
+  /** A prompt a schedule fired: read by Stella, not shown, and answered in the chat. */
+  source?: "schedule";
 };
 
 export type PiUserDisplay = {
@@ -60,7 +68,13 @@ export type PiUserPart = Extract<PiContentBlock, { type: "text" } | { type: "ima
 /** What a voice session wrote: what was said, or the session's summary (`voiceSession`). */
 export type PiVoiceMarks = { source?: "voice"; voiceSession?: { durationMs: number } };
 
-export type PiUserMessage = { role: "user"; content: string | PiContentBlock[]; timestamp: number } & PiVoiceMarks;
+export type PiUserMessage = {
+  role: "user";
+  content: string | PiContentBlock[];
+  timestamp: number;
+  /** `schedule`: a schedule's prompt, as the journal and the cloud mark it. */
+  source?: "voice" | "schedule";
+} & Omit<PiVoiceMarks, "source">;
 export type PiAssistantMessage = {
   role: "assistant";
   content: PiContentBlock[];
@@ -353,10 +367,16 @@ const reduceOne = (state: PiChatState, event: PiChatEvent): PiChatState => {
       for (const slot of event.tools) {
         tools[slot.callId] = { name: slot.name, status: slot.status, ...(slot.output ? { output: slot.output } : {}) };
       }
+      // The snapshot names no request ids, so a live run keeps what this watch
+      // saw queued; an idle pi with an empty inbox has nothing queued or
+      // compacting, whatever finished while nobody watched.
+      const idle = event.run === undefined;
       return {
         ...state,
         entries: mergePiEntries(state.entries, event.entries),
-        running: event.run !== undefined,
+        running: !idle,
+        ...(idle && event.inbox.length === 0 ? { queued: [] } : {}),
+        ...(idle ? { compacting: false } : {}),
         ...(event.generation?.message ? { streaming: event.generation.message } : { streaming: undefined }),
         ...(event.generation?.retry ? { retry: event.generation.retry } : { retry: undefined }),
         tools,
@@ -444,6 +464,22 @@ export const piMessageText = (message: PiMessage | undefined): string => {
   return message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
 };
 
+/**
+ * How a turn ended when its last reply did not finish: failed with the
+ * model's own error, or stopped. Every view of the conversation (this
+ * computer's, the journal's, the chat log's) shows these same words, the
+ * same ones a cloud turn ends with when stopped.
+ */
+export const piTerminalNotice = (message: {
+  stopReason?: string;
+  errorMessage?: string;
+}): { phase: "failed" | "canceled"; notice: string } | undefined =>
+  message.stopReason === "error"
+    ? { phase: "failed", notice: `Stella couldn't answer: ${message.errorMessage?.trim() || "the model request failed."}` }
+    : message.stopReason === "aborted"
+      ? { phase: "canceled", notice: "Stopped." }
+      : undefined;
+
 /** An agent's report, which arrives as user input the user never wrote. */
 export const PI_REPORT_RE = /^\[(Agent completed|Task failed|Task canceled|Subagent paused)\]/;
 const LEADING_SYSTEM_REMINDER_RE = /^<system-reminder>[\s\S]*?<\/system-reminder>\s*/;
@@ -455,9 +491,15 @@ const LEADING_SYSTEM_REMINDER_RE = /^<system-reminder>[\s\S]*?<\/system-reminder
 const AGENT_NOTE_RE = /^<agent-message from="[^"\n]*" thread_id="[^"\n]*">\n[\s\S]*\n<\/agent-message>$/;
 
 /** Text from Stella's agents, not the user: an agent's report, or a note an agent sent. */
+export const PI_LATE_ANSWER_PREFIX = "[Late answer]";
+
 export const isPiAgentText = (text: string): boolean => {
   const body = text.trimStart().replace(LEADING_SYSTEM_REMINDER_RE, "");
-  return PI_REPORT_RE.test(body) || AGENT_NOTE_RE.test(text.trim());
+  return (
+    PI_REPORT_RE.test(body) ||
+    body.startsWith(PI_LATE_ANSWER_PREFIX) ||
+    AGENT_NOTE_RE.test(text.trim())
+  );
 };
 
 /**
@@ -470,12 +512,26 @@ export const isPiAgentInput = (message: PiUserMessage): boolean =>
     : message.content.some((part) => part.type === "text" && isPiAgentText(part.text));
 
 /**
+ * A prompt a schedule fired (a task, a reminder): runtime input the user never
+ * wrote. Readers hide it, and show Stella's answer to it, which is the delivery.
+ */
+export const isPiScheduledInput = (message: PiUserMessage): boolean =>
+  message.source === "schedule" ||
+  (typeof message.content !== "string" &&
+    message.content.some((part) => (part.type === "text" || part.type === "image") && part.stella?.source === "schedule"));
+
+/**
  * Whether readers hide a user message: one the user never wrote (an agent's
  * report or note, a prompt the app sent), or one with nothing to show.
  */
 export const piUserHidden = (message: PiUserMessage): boolean => {
   const { text, display } = piUserView(message);
-  return isPiAgentText(piMessageText(message)) || isPiAgentText(text) || (!text.trim() && !display);
+  return (
+    isPiScheduledInput(message) ||
+    isPiAgentText(piMessageText(message)) ||
+    isPiAgentText(text) ||
+    (!text.trim() && !display)
+  );
 };
 
 /**
@@ -511,7 +567,11 @@ export const piJournalUserMessage = (
       role: "user",
       content: [{ type: "text", text: hidden ? piMessageText(message) : text }, ...images],
       timestamp: message.timestamp,
-      ...(message.source ? { source: message.source } : {}),
+      ...(message.source
+        ? { source: message.source }
+        : isPiScheduledInput(message)
+          ? { source: "schedule" }
+          : {}),
       ...(message.voiceSession ? { voiceSession: message.voiceSession } : {}),
       ...(files.length > 0 ? { attachments: files } : {}),
       ...(display?.context ? { metadata: { context: display.context } } : {}),

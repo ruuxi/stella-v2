@@ -2,7 +2,10 @@ import { desktopCapturer, screen, } from 'electron';
 import { globalShortcut } from 'electron';
 import { toChatContextWindow } from '../types.js';
 import { STELLA_CAPTURE_EXCLUDED_TITLE_PREFIXES, captureRegionScreenshotNative, captureWindowScreenshot, } from '../window-capture.js';
-import { IPC_CAPTURE_REGION_FAILED } from '@stella/contracts/desktop/ipc-channels';
+import {
+  IPC_CAPTURE_REGION_FAILED,
+  IPC_CHAT_CONTEXT_UPDATED,
+} from "@stella/contracts/desktop/ipc-channels";
 import { hasMacPermission } from '../utils/macos-permissions.js';
 import { computeTargetDims } from '../vision-coordinate-space.js';
 const CAPTURE_OVERLAY_HIDE_DELAY_MS = 80;
@@ -34,7 +37,7 @@ export class CaptureService {
     }
     broadcastChatContext() {
         for (const window of this.options.window.getAllWindows()) {
-            window.webContents.send('chatContext:updated', {
+            window.webContents.send(IPC_CHAT_CONTEXT_UPDATED, {
                 context: this.pendingChatContext,
                 version: this.chatContextVersion,
             });

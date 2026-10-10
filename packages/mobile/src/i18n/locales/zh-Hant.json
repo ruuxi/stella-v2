@@ -202,6 +202,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "回應 {reactions}",
         "showMoreChips": "再顯示 {count} 個",
+        "stellaReaction": "Stella 回應了 {emoji}",
         "windowPreviewAlt": "視窗內容預覽"
       },
       "miniModelPicker": {
@@ -1447,8 +1448,6 @@
       "cantRightNow": "現在不行",
       "deadline": "還剩 {time}",
       "deadlinePassed": "時間到了",
-      "deadlineWithDefault": "還剩 {time} — 否則選「{option}」",
-      "defaultOption": "預設",
       "hideSecret": "隱藏{label}",
       "missingFields": "請填寫所有必填欄位。",
       "notification": {
@@ -1461,14 +1460,11 @@
       "plain": "將以純文字傳送",
       "revealSecret": "顯示{label}",
       "sealFailed": "無法在此裝置上加密。",
-      "send": "傳送",
       "sendSecurely": "安全傳送",
       "sending": "傳送中…",
       "sensitive": "端對端加密",
       "sensitiveToggleA11y": "加密{label}",
       "sensitiveUnavailable": "此裝置暫時無法加密",
-      "somethingElse": "其他",
-      "somethingElsePlaceholder": "告訴 Stella 該做什麼",
       "unnamedComputer": "電腦 · {id}",
       "waitingBadge": "正在等你"
     }
@@ -2716,22 +2712,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "剩餘 {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "使用這個回答",
+      "default": "預設",
+      "next": "下一個問題",
+      "previous": "上一個問題",
+      "progress": "{current}/{total}",
+      "sending": "正在傳送…",
+      "skip": "略過",
+      "skipped": "已略過",
+      "somethingElse": "其他",
+      "submit": "提交"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

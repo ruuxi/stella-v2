@@ -1,4 +1,5 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { bearerCredential } from "../../shared/bearer.js";
 import { verifyUserToken } from "./auth-jwt.js";
 import {
   MAX_BODY_BYTES,
@@ -96,12 +97,6 @@ const parseJsonBytes = (bytes: Uint8Array): unknown => {
 const readBoundedJson = async (request: Request): Promise<unknown> =>
   parseJsonBytes(await readBoundedBytes(request));
 
-const bearerToken = (request: Request): string | null => {
-  const authorization = request.headers.get("authorization");
-  if (!authorization || authorization.length > 8_199) return null;
-  return /^Bearer ([^\s]+)$/iu.exec(authorization)?.[1] ?? null;
-};
-
 const authenticate = async (
   request: Request,
   env: TelemetryEnv,
@@ -109,7 +104,7 @@ const authenticate = async (
   | { ok: true; principal: Principal }
   | { ok: false; status: number; reason: string }
 > => {
-  const token = bearerToken(request);
+  const token = bearerCredential(request.headers.get("authorization"));
   if (token?.split(".").length === 3) {
     const result = await verifyUserToken(token, env.STELLA_BACKEND_URL);
     if (result.ok)

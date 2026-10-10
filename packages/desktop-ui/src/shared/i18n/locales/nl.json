@@ -208,6 +208,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Reacties {reactions}",
         "showMoreChips": "Nog {count} tonen",
+        "stellaReaction": "Stella reageerde met {emoji}",
         "windowPreviewAlt": "Voorbeeld van vensterinhoud"
       },
       "miniModelPicker": {
@@ -1457,8 +1458,6 @@
       "cantRightNow": "Nu niet",
       "deadline": "Nog {time}",
       "deadlinePassed": "Tijd is om",
-      "deadlineWithDefault": "Nog {time} — anders “{option}”",
-      "defaultOption": "Standaard",
       "hideSecret": "{label} verbergen",
       "missingFields": "Vul alle verplichte velden in.",
       "notification": {
@@ -1471,14 +1470,11 @@
       "plain": "Wordt als gewone tekst verstuurd",
       "revealSecret": "{label} tonen",
       "sealFailed": "Kon dit niet versleutelen op dit apparaat.",
-      "send": "Versturen",
       "sendSecurely": "Veilig versturen",
       "sending": "Versturen…",
       "sensitive": "End-to-end versleuteld",
       "sensitiveToggleA11y": "{label} versleutelen",
       "sensitiveUnavailable": "Dit apparaat kan dit nog niet versleutelen",
-      "somethingElse": "Iets anders",
-      "somethingElsePlaceholder": "Vertel Stella wat er in plaats daarvan moet",
       "unnamedComputer": "Computer · {id}",
       "waitingBadge": "Wacht op je"
     }
@@ -2736,22 +2732,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "Nog {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Dit antwoord gebruiken",
+      "default": "Standaard",
+      "next": "Volgende vraag",
+      "previous": "Vorige vraag",
+      "progress": "{current} van {total}",
+      "sending": "Versturen…",
+      "skip": "Overslaan",
+      "skipped": "Overgeslagen",
+      "somethingElse": "Iets anders",
+      "submit": "Versturen"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

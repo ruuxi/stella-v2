@@ -768,7 +768,7 @@ export const createOrchestratorController = (
   ): string => {
     if (!userPrompt || !userMessageId) return userPrompt;
     try {
-      const cursor = context.runtimeStore.getEventCursor(
+      const cursor = context.runtimeStore.chat.getEventCursor(
         conversationId,
         userMessageId,
       );
@@ -803,12 +803,16 @@ export const createOrchestratorController = (
     // Tell the model this message's conversation number so a later reply can
     // cite it (`reply-refs`). The tag rides only the model-facing prompt: the
     // transcript row was appended by the host before this turn started and
-    // keeps the raw text.
-    const userPrompt = tagUserPromptWithSequence(
-      conversationId,
-      payload.userMessageId,
-      rawUserPrompt,
-    );
+    // keeps the raw text. A cloud conversation's number is its journal seq,
+    // which only the turn's begin assigns (`withCloudPromptRefTag`).
+    const userPrompt =
+      storageMode === "cloud"
+        ? rawUserPrompt
+        : tagUserPromptWithSequence(
+            conversationId,
+            payload.userMessageId,
+            rawUserPrompt,
+          );
 
     const liveSession = getLiveOrchestratorSession(conversationId, agentType);
     if (liveSession && storageMode !== "cloud") {
@@ -1001,7 +1005,7 @@ export const createOrchestratorController = (
           ? {
               onPrepared: async () => {
                 const cancellationReason = getPlacementCancellation({
-                  store: context.runtimeStore,
+                  store: context.runtimeStore.chat,
                   kind: "chat",
                   executionId: executionPlacementRunId,
                 });
@@ -1117,7 +1121,7 @@ export const createOrchestratorController = (
     // delivered after worker restart observes this tombstone in `onPrepared`
     // and cannot resurrect the exact dispatch-scoped owner.
     persistPlacementCancellation({
-      store: context.runtimeStore,
+      store: context.runtimeStore.chat,
       kind: "chat",
       executionId: exactRunId,
       reason,

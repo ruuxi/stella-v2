@@ -132,7 +132,7 @@ describe("ExecutionDevicesCard", () => {
 
     const enable = actionFor("desktop-studio");
     expect(enable?.dataset.deviceAction).toBe("enable");
-    expect(enable?.textContent).toBe("Enable");
+    expect(enable?.getAttribute("aria-checked")).toBe("false");
 
     await act(async () => enable?.click());
     await flush();
@@ -156,7 +156,7 @@ describe("ExecutionDevicesCard", () => {
     await render();
 
     const disable = actionFor("desktop-here");
-    expect(disable?.textContent).toBe("Turn off");
+    expect(disable?.getAttribute("aria-checked")).toBe("true");
 
     await act(async () => disable?.click());
     await flush();

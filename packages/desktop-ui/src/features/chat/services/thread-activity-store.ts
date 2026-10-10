@@ -18,7 +18,7 @@ import type {
 import {
   onPiChatEvents,
   piChatAgents,
-  piChatEnabled,
+  piChatAvailable,
 } from "@/features/chat/pi/pi-chat-store";
 
 // Absent outside Electron (plain-browser `bun run dev`): degrade to an
@@ -49,16 +49,17 @@ const listLocalThreadActivity = async (
 };
 
 /**
- * A chat on pi-durable lists its agents from the conversation's harness;
- * they win over any older row with the same thread id.
+ * A conversation's agents, whatever engine runs it now: the agent loops'
+ * rows and the agents pi ran in it (listed from its harness), pi's winning
+ * over an older row with the same thread id.
  */
 export const listThreadActivity = async (
   conversationId: string,
 ): Promise<ThreadActivityRecord[]> => {
-  if (!piChatEnabled()) return await listLocalThreadActivity(conversationId);
+  if (!piChatAvailable()) return await listLocalThreadActivity(conversationId);
   const [local, pi] = await Promise.all([
     listLocalThreadActivity(conversationId),
-    piChatAgents(conversationId),
+    piChatAgents(conversationId).catch(() => [] as ThreadActivityRecord[]),
   ]);
   if (pi.some((record) => record.status === "running")) {
     piAgentsRunning.add(conversationId);
@@ -80,7 +81,7 @@ const subscribeToThreadActivityUpdates = (
 ): (() => void) => {
   const local =
     getLocalChatApi()?.onThreadActivityUpdated?.(listener) ?? (() => {});
-  if (!piChatEnabled()) return local;
+  if (!piChatAvailable()) return local;
   // pi agents push no rows: a commit in the conversation (a spawn, a
   // report, a message) is the cue to re-read them.
   const pi = onPiChatEvents(({ conversationId, events }) => {

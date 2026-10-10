@@ -1,0 +1,579 @@
+.act {
+  position: relative;
+  color: #fff;
+}
+
+.inner {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  align-items: center;
+  gap: clamp(20px, 3vw, 60px);
+  min-height: max(100svh, 720px);
+  padding: clamp(100px, 14svh, 160px) var(--l-margin);
+}
+
+.copy {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(18px, 4svh, 48px);
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(30px, 3.6vw, 64px);
+  font-weight: 760;
+  line-height: 0.95;
+  letter-spacing: -0.045em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.title span {
+  font-stretch: 125%;
+}
+
+.names {
+  position: relative;
+  display: grid;
+  margin: 0;
+}
+
+.name {
+  grid-area: 1 / 1;
+  font-size: clamp(56px, 7.8vw, 160px);
+  font-weight: 820;
+  line-height: 0.86;
+  letter-spacing: -0.065em;
+  opacity: 0;
+  filter: blur(14px);
+  transform: translate3d(0, 0.1em, 0);
+  transition:
+    opacity 150ms ease,
+    filter 170ms ease,
+    transform 170ms ease;
+}
+
+.name[data-on="1"] {
+  opacity: 1;
+  filter: blur(0);
+  transform: none;
+  transition:
+    opacity 350ms cubic-bezier(0.2, 0.7, 0.2, 1) 140ms,
+    filter 400ms cubic-bezier(0.2, 0.7, 0.2, 1) 140ms,
+    transform 450ms cubic-bezier(0.2, 0.9, 0.2, 1) 140ms;
+}
+
+.view {
+  --fit: 1;
+  position: relative;
+  height: min(80svh, 760px);
+  min-height: 420px;
+}
+
+.stage {
+  --morph: cubic-bezier(0.72, 0, 0.18, 1);
+  --t: 475ms;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 700px;
+  height: 600px;
+  margin: -300px 0 0 -350px;
+  transform: scale(var(--fit));
+  transition: transform var(--t) var(--morph);
+}
+
+.stage[data-device="computer"] {
+  --dw: 640px;
+  --dh: 410px;
+  --dt: 70px;
+  --dr: 18px;
+  --bz: 12px;
+  --sr: 6px;
+  --chrome: 0px;
+  --status: 0px;
+  --colw: 60%;
+  --fs: 10px;
+  --justify: flex-end;
+}
+
+.stage[data-device="phone"] {
+  --dw: 272px;
+  --dh: 560px;
+  --dt: 20px;
+  --dr: 48px;
+  --bz: 10px;
+  --sr: 38px;
+  --chrome: 0px;
+  --status: 44px;
+  --colw: 100%;
+  --fs: 13.5px;
+  --justify: flex-start;
+}
+
+.stage[data-device="browser"] {
+  --dw: 660px;
+  --dh: 450px;
+  --dt: 75px;
+  --dr: 12px;
+  --bz: 0px;
+  --sr: 12px;
+  --chrome: 56px;
+  --status: 0px;
+  --colw: 56%;
+  --fs: 10px;
+  --justify: flex-end;
+}
+
+.device {
+  position: absolute;
+  left: 50%;
+  top: var(--dt);
+  width: var(--dw);
+  height: var(--dh);
+  margin-left: calc(var(--dw) / -2);
+  border-radius: var(--dr);
+  background: #0e0e12;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.14),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 60px 120px -40px rgba(0, 0, 0, 0.9);
+  transition:
+    top var(--t) var(--morph),
+    width var(--t) var(--morph),
+    height var(--t) var(--morph),
+    margin-left var(--t) var(--morph),
+    border-radius var(--t) var(--morph);
+}
+
+.screen {
+  position: absolute;
+  inset: var(--bz);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--sr);
+  background: var(--w-bg);
+  color: var(--w-fg);
+  font-family: var(--font-sans), "Manrope", system-ui, sans-serif;
+  transition:
+    inset var(--t) var(--morph),
+    border-radius var(--t) var(--morph),
+    background-color var(--t) ease,
+    color var(--t) ease;
+}
+
+.notch,
+.island {
+  position: absolute;
+  left: 50%;
+  z-index: 3;
+  background: #0e0e12;
+  transition: opacity 150ms ease;
+}
+
+.notch {
+  top: 12px;
+  width: 110px;
+  height: 14px;
+  margin-left: -55px;
+  border-radius: 0 0 9px 9px;
+  opacity: 0;
+}
+
+.island {
+  top: 20px;
+  width: 84px;
+  height: 24px;
+  margin-left: -42px;
+  border-radius: 20px;
+  opacity: 0;
+}
+
+.stage[data-device="computer"] .notch,
+.stage[data-device="phone"] .island {
+  opacity: 1;
+  transition-delay: 300ms;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.backdrop > canvas {
+  opacity: 0;
+  transition: opacity var(--t) ease;
+}
+
+.backdrop > canvas[data-on="1"] {
+  opacity: 1;
+}
+
+.phoneStatus,
+.app {
+  position: relative;
+}
+
+.chrome {
+  flex: none;
+  position: relative;
+  height: var(--chrome);
+  overflow: hidden;
+  background: #2a2a2f;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  transition: height var(--t) var(--morph);
+}
+
+.lights {
+  position: absolute;
+  left: 12px;
+  top: 11px;
+  display: flex;
+  gap: 6px;
+}
+
+.lights i {
+  width: 9px !important;
+  height: 9px !important;
+}
+
+.lights i,
+.appLights i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #ff5f57;
+}
+
+.lights i:nth-child(2),
+.appLights i:nth-child(2) {
+  background: #febc2e;
+}
+
+.lights i:nth-child(3),
+.appLights i:nth-child(3) {
+  background: #28c840;
+}
+
+.tab {
+  position: absolute;
+  left: 66px;
+  top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 140px;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 7px 7px 0 0;
+  background: #1c1c21;
+  color: #e6e6ea;
+  font-size: 10px;
+}
+
+.url {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 31px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: #1c1c21;
+  font-size: 9.5px;
+  color: #8e8e96;
+}
+
+.phoneStatus {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--status);
+  padding: 0 26px;
+  overflow: hidden;
+  font-size: 13px;
+  opacity: 0;
+  transition:
+    height var(--t) var(--morph),
+    opacity 100ms ease;
+}
+
+.stage[data-device="phone"] .phoneStatus {
+  opacity: 1;
+  transition:
+    height var(--t) var(--morph),
+    opacity 150ms ease 300ms;
+}
+
+.phoneStatus i {
+  width: 22px;
+  height: 10px;
+  border-radius: 3px;
+  border: 1.5px solid currentColor;
+}
+
+.app {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.appBar {
+  position: relative;
+  flex: none;
+  height: max(30px, calc(var(--fs) * 2.9));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: height var(--t) var(--morph);
+}
+
+.appLights {
+  position: absolute;
+  left: 14px;
+  top: 13px;
+  display: flex;
+  gap: 7px;
+  opacity: 0;
+  transition: opacity 125ms ease;
+}
+
+.stage[data-device="computer"] .appLights {
+  opacity: 1;
+  transition-delay: 325ms;
+}
+
+.appMark {
+  display: block;
+  transition: transform var(--t) var(--morph);
+}
+
+.stage:not([data-device="phone"]) .appMark {
+  transform: scale(0.8);
+}
+
+.chat {
+  flex: 1;
+  min-height: 0;
+  width: var(--colw);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0.3em 1.05em 1.05em;
+  font-size: var(--fs);
+  line-height: 1.38;
+  transition:
+    width var(--t) var(--morph),
+    font-size var(--t) var(--morph);
+}
+
+.chat[data-pass="a"] {
+  animation: passA var(--t) ease both;
+}
+
+.chat[data-pass="b"] {
+  animation: passB var(--t) ease both;
+}
+
+.chat[data-first="1"] {
+  animation: none;
+}
+
+@keyframes passA {
+  0% {
+    filter: blur(0);
+    opacity: 1;
+  }
+  35%,
+  60% {
+    filter: blur(9px);
+    opacity: 0.35;
+  }
+  100% {
+    filter: blur(0);
+    opacity: 1;
+  }
+}
+
+@keyframes passB {
+  0% {
+    filter: blur(0);
+    opacity: 1;
+  }
+  35%,
+  60% {
+    filter: blur(9px);
+    opacity: 0.35;
+  }
+  100% {
+    filter: blur(0);
+    opacity: 1;
+  }
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: var(--justify);
+  gap: 0.6em;
+  overflow: hidden;
+}
+
+.me,
+.her {
+  margin: 0;
+  max-width: 80%;
+  border-radius: 1.26em;
+  transition: opacity 180ms ease, transform 260ms cubic-bezier(0.2, 1, 0.3, 1);
+}
+
+.me {
+  align-self: flex-end;
+  padding: 0.45em 0.9em;
+  background: var(--w-me);
+  color: var(--w-me-fg);
+}
+
+.her {
+  align-self: flex-start;
+  padding: 0.52em 0.9em;
+  background: linear-gradient(to bottom, var(--w-her-top), var(--w-her-bot));
+}
+
+.me[data-on="0"],
+.her[data-on="0"] {
+  display: none;
+}
+
+.me[data-on="1"],
+.her[data-on="1"] {
+  animation: msgIn 260ms cubic-bezier(0.2, 1, 0.3, 1) both;
+}
+
+@keyframes msgIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+}
+
+.compose {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 2.85em;
+  margin-top: 0.9em;
+  padding: 0 0.45em 0 1.05em;
+  border-radius: 3em;
+  border: 1px solid var(--w-line);
+  background: linear-gradient(to bottom, var(--w-composer-top), var(--w-composer-bot));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), inset 0 1px 0 var(--w-highlight);
+  color: var(--w-sub);
+}
+
+.compose i {
+  width: 1.95em;
+  height: 1.95em;
+  border-radius: 50%;
+  background: var(--w-send);
+}
+
+.homebar {
+  position: absolute;
+  left: 50%;
+  bottom: 7px;
+  width: 104px;
+  height: 4px;
+  margin-left: -52px;
+  border-radius: 4px;
+  background: var(--w-fg);
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.stage[data-device="phone"] .homebar {
+  opacity: 1;
+  transition-delay: 300ms;
+}
+
+.base {
+  position: absolute;
+  left: 50%;
+  top: 478px;
+  width: 760px;
+  height: 18px;
+  margin-left: -380px;
+  border-radius: 2px 2px 14px 14px;
+  background: linear-gradient(180deg, #d8d8dc, #a9a9ae 70%, #7c7c82);
+  transform: scaleX(1);
+  transition:
+    transform var(--t) var(--morph),
+    opacity 200ms ease;
+}
+
+.base span {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 120px;
+  height: 6px;
+  margin-left: -60px;
+  border-radius: 0 0 8px 8px;
+  background: #8e8e93;
+}
+
+.stage:not([data-device="computer"]) .base {
+  transform: scaleX(0.4) translateY(-60px);
+  opacity: 0;
+}
+
+.stage[data-device="computer"] .base {
+  transition:
+    transform var(--t) var(--morph),
+    opacity 200ms ease 150ms;
+}
+
+@media (max-width: 900px) {
+  .inner {
+    grid-template-columns: 1fr;
+    align-content: start;
+    gap: 10px;
+  }
+
+  .view {
+    height: min(66svh, 600px);
+    min-height: 380px;
+  }
+
+  .name {
+    font-size: clamp(56px, 17vw, 120px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .name,
+  .name[data-on="1"],
+  .device,
+  .screen,
+  .chrome,
+  .phoneStatus,
+  .chat,
+  .base {
+    transition: none;
+  }
+
+  .chat[data-pass="a"],
+  .chat[data-pass="b"],
+  .me[data-on="1"],
+  .her[data-on="1"] {
+    animation: none;
+  }
+}

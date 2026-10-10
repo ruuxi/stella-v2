@@ -47,6 +47,12 @@
   box-shadow: var(--focus-ring);
 }
 
+.canvas-share__btn--icon {
+  justify-content: center;
+  width: 28px;
+  padding: 0;
+}
+
 .canvas-share__btn--primary {
   border-color: color-mix(in oklch, var(--primary, var(--foreground)) 40%, transparent);
   color: var(--text-strong);

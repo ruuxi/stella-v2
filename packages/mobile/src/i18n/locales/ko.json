@@ -202,6 +202,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "반응 {reactions}",
         "showMoreChips": "{count}개 더 보기",
+        "stellaReaction": "Stella가 {emoji}(으)로 반응했어요",
         "windowPreviewAlt": "창 내용 미리보기"
       },
       "miniModelPicker": {
@@ -1447,8 +1448,6 @@
       "cantRightNow": "지금은 안 돼요",
       "deadline": "{time} 남음",
       "deadlinePassed": "시간이 다 됐어요",
-      "deadlineWithDefault": "{time} 남음 — 그 후에는 ‘{option}’",
-      "defaultOption": "기본값",
       "hideSecret": "{label} 숨기기",
       "missingFields": "필수 항목을 모두 채워 주세요.",
       "notification": {
@@ -1461,14 +1460,11 @@
       "plain": "일반 텍스트로 전송",
       "revealSecret": "{label} 표시",
       "sealFailed": "이 기기에서 암호화할 수 없었어요.",
-      "send": "보내기",
       "sendSecurely": "안전하게 보내기",
       "sending": "보내는 중…",
       "sensitive": "종단 간 암호화",
       "sensitiveToggleA11y": "{label} 암호화",
       "sensitiveUnavailable": "이 기기에서는 아직 암호화할 수 없어요",
-      "somethingElse": "다른 것",
-      "somethingElsePlaceholder": "대신 무엇을 할지 Stella에게 알려 주세요",
       "unnamedComputer": "컴퓨터 · {id}",
       "waitingBadge": "기다리고 있어요"
     }
@@ -2716,22 +2712,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "{time} 남음"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "이 답변 사용",
+      "default": "기본값",
+      "next": "다음 질문",
+      "previous": "이전 질문",
+      "progress": "{current}/{total}",
+      "sending": "보내는 중…",
+      "skip": "건너뛰기",
+      "skipped": "건너뜀",
+      "somethingElse": "기타",
+      "submit": "제출"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

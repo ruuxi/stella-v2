@@ -29,20 +29,63 @@
   display: flex;
   flex-direction: row;
   gap: 10px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding-bottom: 2px;
-  scrollbar-width: thin;
-  overscroll-behavior-x: contain;
+  overflow: hidden;
+  min-width: 0;
 }
 
-.attachment-strip__media::-webkit-scrollbar {
-  height: 6px;
+.attachment-strip__more-tile {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 132px;
+  padding: 0;
+  border: 1px solid var(--panel-surface-border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-inset);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: var(--font-size-lg);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 120ms ease;
 }
 
-.attachment-strip__media::-webkit-scrollbar-thumb {
-  border-radius: 3px;
-  background: var(--border);
+.attachment-strip__more-tile:hover,
+.attachment-strip__more-tile[data-state="open"] {
+  background: color-mix(in oklch, var(--foreground) 8%, var(--surface-inset));
+}
+
+.attachment-strip__more-tile:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.attachment-strip__more-menu {
+  max-height: 320px;
+  max-width: 320px;
+  overflow-y: auto;
+}
+
+.attachment-strip__more-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.attachment-strip__more-glyph {
+  display: inline-flex;
+  flex: none;
+  color: var(--interactive);
+}
+
+.attachment-strip__more-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .attachment-strip__tile {
@@ -220,13 +263,14 @@
   gap: 6px;
   max-width: 100%;
   padding: 4px 10px 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--foreground) 28%, transparent);
+  border: none;
   border-radius: 999px;
-  background: transparent;
-  color: var(--foreground);
+  background: color-mix(in srgb, var(--chat-text-color, var(--text-strong)) 12%, transparent);
+  color: var(--chat-text-color, var(--text-strong));
   cursor: default;
   font: inherit;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-medium);
   line-height: 1.4;
   transition:
     background 120ms ease,
@@ -234,27 +278,21 @@
 }
 
 .attachment-pill:hover {
-  border-color: color-mix(in srgb, var(--foreground) 44%, transparent);
-  background: var(--surface-inset);
+  background: color-mix(in srgb, var(--chat-text-color, var(--text-strong)) 18%, transparent);
 }
 
 .attachment-pill__glyph {
   display: grid;
   flex-shrink: 0;
   place-items: center;
-  color: var(--muted-foreground);
+  color: inherit;
+  opacity: 0.8;
 }
 
 .attachment-pill__title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.attachment-pill__meta {
-  flex-shrink: 0;
-  color: var(--muted-foreground);
-  font-size: 10.5px;
 }
 
 .attachment-strip__more {

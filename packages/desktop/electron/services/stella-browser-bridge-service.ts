@@ -40,6 +40,7 @@ import {
   resolveStellaBrowserRoot,
 } from "../utils/stella-browser-paths.js";
 import { stopChildProcessTree } from "../process-runtime.js";
+import type { StellaBrowserExportedCookie } from "@stella/contracts/desktop/browser-view";
 
 const execFileAsync = promisify(execFile);
 
@@ -238,25 +239,6 @@ type DaemonResponse = {
   data?: unknown;
 };
 
-export type StellaBrowserExportedCookie = {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  secure: boolean;
-  httpOnly: boolean;
-  hostOnly: boolean;
-  session: boolean;
-  storeId: string;
-  sameSite: string;
-  expirationDate?: number;
-  partitionKey?: {
-    topLevelSite?: string;
-    hasCrossSiteAncestor?: boolean;
-  };
-  [key: string]: unknown;
-};
-
 export class StellaBrowserBridgeService {
   private readonly stellaAppDir: string;
   private readonly onUnexpectedExit?: (error: string) => void;
@@ -292,7 +274,8 @@ export class StellaBrowserBridgeService {
   private isLaunching = false;
   private stopped = false;
   /** Which bridge this instance runs (shared vs isolated) and how it claims it. */
-  private readonly namespace: BrowserBridgeNamespace = getBrowserBridgeNamespace();
+  private readonly namespace: BrowserBridgeNamespace =
+    getBrowserBridgeNamespace();
   private binaryIdentity: BrowserBridgeBinaryIdentity | null = null;
 
   constructor(options: StellaBrowserBridgeServiceOptions) {
@@ -566,7 +549,10 @@ export class StellaBrowserBridgeService {
 
     // Only close a daemon this instance started: whatever else answers on
     // the socket belongs to another instance (or nobody we can vouch for).
-    if (this.daemonProcess) {
+    // Hold the daemon past its own exit: a graceful close clears
+    // `daemonProcess`, but anything it started can still be running.
+    const daemon = this.daemonProcess;
+    if (daemon) {
       const closePromise = this.sendCommand({
         id: randomUUID(),
         action: "close",
@@ -574,10 +560,13 @@ export class StellaBrowserBridgeService {
 
       await Promise.race([closePromise, delay(1_500)]).catch(() => undefined);
     }
-    await this.killDaemonProcess();
+    await stopChildProcessTree(daemon);
     await this.stopOrphanedBundledDaemons();
     this.daemonProcess = null;
-    releaseBrowserBridgeOwner(this.namespace.socketDir, STELLA_BROWSER_BRIDGE_SESSION);
+    releaseBrowserBridgeOwner(
+      this.namespace.socketDir,
+      STELLA_BROWSER_BRIDGE_SESSION,
+    );
   }
 
   private async launchBridge() {
@@ -732,12 +721,15 @@ export class StellaBrowserBridgeService {
         env: {
           ...process.env,
           STELLA_BROWSER_SOCKET_DIR: this.namespace.socketDir,
+          // The daemon exits by itself if this process dies without stopping it.
+          STELLA_BROWSER_PARENT_PID: String(process.pid),
           STELLA_BROWSER_EXT_PORT: String(extPort),
           STELLA_BROWSER_EXT_TOKEN: STELLA_BROWSER_BRIDGE_TOKEN,
           STELLA_BROWSER_CONTROL_TOKEN: this.controlToken,
         },
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
+        detached: process.platform !== "win32",
       },
     );
 
@@ -821,9 +813,10 @@ export class StellaBrowserBridgeService {
         env: {
           ...process.env,
           STELLA_BROWSER_SOCKET_DIR: this.namespace.socketDir,
+          // The daemon exits by itself if this process dies without stopping it.
+          STELLA_BROWSER_PARENT_PID: String(process.pid),
           STELLA_BROWSER_CONTROL_TOKEN: controlToken,
-          STELLA_BROWSER_EXTENSION_PROXY_SESSION:
-            STELLA_BROWSER_BRIDGE_SESSION,
+          STELLA_BROWSER_EXTENSION_PROXY_SESSION: STELLA_BROWSER_BRIDGE_SESSION,
           STELLA_BROWSER_EXTENSION_DELEGATE_TOKEN: extensionDelegateToken,
           STELLA_BROWSER_REQUIRED_OWNER_ID: input.ownerId,
           STELLA_BROWSER_REQUIRED_TURN_ID: input.turnId,
@@ -836,6 +829,7 @@ export class StellaBrowserBridgeService {
         },
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
+        detached: process.platform !== "win32",
       },
     );
     const backend: AgentBackendRecord = {
@@ -951,9 +945,7 @@ export class StellaBrowserBridgeService {
       ).catch(() => undefined),
       delay(1_100),
     ]).catch(() => undefined);
-    if (!backend.process.killed && backend.process.exitCode === null) {
-      await stopChildProcessTree(backend.process).catch(() => undefined);
-    }
+    await stopChildProcessTree(backend.process).catch(() => undefined);
   }
 
   private resetCdpRouting() {
@@ -1020,7 +1012,10 @@ export class StellaBrowserBridgeService {
   private async closeExistingSession(replaceDaemonPid: number | null = null) {
     const daemonPort = getPortForSession(STELLA_BROWSER_BRIDGE_SESSION);
 
-    if (replaceDaemonPid != null && replaceDaemonPid !== this.daemonProcess?.pid) {
+    if (
+      replaceDaemonPid != null &&
+      replaceDaemonPid !== this.daemonProcess?.pid
+    ) {
       await this.stopRecordedDaemon(replaceDaemonPid);
     }
 
@@ -1348,9 +1343,6 @@ export class StellaBrowserBridgeService {
   }
 
   private async killDaemonProcess() {
-    if (!this.daemonProcess || this.daemonProcess.killed) {
-      return;
-    }
     await stopChildProcessTree(this.daemonProcess);
   }
 

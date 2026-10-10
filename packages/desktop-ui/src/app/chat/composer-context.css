@@ -602,11 +602,6 @@ button.chat-composer-file-chip:focus-visible {
   text-overflow: ellipsis;
 }
 
-.chat-composer-file-size {
-  font-size: var(--font-size-2xs);
-  line-height: 1.2;
-  color: var(--text-weaker);
-}
 
 @media (prefers-reduced-motion: reduce) {
   .composer-context-actions--suggestions {

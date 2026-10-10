@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { mkdirSync } from "node:fs";
 import {
   resolveLlmRoute,
   resolveLlmRouteForCatalogEnrichment,
@@ -16,6 +17,7 @@ import { persistThreadCustomMessage } from "../agent-runtime/thread-memory.js";
 import { resolvePlacedAgentModel } from "./placed-agent-model.js";
 import { resolveOrchestratorThreadKey } from "../thread-runtime.js";
 import { LocalAgentManager } from "../agents/local-agent-manager.js";
+import { defaultAgentDirectory } from "../agents/agent-directory.js";
 import { writeRestartInterruptedSnapshot } from "../restart-continuation.js";
 import type {
   AgentToolRequest,
@@ -133,8 +135,11 @@ export const hasDurableAgentLifecycleEvent = (
     return hasPersistedThreadEvent(context, orchestratorThreadKey, eventId);
   }
   return (
-    context.runtimeStore.hasEvent(event.conversationId, eventId, event.type) &&
-    hasPersistedThreadEvent(context, orchestratorThreadKey, eventId)
+    context.runtimeStore.chat.hasEvent(
+      event.conversationId,
+      eventId,
+      event.type,
+    ) && hasPersistedThreadEvent(context, orchestratorThreadKey, eventId)
   );
 };
 
@@ -594,6 +599,8 @@ export const createAgentOrchestration = (
       ? { attemptTeardownTimeoutMs: deps.attemptTeardownTimeoutMs }
       : {}),
     getMaxConcurrent: () => getMaxAgentConcurrency(context.stellaDataDir),
+    defaultWorkingDirectory: (threadId: string, startedAt: number) =>
+      defaultAgentDirectory(context.stellaDataDir, threadId, startedAt),
     resolveTaskThread: ({
       conversationId,
       agentType,
@@ -645,6 +652,7 @@ export const createAgentOrchestration = (
       agentId,
       rootRunId,
       toolWorkspaceRoot,
+      workingDirectory,
       agentContext,
       taskDescription,
       taskPrompt,
@@ -694,6 +702,15 @@ export const createAgentOrchestration = (
         null;
 
       const composedUserPrompt = `${taskDescription}\n\n${taskPrompt}`;
+      // An agent's own folder exists once it first works there; a CLI
+      // launched in a missing cwd fails to start.
+      if (workingDirectory) {
+        try {
+          mkdirSync(workingDirectory, { recursive: true });
+        } catch {
+          // A directory that cannot be made surfaces as the run's spawn error.
+        }
+      }
 
       const result = await runSubagentTask({
         executionHost: "device",
@@ -718,6 +735,7 @@ export const createAgentOrchestration = (
           agentEngine: agentContext.agentEngine,
         }),
         toolExecutor,
+        buildAgentShellEnvironment: context.toolHost.buildAgentShellEnvironment,
         deviceId: context.deviceId,
         stellaDataDir: context.stellaDataDir,
         resolvedLlm,
@@ -733,6 +751,7 @@ export const createAgentOrchestration = (
             settled: resource.settled,
           }),
         ...(toolWorkspaceRoot ? { toolWorkspaceRoot } : {}),
+        ...(workingDirectory ? { agentWorkingDirectory: workingDirectory } : {}),
         ...(steering ? { steering } : {}),
         compactionScheduler: context.state.compactionScheduler,
         onProgress,
@@ -910,16 +929,16 @@ export const createAgentOrchestration = (
         }
       : {}),
     readTerminalLifecycleRecoveryLedger: (key: string) =>
-      context.runtimeStore.getSetting?.(key) ?? null,
+      context.runtimeStore.chat.getSetting?.(key) ?? null,
     writeTerminalLifecycleRecoveryLedger: (key: string, value: string) => {
-      context.runtimeStore.setSetting?.(key, value);
+      context.runtimeStore.chat.setSetting?.(key, value);
     },
     hasAgentLifecycleEvent: (
       conversationId: string,
       eventId: string,
       type: string,
     ) => {
-      const hasActivityEvent = context.runtimeStore.hasEvent(
+      const hasActivityEvent = context.runtimeStore.chat.hasEvent(
         conversationId,
         eventId,
         type,
@@ -976,7 +995,7 @@ export const createAgentOrchestration = (
     const fenceId = requestedExecutionId?.trim() || requestedThreadId;
     const cancellationReason = fenceId
       ? getPlacementCancellation({
-          store: context.runtimeStore,
+          store: context.runtimeStore.chat,
           kind: "agent",
           executionId: fenceId,
         })
@@ -1106,7 +1125,7 @@ export const createAgentOrchestration = (
     // lookup/await. The ACK therefore survives a worker restart in the gap
     // before a delayed runBlockingLocalAgent RPC is delivered.
     persistPlacementCancellation({
-      store: context.runtimeStore,
+      store: context.runtimeStore.chat,
       kind: "agent",
       executionId: executionId?.trim() || exactAgentId,
       reason,

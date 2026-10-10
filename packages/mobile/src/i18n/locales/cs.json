@@ -220,6 +220,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Reakce {reactions}",
         "showMoreChips": "Zobrazit o {count} více",
+        "stellaReaction": "Stella reagovala {emoji}",
         "windowPreviewAlt": "Náhled obsahu okna"
       },
       "miniModelPicker": {
@@ -1477,8 +1478,6 @@
       "cantRightNow": "Teď nemůžu",
       "deadline": "Zbývá {time}",
       "deadlinePassed": "Čas vypršel",
-      "deadlineWithDefault": "Zbývá {time} — jinak „{option}“",
-      "defaultOption": "Výchozí",
       "hideSecret": "Skrýt {label}",
       "missingFields": "Vyplň všechna povinná pole.",
       "notification": {
@@ -1491,14 +1490,11 @@
       "plain": "Odesláno jako čitelný text",
       "revealSecret": "Zobrazit {label}",
       "sealFailed": "Na tomto zařízení to nejde zašifrovat.",
-      "send": "Odeslat",
       "sendSecurely": "Odeslat bezpečně",
       "sending": "Odesílám…",
       "sensitive": "Šifrováno end-to-end",
       "sensitiveToggleA11y": "Zašifrovat {label}",
       "sensitiveUnavailable": "Tohle zařízení to zatím nedokáže zašifrovat",
-      "somethingElse": "Něco jiného",
-      "somethingElsePlaceholder": "Napiš Stelle, co má udělat místo toho",
       "unnamedComputer": "Počítač · {id}",
       "waitingBadge": "Čeká na tebe"
     }
@@ -2772,22 +2768,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "Zbývá {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Použít tuto odpověď",
+      "default": "Výchozí",
+      "next": "Další otázka",
+      "previous": "Předchozí otázka",
+      "progress": "{current} z {total}",
+      "sending": "Odesílání…",
+      "skip": "Přeskočit",
+      "skipped": "Přeskočeno",
+      "somethingElse": "Něco jiného",
+      "submit": "Odeslat"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

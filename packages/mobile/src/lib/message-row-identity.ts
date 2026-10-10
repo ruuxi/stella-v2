@@ -33,6 +33,7 @@ export const visibleChatMessages = (
   const isHidden = (message: ChatMessage): boolean => {
     if (isStandInArtifactRow(message)) return true;
     if (message.role === "user" || message.text.trim() || message.stopped || message.cloudFallback) return false;
+    if ((message.askRecords?.length ?? 0) > 0) return false;
     if (options.contextMessageIds?.has(message.id)) return false;
     if (message.toolSteps?.some(step =>
       step.toolName.toLowerCase() === "schedule" && step.status !== "error" &&

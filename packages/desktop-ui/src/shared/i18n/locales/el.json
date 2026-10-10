@@ -208,6 +208,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Αντιδράσεις {reactions}",
         "showMoreChips": "Εμφάνιση {count} ακόμη",
+        "stellaReaction": "Η Stella αντέδρασε με {emoji}",
         "windowPreviewAlt": "Προεπισκόπηση περιεχομένου παραθύρου"
       },
       "miniModelPicker": {
@@ -1457,8 +1458,6 @@
       "cantRightNow": "Όχι τώρα",
       "deadline": "Απομένουν {time}",
       "deadlinePassed": "Ο χρόνος τελείωσε",
-      "deadlineWithDefault": "Απομένουν {time} — αλλιώς «{option}»",
-      "defaultOption": "Προεπιλογή",
       "hideSecret": "Απόκρυψη {label}",
       "missingFields": "Συμπλήρωσε όλα τα υποχρεωτικά πεδία.",
       "notification": {
@@ -1471,14 +1470,11 @@
       "plain": "Αποστέλλεται ως απλό κείμενο",
       "revealSecret": "Εμφάνιση {label}",
       "sealFailed": "Δεν ήταν δυνατή η κρυπτογράφηση σε αυτή τη συσκευή.",
-      "send": "Αποστολή",
       "sendSecurely": "Ασφαλής αποστολή",
       "sending": "Αποστολή…",
       "sensitive": "Κρυπτογραφημένο από άκρο σε άκρο",
       "sensitiveToggleA11y": "Κρυπτογράφηση {label}",
       "sensitiveUnavailable": "Αυτή η συσκευή δεν μπορεί ακόμη να το κρυπτογραφήσει",
-      "somethingElse": "Κάτι άλλο",
-      "somethingElsePlaceholder": "Πες στη Stella τι να κάνει αντ' αυτού",
       "unnamedComputer": "Υπολογιστής · {id}",
       "waitingBadge": "Περιμένει εσένα"
     }
@@ -2736,22 +2732,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "Απομένουν {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Χρήση αυτής της απάντησης",
+      "default": "Προεπιλογή",
+      "next": "Επόμενη ερώτηση",
+      "previous": "Προηγούμενη ερώτηση",
+      "progress": "{current} από {total}",
+      "sending": "Αποστολή…",
+      "skip": "Παράλειψη",
+      "skipped": "Παραλείφθηκε",
+      "somethingElse": "Κάτι άλλο",
+      "submit": "Υποβολή"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

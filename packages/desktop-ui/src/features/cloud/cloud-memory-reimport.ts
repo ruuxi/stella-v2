@@ -1,7 +1,7 @@
 import { BackendRequestError } from "@stella/contracts/backend/client";
 import type { HomeCalls, MemoryWipeStatus } from "@stella/contracts/backend/home";
 import { OWNER_GENERATION_STALE } from "@stella/contracts/backend/protocol";
-import { followsOwnerGeneration } from "./cloud-memory-preference";
+import { followsOwnerGeneration } from "@stella/contracts/cloud-memory-preference";
 import {
   CloudMemoryWipeError,
   decodeCloudMemoryWipeStatus,

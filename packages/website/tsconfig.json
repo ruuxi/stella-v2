@@ -20,7 +20,10 @@
     ],
     "paths": {
       "@/*": ["./src/*"],
-      "@stella/contracts/*": ["../contracts/*"]
+      "@stella/contracts/*": ["../contracts/*"],
+      "@stella/character/*": ["../desktop-ui/src/ui/stella-character/*"],
+      "@stella/theme": ["../theme/index.ts"],
+      "@stella/theme/*": ["../theme/*"]
     }
   },
   "include": [

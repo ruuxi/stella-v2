@@ -214,6 +214,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Reazioni {reactions}",
         "showMoreChips": "Mostrane altri {count}",
+        "stellaReaction": "Stella ha reagito con {emoji}",
         "windowPreviewAlt": "Anteprima del contenuto della finestra"
       },
       "miniModelPicker": {
@@ -1467,8 +1468,6 @@
       "cantRightNow": "Non adesso",
       "deadline": "{time} rimasti",
       "deadlinePassed": "Tempo scaduto",
-      "deadlineWithDefault": "{time} rimasti — altrimenti «{option}»",
-      "defaultOption": "Predefinito",
       "hideSecret": "Nascondi {label}",
       "missingFields": "Compila tutti i campi obbligatori.",
       "notification": {
@@ -1481,14 +1480,11 @@
       "plain": "Inviato in chiaro",
       "revealSecret": "Mostra {label}",
       "sealFailed": "Impossibile crittografarlo su questo dispositivo.",
-      "send": "Invia",
       "sendSecurely": "Invia in sicurezza",
       "sending": "Invio…",
       "sensitive": "Crittografato end-to-end",
       "sensitiveToggleA11y": "Crittografa {label}",
       "sensitiveUnavailable": "Questo dispositivo non può ancora crittografarlo",
-      "somethingElse": "Qualcos'altro",
-      "somethingElsePlaceholder": "Di' a Stella cosa fare invece",
       "unnamedComputer": "Computer · {id}",
       "waitingBadge": "Sta aspettando te"
     }
@@ -2754,22 +2750,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "Restano {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Usa questa risposta",
+      "default": "Predefinita",
+      "next": "Domanda successiva",
+      "previous": "Domanda precedente",
+      "progress": "{current} di {total}",
+      "sending": "Invio…",
+      "skip": "Salta",
+      "skipped": "Saltata",
+      "somethingElse": "Altro",
+      "submit": "Invia"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

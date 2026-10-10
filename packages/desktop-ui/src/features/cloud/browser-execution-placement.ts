@@ -6,7 +6,7 @@ import {
   type ExecutionTargetMode,
 } from "@stella/contracts/turn-plane/placement";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import type { PendingCloudTurnSubmission } from "./conversation-store";
+import type { PendingCloudTurnSubmission } from "./conversation-outbox";
 import type { DesktopExecutionTarget } from "../execution-placement/execution-target-store";
 
 /** The gate's dispatch row, as the browser reads it. */

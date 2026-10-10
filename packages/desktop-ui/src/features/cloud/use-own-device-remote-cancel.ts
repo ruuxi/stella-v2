@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getDeviceIdOrNull } from "@/platform/electron/device";
-import type { JournalRecord, TurnPhase } from "./conversation-protocol";
+import type {
+  JournalRecord,
+  TurnPhase,
+} from "@stella/contracts/conversation-protocol";
 import { advanceOwnDeviceTurnPhases } from "./cloud-remote-cancel";
 
 const phaseObservations = (

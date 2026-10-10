@@ -1,4 +1,5 @@
 import { memo, useCallback, useMemo, useState } from "react";
+import { fileDisplayName } from "@stella/contracts/file-display-name";
 import {
   Pressable,
   ScrollView,
@@ -23,7 +24,6 @@ import type { StoredPhoneAccess } from "../../lib/phone-access";
 import type { Colors } from "../../theme/colors";
 import { fonts } from "../../theme/fonts";
 import { fadeHex } from "../../theme/oklch";
-import { AGENT_ACTIVITY_INK } from "../../lib/agent-activity-presentation";
 import { WaveformCard } from "./WaveformCard";
 
 const ROW_GAP = 8;
@@ -287,22 +287,22 @@ export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
                 style={({ pressed }) => [
                   styles.pill,
                   {
-                    backgroundColor: fadeHex(colors[AGENT_ACTIVITY_INK.pillBorderInk], 0.03),
-                    borderColor: fadeHex(
-                      colors[AGENT_ACTIVITY_INK.pillBorderInk],
-                      AGENT_ACTIVITY_INK.pillBorderAlpha,
-                    ),
+                    backgroundColor: fadeHex(colors.assistantBubbleText, 0.12),
                     opacity: pressed ? 0.78 : 1,
                   },
                 ]}
               >
-                <Icon name={pillIcon(card)} size={13} color={colors.textMuted} />
+                <Icon
+                  name={pillIcon(card)}
+                  size={14}
+                  color={fadeHex(colors.assistantBubbleText, 0.8)}
+                />
                 <Text
-                  style={[styles.pillTitle, { color: colors.text }]}
+                  style={[styles.pillTitle, { color: colors.assistantBubbleText }]}
                   numberOfLines={1}
                   maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
                 >
-                  {card.title}
+                  {primary ? fileDisplayName(primary) : card.title}
                 </Text>
               </Pressable>
             );
@@ -333,15 +333,14 @@ const styles = StyleSheet.create({
   pending: { borderRadius: 14 },
   pill: {
     alignItems: "center",
-    borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
     flexDirection: "row",
-    gap: 6,
+    gap: 5,
     maxWidth: "100%",
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
   },
-  pillTitle: { flexShrink: 1, fontFamily: fonts.sans.regular, fontSize: 12.5 },
+  pillTitle: { flexShrink: 1, fontFamily: fonts.sans.medium, fontSize: 14 },
   pills: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
   pillsFirst: { marginTop: 0 },
   playBadge: {

@@ -868,7 +868,7 @@ export const changelogEntries: ChangelogEntry[] = [
       "Top-bar controls stay visible at narrow widths.",
       "Chat no longer shakes when the display panel opens after reload.",
       "Mobile chat sync filtering and discovery paths were fixed.",
-      "Cursor runner cleanup, recovery, and secure key storage were improved.",
+      "Engine runner cleanup, recovery, and secure key storage were improved.",
       { text: "Chat list migrated from FlashList to Legend List v3 for steadier long-thread performance.", product: "Mobile" },
       { text: "Theme colors aligned with desktop and the soft/flat gradient is now visible.", product: "Mobile" },
       { text: "Top-bar seam fixed by sharing one app backdrop; mobile bumped to 1.0.2.", product: "Mobile" },
@@ -926,7 +926,7 @@ export const changelogEntries: ChangelogEntry[] = [
     date: "May 25, 2026",
     tags: ["New", "Polish"],
     highlights: [
-      "Cursor, Codex, Claude Code, Hermes, and OpenClaw engine/import paths landed.",
+      "Codex and Claude Code engine paths landed.",
       "Claude Code model selection added.",
       "Settings → Models folded into the Engine display tab.",
       "User apps now open under their own `/apps` pages, and the Apps nav dot lights up when Stella scaffolds something new.",

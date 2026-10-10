@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { UserAsk, UserAskAnswer } from "@stella/contracts/user-ask";
+import type { UserAskRecord } from "@stella/contracts/user-ask-deck";
 import { userAskIsOpen } from "@stella/contracts/user-ask";
 import { getElectronApi } from "@/platform/electron/electron";
 
 const EMPTY_ASKS: readonly UserAsk[] = [];
+const EMPTY_RECORDS: readonly UserAskRecord[] = [];
+const MAX_RECORDS_PER_CONVERSATION = 50;
+
+let recordsByConversation: ReadonlyMap<string, readonly UserAskRecord[]> = new Map();
+const recordListeners = new Set<() => void>();
 
 let openAsks: readonly UserAsk[] = EMPTY_ASKS;
 let detachBridge: (() => void) | null = null;
@@ -146,6 +152,45 @@ export const setUserAskFieldSensitive = async (
   } catch {
     return false;
   }
+};
+
+export const recordUserAskAnswer = (
+  conversationId: string,
+  record: UserAskRecord,
+): void => {
+  if (!conversationId) return;
+  const current = recordsByConversation.get(conversationId) ?? EMPTY_RECORDS;
+  const next = new Map(recordsByConversation);
+  next.set(
+    conversationId,
+    [...current.filter((entry) => entry.id !== record.id), record]
+      .sort((left, right) => left.createdAt - right.createdAt)
+      .slice(-MAX_RECORDS_PER_CONVERSATION),
+  );
+  recordsByConversation = next;
+  for (const listener of recordListeners) listener();
+};
+
+const subscribeRecords = (listener: () => void) => {
+  recordListeners.add(listener);
+  return () => {
+    recordListeners.delete(listener);
+  };
+};
+
+const recordsSnapshot = () => recordsByConversation;
+
+export const useConversationUserAskRecords = (
+  conversationId: string | null | undefined,
+): readonly UserAskRecord[] => {
+  const records = useSyncExternalStore(
+    subscribeRecords,
+    recordsSnapshot,
+    recordsSnapshot,
+  );
+  return conversationId
+    ? (records.get(conversationId) ?? EMPTY_RECORDS)
+    : EMPTY_RECORDS;
 };
 
 export const useUserAsks = (): readonly UserAsk[] =>

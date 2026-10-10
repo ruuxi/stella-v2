@@ -78,7 +78,7 @@ export function GlobalModelsControl({ visible = true }) {
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="pill-btn work-models-button"
+            className="sidebar-footer-button work-models-button"
             data-active={open || undefined}
             aria-pressed={open}
             onMouseEnter={preloadModelsPicker}

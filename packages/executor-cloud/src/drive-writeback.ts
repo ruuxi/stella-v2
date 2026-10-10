@@ -29,6 +29,12 @@ import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { withWorkspaceFileNoFollow } from "@stella/runtime/kernel/tools/workspace-file-boundary.js";
+import { renderEvidenceThumbnail } from "@stella/runtime/kernel/shared/evidence-thumbnail.js";
+import {
+  EVIDENCE_THUMBNAIL_CONTENT_TYPE,
+  evidenceThumbnailDrivePath,
+  isEvidenceThumbnailDrivePath,
+} from "@stella/contracts/chat-evidence-thumbnails";
 import type { ToolProcessIdentity } from "@stella/runtime/kernel/tools/types.js";
 import {
   readDriveLedgerFiles,
@@ -75,6 +81,7 @@ const PUT_CHUNK_BYTES = 1024 * 1024;
 /** Reply-linked files the card shows, as produced files always have. */
 const CARD_MAX_FILES = 25;
 const NOTICE_MAX_REASONS = 12;
+const THUMBNAIL_MAX_FILES = 12;
 /** Mirrors the drive's own path rules (`normalizeDrivePath`). */
 const DRIVE_PATH_MAX = 400;
 const DRIVE_SEGMENT_MAX = 255;
@@ -252,7 +259,9 @@ export const writeBackDrive = async (options: {
       `${drivePath} is not a name the drive accepts, so it was not saved to the drive.`,
     );
   }
-  const savable = candidates.filter((drivePath) => validDrivePath(drivePath));
+  const savable = candidates.filter(
+    (drivePath) => validDrivePath(drivePath) && !isEvidenceThumbnailDrivePath(drivePath),
+  );
   const overflow = savable.slice(SAVE_MAX_FILES);
   if (overflow.length > 0) {
     reasons.push(
@@ -274,6 +283,15 @@ export const writeBackDrive = async (options: {
   let inlineBytes = 0;
   const large: LargeFile[] = [];
   let reports = 0;
+  const linkedSet = new Set(linked);
+  const landed = new Map<string, string>();
+  const thumbnails = new Map<string, Uint8Array>();
+  const keepThumbnail = async (drivePath: string, bytes: Uint8Array) => {
+    if (thumbnails.size >= THUMBNAIL_MAX_FILES) return;
+    if (!evidenceThumbnailDrivePath(drivePath)) return;
+    const thumbnail = await renderEvidenceThumbnail(bytes);
+    if (thumbnail) thumbnails.set(drivePath, thumbnail);
+  };
 
   const report = async (files: ProducedFileReport[]): Promise<void> => {
     if (files.length === 0) return;
@@ -291,6 +309,7 @@ export const writeBackDrive = async (options: {
       file[PRODUCED_FILE_AUTHORIZED_BYTES]?.fill(0);
       const landedAt = renamedBy.get(file.path) ?? file.path;
       if (!delivery.stored.has(landedAt)) continue;
+      landed.set(file.path, landedAt);
       savedPaths.push(landedAt);
       cardSaved.set(file.path, { path: landedAt, sizeBytes: file.sizeBytes });
       const version = delivery.versions.get(landedAt);
@@ -337,11 +356,13 @@ export const writeBackDrive = async (options: {
       if (bytes) {
         const sha256 = sha256Hex(bytes);
         if (matchesLedger(file.path, bytes.byteLength, sha256)) {
+          if (linkedSet.has(file.path)) await keepThumbnail(file.path, bytes);
           bytes.fill(0);
           inSync.set(file.path, bytes.byteLength);
           continue;
         }
         shaOf.set(file.path, { sha256, sizeBytes: bytes.byteLength });
+        await keepThumbnail(file.path, bytes);
         inline.push(file);
         inlineBytes += bytes.byteLength;
         continue;
@@ -481,6 +502,28 @@ export const writeBackDrive = async (options: {
       });
     }
     await report(ready);
+  }
+
+  const thumbnailReports: ProducedFileReport[] = [];
+  for (const [drivePath, thumbnail] of thumbnails) {
+    const landedAt = landed.get(drivePath) ?? (inSync.has(drivePath) ? drivePath : null);
+    const thumbnailPath = landedAt ? evidenceThumbnailDrivePath(landedAt) : null;
+    if (!thumbnailPath) continue;
+    thumbnailReports.push({
+      path: thumbnailPath,
+      name: thumbnailPath.slice(thumbnailPath.lastIndexOf("/") + 1),
+      sizeBytes: thumbnail.byteLength,
+      contentType: EVIDENCE_THUMBNAIL_CONTENT_TYPE,
+      [PRODUCED_FILE_AUTHORIZED_BYTES]: Buffer.from(thumbnail),
+    });
+  }
+  if (thumbnailReports.length > 0) {
+    await reportProducedFiles({
+      turnId: options.turnId,
+      files: thumbnailReports,
+      post: options.post,
+      batchPrefix: "thumbnails-",
+    }).catch(() => undefined);
   }
 
   for (const drivePath of unreadable.slice(0, 5)) {

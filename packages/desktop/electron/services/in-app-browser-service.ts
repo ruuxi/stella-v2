@@ -4,13 +4,11 @@ import {
   BrowserWindow,
   session,
   WebContentsView,
-  type Cookie,
   type Rectangle,
   type Session,
 } from "electron";
 import {
   importBrowserProfileSnapshot,
-  readBrowserHistoryUrls,
   resolveBrowserProfileSelection,
   type BrowserProfileImportResult,
 } from "./in-app-browser-profile.js";
@@ -19,87 +17,39 @@ import {
   isAuthOrigin,
   isAuthPermission,
   isAuthPopupUrl,
-  isTrustCriticalCookieName,
   shouldAllowAuthDevice,
-  shouldPreserveExistingCookie,
 } from "./in-app-browser-auth-policy.js";
-import {
-  cookieIdentityKey,
-  googleCookieFamilyKey,
-  isGoogleAuthNavigation,
-} from "./in-app-browser-cookie-family.js";
 import type {
   InAppBrowserDebuggerEvent,
   InAppBrowserDebuggerRecovery,
   InAppBrowserDebuggerTarget,
 } from "./in-app-browser-cdp-adapter.js";
+import type { StellaBrowserBridgeStatus } from "../process-resources/browser-bridge-resource.js";
 import type {
-  StellaBrowserBridgeFailureReason,
-  StellaBrowserBridgeStatus,
-} from "../process-resources/browser-bridge-resource.js";
+  BrowserViewConnection,
+  BrowserViewLayout,
+  BrowserViewOwnerState,
+  BrowserViewState,
+  BrowserViewTabState,
+  BrowserViewUnavailableReason,
+  StellaBrowserExportedCookie,
+} from "@stella/contracts/desktop/browser-view";
 import { BROWSER_BRIDGE_MISSING_ERROR } from "../utils/register-stella-native-messaging-host.js";
 import { STELLA_BROWSER_EXTENSION_STORE_URL } from "@stella/runtime/kernel/tools/stella-browser-bridge-config";
-import { RENDERER_ORIGIN } from "../source/origin.js";
+import { CookieMirror } from "./in-app-browser/cookie-mirror.js";
+import {
+  DebuggerTargetProxy,
+  isRendererUrl,
+} from "./in-app-browser/debugger-target-proxy.js";
+import {
+  BrowserTabRegistry,
+  DEFAULT_URL,
+  MANUAL_OWNER_ID,
+  resolveOwnerId,
+  type ManagedTab,
+} from "./in-app-browser/tab-registry.js";
 
-export type BrowserViewConnection = "checking" | "disconnected" | "connected";
-export type BrowserViewUnavailableReason =
-  | "extension_not_installed"
-  | "extension_disconnected"
-  | StellaBrowserBridgeFailureReason;
-
-export type BrowserViewTabState = {
-  id: string;
-  ownerId: string;
-  url: string;
-  title: string;
-  faviconUrl?: string;
-  loading: boolean;
-  canGoBack: boolean;
-  canGoForward: boolean;
-};
-
-export type BrowserViewOwnerState = {
-  id: string;
-  kind: "manual" | "agent";
-  tabCount: number;
-  activeTabId?: string;
-  latest: boolean;
-};
-
-export type BrowserViewState = {
-  connection: BrowserViewConnection;
-  profileName?: string;
-  visibleOwnerId: string;
-  owners: BrowserViewOwnerState[];
-  tabs: BrowserViewTabState[];
-  activeTabId?: string;
-  error?: string;
-  unavailableReason?: BrowserViewUnavailableReason;
-};
-
-export type BrowserViewLayout = {
-  pageBounds: Rectangle;
-  surfaceBounds: Rectangle;
-};
-
-export type StellaBrowserExportedCookie = {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  secure: boolean;
-  httpOnly: boolean;
-  hostOnly: boolean;
-  session: boolean;
-  storeId: string;
-  sameSite: "unspecified" | "no_restriction" | "lax" | "strict";
-  expirationDate?: number;
-  partitionKey?: {
-    topLevelSite?: string;
-    hasCrossSiteAncestor?: boolean;
-  };
-  [key: string]: unknown;
-};
+export type { StellaBrowserExportedCookie };
 
 /**
  * A single real-browser cookie change pushed in real time by the extension.
@@ -119,32 +69,10 @@ export type StellaBrowserBridgeEvent = {
   [key: string]: unknown;
 };
 
-type ManagedTab = {
-  id: string;
-  ownerId: string;
-  view: WebContentsView;
-  title: string;
-  faviconUrl?: string;
-  faviconLoadId: number;
-  loading: boolean;
-  /** A `stella-preview://` tab: the app's own UI from a draft worktree. */
-  preview?: { name: string; dispose: () => void };
-};
-
 export type InAppBrowserPreview = {
   view: WebContentsView;
   url: string;
   dispose: () => void;
-};
-
-type OwnerTabRegistry = {
-  tabIds: Set<string>;
-  activeTabId?: string;
-};
-
-type DrawableLease = {
-  count: number;
-  mountedInHiddenHost: boolean;
 };
 
 export type InAppBrowserDrawableLease = {
@@ -218,22 +146,9 @@ type InAppBrowserServiceOptions = {
   openPreview?: (name: string) => Promise<InAppBrowserPreview>;
 };
 
-const DEFAULT_URL = "about:blank";
 const PREVIEW_URL_PREFIX = "stella-preview://";
-const isRendererUrl = (value: string) =>
-  value.startsWith(`${RENDERER_ORIGIN}/`);
-const MANUAL_OWNER_ID = "stella:manual";
-const DRAWABLE_HOST_BOUNDS: Rectangle = {
-  x: -100_000,
-  y: -100_000,
-  width: 1280,
-  height: 720,
-};
-// Gap between forced frames while a command waits on an unmapped host.
-const DRAWABLE_HOST_FRAME_PUMP_MS = 16;
 const DEFAULT_CONNECTION_TIMEOUT_MS = 10_000;
 const DEFAULT_CONNECTION_POLL_MS = 250;
-const DEFAULT_DEBUGGER_RECOVERY_TIMEOUT_MS = 1_000;
 // Extension wake (MV3 service worker) plus native-host/daemon spawn can take
 // several seconds on a cold start. 1.5s was too tight and routinely produced a
 // "connected extension but no seed" state; give the first automatic connect a
@@ -251,15 +166,6 @@ const DEFAULT_DEMAND_CONNECTION_TIMEOUT_MS = 30_000;
 const DEMAND_ATTEMPT_WINDOWS_MS = [2_000, 5_000, 10_000] as const;
 // Gap between attempts, so a daemon that is still booting is not hammered.
 const DEMAND_RETRY_BACKOFF_MS = [250, 1_000, 2_000] as const;
-// Continuous cookie mirror: how often, once the initial seed has completed, the
-// in-app cookie store is refreshed from the real browser so it never goes
-// stale. Background, unref'd, single-flight.
-const DEFAULT_COOKIE_MIRROR_INTERVAL_MS = 60_000;
-const MIN_COOKIE_MIRROR_INTERVAL_MS = 5_000;
-// Reconcile-on-navigation coalescing: skip a navigation-triggered refresh if a
-// reseed already ran within this window, so rapid navigations don't each pull a
-// full cookie export.
-const DEFAULT_NAVIGATION_RESEED_THROTTLE_MS = 5_000;
 const MAX_FAVICON_BYTES = 256 * 1024;
 
 const cloneState = (state: BrowserViewState): BrowserViewState => ({
@@ -326,20 +232,6 @@ const clampBoundsToWindow = (
   };
 };
 
-const cookieUrl = (cookie: {
-  domain?: string;
-  path?: string;
-  secure?: boolean;
-}) => {
-  const host = String(cookie.domain || "")
-    .trim()
-    .replace(/^\./, "");
-  if (!host || host.includes("/") || host.includes("\0")) return null;
-  return `${cookie.secure ? "https" : "http"}://${host}${
-    cookie.path?.startsWith("/") ? cookie.path : "/"
-  }`;
-};
-
 /** How hard one `connect()` should try, and whether it may re-handshake. */
 type ConnectionAttemptOptions = {
   /** Poll window for this attempt; defaults to the automatic-connect budget. */
@@ -353,15 +245,11 @@ type ConnectionAttemptOptions = {
 
 export class InAppBrowserService {
   private readonly options: InAppBrowserServiceOptions;
-  private readonly tabs = new Map<string, ManagedTab>();
-  private readonly owners = new Map<string, OwnerTabRegistry>();
+  private readonly tabs = new BrowserTabRegistry();
+  private readonly cookies: CookieMirror;
+  private readonly debuggerProxy: DebuggerTargetProxy;
   private readonly errorsByOwner = new Map<string, string>();
-  private readonly drawableLeases = new Map<string, DrawableLease>();
-  private readonly debuggerListeners = new Set<
-    (event: InAppBrowserDebuggerEvent) => void
-  >();
   private readonly profilePath: string;
-  private readonly hideDrawableHost: boolean;
 
   private state: BrowserViewState = {
     connection: "checking",
@@ -380,40 +268,11 @@ export class InAppBrowserService {
   private profileImport: BrowserProfileImportResult | null = null;
   private initializePromise: Promise<void> | null = null;
   private connectPromise: Promise<BrowserViewState> | null = null;
-  private visibleOwnerId = MANUAL_OWNER_ID;
-  /**
-   * `undefined` preserves the legacy single-owner view, `null` exposes every
-   * owner, and a string pins the view to one conversation/session owner.
-   */
-  private scopedOwnerId: string | null | undefined;
-  private latestOwnerId: string | undefined;
   private visible = false;
   private layout: BrowserViewLayout | null = null;
   private attachedView: WebContentsView | null = null;
   private attachedWindow: BrowserWindow | null = null;
-  private drawableHost: BrowserWindow | null = null;
   private disposed = false;
-  /**
-   * True once at least one successful cookie seed has completed. Unlike the
-   * old one-shot `seeded` latch, this does NOT block reseeding: freshness is
-   * owned by the continuous cookie mirror (`startCookieMirror`), which keeps
-   * running after the initial seed. This flag only gates the connection-state
-   * fast paths and marks that the mirror may start.
-   */
-  private hasSeededOnce = false;
-  /** Single-flight guard so overlapping reseeds never interleave cookie writes. */
-  private reseedInFlight: Promise<void> | null = null;
-  /** Background, unref'd timer that drives the continuous cookie mirror. */
-  private cookieMirrorTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Timestamp (ms) of the last completed reseed, for navigation throttling. */
-  private lastReseedAt = 0;
-  /** Disposer for the real-time cookie-event subscription (primary path). */
-  private cookieEventUnsubscribe: (() => void) | null = null;
-  private readonly knownMirroredCookieFamilies = new Set<string>();
-  private readonly knownMirroredPartitionedCookieFamilies = new Set<string>();
-  private readonly googleNavigationReadyContents = new Set<number>();
-  private reseedRequested = false;
-  private pendingPartitionedCookies: StellaBrowserExportedCookie[] = [];
   private connectionError: string | undefined;
   private connectionUnavailableReason: BrowserViewUnavailableReason | undefined;
   private browserUserAgent = buildInAppBrowserUserAgent(undefined);
@@ -423,15 +282,42 @@ export class InAppBrowserService {
     this.profilePath =
       options.profilePath ??
       path.join(options.stellaDataDir, "browser", "profile-v1");
-    this.hideDrawableHost =
-      options.hideDrawableHost ?? process.platform === "linux";
+    this.cookies = new CookieMirror({
+      profilePath: this.profilePath,
+      getExtensionStatus: options.getExtensionStatus,
+      exportAllCookies: options.exportAllCookies,
+      exportCookiesForUrls: options.exportCookiesForUrls,
+      subscribeCookieEvents: options.subscribeCookieEvents,
+      awaitConnection: async () => {
+        if (this.connectPromise) {
+          await this.connectPromise.catch(() => undefined);
+        }
+        if (!this.cookies.hasSeededOnce) {
+          await this.connect().catch(() => undefined);
+        }
+      },
+      getSeedTabContents: () => this.tabs.first()?.view.webContents,
+      cookieMirrorIntervalMs: options.cookieMirrorIntervalMs,
+      navigationReseedThrottleMs: options.navigationReseedThrottleMs,
+    });
+    this.debuggerProxy = new DebuggerTargetProxy({
+      tabs: this.tabs,
+      getAttachedView: () => this.attachedView,
+      getPageBounds: () => this.layout?.pageBounds,
+      attachActiveView: () => this.attachActiveView(),
+      createDrawableHost: options.createDrawableHost,
+      hideDrawableHost:
+        options.hideDrawableHost ?? process.platform === "linux",
+      wait: options.wait,
+      debuggerRecoveryTimeoutMs: options.debuggerRecoveryTimeoutMs,
+    });
   }
 
   async getState(ownerId?: string): Promise<BrowserViewState> {
     const resolvedOwnerId =
-      ownerId === undefined ? undefined : this.resolveOwnerId(ownerId);
+      ownerId === undefined ? undefined : resolveOwnerId(ownerId);
     if (this.disposed) return this.snapshot(resolvedOwnerId);
-    if (this.hasSeededOnce) {
+    if (this.cookies.hasSeededOnce) {
       // A completed seed is durable profile state, not a live transport
       // handshake. Re-probe the daemon/extension generation so the UI cannot
       // remain green while a fresh agent call is unauthorized.
@@ -482,7 +368,7 @@ export class InAppBrowserService {
 
   async requestExtensionConnect(): Promise<BrowserViewState> {
     if (this.disposed) throw new Error("The in-app browser has been closed.");
-    if (this.hasSeededOnce) {
+    if (this.cookies.hasSeededOnce) {
       return await this.getState();
     }
     const setupRequirement = this.readSetupRequirement({ extension: false });
@@ -549,7 +435,7 @@ export class InAppBrowserService {
     // extension and nothing else, so a bridge whose daemon had since exited
     // could never be restarted. `recover` is how a caller that needs the
     // transport now asks for the real handshake again.
-    if (this.hasSeededOnce && !attempt.recover) {
+    if (this.cookies.hasSeededOnce && !attempt.recover) {
       return await this.getState();
     }
     await this.runConnectionAttempt(options, {
@@ -591,46 +477,15 @@ export class InAppBrowserService {
       }
       this.updateConnection("checking");
       await this.ensureSessionInitialized(options);
-      if (this.hasSeededOnce) {
-        // Already seeded once: the profile has cookies, they are just stale
-        // after the transport went away. Refresh instead of reseeding.
-        await this.reseedFromExtension();
-      } else {
-        await this.seedCookies(await this.exportCookiesForSeed());
-        this.hasSeededOnce = true;
-        this.lastReseedAt = Date.now();
-      }
+      await this.cookies.seedOrRefresh();
       this.updateConnection("connected");
-      // Freshness from here on is real-time: the extension pushes every cookie
-      // change and we apply it immediately (startCookieEventSubscription). The
-      // periodic mirror is only a lightweight backstop for changes missed while
-      // the extension's service worker slept or the subscription reconnected.
-      this.startCookieEventSubscription();
-      this.startCookieMirror();
+      this.cookies.start();
       return true;
     } catch (error) {
       this.updateUnavailableConnection(
         this.readConnectionFailure("transient_failure", errorMessage(error)),
       );
       return false;
-    }
-  }
-
-  /** Full cookie export, falling back to per-URL export on older daemons. */
-  private async exportCookiesForSeed(): Promise<StellaBrowserExportedCookie[]> {
-    try {
-      return await this.options.exportAllCookies();
-    } catch (error) {
-      const message = errorMessage(error);
-      if (
-        !/unknown (?:command|action): cookies_export_all/i.test(message) ||
-        !this.options.exportCookiesForUrls
-      ) {
-        throw error;
-      }
-      return await this.options.exportCookiesForUrls(
-        readBrowserHistoryUrls(this.profilePath),
-      );
     }
   }
 
@@ -702,7 +557,7 @@ export class InAppBrowserService {
     layout: BrowserViewLayout,
     ownerId?: string,
   ): Promise<BrowserViewState> {
-    this.visibleOwnerId = this.resolveShowOwnerId(ownerId);
+    this.tabs.visibleOwnerId = this.tabs.resolveShowOwnerId(ownerId);
     this.visible = true;
     this.setLayoutInternal(layout);
     this.syncState();
@@ -711,15 +566,15 @@ export class InAppBrowserService {
   }
 
   setVisibleOwner(ownerId?: string): BrowserViewState {
-    const resolvedOwnerId = this.resolveOwnerId(ownerId);
+    const resolvedOwnerId = resolveOwnerId(ownerId);
     if (
       resolvedOwnerId !== MANUAL_OWNER_ID &&
-      !this.owners.has(resolvedOwnerId)
+      !this.tabs.hasOwner(resolvedOwnerId)
     ) {
       throw new Error(`Browser owner not found: ${resolvedOwnerId}`);
     }
-    this.scopedOwnerId = undefined;
-    this.visibleOwnerId = resolvedOwnerId;
+    this.tabs.scopedOwnerId = undefined;
+    this.tabs.visibleOwnerId = resolvedOwnerId;
     this.syncState();
     this.attachActiveView();
     return this.snapshot();
@@ -727,9 +582,9 @@ export class InAppBrowserService {
 
   setOwnerScope(ownerId?: string): BrowserViewState {
     const normalizedOwnerId = ownerId?.trim();
-    this.scopedOwnerId = normalizedOwnerId || null;
+    this.tabs.scopedOwnerId = normalizedOwnerId || null;
     if (normalizedOwnerId) {
-      this.visibleOwnerId = normalizedOwnerId;
+      this.tabs.visibleOwnerId = normalizedOwnerId;
     }
     this.syncState();
     this.attachActiveView();
@@ -754,7 +609,7 @@ export class InAppBrowserService {
     await this.ensureSessionInitialized({});
     const browserSession = this.browserSession;
     if (!browserSession) throw new Error("Browser session is unavailable.");
-    const ownerId = this.resolveOwnerId(options.ownerId);
+    const ownerId = resolveOwnerId(options.ownerId);
     const id = (this.options.createId ?? randomUUID)();
     const view =
       this.options.createView?.(browserSession) ??
@@ -781,8 +636,8 @@ export class InAppBrowserService {
     const tab = this.addTab({ id, view, ownerId, activate: options.activate });
     try {
       const url = normalizeWebUrl(options.url);
-      await this.prepareGoogleNavigation(view.webContents.id, url);
-      await this.applyPendingPartitionedCookies(tab);
+      await this.cookies.prepareGoogleNavigation(view.webContents.id, url);
+      await this.cookies.applyPendingPartitionedCookies(view.webContents);
       await view.webContents.loadURL(url);
     } catch (error) {
       if (!view.webContents.isDestroyed()) {
@@ -810,14 +665,7 @@ export class InAppBrowserService {
       loading: false,
       ...(options.preview ? { preview: options.preview } : {}),
     };
-    this.tabs.set(id, tab);
-    const owner = this.getOrCreateOwner(ownerId);
-    owner.tabIds.add(id);
-    owner.activeTabId = id;
-    this.latestOwnerId = ownerId;
-    if (this.shouldActivateOwner(ownerId, options.activate)) {
-      this.visibleOwnerId = ownerId;
-    }
+    this.tabs.add(tab, options.activate);
     this.bindTab(tab);
     this.syncState();
     this.attachActiveView();
@@ -836,7 +684,7 @@ export class InAppBrowserService {
       );
     }
     // One preview per draft: its session serves one source tree.
-    for (const existing of [...this.tabs.values()]) {
+    for (const existing of this.tabs.all()) {
       if (existing.preview?.name !== name) continue;
       existing.preview.dispose();
       this.closeTabInternal(existing.id, existing.ownerId);
@@ -965,13 +813,9 @@ export class InAppBrowserService {
     ownerId?: string;
     activate?: boolean;
   }): Promise<BrowserViewState> {
-    const ownerId = this.resolveOwnerId(options.ownerId);
-    this.requireTab(options.tabId, ownerId);
-    this.getOrCreateOwner(ownerId).activeTabId = options.tabId;
-    this.latestOwnerId = ownerId;
-    if (this.shouldActivateOwner(ownerId, options.activate)) {
-      this.visibleOwnerId = ownerId;
-    }
+    const ownerId = resolveOwnerId(options.ownerId);
+    this.tabs.require(options.tabId, ownerId);
+    this.tabs.select(options.tabId, ownerId, options.activate);
     this.syncState();
     this.attachActiveView();
     return this.snapshot(ownerId);
@@ -981,7 +825,7 @@ export class InAppBrowserService {
     tabId: string;
     ownerId?: string;
   }): Promise<BrowserViewState> {
-    const ownerId = this.resolveOwnerId(options.ownerId);
+    const ownerId = resolveOwnerId(options.ownerId);
     this.closeTabInternal(options.tabId, ownerId);
     return this.snapshot(ownerId);
   }
@@ -991,13 +835,13 @@ export class InAppBrowserService {
     url: string;
     ownerId?: string;
   }): Promise<BrowserViewState> {
-    const ownerId = this.resolveOwnerId(options.ownerId);
-    const tab = this.requireTab(options.tabId, ownerId);
+    const ownerId = resolveOwnerId(options.ownerId);
+    const tab = this.tabs.require(options.tabId, ownerId);
     if (tab.preview) throw new Error("A Stella preview tab only shows Stella.");
     this.clearOwnerError(ownerId);
     const url = normalizeWebUrl(options.url);
-    await this.prepareGoogleNavigation(tab.view.webContents.id, url);
-    await this.applyPendingPartitionedCookies(tab);
+    await this.cookies.prepareGoogleNavigation(tab.view.webContents.id, url);
+    await this.cookies.applyPendingPartitionedCookies(tab.view.webContents);
     await tab.view.webContents.loadURL(url);
     this.syncState();
     return this.snapshot(ownerId);
@@ -1007,8 +851,8 @@ export class InAppBrowserService {
     tabId: string;
     ownerId?: string;
   }): Promise<BrowserViewState> {
-    const ownerId = this.resolveOwnerId(options.ownerId);
-    const history = this.requireTab(options.tabId, ownerId).view.webContents
+    const ownerId = resolveOwnerId(options.ownerId);
+    const history = this.tabs.require(options.tabId, ownerId).view.webContents
       .navigationHistory;
     if (history.canGoBack()) history.goBack();
     this.syncState();
@@ -1019,8 +863,8 @@ export class InAppBrowserService {
     tabId: string;
     ownerId?: string;
   }): Promise<BrowserViewState> {
-    const ownerId = this.resolveOwnerId(options.ownerId);
-    const history = this.requireTab(options.tabId, ownerId).view.webContents
+    const ownerId = resolveOwnerId(options.ownerId);
+    const history = this.tabs.require(options.tabId, ownerId).view.webContents
       .navigationHistory;
     if (history.canGoForward()) history.goForward();
     this.syncState();
@@ -1031,28 +875,22 @@ export class InAppBrowserService {
     tabId: string;
     ownerId?: string;
   }): Promise<BrowserViewState> {
-    const ownerId = this.resolveOwnerId(options.ownerId);
+    const ownerId = resolveOwnerId(options.ownerId);
     this.clearOwnerError(ownerId);
-    this.requireTab(options.tabId, ownerId).view.webContents.reload();
+    this.tabs.require(options.tabId, ownerId).view.webContents.reload();
     this.syncState();
     return this.snapshot(ownerId);
   }
 
   listDebuggerTargets(ownerId?: string): InAppBrowserDebuggerTarget[] {
-    const owner = this.owners.get(this.resolveOwnerId(ownerId));
-    if (!owner) return [];
-    return [...owner.tabIds].flatMap((tabId) => {
-      const tab = this.tabs.get(tabId);
-      if (!tab || tab.view.webContents.isDestroyed()) return [];
-      return [{ id: tab.id, url: this.readTabUrl(tab), title: tab.title }];
-    });
+    return this.debuggerProxy.listTargets(ownerId);
   }
 
   async createDebuggerTarget(
     url = DEFAULT_URL,
     ownerId?: string,
   ): Promise<InAppBrowserDebuggerTarget> {
-    const resolvedOwnerId = this.resolveOwnerId(ownerId);
+    const resolvedOwnerId = resolveOwnerId(ownerId);
     let tabId: string | undefined;
     if (url.startsWith(PREVIEW_URL_PREFIX)) {
       tabId = await this.createPreviewTab(
@@ -1074,148 +912,57 @@ export class InAppBrowserService {
   }
 
   async closeDebuggerTarget(tabId: string, ownerId?: string): Promise<boolean> {
-    const resolvedOwnerId = this.resolveOwnerId(ownerId);
-    if (!this.isOwnedBy(tabId, resolvedOwnerId)) return false;
+    const resolvedOwnerId = resolveOwnerId(ownerId);
+    if (!this.tabs.isOwnedBy(tabId, resolvedOwnerId)) return false;
     this.closeTabInternal(tabId, resolvedOwnerId);
     return true;
   }
 
   async activateDebuggerTarget(tabId: string, ownerId?: string): Promise<void> {
-    await this.selectTab({ tabId, ownerId: this.resolveOwnerId(ownerId) });
+    await this.selectTab({ tabId, ownerId: resolveOwnerId(ownerId) });
   }
 
-  async sendDebuggerCommand(
+  sendDebuggerCommand(
     tabId: string,
     method: string,
     params?: Record<string, unknown>,
     ownerId?: string,
     debuggerSessionId?: string,
   ): Promise<unknown> {
-    const resolvedOwnerId = this.resolveOwnerId(ownerId);
-    const tab = this.requireTab(tabId, resolvedOwnerId);
-    if (
-      tab.preview &&
-      method === "Page.navigate" &&
-      !isRendererUrl(String(params?.url ?? ""))
-    ) {
-      throw new Error(
-        "A Stella preview tab only shows Stella. Open web pages in a new tab.",
-      );
-    }
-    const tabDebugger = tab.view.webContents.debugger;
-    if (!tabDebugger.isAttached()) tabDebugger.attach();
-    // Electron gives an unattached WebContentsView a 0x0 layout viewport. CDP
-    // Runtime queries and Input commands need the same drawable mount as
-    // screenshots; otherwise discovery succeeds but actionability/scrolling
-    // fails against viewport=0x0. The hidden host never replaces the visible
-    // manual view, and the scoped lease restores the prior mount after every
-    // command (including failures).
-    const lease = this.acquireDrawableHost(tabId, resolvedOwnerId);
-    try {
-      await this.settleDrawableHost(tabId);
-      const command = Promise.resolve(
-        tabDebugger.sendCommand(method, params, debuggerSessionId),
-      );
-      if (
-        this.hideDrawableHost &&
-        this.drawableLeases.get(tabId)?.mountedInHiddenHost
-      ) {
-        this.pumpFramesUntilSettled(tab, command);
-      }
-      return await command;
-    } finally {
-      lease.release();
-    }
+    return this.debuggerProxy.sendCommand(
+      tabId,
+      method,
+      params,
+      ownerId,
+      debuggerSessionId,
+    );
   }
 
-  async recoverDebuggerTarget(
+  recoverDebuggerTarget(
     tabId: string,
     ownerId?: string,
     debuggerSessionId?: string,
   ): Promise<InAppBrowserDebuggerRecovery> {
-    const resolvedOwnerId = this.resolveOwnerId(ownerId);
-    const tab = this.requireTab(tabId, resolvedOwnerId);
-    const contents = tab.view.webContents;
-    const tabDebugger = contents.debugger;
-    const timeoutMs =
-      this.options.debuggerRecoveryTimeoutMs ??
-      DEFAULT_DEBUGGER_RECOVERY_TIMEOUT_MS;
-    let timer: NodeJS.Timeout | undefined;
-    let terminated = false;
-
-    try {
-      if (!tabDebugger.isAttached()) tabDebugger.attach();
-      terminated = await Promise.race([
-        Promise.resolve(
-          tabDebugger.sendCommand(
-            "Runtime.terminateExecution",
-            {},
-            debuggerSessionId,
-          ),
-        ).then(
-          () => true,
-          () => false,
-        ),
-        new Promise<boolean>((resolve) => {
-          timer = setTimeout(() => resolve(false), timeoutMs);
-          timer.unref?.();
-        }),
-      ]);
-    } catch {
-      terminated = false;
-    } finally {
-      clearTimeout(timer);
-    }
-
-    if (terminated) return "terminated";
-    if (contents.isDestroyed()) {
-      throw new Error("Browser tab was destroyed during page recovery.");
-    }
-    contents.reload();
-    return "reloaded";
+    return this.debuggerProxy.recoverTarget(tabId, ownerId, debuggerSessionId);
   }
 
   acquireDrawableHost(
     tabId: string,
     ownerId?: string,
   ): InAppBrowserDrawableLease {
-    const tab = this.requireTab(tabId, this.resolveOwnerId(ownerId));
-    let lease = this.drawableLeases.get(tabId);
-    if (lease) {
-      lease.count += 1;
-      if (
-        this.attachedView !== tab.view &&
-        (!lease.mountedInHiddenHost || this.drawableHost?.isDestroyed())
-      ) {
-        lease.mountedInHiddenHost = false;
-        this.mountLeaseInHiddenHost(tab, lease);
-      }
-    } else {
-      lease = { count: 1, mountedInHiddenHost: false };
-      this.drawableLeases.set(tabId, lease);
-      if (this.attachedView !== tab.view)
-        this.mountLeaseInHiddenHost(tab, lease);
-    }
-    let released = false;
-    return {
-      release: () => {
-        if (released) return;
-        released = true;
-        this.releaseDrawableHost(tabId);
-      },
-    };
+    return this.debuggerProxy.acquireDrawableHost(tabId, ownerId);
   }
 
   closeOwnerTabs(ownerId: string): void {
-    const resolvedOwnerId = this.resolveOwnerId(ownerId);
-    const owner = this.owners.get(resolvedOwnerId);
-    if (!owner) return;
-    const wasVisibleOwner = this.visibleOwnerId === resolvedOwnerId;
-    if (wasVisibleOwner) this.visibleOwnerId = MANUAL_OWNER_ID;
-    for (const tabId of [...owner.tabIds]) {
+    const resolvedOwnerId = resolveOwnerId(ownerId);
+    const tabIds = this.tabs.ownerTabIds(resolvedOwnerId);
+    if (!tabIds) return;
+    const wasVisibleOwner = this.tabs.visibleOwnerId === resolvedOwnerId;
+    if (wasVisibleOwner) this.tabs.visibleOwnerId = MANUAL_OWNER_ID;
+    for (const tabId of tabIds) {
       if (this.tabs.has(tabId)) this.closeTabInternal(tabId, resolvedOwnerId);
     }
-    this.owners.delete(resolvedOwnerId);
+    this.tabs.deleteOwner(resolvedOwnerId);
     this.errorsByOwner.delete(resolvedOwnerId);
     if (wasVisibleOwner) {
       this.syncState();
@@ -1226,8 +973,7 @@ export class InAppBrowserService {
   subscribeDebuggerEvents(
     listener: (event: InAppBrowserDebuggerEvent) => void,
   ): () => void {
-    this.debuggerListeners.add(listener);
-    return () => this.debuggerListeners.delete(listener);
+    return this.debuggerProxy.subscribe(listener);
   }
 
   getDebuggerUserAgent(): string {
@@ -1238,20 +984,13 @@ export class InAppBrowserService {
     if (this.disposed) return;
     this.disposed = true;
     this.visible = false;
-    this.stopCookieMirror();
-    this.stopCookieEventSubscription();
-    this.browserSession?.webRequest?.onBeforeRequest?.(null);
-    this.googleNavigationReadyContents.clear();
+    this.cookies.dispose();
     this.detachAttachedView();
-    for (const tab of [...this.tabs.values()]) {
+    for (const tab of this.tabs.all()) {
       this.closeTabInternal(tab.id, tab.ownerId);
     }
-    this.drawableLeases.clear();
-    const drawableHost = this.drawableHost;
-    this.drawableHost = null;
-    if (drawableHost && !drawableHost.isDestroyed()) drawableHost.destroy();
-    this.owners.clear();
-    this.debuggerListeners.clear();
+    this.debuggerProxy.dispose();
+    this.tabs.clearOwners();
   }
 
   private async ensureSessionInitialized(options: {
@@ -1299,26 +1038,7 @@ export class InAppBrowserService {
       this.browserSession.setDevicePermissionHandler((details) =>
         shouldAllowAuthDevice(details),
       );
-      this.browserSession.webRequest?.onBeforeRequest?.(
-        { urls: ["<all_urls>"], types: ["mainFrame"] },
-        (details, callback) => {
-          const webContentsId = details.webContentsId;
-          if (
-            !isGoogleAuthNavigation(details.url) ||
-            (webContentsId !== undefined &&
-              this.googleNavigationReadyContents.has(webContentsId))
-          ) {
-            callback({});
-            return;
-          }
-          void this.reconcileBeforeGoogleNavigation(details.url).finally(() => {
-            if (webContentsId !== undefined) {
-              this.googleNavigationReadyContents.add(webContentsId);
-            }
-            callback({});
-          });
-        },
-      );
+      this.cookies.attachSession(this.browserSession);
       this.state.profileName =
         this.profileImport.profileName ??
         this.profileImport.profileId ??
@@ -1357,481 +1077,6 @@ export class InAppBrowserService {
       )(pollMs);
     } while (!this.disposed);
     return false;
-  }
-
-  private async seedCookies(cookies: StellaBrowserExportedCookie[]) {
-    const browserSession = this.browserSession;
-    if (!browserSession) throw new Error("Browser session is unavailable.");
-    let failed = 0;
-    let partitioned = 0;
-    let preserved = 0;
-    const googleFamilies = new Map<string, StellaBrowserExportedCookie[]>();
-    this.pendingPartitionedCookies = [];
-
-    for (const cookie of cookies) {
-      const url = cookieUrl(cookie);
-      if (!url || !cookie.name) {
-        failed += 1;
-        continue;
-      }
-      const familyKey = googleCookieFamilyKey(cookie);
-      if (cookie.partitionKey?.topLevelSite) {
-        partitioned += 1;
-        this.pendingPartitionedCookies.push(cookie);
-        if (familyKey) {
-          this.knownMirroredPartitionedCookieFamilies.add(familyKey);
-        }
-        continue;
-      }
-      if (familyKey) {
-        this.knownMirroredCookieFamilies.add(familyKey);
-        const family = googleFamilies.get(familyKey) ?? [];
-        family.push(cookie);
-        googleFamilies.set(familyKey, family);
-        continue;
-      }
-
-      // Non-Google trust state remains conservative and independent. Google
-      // rotating families are reconciled below as complete source snapshots so
-      // their 1P/3P and secure/host variants can never be mixed across epochs.
-      if (isTrustCriticalCookieName(cookie.name)) {
-        try {
-          const existingForName = await browserSession.cookies.get({
-            url,
-            name: cookie.name,
-          });
-          const existing = existingForName.find(
-            (candidate) => candidate.name === cookie.name,
-          );
-          if (shouldPreserveExistingCookie(existing, cookie)) {
-            preserved += 1;
-            continue;
-          }
-        } catch {
-          // If we can't read the existing cookie, fall through and (re)seed it.
-        }
-      }
-      try {
-        await this.setSessionCookie(cookie);
-      } catch {
-        failed += 1;
-      }
-    }
-
-    const existingCookies = await browserSession.cookies.get({});
-    const sourceIdentityKeys = new Map<string, Set<string>>();
-    for (const [familyKey, family] of googleFamilies) {
-      sourceIdentityKeys.set(
-        familyKey,
-        new Set(family.map((cookie) => cookieIdentityKey(cookie))),
-      );
-    }
-    for (const existing of existingCookies) {
-      const familyKey = googleCookieFamilyKey(existing);
-      if (!familyKey || !this.knownMirroredCookieFamilies.has(familyKey)) {
-        continue;
-      }
-      const incoming = sourceIdentityKeys.get(familyKey);
-      if (incoming?.has(cookieIdentityKey(existing))) continue;
-      try {
-        await this.removeSessionCookie(existing);
-      } catch {
-        failed += 1;
-      }
-    }
-    for (const family of googleFamilies.values()) {
-      for (const cookie of family) {
-        try {
-          await this.setSessionCookie(cookie);
-        } catch {
-          failed += 1;
-        }
-      }
-    }
-
-    await browserSession.cookies.flushStore();
-    browserSession.flushStorageData();
-    const activeTab = this.tabs.values().next().value as ManagedTab | undefined;
-    if (activeTab) await this.applyPendingPartitionedCookies(activeTab);
-    if (failed > 0 || partitioned > 0 || preserved > 0) {
-      console.warn(
-        `[in-app-browser] Cookie seed completed with ${failed} failed, ${partitioned} partitioned, and ${preserved} preserved (trust-critical) cookie(s).`,
-      );
-    }
-  }
-
-  private async setSessionCookie(cookie: StellaBrowserExportedCookie) {
-    const browserSession = this.browserSession;
-    const url = cookieUrl(cookie);
-    if (!browserSession || !url) return;
-    await browserSession.cookies.set({
-      url,
-      name: cookie.name,
-      value: cookie.value,
-      ...(cookie.hostOnly ? {} : { domain: cookie.domain }),
-      path: cookie.path || "/",
-      secure: cookie.secure,
-      httpOnly: cookie.httpOnly,
-      sameSite: cookie.sameSite,
-      ...(!cookie.session && typeof cookie.expirationDate === "number"
-        ? { expirationDate: cookie.expirationDate }
-        : {}),
-    });
-  }
-
-  private async removeSessionCookie(cookie: Cookie) {
-    const browserSession = this.browserSession;
-    const url = cookieUrl(cookie);
-    if (!browserSession || !url) return;
-    await browserSession.cookies.set({
-      url,
-      name: cookie.name,
-      value: "",
-      ...(cookie.hostOnly ? {} : { domain: cookie.domain }),
-      path: cookie.path || "/",
-      secure: cookie.secure,
-      httpOnly: cookie.httpOnly,
-      sameSite: cookie.sameSite,
-      expirationDate: 1,
-    });
-  }
-
-  /**
-   * Start the continuous cookie mirror. After the initial seed this re-pulls
-   * the real browser's cookies on a cadence and re-applies them to the in-app
-   * session, so the in-app store never goes stale. Uses a self-rescheduling
-   * timeout (not setInterval) so a slow reseed can never overlap the next tick,
-   * is unref'd so it does not keep the process alive, and is torn down in
-   * dispose(). No-op if already running or disposed.
-   */
-  private startCookieMirror() {
-    if (this.cookieMirrorTimer || this.disposed) return;
-    const intervalMs = Math.max(
-      MIN_COOKIE_MIRROR_INTERVAL_MS,
-      this.options.cookieMirrorIntervalMs ?? DEFAULT_COOKIE_MIRROR_INTERVAL_MS,
-    );
-    const scheduleNext = () => {
-      if (this.disposed) {
-        this.cookieMirrorTimer = null;
-        return;
-      }
-      const timer = setTimeout(() => {
-        void this.reseedFromExtension()
-          .catch(() => {})
-          .finally(scheduleNext);
-      }, intervalMs);
-      timer.unref?.();
-      this.cookieMirrorTimer = timer;
-    };
-    scheduleNext();
-  }
-
-  private stopCookieMirror() {
-    if (this.cookieMirrorTimer) {
-      clearTimeout(this.cookieMirrorTimer);
-      this.cookieMirrorTimer = null;
-    }
-  }
-
-  /**
-   * Re-pull cookies from the real browser (via the extension) and re-apply them
-   * to the in-app session. Safe to call repeatedly and concurrently: a
-   * single-flight guard prevents overlapping writes to the shared cookie store,
-   * and it only ever writes to `this.browserSession` (the in-app profile), never
-   * to any other Electron session. No-op until the initial seed has run.
-   */
-  private async reseedFromExtension(): Promise<void> {
-    if (this.disposed || !this.hasSeededOnce || !this.browserSession) return;
-    this.reseedRequested = true;
-    if (this.reseedInFlight) return await this.reseedInFlight;
-
-    const reseed = (async () => {
-      while (
-        this.reseedRequested &&
-        !this.disposed &&
-        this.hasSeededOnce &&
-        this.browserSession
-      ) {
-        this.reseedRequested = false;
-        try {
-          const extensionConnected = await this.options
-            .getExtensionStatus()
-            .catch(() => false);
-          if (!extensionConnected || this.disposed) continue;
-          let cookies: StellaBrowserExportedCookie[];
-          try {
-            cookies = await this.options.exportAllCookies();
-          } catch (error) {
-            const message = errorMessage(error);
-            if (
-              !/unknown (?:command|action): cookies_export_all/i.test(
-                message,
-              ) ||
-              !this.options.exportCookiesForUrls
-            ) {
-              throw error;
-            }
-            cookies = await this.options.exportCookiesForUrls(
-              readBrowserHistoryUrls(this.profilePath),
-            );
-          }
-          if (this.disposed || !this.browserSession) continue;
-          await this.seedCookies(cookies);
-          this.lastReseedAt = Date.now();
-        } catch (error) {
-          // A failed mirror pass must never kill the mirror loop; the next tick
-          // retries. Transient bridge/daemon errors are expected during extension
-          // wake or app shutdown.
-          console.warn(
-            `[in-app-browser] Cookie mirror refresh failed: ${errorMessage(error)}`,
-          );
-        }
-      }
-    })().finally(() => {
-      if (this.reseedInFlight === reseed) this.reseedInFlight = null;
-    });
-    this.reseedInFlight = reseed;
-    await reseed;
-  }
-
-  private async reconcileBeforeGoogleNavigation(url: string): Promise<void> {
-    if (!isGoogleAuthNavigation(url) || this.disposed) return;
-    if (this.connectPromise) await this.connectPromise.catch(() => undefined);
-    if (!this.hasSeededOnce) await this.connect().catch(() => undefined);
-    if (this.hasSeededOnce) await this.reseedFromExtension();
-  }
-
-  private async prepareGoogleNavigation(
-    webContentsId: number,
-    url: string,
-  ): Promise<void> {
-    if (!isGoogleAuthNavigation(url)) return;
-    await this.reconcileBeforeGoogleNavigation(url);
-    this.googleNavigationReadyContents.add(webContentsId);
-  }
-
-  /**
-   * Reconcile-on-navigation: refresh cookies around a top-level navigation so
-   * the target site sees a current session on its subresource / XHR / next-hop
-   * requests. Non-blocking and throttled so rapid navigations don't each pull a
-   * full cookie export.
-   */
-  private scheduleNavigationReseed() {
-    if (this.disposed || !this.hasSeededOnce) return;
-    const throttleMs =
-      this.options.navigationReseedThrottleMs ??
-      DEFAULT_NAVIGATION_RESEED_THROTTLE_MS;
-    if (Date.now() - this.lastReseedAt < throttleMs) return;
-    void this.reseedFromExtension().catch(() => {});
-  }
-
-  /**
-   * Start the real-time cookie-event subscription (primary freshness path).
-   * Idempotent; no-op if already running, disposed, or the option is absent.
-   */
-  private startCookieEventSubscription() {
-    if (
-      this.cookieEventUnsubscribe ||
-      this.disposed ||
-      !this.options.subscribeCookieEvents
-    ) {
-      return;
-    }
-    this.cookieEventUnsubscribe = this.options.subscribeCookieEvents(
-      (event) => {
-        void this.handleCookieEvent(event).catch(() => {});
-      },
-    );
-  }
-
-  private stopCookieEventSubscription() {
-    if (this.cookieEventUnsubscribe) {
-      try {
-        this.cookieEventUnsubscribe();
-      } catch {
-        // A best-effort unsubscribe must not throw out of dispose().
-      }
-      this.cookieEventUnsubscribe = null;
-    }
-  }
-
-  /**
-   * Handle one pushed bridge event. `cookies_changed` applies each change to the
-   * in-app session immediately; `events_lagged` means the extension outran the
-   * broadcast buffer, so we full-reconcile to catch up.
-   */
-  private async handleCookieEvent(
-    event: StellaBrowserBridgeEvent,
-  ): Promise<void> {
-    if (this.disposed || !this.browserSession) return;
-    const kind = typeof event.event === "string" ? event.event : "";
-    if (kind === "events_lagged") {
-      await this.reseedFromExtension();
-      return;
-    }
-    if (kind !== "cookies_changed") return;
-    const changes = Array.isArray(event.changes) ? event.changes : [];
-    const familyChanges = changes.flatMap((change) => {
-      const cookie = change?.cookie;
-      const familyKey = cookie ? googleCookieFamilyKey(cookie) : null;
-      return familyKey && cookie ? [{ familyKey, cookie }] : [];
-    });
-    if (familyChanges.length > 0) {
-      for (const { familyKey, cookie } of familyChanges) {
-        if (cookie.partitionKey?.topLevelSite) {
-          this.knownMirroredPartitionedCookieFamilies.add(familyKey);
-        } else {
-          this.knownMirroredCookieFamilies.add(familyKey);
-        }
-      }
-      // A Google rotation commonly arrives as remove(old), set(new), plus
-      // sibling 1P/3P variants. Never apply those edges independently: pull one
-      // complete source snapshot and reconcile every affected family together.
-      await this.reseedFromExtension();
-      return;
-    }
-    // Apply in order: an overwrite arrives as remove(old) then set(new), so
-    // preserving order keeps the final value correct.
-    for (const change of changes) {
-      if (this.disposed || !this.browserSession) return;
-      await this.applyCookieChange(change);
-    }
-  }
-
-  /**
-   * Apply a single real-browser cookie change to the in-app session. Writes only
-   * to `this.browserSession` (the in-app profile). Mirrors seedCookies' rules:
-   * partitioned cookies are skipped here (applied per-tab via CDP), and a live
-   * trust-critical managed cookie is never clobbered by a mid-rotation copy.
-   */
-  private async applyCookieChange(
-    change: StellaBrowserCookieChange,
-  ): Promise<void> {
-    const session = this.browserSession;
-    if (!session) return;
-    const cookie = change?.cookie;
-    if (!cookie || !cookie.name) return;
-    const url = cookieUrl(cookie);
-    if (!url) return;
-    if (cookie.partitionKey?.topLevelSite) return;
-
-    if (change.removed) {
-      try {
-        await session.cookies.remove(url, cookie.name);
-      } catch {
-        // Removal is best-effort; the periodic reconcile is the backstop.
-      }
-      return;
-    }
-
-    if (isTrustCriticalCookieName(cookie.name)) {
-      try {
-        const existingForName = await session.cookies.get({
-          url,
-          name: cookie.name,
-        });
-        const existing = existingForName.find(
-          (candidate) => candidate.name === cookie.name,
-        );
-        if (shouldPreserveExistingCookie(existing, cookie)) return;
-      } catch {
-        // If we can't read the existing cookie, fall through and set it.
-      }
-    }
-
-    try {
-      await session.cookies.set({
-        url,
-        name: cookie.name,
-        value: cookie.value,
-        ...(cookie.hostOnly ? {} : { domain: cookie.domain }),
-        path: cookie.path || "/",
-        secure: cookie.secure,
-        httpOnly: cookie.httpOnly,
-        sameSite: cookie.sameSite,
-        ...(!cookie.session && typeof cookie.expirationDate === "number"
-          ? { expirationDate: cookie.expirationDate }
-          : {}),
-      });
-    } catch {
-      // A single failed cookie must not stop the stream; reconcile recovers it.
-    }
-  }
-
-  private async applyPendingPartitionedCookies(tab: ManagedTab) {
-    if (
-      this.pendingPartitionedCookies.length === 0 &&
-      this.knownMirroredPartitionedCookieFamilies.size === 0
-    ) {
-      return;
-    }
-    const sameSite = (value: StellaBrowserExportedCookie["sameSite"]) => {
-      if (value === "no_restriction") return "None";
-      if (value === "lax") return "Lax";
-      if (value === "strict") return "Strict";
-      return undefined;
-    };
-    const cookies = this.pendingPartitionedCookies.flatMap((cookie) => {
-      const url = cookieUrl(cookie);
-      if (!url || !cookie.name || !cookie.partitionKey?.topLevelSite) return [];
-      const mappedSameSite = sameSite(cookie.sameSite);
-      return [
-        {
-          name: cookie.name,
-          value: cookie.value,
-          url,
-          ...(cookie.hostOnly ? {} : { domain: cookie.domain }),
-          path: cookie.path || "/",
-          secure: cookie.secure,
-          httpOnly: cookie.httpOnly,
-          ...(mappedSameSite ? { sameSite: mappedSameSite } : {}),
-          ...(!cookie.session && typeof cookie.expirationDate === "number"
-            ? { expires: cookie.expirationDate }
-            : {}),
-          partitionKey: cookie.partitionKey,
-        },
-      ];
-    });
-    try {
-      const tabDebugger = tab.view.webContents.debugger;
-      if (!tabDebugger.isAttached()) tabDebugger.attach();
-      const sourceIdentityKeys = new Map<string, Set<string>>();
-      for (const cookie of this.pendingPartitionedCookies) {
-        const familyKey = googleCookieFamilyKey(cookie);
-        if (!familyKey) continue;
-        const family = sourceIdentityKeys.get(familyKey) ?? new Set<string>();
-        family.add(cookieIdentityKey(cookie));
-        sourceIdentityKeys.set(familyKey, family);
-      }
-      const current = (await tabDebugger.sendCommand(
-        "Network.getAllCookies",
-      )) as { cookies?: StellaBrowserExportedCookie[] };
-      for (const existing of current.cookies ?? []) {
-        if (!existing.partitionKey?.topLevelSite) continue;
-        const familyKey = googleCookieFamilyKey(existing);
-        if (
-          !familyKey ||
-          !this.knownMirroredPartitionedCookieFamilies.has(familyKey) ||
-          sourceIdentityKeys.get(familyKey)?.has(cookieIdentityKey(existing))
-        ) {
-          continue;
-        }
-        await tabDebugger.sendCommand("Network.deleteCookies", {
-          name: existing.name,
-          domain: existing.domain,
-          path: existing.path || "/",
-          partitionKey: existing.partitionKey,
-        });
-      }
-      if (cookies.length > 0) {
-        await tabDebugger.sendCommand("Network.setCookies", { cookies });
-      }
-      this.pendingPartitionedCookies = [];
-    } catch (error) {
-      console.warn(
-        `[in-app-browser] Could not restore partitioned cookies: ${errorMessage(error)}`,
-      );
-    }
   }
 
   private async loadFaviconDataUrl(url: string): Promise<string | undefined> {
@@ -1875,7 +1120,7 @@ export class InAppBrowserService {
     contents.on("did-navigate", () => {
       // Reconcile-on-navigation: freshen cookies for the site just navigated to
       // (non-blocking, throttled) before running the normal state refresh.
-      this.scheduleNavigationReseed();
+      this.cookies.scheduleNavigationReseed();
       refresh();
     });
     contents.on("did-navigate-in-page", refresh);
@@ -1917,26 +1162,11 @@ export class InAppBrowserService {
       this.setError(`Browser page stopped: ${details.reason}.`, tab.ownerId);
     });
     contents.on("destroyed", () => {
-      this.googleNavigationReadyContents.delete(contents.id);
+      this.cookies.forgetContents(contents.id);
       if (this.tabs.get(tab.id) !== tab) return;
-      this.tabs.delete(tab.id);
-      this.drawableLeases.delete(tab.id);
-      const owner = this.owners.get(tab.ownerId);
-      owner?.tabIds.delete(tab.id);
-      if (owner?.activeTabId === tab.id) {
-        owner.activeTabId = [...owner.tabIds].at(-1);
-      }
-      if (owner && owner.tabIds.size === 0) {
-        this.owners.delete(tab.ownerId);
+      this.debuggerProxy.forgetTab(tab.id);
+      if (this.tabs.remove(tab, "last")) {
         this.errorsByOwner.delete(tab.ownerId);
-        if (this.latestOwnerId === tab.ownerId) {
-          this.latestOwnerId = [...this.owners.keys()]
-            .filter((candidate) => candidate !== MANUAL_OWNER_ID)
-            .at(-1);
-        }
-        if (this.visibleOwnerId === tab.ownerId) {
-          this.visibleOwnerId = MANUAL_OWNER_ID;
-        }
       }
       this.syncState();
       this.attachActiveView();
@@ -1981,56 +1211,14 @@ export class InAppBrowserService {
       }
       return { action: "deny" };
     });
-    contents.debugger.on("message", (_event, method, params, sessionId) => {
-      const debuggerEvent: InAppBrowserDebuggerEvent = {
-        tabId: tab.id,
-        method,
-        ...(sessionId ? { sessionId } : {}),
-        ...(params && typeof params === "object"
-          ? { params: params as Record<string, unknown> }
-          : {}),
-      };
-      for (const listener of this.debuggerListeners) listener(debuggerEvent);
-    });
-  }
-
-  private requireTab(tabId: string, ownerId?: string) {
-    const tab = this.tabs.get(tabId);
-    if (!tab || tab.view.webContents.isDestroyed()) {
-      throw new Error(`Browser tab not found: ${tabId}`);
-    }
-    if (ownerId !== undefined && tab.ownerId !== ownerId) {
-      throw new Error(`Browser tab not found for owner: ${tabId}`);
-    }
-    return tab;
+    this.debuggerProxy.forwardEvents(tab);
   }
 
   private closeTabInternal(tabId: string, ownerId: string) {
-    const tab = this.requireTab(tabId, ownerId);
-    const owner = this.owners.get(ownerId);
-    const orderedIds = owner ? [...owner.tabIds] : [];
-    const closedIndex = orderedIds.indexOf(tabId);
+    const tab = this.tabs.require(tabId, ownerId);
     if (this.attachedView === tab.view) this.detachAttachedView();
-    this.unmountDrawableLease(tab);
-    this.drawableLeases.delete(tabId);
-    this.tabs.delete(tabId);
-    owner?.tabIds.delete(tabId);
-    if (owner?.activeTabId === tabId) {
-      owner.activeTabId =
-        orderedIds[closedIndex + 1] ?? orderedIds[closedIndex - 1];
-    }
-    if (owner && owner.tabIds.size === 0) {
-      this.owners.delete(ownerId);
-      this.errorsByOwner.delete(ownerId);
-      if (this.latestOwnerId === ownerId) {
-        this.latestOwnerId = [...this.owners.keys()]
-          .filter((candidate) => candidate !== MANUAL_OWNER_ID)
-          .at(-1);
-      }
-      if (this.visibleOwnerId === ownerId) {
-        this.visibleOwnerId = MANUAL_OWNER_ID;
-      }
-    }
+    this.debuggerProxy.releaseTab(tab);
+    if (this.tabs.remove(tab, "neighbor")) this.errorsByOwner.delete(ownerId);
     const tabDebugger = tab.view.webContents.debugger;
     if (tabDebugger.isAttached()) tabDebugger.detach();
     tab.view.webContents.close();
@@ -2038,41 +1226,12 @@ export class InAppBrowserService {
     this.attachActiveView();
   }
 
-  private readTabUrl(tab: ManagedTab) {
-    try {
-      return tab.view.webContents.getURL() || DEFAULT_URL;
-    } catch {
-      return DEFAULT_URL;
-    }
-  }
-
-  private tabState(tab: ManagedTab): BrowserViewTabState {
-    const history = tab.view.webContents.navigationHistory;
-    return {
-      id: tab.id,
-      ownerId: tab.ownerId,
-      url: this.readTabUrl(tab),
-      title: tab.title || tab.view.webContents.getTitle() || "New Tab",
-      ...(tab.faviconUrl ? { faviconUrl: tab.faviconUrl } : {}),
-      loading: tab.loading,
-      canGoBack: history.canGoBack(),
-      canGoForward: history.canGoForward(),
-    };
-  }
-
   private syncState() {
-    const scopedOwnerId =
-      typeof this.scopedOwnerId === "string"
-        ? this.scopedOwnerId
-        : this.scopedOwnerId === null
-          ? this.resolveAvailableOwnerId(this.visibleOwnerId)
-          : this.visibleOwnerId;
-    this.visibleOwnerId = scopedOwnerId;
-    const owner = this.owners.get(scopedOwnerId);
-    this.state.visibleOwnerId = this.visibleOwnerId;
-    this.state.owners = this.ownerStates();
-    this.state.tabs = this.tabsForCurrentScope();
-    this.state.activeTabId = owner?.activeTabId;
+    const scopedOwnerId = this.tabs.settleScopedOwner();
+    this.state.visibleOwnerId = scopedOwnerId;
+    this.state.owners = this.tabs.ownerStates();
+    this.state.tabs = this.tabs.tabsForCurrentScope();
+    this.state.activeTabId = this.tabs.activeTabId(scopedOwnerId);
     this.syncErrorState();
     this.emitState();
   }
@@ -2139,9 +1298,9 @@ export class InAppBrowserService {
     this.emitState();
   }
 
-  private setError(error: string, ownerId = this.visibleOwnerId) {
+  private setError(error: string, ownerId = this.tabs.visibleOwnerId) {
     this.errorsByOwner.set(ownerId, error);
-    if (ownerId !== this.visibleOwnerId) return;
+    if (ownerId !== this.tabs.visibleOwnerId) return;
     this.syncErrorState();
     this.emitState();
   }
@@ -2149,7 +1308,7 @@ export class InAppBrowserService {
   private clearOwnerError(ownerId: string, emit = true) {
     if (
       !this.errorsByOwner.delete(ownerId) ||
-      ownerId !== this.visibleOwnerId
+      ownerId !== this.tabs.visibleOwnerId
     ) {
       return;
     }
@@ -2164,31 +1323,24 @@ export class InAppBrowserService {
   }
 
   private syncErrorState() {
-    const error = this.errorForOwner(this.visibleOwnerId);
+    const error = this.errorForOwner(this.tabs.visibleOwnerId);
     if (error) this.state.error = error;
     else delete this.state.error;
   }
 
   private snapshot(ownerId?: string) {
     if (ownerId === undefined) return cloneState(this.state);
-    const owner = this.owners.get(ownerId);
+    const activeTabId = this.tabs.activeTabId(ownerId);
     const error = this.errorForOwner(ownerId);
     return cloneState({
       connection: this.state.connection,
       ...(this.state.profileName
         ? { profileName: this.state.profileName }
         : {}),
-      visibleOwnerId: this.visibleOwnerId,
-      owners: this.ownerStates(),
-      tabs: owner
-        ? [...owner.tabIds].flatMap((tabId) => {
-            const tab = this.tabs.get(tabId);
-            return tab && !tab.view.webContents.isDestroyed()
-              ? [this.tabState(tab)]
-              : [];
-          })
-        : [],
-      ...(owner?.activeTabId ? { activeTabId: owner.activeTabId } : {}),
+      visibleOwnerId: this.tabs.visibleOwnerId,
+      owners: this.tabs.ownerStates(),
+      tabs: this.tabs.ownerTabStates(ownerId),
+      ...(activeTabId ? { activeTabId } : {}),
       ...(error ? { error } : {}),
       ...(this.connectionUnavailableReason
         ? { unavailableReason: this.connectionUnavailableReason }
@@ -2210,10 +1362,7 @@ export class InAppBrowserService {
         clampBoundsToWindow(this.layout.pageBounds, this.attachedWindow),
       );
     }
-    for (const [tabId, lease] of this.drawableLeases) {
-      if (!lease.mountedInHiddenHost) continue;
-      this.tabs.get(tabId)?.view.setBounds(this.drawableBounds());
-    }
+    this.debuggerProxy.resizeHiddenMounts();
   }
 
   private attachActiveView() {
@@ -2233,8 +1382,7 @@ export class InAppBrowserService {
       this.detachAttachedView();
       return;
     }
-    const drawableLease = this.drawableLeases.get(tab.id);
-    if (drawableLease?.mountedInHiddenHost) {
+    if (this.debuggerProxy.isMountedInHiddenHost(tab.id)) {
       // The view remains drawable without stealing the visible surface. The
       // final lease release restores it if it is still the visible active tab.
       if (this.attachedView && this.attachedView !== tab.view) {
@@ -2262,262 +1410,7 @@ export class InAppBrowserService {
     } catch {
       // Window teardown may have already detached its child views.
     }
-    const tab = [...this.tabs.values()].find(
-      (candidate) => candidate.view === view,
-    );
-    const drawableLease = tab ? this.drawableLeases.get(tab.id) : undefined;
-    if (tab && drawableLease && drawableLease.count > 0) {
-      this.mountLeaseInHiddenHost(tab, drawableLease);
-    }
-  }
-
-  private resolveOwnerId(ownerId?: string) {
-    const normalized = ownerId?.trim();
-    return normalized || MANUAL_OWNER_ID;
-  }
-
-  private resolveShowOwnerId(ownerId?: string) {
-    const normalized = ownerId?.trim();
-    if (normalized) return normalized;
-    if (typeof this.scopedOwnerId === "string") return this.scopedOwnerId;
-    if ((this.owners.get(this.visibleOwnerId)?.tabIds.size ?? 0) > 0) {
-      return this.visibleOwnerId;
-    }
-    if ((this.owners.get(MANUAL_OWNER_ID)?.tabIds.size ?? 0) > 0) {
-      return MANUAL_OWNER_ID;
-    }
-    if (this.latestOwnerId && this.owners.has(this.latestOwnerId)) {
-      return this.latestOwnerId;
-    }
-    return MANUAL_OWNER_ID;
-  }
-
-  private shouldActivateOwner(ownerId: string, requested?: boolean) {
-    if (requested) return true;
-    if (typeof this.scopedOwnerId === "string") {
-      return this.scopedOwnerId === ownerId;
-    }
-    return this.scopedOwnerId === undefined && ownerId === MANUAL_OWNER_ID;
-  }
-
-  private resolveAvailableOwnerId(preferredOwnerId: string) {
-    if ((this.owners.get(preferredOwnerId)?.tabIds.size ?? 0) > 0) {
-      return preferredOwnerId;
-    }
-    if (this.latestOwnerId && this.owners.has(this.latestOwnerId)) {
-      return this.latestOwnerId;
-    }
-    if ((this.owners.get(MANUAL_OWNER_ID)?.tabIds.size ?? 0) > 0) {
-      return MANUAL_OWNER_ID;
-    }
-    return (
-      [...this.owners.entries()].find(
-        ([, owner]) => owner.tabIds.size > 0,
-      )?.[0] ?? MANUAL_OWNER_ID
-    );
-  }
-
-  private tabsForCurrentScope(): BrowserViewTabState[] {
-    if (this.scopedOwnerId === null) {
-      return [...this.tabs.values()].flatMap((tab) =>
-        tab.view.webContents.isDestroyed() ? [] : [this.tabState(tab)],
-      );
-    }
-    const ownerId =
-      typeof this.scopedOwnerId === "string"
-        ? this.scopedOwnerId
-        : this.visibleOwnerId;
-    const owner = this.owners.get(ownerId);
-    return owner
-      ? [...owner.tabIds].flatMap((tabId) => {
-          const tab = this.tabs.get(tabId);
-          return tab && !tab.view.webContents.isDestroyed()
-            ? [this.tabState(tab)]
-            : [];
-        })
-      : [];
-  }
-
-  private ownerStates(): BrowserViewOwnerState[] {
-    const manual = this.owners.get(MANUAL_OWNER_ID);
-    const result: BrowserViewOwnerState[] = [
-      {
-        id: MANUAL_OWNER_ID,
-        kind: "manual",
-        tabCount: manual?.tabIds.size ?? 0,
-        ...(manual?.activeTabId ? { activeTabId: manual.activeTabId } : {}),
-        latest: false,
-      },
-    ];
-    for (const [ownerId, owner] of this.owners) {
-      if (ownerId === MANUAL_OWNER_ID || owner.tabIds.size === 0) continue;
-      result.push({
-        id: ownerId,
-        kind: "agent",
-        tabCount: owner.tabIds.size,
-        ...(owner.activeTabId ? { activeTabId: owner.activeTabId } : {}),
-        latest: ownerId === this.latestOwnerId,
-      });
-    }
-    return result;
-  }
-
-  private getOrCreateOwner(ownerId: string) {
-    let owner = this.owners.get(ownerId);
-    if (!owner) {
-      owner = { tabIds: new Set() };
-      this.owners.set(ownerId, owner);
-    }
-    return owner;
-  }
-
-  private isOwnedBy(tabId: string, ownerId: string) {
-    return this.tabs.get(tabId)?.ownerId === ownerId;
-  }
-
-  private ensureDrawableHost() {
-    if (this.drawableHost && !this.drawableHost.isDestroyed()) {
-      return this.drawableHost;
-    }
-    const host =
-      this.options.createDrawableHost?.() ??
-      new BrowserWindow({
-        ...DRAWABLE_HOST_BOUNDS,
-        show: false,
-        frame: false,
-        focusable: false,
-        opacity: 0,
-        skipTaskbar: true,
-        resizable: false,
-        movable: false,
-        minimizable: false,
-        maximizable: false,
-        fullscreenable: false,
-        webPreferences: {
-          nodeIntegration: false,
-          contextIsolation: true,
-          sandbox: true,
-        },
-      });
-    host.setBounds(DRAWABLE_HOST_BOUNDS, false);
-    host.setFocusable(false);
-    host.setOpacity(0);
-    host.setSkipTaskbar(true);
-    host.once("closed", () => {
-      if (this.drawableHost !== host) return;
-      this.drawableHost = null;
-      for (const lease of this.drawableLeases.values()) {
-        lease.mountedInHiddenHost = false;
-      }
-    });
-    // Linux never maps the host: Wayland compositors ignore client positions,
-    // setOpacity is a no-op there and focusable:false isn't honored, so a shown
-    // host is an empty floating window that takes focus (X11 WMs may clamp it
-    // on screen too). Unmapped, the mounted tab still gets a real viewport and
-    // script, DOM, clicks and keys work, but its compositor never ticks, so
-    // whatever waits on the next frame (mouseMoved and mouseWheel acks, every
-    // other Page.captureScreenshot, rAF) stalls. `pumpFramesUntilSettled`
-    // forces frames while a command is pending. The cost is ~16-30 ms of
-    // latency on those commands and a page that reads
-    // `visibilityState: "hidden"` during agent commands instead of "visible".
-    if (!this.hideDrawableHost) host.showInactive();
-    this.drawableHost = host;
-    return host;
-  }
-
-  private delay(delayMs: number) {
-    return (
-      this.options.wait?.(delayMs) ??
-      new Promise<void>((resolve) => setTimeout(resolve, delayMs))
-    );
-  }
-
-  /**
-   * Forces frames for a tab mounted in the unmapped host until `command`
-   * settles. Page.captureScreenshot renders a frame even for a hidden widget,
-   * which delivers acks (and rAF callbacks) that were waiting on one.
-   */
-  private pumpFramesUntilSettled(tab: ManagedTab, command: Promise<unknown>) {
-    let settled = false;
-    command.then(
-      () => (settled = true),
-      () => (settled = true),
-    );
-    const tabDebugger = tab.view.webContents.debugger;
-    void (async () => {
-      await this.delay(DRAWABLE_HOST_FRAME_PUMP_MS);
-      while (
-        !settled &&
-        !tab.view.webContents.isDestroyed() &&
-        tabDebugger.isAttached() &&
-        this.drawableLeases.get(tab.id)?.mountedInHiddenHost
-      ) {
-        await Promise.race([
-          Promise.resolve(
-            tabDebugger.sendCommand("Page.captureScreenshot", {
-              format: "jpeg",
-              quality: 1,
-              optimizeForSpeed: true,
-            }),
-          ).catch(() => {}),
-          this.delay(250),
-        ]);
-        if (!settled) await this.delay(DRAWABLE_HOST_FRAME_PUMP_MS);
-      }
-    })();
-  }
-
-  private drawableBounds(): Rectangle {
-    const requested = this.layout?.pageBounds;
-    return {
-      x: 0,
-      y: 0,
-      width: Math.max(1, requested?.width ?? DRAWABLE_HOST_BOUNDS.width),
-      height: Math.max(1, requested?.height ?? DRAWABLE_HOST_BOUNDS.height),
-    };
-  }
-
-  private mountLeaseInHiddenHost(tab: ManagedTab, lease: DrawableLease) {
-    if (lease.mountedInHiddenHost || tab.view.webContents.isDestroyed()) return;
-    const host = this.ensureDrawableHost();
-    host.contentView.addChildView(tab.view);
-    tab.view.setBounds(this.drawableBounds());
-    lease.mountedInHiddenHost = true;
-  }
-
-  private unmountDrawableLease(tab: ManagedTab) {
-    const lease = this.drawableLeases.get(tab.id);
-    const host = this.drawableHost;
-    if (!lease?.mountedInHiddenHost || !host || host.isDestroyed()) return;
-    lease.mountedInHiddenHost = false;
-    try {
-      host.contentView.removeChildView(tab.view);
-    } catch {
-      // Host teardown can race tab cleanup.
-    }
-  }
-
-  private releaseDrawableHost(tabId: string) {
-    const lease = this.drawableLeases.get(tabId);
-    if (!lease) return;
-    lease.count -= 1;
-    if (lease.count > 0) return;
-    const tab = this.tabs.get(tabId);
-    if (tab) this.unmountDrawableLease(tab);
-    this.drawableLeases.delete(tabId);
-    this.attachActiveView();
-  }
-
-  private async settleDrawableHost(tabId: string) {
-    const wait = (delayMs: number) => this.delay(delayMs);
-    await wait(16);
-    const tab = this.tabs.get(tabId);
-    const lease = this.drawableLeases.get(tabId);
-    if (!tab || !lease || this.attachedView === tab.view) return;
-    if (!lease.mountedInHiddenHost || this.drawableHost?.isDestroyed()) {
-      lease.mountedInHiddenHost = false;
-      this.mountLeaseInHiddenHost(tab, lease);
-      await wait(16);
-    }
+    const tab = this.tabs.findByView(view);
+    if (tab) this.debuggerProxy.remountLeased(tab);
   }
 }

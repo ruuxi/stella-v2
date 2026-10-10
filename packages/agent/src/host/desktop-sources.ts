@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createExecutionContextSnapshot,
+  type ExecutionContextSnapshot,
   type ExecutionDestination,
   type MediaAccess,
 } from "@stella/contracts/execution-context";
@@ -66,6 +67,8 @@ export type DesktopSourcesOptions = {
   locale?: () => Promise<string | undefined>;
   /** The conversation is stored in the cloud, whose journal `history` reads. */
   cloudStored?: boolean;
+  /** The owner's devices and media access; its destination is ignored for `destination`. */
+  executionContext?: () => Promise<ExecutionContextSnapshot | undefined>;
 };
 
 export function desktopContextSources(options: DesktopSourcesOptions): StellaContextSources {
@@ -84,12 +87,14 @@ export function desktopContextSources(options: DesktopSourcesOptions): StellaCon
       return { enabled: true, ...(core ? { core } : {}), ...(profile ? { profile } : {}), ...(index ? { index } : {}) };
     },
     skillsCatalog: async () => renderSkillCatalogBlock(options.stellaHome),
-    executionContext: async () =>
-      createExecutionContextSnapshot({
-        devices: null,
+    executionContext: async () => {
+      const loaded = await options.executionContext?.();
+      return createExecutionContextSnapshot({
+        devices: loaded?.devicesKnown ? loaded.devices : null,
         destination: options.destination,
-        media: options.media?.(),
-      }),
+        media: loaded?.media ?? options.media?.(),
+      });
+    },
     locale: async () => options.locale?.(),
     codeHistory: async () => options.cloudStored === true,
   };

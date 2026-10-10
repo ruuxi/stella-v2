@@ -205,6 +205,7 @@
     "react-native-carplay@2.3.0": "patches/react-native-carplay@2.3.0.patch",
     "react-native-nitro-markdown@0.6.2": "patches/react-native-nitro-markdown@0.6.2.patch",
     "react-native@0.86.3": "patches/react-native@0.86.3.patch",
-    "streamdown@2.7.0": "patches/streamdown@2.7.0.patch"
+    "streamdown@2.7.0": "patches/streamdown@2.7.0.patch",
+    "@earendil-works/pi-durable@1.1.0": "patches/@earendil-works%2Fpi-durable@1.1.0.patch"
   }
 }

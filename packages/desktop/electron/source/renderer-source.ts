@@ -30,9 +30,13 @@ const HTML_ENTRIES = ["index.html", "overlay.html", "companion.html"];
 const HOT_CLIENT_URL = "/src/platform/hot/hot-client.ts";
 /** Where PdfViewerCard loads pdf.js's worker from. */
 const PDF_WORKER_URL = "/vendor/pdfjs/pdf.worker.min.mjs";
-/** Prefixed to every module but the hot client, on its first line. */
+/**
+ * Prefixed to every module but the hot client, on its first line. A Web
+ * Worker has no hot client, so its modules get no `import.meta.hot` (as in
+ * production) and no-op Fast Refresh registrations.
+ */
 const HOT_HEADER =
-  "const __stella_hot = import.meta.hot = globalThis.__stellaHot.module(import.meta.url);";
+  "const __stella_hot = (import.meta.hot = globalThis.__stellaHot?.module(import.meta.url)) ?? { register() {}, signature: () => (type) => type };";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",

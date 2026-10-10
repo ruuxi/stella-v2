@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { DownloadButton } from "@/components/download-button";
 import { AuroraField } from "./aurora-field";
 import { clamp, ease, lerp, prefersReducedMotion, seg } from "./motion";
@@ -140,8 +140,20 @@ export function Opening() {
   const layerRefs = useRef<(HTMLDivElement | null)[]>([]);
   const lineRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const liftRef = useRef(0.55);
+  const [skinCount, setSkinCount] = useState(1);
 
   useWanderingGaze(mascotHandle, mascotRef);
+
+  useEffect(() => {
+    if (skinCount >= SKINS.length) return;
+    const mount = () => startTransition(() => setSkinCount((n) => Math.max(n, skinCount + 1)));
+    if (window.requestIdleCallback) {
+      const id = window.requestIdleCallback(mount, { timeout: 2000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(mount, 200);
+    return () => window.clearTimeout(id);
+  }, [skinCount]);
 
   useEffect(() => {
     const el = mascotMoveRef.current;
@@ -266,6 +278,7 @@ export function Opening() {
     const startDemo = () => {
       if (st.demo) return;
       st.demo = true;
+      setSkinCount(SKINS.length);
       if (reduce) {
         renderDemo(frameAt(REDUCED_AT));
         return;
@@ -481,7 +494,7 @@ export function Opening() {
               style={i === 0 ? undefined : { visibility: "hidden" }}
             >
               <div ref={i === 0 ? tintRef : undefined} className={o.skinBox}>
-                {i === 0 ? <StellaSkin backdrop={<JourneyBackdrop />} /> : <Skin />}
+                {i === 0 ? <StellaSkin backdrop={<JourneyBackdrop />} /> : i < skinCount ? <Skin /> : null}
               </div>
             </div>
           ))}

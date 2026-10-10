@@ -284,10 +284,29 @@ export async function localLogMirror(args: {
   let again = false;
   /** A `spawn_agent` call's description, by call id, for the task its result starts (often a later pass). */
   const spawned = new Map<string, string>();
+  /**
+   * How a turn's Stop marker (`stopStella`: an empty stopped reply, written
+   * before the run is aborted) ends it: it waits for the run to end, and a
+   * reply after it means the run finished first, so the turn did not stop.
+   */
+  const stopMarkerEnding = (entryId: EntryId) =>
+    harness.commit(async (tx): Promise<"pending" | "superseded" | "stands"> => {
+      if ((await tx.doc(LiveDoc, root.id)).run !== undefined) return "pending";
+      const later = await tx.scanEntries(
+        { conversationId: root.id, minEntryId: (entryId + 1) as EntryId, order: "ascending" },
+        PAGE,
+      );
+      for (const next of later.items) {
+        if (next.kind === "pi.user") break;
+        if (next.kind === "pi.assistant") return "superseded";
+      }
+      return "stands";
+    }, context);
   const mirrorOnce = async () => {
     const state = await doc();
     let replyTo = state.replyTo;
     let mirrored = state.mirrored ?? 0;
+    let held = false;
     for (;;) {
       const page = await harness.commit(
         async (tx) =>
@@ -357,7 +376,14 @@ export async function localLogMirror(args: {
               });
             }
             const terminal = piTerminalNotice(message);
-            if (terminal) {
+            const ending =
+              terminal?.phase === "canceled" && message.content.length === 0 ? await stopMarkerEnding(entry.id) : "stands";
+            if (ending === "pending") {
+              // Taken up again when the run ends (`run_end`).
+              held = true;
+              break;
+            }
+            if (terminal && ending === "stands") {
               await log.write({
                 key: `${key}:notice`,
                 role: "assistant",
@@ -409,7 +435,7 @@ export async function localLogMirror(args: {
         current.mirrored = Math.max(current.mirrored ?? 0, through);
         if (reply) current.replyTo = reply;
       });
-      if (page.length < PAGE) break;
+      if (held || page.length < PAGE) break;
     }
   };
   const sync = () => {

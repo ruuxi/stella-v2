@@ -168,6 +168,7 @@ export const createGateHarness = (
   const sqlFake = openSqlStorageFake();
   const alarms: number[] = [];
   const forwarded: ForwardedCall[] = [];
+  const piThreads = new Set<string>();
   const frozenModelGrants: unknown[] = [];
   const preparedCloudChatReaders: string[] = [];
   const tagged: Array<{ socket: FakeSocket; tags: string[] }> = [];
@@ -212,6 +213,16 @@ export const createGateHarness = (
             "x-stella-turn-auth": "service", "x-stella-conversation-id": name, "x-stella-owner-generation": authority.ownerGeneration }, body, authority };
         forwarded.push(call);
         return respond(call);
+      },
+      // An agent on Stella's models starts in its conversation at once.
+      startPiThread: async (input: { attempt: { threadId: string } }) => {
+        forwarded.push({ namespace: kind, name, url: "rpc:startPiThread", headers: {}, body: structuredClone(input) });
+        piThreads.add(input.attempt.threadId);
+      },
+      // Only a thread started there has a pi agent to pause; any other runs in a container.
+      pausePiThread: async (input: { threadId: string }) => {
+        forwarded.push({ namespace: kind, name, url: "rpc:pausePiThread", headers: {}, body: structuredClone(input) });
+        return piThreads.has(input.threadId) ? "paused" : "unknown";
       },
       fetch: async (input: string | Request, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input.url;

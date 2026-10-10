@@ -1,5 +1,4 @@
 import type {
-  TurnBrokerCheckpointTranscriptRow,
   TurnBrokerNativeStateCheckpoint,
   TurnBrokerTurnStateCheckpointReceipt,
   TurnBrokerTurnStateCheckpointRequest,
@@ -37,8 +36,6 @@ export const replaceTurnStateArchiveSession = async <TSession>(args: {
 
 const HISTORY_CURSOR = /^(?:v1:empty|v1:[0-9a-f]{64})$/u;
 const HEX_SHA256 = /^[0-9a-f]{64}$/u;
-const MAX_SUSPENSION_TRANSCRIPT_ROWS = 1_024;
-const MAX_SUSPENSION_TRANSCRIPT_BYTES = 4 * 1024 * 1024;
 
 const exactText = (value: unknown, max = 512): value is string =>
   typeof value === "string" &&
@@ -105,57 +102,6 @@ const parseNativeCheckpoint = (
   };
 };
 
-const parseSuspensionTranscript = (
-  value: unknown,
-): TurnBrokerCheckpointTranscriptRow[] | null => {
-  if (
-    !Array.isArray(value) ||
-    value.length === 0 ||
-    value.length > MAX_SUSPENSION_TRANSCRIPT_ROWS
-  ) {
-    return null;
-  }
-  let bytes = 0;
-  const rows: TurnBrokerCheckpointTranscriptRow[] = [];
-  for (let ordinal = 0; ordinal < value.length; ordinal += 1) {
-    const entry = value[ordinal];
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      return null;
-    }
-    const row = entry as Record<string, unknown>;
-    if (
-      !exactKeys(row, ["ordinal", "role", "payloadJson"]) ||
-      row.ordinal !== ordinal ||
-      typeof row.role !== "string" ||
-      !["user", "assistant", "toolResult"].includes(row.role) ||
-      typeof row.payloadJson !== "string"
-    ) {
-      return null;
-    }
-    bytes += new TextEncoder().encode(row.payloadJson).byteLength;
-    if (bytes > MAX_SUSPENSION_TRANSCRIPT_BYTES) return null;
-    try {
-      const payload = JSON.parse(row.payloadJson) as unknown;
-      if (
-        !payload ||
-        typeof payload !== "object" ||
-        Array.isArray(payload) ||
-        (payload as Record<string, unknown>).role !== row.role
-      ) {
-        return null;
-      }
-    } catch {
-      return null;
-    }
-    rows.push({
-      ordinal,
-      role: row.role,
-      payloadJson: row.payloadJson,
-    });
-  }
-  return rows;
-};
-
 export const parseTurnStateCheckpointRequest = (
   value: unknown,
 ): TurnBrokerTurnStateCheckpointRequest | null => {
@@ -165,7 +111,7 @@ export const parseTurnStateCheckpointRequest = (
     !exactKeys(
       row,
       ["schemaVersion", "historyCursor"],
-      ["nativeCheckpoint", "suspensionTranscript"],
+      ["nativeCheckpoint"],
     ) ||
     row.schemaVersion !== 1 ||
     typeof row.historyCursor !== "string" ||
@@ -173,16 +119,8 @@ export const parseTurnStateCheckpointRequest = (
   ) {
     return null;
   }
-  const suspensionTranscript = Object.hasOwn(row, "suspensionTranscript")
-    ? parseSuspensionTranscript(row.suspensionTranscript)
-    : undefined;
-  if (suspensionTranscript === null) return null;
   if (!Object.hasOwn(row, "nativeCheckpoint")) {
-    return {
-      schemaVersion: 1,
-      historyCursor: row.historyCursor,
-      ...(suspensionTranscript ? { suspensionTranscript } : {}),
-    };
+    return { schemaVersion: 1, historyCursor: row.historyCursor };
   }
   const nativeCheckpoint = parseNativeCheckpoint(
     row.nativeCheckpoint,
@@ -193,7 +131,6 @@ export const parseTurnStateCheckpointRequest = (
         schemaVersion: 1,
         historyCursor: row.historyCursor,
         nativeCheckpoint,
-        ...(suspensionTranscript ? { suspensionTranscript } : {}),
       }
     : null;
 };

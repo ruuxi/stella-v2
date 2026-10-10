@@ -30,6 +30,35 @@ export type SharedCanvasPayload = {
   createdAt: number;
 };
 
+/**
+ * Fetch a share link. The owner's own private link arrives with a `?grant=`
+ * (`shares.viewLink`), which the share domain answers with a view cookie and
+ * a redirect to the clean link; that one hop is followed here with the cookie,
+ * since this fetch keeps no cookie jar. Any other redirect is not followed.
+ */
+const fetchShare = async (
+  url: string,
+  signal: AbortSignal,
+): Promise<Response | null> => {
+  const headers = { accept: "text/html" };
+  const first = await fetch(url, { signal, redirect: "manual", headers });
+  if (first.status < 300 || first.status >= 400) return first;
+  const location = first.headers.get("location");
+  if (!location) return null;
+  const next = new URL(location, url);
+  if (next.origin !== new URL(url).origin) return null;
+  const cookie = first.headers
+    .getSetCookie()
+    .map((value) => value.split(";")[0]!.trim())
+    .filter(Boolean)
+    .join("; ");
+  return await fetch(next, {
+    signal,
+    redirect: "manual",
+    headers: cookie ? { ...headers, cookie } : headers,
+  });
+};
+
 /** Configured public base URL for shared canvases (final domain TBD/pending). */
 export const readConfiguredCanvasShareBaseUrl = (): string | null =>
   readCanvasShareBaseUrl(process.env.CANVAS_SHARE_BASE_URL);
@@ -61,12 +90,8 @@ export const resolveSharedCanvasPayload = async (options: {
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   let html: string;
   try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      redirect: "follow",
-      headers: { accept: "text/html" },
-    });
-    if (!response.ok) return null;
+    const response = await fetchShare(url, controller.signal);
+    if (!response?.ok) return null;
     const buffer = Buffer.from(await response.arrayBuffer());
     if (buffer.byteLength === 0 || buffer.byteLength > MAX_SHARED_CANVAS_BYTES) {
       return null;

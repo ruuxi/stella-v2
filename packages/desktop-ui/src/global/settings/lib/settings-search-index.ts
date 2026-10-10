@@ -68,7 +68,7 @@ export interface ResolvedSettingsSearchEntry {
 export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
   // ---------- General ----------
   {
-    tab: "general",
+    tab: "privacy",
     availability: "native",
     titleKey: "settings.chatStorage.title",
     descriptionKey: "settings.chatStorage.description",
@@ -95,7 +95,7 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
     ],
   },
   {
-    tab: "general",
+    tab: "privacy",
     titleKey: "settings.memory.title",
     descriptionKey: "settings.memory.description",
     keywords: [
@@ -227,7 +227,7 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
     ],
   },
   {
-    tab: "general",
+    tab: "privacy",
     availability: "native",
     titleKey: "settings.lockedComputerUse.title",
     descriptionKey: "settings.lockedComputerUse.description",
@@ -290,7 +290,7 @@ export const SETTINGS_SEARCH_ENTRY_DEFS: SettingsSearchEntryDef[] = [
     ],
   },
   {
-    tab: "general",
+    tab: "privacy",
     availability: "native",
     titleKey: "settings.permissions.title",
     descriptionKey: "settings.search.descriptions.permissions",

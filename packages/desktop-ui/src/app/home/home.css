@@ -38,13 +38,8 @@
 }
 
 /* Fade-in for home content elements */
-.home-stella-title,
-.home-sidebar-hint {
+.home-stella-title {
   animation: homeContentFadeIn 300ms ease both;
-}
-
-.home-sidebar-hint {
-  animation-delay: 80ms;
 }
 
 @keyframes homeContentFadeIn {
@@ -60,7 +55,6 @@
 
 /* Fade-out when leaving home → chat */
 .full-body-main--home-leaving .home-stella-title,
-.full-body-main--home-leaving .home-sidebar-hint,
 .full-body-main--home-leaving .full-body-home-status,
 .full-body-main--home-leaving .composer-wrap {
   animation: homeContentFadeOut 280ms ease both;
@@ -94,34 +88,4 @@
   .home-content {
     --home-scale-title: 34px;
   }
-}
-
-.home-sidebar-hint {
-  position: absolute;
-  left: 50%;
-  bottom: 22px;
-  translate: -50% 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  width: min(calc(100% - 48px), 360px);
-  color: var(--text-weak);
-  font-family: var(--font-family-sans);
-  font-size: var(--font-size-base);
-  font-weight: var(--weight-medium);
-  line-height: 1.4;
-  letter-spacing: 0;
-  text-align: center;
-  pointer-events: none;
-  user-select: none;
-}
-
-.home-sidebar-hint__mouse {
-  flex-shrink: 0;
-  color: var(--text-weak);
-}
-
-.home-sidebar-hint__mouse-highlight {
-  fill: color-mix(in srgb, var(--foreground) 22%, transparent);
 }

@@ -16,6 +16,8 @@ type ComputerAgentStartPayload = {
   conversationId: string;
   description: string;
   agentType: string;
+  /** The agent that started it, for a subagent. */
+  parentAgentId?: string;
 };
 
 type ComputerAgentTerminalPayload = {
@@ -51,6 +53,7 @@ export type ComputerAgentCloudRecords = {
     agentType: string;
     attemptGeneration: number;
     ownerGeneration: string;
+    parentAgentId?: string;
   }) => Promise<{ agentId: string }>;
   complete: (args: {
     agentId: string;
@@ -352,6 +355,7 @@ export const createComputerAgentCloudRecords = (
           agentType: payload.agentType,
           attemptGeneration: entry.attemptGeneration,
           ownerGeneration: entry.ownerGeneration,
+          ...(payload.parentAgentId ? { parentThreadId: payload.parentAgentId } : {}),
         }),
       );
       if (asRecord(raw)?.threadId !== entry.threadId) {
@@ -685,6 +689,7 @@ export const createComputerAgentCloudRecords = (
           conversationId: args.conversationId,
           description: args.description,
           agentType: args.agentType,
+          ...(args.parentAgentId ? { parentAgentId: args.parentAgentId } : {}),
         } satisfies ComputerAgentStartPayload,
       });
       return { agentId: args.agentId };

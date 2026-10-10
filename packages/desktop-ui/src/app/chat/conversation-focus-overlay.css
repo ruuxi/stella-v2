@@ -61,11 +61,6 @@
 .conversation-focus__list {
   height: 100%;
 }
-.conversation-focus__error {
-  padding: 24px;
-  color: var(--muted-foreground);
-  text-align: center;
-}
 
 @keyframes conversation-focus-in {
   from {

@@ -4,6 +4,13 @@ import type {
   AdmittedCloudChat,
   CloudChatPreparation,
 } from "./cloud-chat-admission.js";
+import type {
+  PiThreadPause,
+  PiThreadPauseResult,
+  PiThreadStart,
+  PiThreadSteer,
+  PiThreadSteerResult,
+} from "./cloud-agent-dispatch.js";
 import type { OwnerModelGrantFreezeRequest } from "./owner-model-grants.js";
 import type { Env } from "./build-session/shared/env.js";
 
@@ -67,6 +74,18 @@ export class OrchestratorSession extends DurableObject<Env> {
     return await (await this.loadImplementation()).freezeOwnerModelGrants(args);
   }
 
+  async startPiThread(input: PiThreadStart): Promise<void> {
+    await (await this.loadImplementation()).startPiThread(input);
+  }
+
+  async steerPiThread(input: PiThreadSteer): Promise<PiThreadSteerResult> {
+    return await (await this.loadImplementation()).steerPiThread(input);
+  }
+
+  async pausePiThread(input: PiThreadPause): Promise<PiThreadPauseResult> {
+    return await (await this.loadImplementation()).pausePiThread(input);
+  }
+
   async queryHistory(ownerId: string, request: unknown): Promise<unknown> {
     return await (await this.loadImplementation()).queryHistory(ownerId, request);
   }
@@ -87,6 +106,19 @@ export class OrchestratorSession extends DurableObject<Env> {
     await (
       await this.loadImplementation()
     ).webSocketClose(ws, code, reason, wasClean);
+  }
+
+  /**
+   * Dev verification only (the admin route checks `STELLA_TEST_ACCOUNTS`):
+   * restart this object as an eviction would, after the reply leaves.
+   */
+  async restartForVerification(): Promise<{ restartScheduled: true }> {
+    this.ctx.waitUntil(
+      scheduler.wait(50).then(() => {
+        this.ctx.abort("dev verification restart");
+      }),
+    );
+    return { restartScheduled: true };
   }
 
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {

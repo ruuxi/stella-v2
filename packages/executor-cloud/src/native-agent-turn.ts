@@ -44,6 +44,7 @@ import {
   sealNativeState,
   type NativeStateAttestation,
 } from "./native-state-integrity.js";
+import type { AgentInbox } from "./agent-inbox.js";
 import {
   createNativeTurnCancellation,
   type NativeTurnCancellation,
@@ -64,7 +65,27 @@ export type NativeAgentTurnResult = {
 type NativeCliTurnResult = Omit<
   NativeAgentTurnResult,
   "messages" | "nativeStateCheckpoint"
-> & { sessionId: string };
+> & {
+  sessionId: string;
+  /** Inbox messages Claude took during the turn, in the order it took them. */
+  steered: string[];
+};
+
+/** How often a running agent's inbox is checked for new messages. */
+const INBOX_POLL_MS = 500;
+
+const streamJsonUserMessage = (
+  sessionId: string,
+  text: string,
+  uuid?: string,
+): string =>
+  JSON.stringify({
+    type: "user",
+    session_id: sessionId,
+    message: { role: "user", content: text },
+    parent_tool_use_id: null,
+    ...(uuid ? { uuid } : {}),
+  });
 
 type NativeEvent = (kind: string, payload: unknown) => void;
 
@@ -228,6 +249,8 @@ const runJsonLines = async (options: {
   cwd: string;
   env: NodeJS.ProcessEnv;
   input?: string;
+  /** Writes stdin and ends it itself, instead of `input` then end. */
+  feedInput?: (stdin: NodeJS.WritableStream) => void;
   processIdentity?: ToolProcessIdentity;
   /** SIGKILLs the child; the promise still resolves once it has closed. */
   cancellation?: NativeTurnCancellation;
@@ -298,7 +321,8 @@ const runJsonLines = async (options: {
       resolve({ exitCode, stderr });
     });
     child.stdin.on("error", () => undefined);
-    child.stdin.end(options.input);
+    if (options.feedInput) options.feedInput(child.stdin);
+    else child.stdin.end(options.input);
   });
 
 const textBlocks = (content: unknown): string[] =>
@@ -496,11 +520,16 @@ export const buildCloudClaudeTakeoverArgs = (options: {
   sessionId: string;
   inputPrompt?: string;
   includePartialMessages?: boolean;
+  /** Input as stream-json messages, each echoed back once Claude takes it. */
+  streamInput?: boolean;
 }): string[] => [
   "-p",
   "--verbose",
   "--output-format",
   "stream-json",
+  ...(options.streamInput
+    ? ["--input-format", "stream-json", "--replay-user-messages"]
+    : []),
   ...(options.includePartialMessages ? ["--include-partial-messages"] : []),
   ...resolveClaudeModelArgs(options.model),
   ...resolveClaudeReasoningArgs(options.reasoningEffort),
@@ -540,6 +569,8 @@ export const buildCloudClaudeTakeoverArgs = (options: {
 
 const transcript = (args: {
   prompt: string;
+  /** Messages the agent took while it worked, after the prompt. */
+  steered: readonly string[];
   finalText: string;
   execution: Extract<CloudExecutionSelection, { engine: "anthropic" }>;
   usage: NativeAgentTurnResult["usage"];
@@ -555,11 +586,13 @@ const transcript = (args: {
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
   };
   return [
-    {
-      role: "user",
-      content: [{ type: "text", text: args.prompt }],
-      timestamp,
-    },
+    ...[args.prompt, ...args.steered].map(
+      (text): AgentMessage => ({
+        role: "user",
+        content: [{ type: "text", text }],
+        timestamp,
+      }),
+    ),
     {
       role: "assistant",
       content: [{ type: "text", text: args.finalText }],
@@ -593,8 +626,10 @@ export const runCloudClaude = async (options: {
   onStreamEvent?: (event: ClaudeStreamJsonEvent) => void;
   /** Kills the CLI; the turn then fails with the abort reason. */
   cancellation?: NativeTurnCancellation;
+  /** Messages for the agent while it works (an agent turn's inbox). */
+  inbox?: AgentInbox;
 }): Promise<NativeCliTurnResult> => {
-  const { profile } = options;
+  const { profile, inbox } = options;
   const stateRoot = options.stateRoot;
   await mkdir(stateRoot, { recursive: true, mode: 0o700 });
   await chmod(stateRoot, 0o700);
@@ -614,6 +649,7 @@ export const runCloudClaude = async (options: {
       error: `Claude isn't signed in to ${options.claudeAccount.email} in your cloud anymore. Sign in again under Settings > Account > Claude.`,
       usage: { inputTokens: 0, outputTokens: 0, llmCalls: 0 },
       sessionId: "",
+      steered: [],
     };
   }
   const sessionId = deterministicUuid(profile.sessionKey);
@@ -636,7 +672,64 @@ export const runCloudClaude = async (options: {
       resume,
       sessionId,
       includePartialMessages: profile.includePartialMessages,
+      streamInput: Boolean(inbox),
     });
+    // With an inbox, the prompt is the first stream-json message and stdin
+    // stays open while Claude works: a message that arrives is written after
+    // it, Claude folds it in at its next tool boundary (or answers it as one
+    // more query) and echoes it back by uuid once it has. Input ends after a
+    // result that leaves nothing unanswered and an inbox that closes empty.
+    let stdin: NodeJS.WritableStream | undefined;
+    let inputEnded = false;
+    const injected = new Map<string, string>();
+    const steered: string[] = [];
+    let inputWork: Promise<void> = Promise.resolve();
+    const serialInput = (work: () => Promise<void>): Promise<void> => {
+      inputWork = inputWork.then(work).catch((error: unknown) => {
+        console.error(
+          `agent inbox failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+      return inputWork;
+    };
+    const writeMessages = (texts: string[]): void => {
+      for (const text of texts) {
+        const uuid = crypto.randomUUID();
+        injected.set(uuid, text);
+        stdin?.write(`${streamJsonUserMessage(sessionId, text, uuid)}\n`);
+      }
+    };
+    const endInput = (): void => {
+      if (inputEnded) return;
+      inputEnded = true;
+      inboxPoll?.interruptUnsafe();
+      stdin?.end();
+    };
+    const finishInput = (): Promise<void> =>
+      serialInput(async () => {
+        if (inputEnded || !inbox) return;
+        const late = await inbox.close();
+        if (late.length === 0 && injected.size === 0) {
+          endInput();
+          return;
+        }
+        await inbox.reopen();
+        writeMessages(late);
+      });
+    const inboxPoll = inbox
+      ? Effect.runFork(
+          Effect.forever(
+            Effect.promise(() =>
+              serialInput(async () => {
+                if (inputEnded || !stdin) return;
+                writeMessages(await inbox.take());
+              }),
+            ).pipe(Effect.andThen(Effect.sleep(INBOX_POLL_MS))),
+          ),
+        )
+      : undefined;
+    let reportedTurns = 0;
+    const answers: string[] = [];
     let finalText = "";
     let error: string | undefined;
     let inputTokens = 0;
@@ -655,7 +748,16 @@ export const runCloudClaude = async (options: {
         : {}),
     });
     const result = await runJsonLines({
-      input: options.inputPrompt,
+      ...(inbox
+        ? {
+            feedInput: (input: NodeJS.WritableStream) => {
+              stdin = input;
+              input.write(
+                `${streamJsonUserMessage(sessionId, options.inputPrompt)}\n`,
+              );
+            },
+          }
+        : { input: options.inputPrompt }),
       command: "claude",
       args,
       cwd: profile.cwd,
@@ -667,6 +769,17 @@ export const runCloudClaude = async (options: {
         if (type === "system" && event.subtype === "init") {
           initialized = true;
           void writeFile(markerPath, `${sessionId}\n`, { mode: 0o600 });
+          return;
+        }
+        if (type === "user") {
+          const text =
+            event.isReplay === true && typeof event.uuid === "string"
+              ? injected.get(event.uuid)
+              : undefined;
+          if (text !== undefined) {
+            injected.delete(event.uuid as string);
+            steered.push(text);
+          }
           return;
         }
         const status = getClaudeCodeStatusChangeFromStreamEvent(event);
@@ -700,23 +813,35 @@ export const runCloudClaude = async (options: {
         if (type === "result") {
           const resultText =
             typeof event.result === "string" ? event.result.trim() : "";
-          if (resultText) finalText = resultText;
+          // A message Claude answered as one more query adds its answer to
+          // the report instead of replacing the task's.
+          if (resultText) {
+            answers.push(resultText);
+            finalText = answers.join("\n\n");
+          }
           const usage =
             event.usage && typeof event.usage === "object"
               ? (event.usage as Record<string, unknown>)
               : {};
-          inputTokens =
+          // Each query on the stream reports its own usage.
+          inputTokens +=
             numberAt(usage.input_tokens) +
             numberAt(usage.cache_creation_input_tokens) +
             numberAt(usage.cache_read_input_tokens);
-          outputTokens = numberAt(usage.output_tokens);
-          if (typeof event.num_turns === "number") llmCalls = event.num_turns;
+          outputTokens += numberAt(usage.output_tokens);
+          if (typeof event.num_turns === "number") {
+            reportedTurns += event.num_turns;
+            llmCalls = reportedTurns;
+          }
           if (event.is_error === true) {
             error = resultText || "Claude Code reported an unsuccessful turn.";
+            void serialInput(async () => endInput());
+          } else if (inbox && injected.size === 0) {
+            void finishInput();
           }
         }
       },
-    });
+    }).finally(endInput);
     if (initialized) {
       await writeFile(markerPath, `${sessionId}\n`, { mode: 0o600 });
     }
@@ -741,6 +866,7 @@ export const runCloudClaude = async (options: {
       ...(error ? { error } : {}),
       usage: { inputTokens, outputTokens, llmCalls },
       sessionId: initialized ? sessionId : "",
+      steered,
     };
   } finally {
     // This directory contains the private loopback MCP bearer. It lives
@@ -794,6 +920,7 @@ export const runNativeAgentTurn = async (options: {
   claudeMcpServerConfig?: CloudClaudeMcpServerConfig;
   onStreamEvent?: (event: ClaudeStreamJsonEvent) => void;
   cancellation?: NativeTurnCancellation;
+  inbox?: AgentInbox;
 }): Promise<NativeAgentTurnResult> => {
   const mcpServerConfig = options.claudeMcpServerConfig;
   if (!mcpServerConfig) {
@@ -839,9 +966,11 @@ export const runNativeAgentTurn = async (options: {
     mcpServerConfig,
     ...(options.onStreamEvent ? { onStreamEvent: options.onStreamEvent } : {}),
     ...(options.cancellation ? { cancellation: options.cancellation } : {}),
+    ...(options.inbox ? { inbox: options.inbox } : {}),
   });
   const messages = transcript({
     prompt: options.prompt,
+    steered: result.steered,
     finalText: result.finalText || result.error || "",
     execution: options.execution,
     usage: result.usage,
@@ -863,7 +992,7 @@ export const runNativeAgentTurn = async (options: {
     cursor: nativeHistoryCursorFromMessages(options.turnId, messages),
     integrityKey: options.stateIntegrityKey,
   });
-  const { sessionId: _sessionId, ...publicResult } = result;
+  const { sessionId: _sessionId, steered: _steered, ...publicResult } = result;
   return {
     ...publicResult,
     messages,

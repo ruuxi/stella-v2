@@ -252,7 +252,7 @@ export function ChatGptAccountsSection({
   return (
     <>
       <EngineAccountHeader title={t(`${K}.chatgptTitle`)} control={addChatGpt} />
-      {accounts.map((account, index) => {
+      {accounts.map((account) => {
         const { local, cloud } = account;
         const signedInHere = local?.status === "signed_in";
         const signedInCloud = Boolean(cloud && !cloud.status);
@@ -379,7 +379,6 @@ export function ChatGptAccountsSection({
             {...(pick ? { onPick: pick } : {})}
             items={items}
             tail={tail}
-            divided={index > 0}
           />
         );
       })}

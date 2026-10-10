@@ -12,7 +12,6 @@ import {
   CODE_TOOL_PROMPT_SNIPPET,
   CODE_TOOL_REPLAY,
 } from "./code-def.js";
-import { isAgentToolSuspendedError } from "../../agent-core/suspension.js";
 
 export type CodeToolOptions = NodeReplKernelManagerOptions & {
   registry?: NodeReplKernelRegistry;
@@ -150,7 +149,6 @@ export const createCodeTool = (options: CodeToolOptions): ToolDefinition => {
             });
         return resultForObservation(observation, hasCellId);
       } catch (error) {
-        if (isAgentToolSuspendedError(error)) throw error;
         return {
           error: error instanceof Error ? error.message : String(error),
         };

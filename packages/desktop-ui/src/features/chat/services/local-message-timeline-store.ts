@@ -934,12 +934,11 @@ function handleLocalUpdate(payload: LocalChatUpdatedPayload | null) {
   if (!payload?.conversationId) return;
   const entry = entries.get(payload.conversationId);
   if (!entry || entry.listeners.size === 0) return;
-  // Destructive update (Rewind truncate): no appended event exists, and an
-  // incremental tail read keys strictly AFTER the newest loaded row — it can
-  // never observe rows that were REMOVED. Re-read the latest page instead so
-  // truncated suffixes drop out of the visible timeline. Append
-  // notifications always carry their event and keep using the cheap
-  // incremental path below.
+  // Update without an event (welcome persisted, store reset): no appended
+  // event exists, and an incremental tail read keys strictly AFTER the newest
+  // loaded row — it can never observe rows that changed or were REMOVED.
+  // Re-read the latest page instead. Append notifications always carry their
+  // event and keep using the cheap incremental path below.
   if (!payload.event) {
     if (entry.inFlight) entry.queuedLatestRefresh = true;
     else void readInitial(entry, "latest");

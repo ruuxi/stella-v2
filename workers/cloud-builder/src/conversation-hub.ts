@@ -95,8 +95,8 @@ export type ReadyFrame = {
   serverTimeMs: number;
   live: LiveTurnSnapshot | null;
   /**
-   * Every agent this conversation's journal still shows as running, folded over
-   * the whole journal rather than over the window this connect delivers.
+   * Every agent this conversation has running (`JournalReader.runningAgents`),
+   * whatever window this connect delivers; `agents` frames carry it on.
    *
    * A client cannot derive this for itself: an agent started before anything it
    * holds leaves no row in its window, so folding what it has would report that
@@ -105,6 +105,13 @@ export type ReadyFrame = {
    */
   agents: AgentActivityEntry[];
 };
+
+/**
+ * The running agents again, whenever they change: a client lists these and
+ * no others. Its cards only draw the agents' rows. `atMs` is when the list
+ * was read, so a start card newer than it is not yet in it.
+ */
+export type AgentsFrame = { type: "agents"; agents: AgentActivityEntry[]; atMs: number };
 
 export type RecordFrame = { type: "record" } & JournalRecord;
 
@@ -159,8 +166,17 @@ export type ErrorFrame = {
   ref?: string;
 };
 
+/** The pi-durable view (`pi=1` sockets): its snapshot, then its event batches. */
+export type PiSnapshotFrame = { type: "pi.snapshot"; snapshot: unknown; hasOlder: boolean };
+export type PiEventsFrame = { type: "pi.events"; events: readonly unknown[] };
+export type PiOlderFrame = { type: "pi.older"; requestId: string; entries: unknown[]; hasOlder: boolean };
+
 export type ServerFrame =
+  | PiSnapshotFrame
+  | PiEventsFrame
+  | PiOlderFrame
   | ReadyFrame
+  | AgentsFrame
   | RecordFrame
   | BackfillFrame
   | GapFrame
@@ -174,7 +190,8 @@ export type ServerFrame =
 export type ClientFrame =
   | { type: "auth"; token: string }
   | { type: "backfill"; requestId: string; fromSeq: number; toSeq: number }
-  | { type: "cancel"; turnId: string };
+  | { type: "cancel"; turnId: string }
+  | { type: "pi.older"; requestId: string; beforeEntryId: number };
 
 // ---------------------------------------------------------------------------
 // Worker → DO handoff
@@ -324,6 +341,8 @@ type SocketAttachment = {
   rateBackfill: number;
   rateCancel: number;
   rateAuth: number;
+  /** Watches the pi-durable view. */
+  pi?: boolean;
 };
 
 const readAttachment = (ws: WebSocket): SocketAttachment | null => {
@@ -471,6 +490,11 @@ class ConversationHubImpl implements ConversationHub {
       );
     }
 
+    // Settled before the last await below, like everything the accept needs.
+    const pi =
+      url.searchParams.get("pi") === "1" &&
+      (await this.deps.pi?.enabled().catch(() => false)) === true;
+
     // Tagged by a hash of the owner, not the owner: the raw `${issuer}|${sub}`
     // can exceed the 256-char tag limit and is PII-shaped in logs. The tag
     // exists so a service-secret route can kill every socket belonging to one
@@ -519,6 +543,7 @@ class ConversationHubImpl implements ConversationHub {
       rateBackfill: 0,
       rateCancel: 0,
       rateAuth: 0,
+      ...(pi ? { pi: true } : {}),
     };
 
     this.deps.ctx.acceptWebSocket(server, [tag]);
@@ -590,7 +615,9 @@ class ConversationHubImpl implements ConversationHub {
       headSeq: fresh.headSeq,
       delivered: records.length,
       reset: opening.reset ?? undefined,
+      ...(pi ? { pi } : {}),
     });
+    if (pi) this.deps.ctx.waitUntil(this.sendPiSnapshot(server));
 
     return new Response(null, {
       status: 101,
@@ -771,6 +798,57 @@ class ConversationHubImpl implements ConversationHub {
     for (const ws of sockets) this.sendSerialized(ws, payload);
   }
 
+  // ── The pi-durable view ─────────────────────────────────────────────────
+
+  private piSockets(): WebSocket[] {
+    return this.deps.ctx.getWebSockets().filter((ws) => readAttachment(ws)?.pi === true);
+  }
+
+  piSocketCount(): number {
+    return this.piSockets().length;
+  }
+
+  private async sendPiSnapshot(ws: WebSocket): Promise<void> {
+    try {
+      const view = await this.deps.pi!.attach();
+      this.sendFrame(ws, { type: "pi.snapshot", ...view });
+    } catch (error) {
+      this.deps.log("error", "conversation_pi_snapshot_failed", {
+        conversationId: this.deps.conversationId(),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  broadcastPi(events: readonly unknown[]): void {
+    try {
+      const sockets = this.piSockets();
+      if (sockets.length === 0) return;
+      const payload = JSON.stringify({ type: "pi.events", events } satisfies PiEventsFrame);
+      for (const ws of sockets) this.sendSerialized(ws, payload);
+    } catch (error) {
+      this.deps.log("error", "conversation_pi_broadcast_failed", {
+        conversationId: this.deps.conversationId(),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async handlePiOlder(
+    ws: WebSocket,
+    attachment: SocketAttachment,
+    frame: { requestId?: unknown; beforeEntryId?: unknown },
+  ): Promise<void> {
+    const requestId = typeof frame.requestId === "string" ? frame.requestId.slice(0, 128) : "";
+    const before = frame.beforeEntryId;
+    if (!attachment.pi || !this.deps.pi || typeof before !== "number" || !Number.isSafeInteger(before) || before < 1) {
+      this.closeWith(ws, CLOSE_BAD_REQUEST, "Unsupported message.");
+      return;
+    }
+    const page = await this.deps.pi.older(before);
+    this.sendFrame(ws, { type: "pi.older", requestId, ...page });
+  }
+
   // ── Records ──────────────────────────────────────────────────────────────
 
   broadcastRecord(record: JournalRecord): void {
@@ -779,6 +857,8 @@ class ConversationHubImpl implements ConversationHub {
         this.turnState(record.turnId);
       }
       this.broadcast({ type: "record", ...record });
+      // A journal folded for its running agents changes with its rows.
+      this.agentsChanged();
       // Storage also calls endTurn explicitly. Doing it here as well costs
       // nothing (it is idempotent) and means a missed call upstream leaks a
       // tool map rather than being invisible.
@@ -789,6 +869,30 @@ class ConversationHubImpl implements ConversationHub {
       this.deps.log("error", "conversation_broadcast_failed", {
         conversationId: this.deps.conversationId(),
         seq: record.seq,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // ── Running agents ───────────────────────────────────────────────────────
+
+  /** The list the sockets last heard, by what a client shows of each agent. */
+  private agentsHeard: string | undefined;
+
+  agentsChanged(): void {
+    try {
+      if (this.deps.ctx.getWebSockets().length === 0) {
+        this.agentsHeard = undefined;
+        return;
+      }
+      const agents = this.runningAgents();
+      const heard = JSON.stringify(agents.map((agent) => [agent.agentId, agent.attemptGeneration ?? 0, agent.title]));
+      if (heard === this.agentsHeard) return;
+      this.agentsHeard = heard;
+      this.broadcast({ type: "agents", agents, atMs: Date.now() });
+    } catch (error) {
+      this.deps.log("error", "conversation_agents_frame_failed", {
+        conversationId: this.deps.conversationId(),
         message: error instanceof Error ? error.message : String(error),
       });
     }
@@ -862,10 +966,10 @@ class ConversationHubImpl implements ConversationHub {
   }
 
   /**
-   * The authoritative running-agent list for `ready`. Synchronous and bounded:
-   * it reads a cached fold over resident rows, which is why it can sit on the
-   * connect path with no await left to spend. A reader that cannot answer costs
-   * the client its activity list for one connect, never the connect itself.
+   * The authoritative running-agent list for `ready` and `agents`. Synchronous
+   * and bounded: it reads memory, which is why it can sit on the connect path
+   * with no await left to spend. A reader that cannot answer costs the client
+   * its activity list for one connect, never the connect itself.
    */
   private runningAgents(): AgentActivityEntry[] {
     try {
@@ -996,6 +1100,21 @@ class ConversationHubImpl implements ConversationHub {
         }
         ws.serializeAttachment(attachment);
         await this.handleCancel(ws, frame);
+        return;
+      }
+      case "pi.older": {
+        attachment.rateBackfill += 1;
+        if (attachment.rateBackfill > RATE_BACKFILL_PER_MIN) {
+          this.closeWith(
+            ws,
+            CLOSE_RATE_LIMITED,
+            "Too many history requests. Reconnecting in a moment.",
+            true,
+          );
+          return;
+        }
+        ws.serializeAttachment(attachment);
+        await this.handlePiOlder(ws, attachment, frame);
         return;
       }
       default:
@@ -1185,6 +1304,14 @@ class ConversationHubImpl implements ConversationHub {
       // Already closed; the accounting below is the only thing left to do.
     }
     this.warned.delete(ws);
+    // The last pi watcher gone: the pi view's stream can stop.
+    if (readAttachment(ws)?.pi && this.piSockets().every((socket) => socket === ws)) {
+      try {
+        this.deps.pi?.detach();
+      } catch {
+        // Advisory teardown.
+      }
+    }
     if (!wasClean) {
       this.deps.log("info", "conversation_socket_closed", {
         conversationId: this.deps.conversationId(),

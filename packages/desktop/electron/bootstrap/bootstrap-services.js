@@ -41,6 +41,9 @@ export const createBootstrapServices = (options) => {
     // panel via the existing `display:update` path, instead of bouncing out to
     // the system browser. Returns true so the external-link funnel skips the
     // browser open. No-ops when the share domain has not been configured.
+    // A link that can't be rendered here (a private canvas, which opens only
+    // with its owner's grant, or the share domain unreachable) goes to the
+    // system browser after all, so the click is never swallowed.
     externalLinkService.setCanvasShareHandler((url) => {
         const baseUrl = readConfiguredCanvasShareBaseUrl();
         if (!baseUrl || !isCanvasShareUrl(url, baseUrl))
@@ -51,8 +54,10 @@ export const createBootstrapServices = (options) => {
             stellaDataDir: config.stellaDataDirPath,
         })
             .then((payload) => {
-            if (!payload)
+            if (!payload) {
+                externalLinkService.openSafeExternalUrl(url);
                 return;
+            }
             for (const window of options.getAllWindows()) {
                 if (!window.isDestroyed()) {
                     window.webContents.send("display:update", payload);

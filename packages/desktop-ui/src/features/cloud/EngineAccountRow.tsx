@@ -7,7 +7,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/ui/dropdown-menu";
-import { MoreHorizontal } from "@/ui/icons";
+import { Check, MoreHorizontal } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
 import "./engine-accounts.css";
 
@@ -98,7 +98,6 @@ export function EngineAccountRowView({
   onPick,
   items,
   tail = [],
-  divided,
 }: {
   id: string;
   title: string;
@@ -112,7 +111,6 @@ export function EngineAccountRowView({
   items: EngineAccountMenuItem[];
   /** Destructive items, after a separator. */
   tail?: EngineAccountMenuItem[];
-  divided: boolean;
 }) {
   const t = useT();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -128,9 +126,9 @@ export function EngineAccountRowView({
   );
   return (
     <div
-      className="settings-row"
-      style={divided ? undefined : { borderTop: "none" }}
+      className="settings-row engine-account-row"
       data-engine-account={id}
+      data-active={active || undefined}
     >
       {onPick && !active ? (
         <button
@@ -147,7 +145,12 @@ export function EngineAccountRowView({
         <div className="settings-row-info engine-account-identity">{identity}</div>
       )}
       <div className="engine-account-controls settings-row-control">
-        {active ? <span className="engine-account-badge">{t(`${K}.active`)}</span> : null}
+        {active ? (
+          <span className="engine-account-badge">
+            <Check size={14} aria-hidden />
+            {t(`${K}.active`)}
+          </span>
+        ) : null}
         {items.length + tail.length > 0 ? (
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>

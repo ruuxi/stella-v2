@@ -104,11 +104,8 @@ export class ConversationIndex {
       return idle;
     }
 
-    // A rewind may commit while the send is in flight. The owner drops the stale
-    // epoch, and the local cursor must not suppress the first row on the branch.
-    if (this.journal.meta().epoch !== meta.epoch || this.deps.purged()) {
-      return idle;
-    }
+    // The conversation may be purged while the send is in flight.
+    if (this.deps.purged()) return idle;
     this.journal.setIndexSyncedSeq(lastSeq);
     return { accepted: true };
   }

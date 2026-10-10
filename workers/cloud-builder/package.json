@@ -15,12 +15,11 @@
     "types:generate": "node scripts/generate-worker-types.mjs",
     "types:check": "node scripts/generate-worker-types.mjs --check",
     "typecheck": "bun run types:check && tsc --noEmit",
-    "test:unit": "bun run shell:bundle && bun test tests --path-ignore-patterns 'tests/*-workerd.test.ts'",
-    "test:workerd": "bun run shell:bundle && bun test tests/*-workerd.test.ts",
+    "test:unit": "bun test tests --path-ignore-patterns 'tests/*-workerd.test.ts'",
+    "test:workerd": "bun test tests/*-workerd.test.ts",
     "test": "bun run test:unit && bun run test:workerd && bun run test:code-workerd",
     "build:dry-run": "node scripts/check-production-bundle.mjs",
-    "test:code-workerd": "bun tests/cloud-code-workerd-acceptance.mjs",
-    "shell:bundle": "node scripts/build-worker-shell.mjs"
+    "test:code-workerd": "bun tests/cloud-code-workerd-acceptance.mjs"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.7",
@@ -28,8 +27,12 @@
     "@cloudflare/codemode": "0.5.3",
     "@cloudflare/sandbox": "1.0.0",
     "@cloudflare/worker-bundler": "^0.2.5",
+    "@earendil-works/chord": "1.1.0",
+    "@earendil-works/pi-ai": "1.1.0",
+    "@earendil-works/pi-durable": "1.1.0",
     "@peculiar/x509": "2.1.0",
     "@sinclair/typebox": "0.34.52",
+    "@stella/agent": "workspace:*",
     "@stella/contracts": "workspace:*",
     "@stella/executor-cloud": "workspace:*",
     "@stella/model-catalog": "workspace:*",
@@ -38,7 +41,6 @@
     "effect": "4.0.0",
     "hono": "4.13.12",
     "jose": "^6.2.12",
-    "just-bash": "3.6.0",
     "reflect-metadata": "0.2.2"
   },
   "devDependencies": {

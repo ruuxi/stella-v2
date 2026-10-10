@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import {
   detectImageMediaType,
   isCompleteImage,
-} from "../../ai/utils/image-payload.js";
+} from "./image-payload.js";
 
 /**
  * Read an image file, tolerating the capture -> read race that produces

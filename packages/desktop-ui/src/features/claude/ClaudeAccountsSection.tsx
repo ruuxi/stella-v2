@@ -169,7 +169,7 @@ export function ClaudeAccountsSection({
   return (
     <>
       <EngineAccountHeader title={t(`${K}.claudeTitle`)} control={addControl} />
-      {accounts.map((account, index) => {
+      {accounts.map((account) => {
         const config = localFor(account.email);
         const places = account.places ?? [];
         const inCloud = places.some((place) => place.kind === "cloud");
@@ -250,7 +250,6 @@ export function ClaudeAccountsSection({
                 })}
             items={items}
             tail={tail}
-            divided={index > 0}
           />
         );
       })}
@@ -278,7 +277,6 @@ export function ClaudeAccountsSection({
                 : []
             }
             tail={signOutHereItem(config)}
-            divided
           />
         );
       })}
@@ -305,7 +303,6 @@ export function ClaudeAccountsSection({
               onSelect: () => void run(() => local.signOut(config.configId)),
             },
           ]}
-          divided
         />
       ))}
       {local.loaded && !local.cliInstalled ? (

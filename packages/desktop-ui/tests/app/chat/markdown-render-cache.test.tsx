@@ -89,8 +89,10 @@ describe("markdown render cache", () => {
       />,
     );
     expect(getMarkdownRenderCacheStats().misses).toBe(2);
-    expect(visible).toContain("quarterly-report.md");
-    expect(hidden).not.toContain("quarterly-report.md");
+    expect(visible).toContain('title="/Users/me/report.md"');
+    // A hidden file's link keeps its words as plain text.
+    expect(hidden).not.toContain('title="/Users/me/report.md"');
+    expect(hidden).toContain("quarterly-report.md");
   });
 
   it("bounds retained text", () => {

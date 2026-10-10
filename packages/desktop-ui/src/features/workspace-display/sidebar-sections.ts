@@ -16,7 +16,9 @@
 
 import { useSyncExternalStore } from "react";
 import { uiState } from "@/platform/ui-state";
+import { getFileEntries } from "./files-index";
 import { displayTabs } from "./tab-store";
+import type { DisplayTab, DisplayTabKind } from "./types";
 
 export const SIDEBAR_SECTIONS = [
   "home",
@@ -85,12 +87,36 @@ const restoreTabKind = (
   return null;
 };
 
+/**
+ * Surfaces that only ever have one tab: opening one again focuses the tab
+ * already open instead of adding another.
+ */
+const SINGLE_TAB_SECTIONS: ReadonlySet<SidebarSection> = new Set(["updates"]);
+
+/** Drop repeats of a single-tab surface (layouts saved before the rule). */
+const withoutRepeats = (tabs: SidebarTab[]): SidebarTab[] => {
+  const seen = new Set<SidebarSection>();
+  return tabs.filter((tab) => {
+    if (!SINGLE_TAB_SECTIONS.has(tab.kind)) return true;
+    if (seen.has(tab.kind)) return false;
+    seen.add(tab.kind);
+    return true;
+  });
+};
+
+export type SidebarFileRecord = {
+  title: string;
+  kind: DisplayTabKind;
+  payload?: unknown;
+};
+
 /** A single open tab: a surface `kind` plus the specific item it shows. */
 export type SidebarTab = {
   id: string;
   kind: SidebarSection;
   /** files → display-tab id; apps → slug; takeover → safe interaction id. */
   location: string | null;
+  file?: SidebarFileRecord;
 };
 
 export type SidebarSectionsSnapshot = {
@@ -121,6 +147,68 @@ const makeTab = (
 });
 
 const defaultTabs = (): SidebarTab[] => [makeTab("home")];
+
+const MAX_PERSISTED_FILE_PAYLOAD_CHARS = 32_000;
+
+const fileRecordFrom = (
+  title: string,
+  kind: DisplayTabKind,
+  payload: unknown,
+): SidebarFileRecord => {
+  if (payload === undefined) return { title, kind };
+  const size = JSON.stringify(payload)?.length ?? 0;
+  return size <= MAX_PERSISTED_FILE_PAYLOAD_CHARS
+    ? { title, kind, payload }
+    : { title, kind };
+};
+
+const resolveFileRecord = (location: string): SidebarFileRecord | undefined => {
+  const spec = (displayTabs.getSnapshot().tabs as DisplayTab[]).find(
+    (tab) => tab.id === location,
+  );
+  if (spec) return fileRecordFrom(spec.title, spec.kind, spec.payload);
+  const entry = getFileEntries().find((item) => item.id === location);
+  if (entry) return fileRecordFrom(entry.title, entry.kind, entry.payload);
+  return undefined;
+};
+
+const withLocation = (
+  tab: SidebarTab,
+  kind: SidebarSection,
+  location: string | null,
+): SidebarTab => {
+  const next: SidebarTab = { id: tab.id, kind, location };
+  if (kind !== "files" || location === null) return next;
+  if (tab.kind === kind && tab.location === location && tab.file) {
+    return { ...next, file: tab.file };
+  }
+  const file = resolveFileRecord(location);
+  return file ? { ...next, file } : next;
+};
+
+const readFileRecord = (value: unknown): SidebarFileRecord | undefined => {
+  if (!value || typeof value !== "object") return undefined;
+  const record = value as Partial<SidebarFileRecord>;
+  if (typeof record.title !== "string" || typeof record.kind !== "string") {
+    return undefined;
+  }
+  return {
+    title: record.title,
+    kind: record.kind as DisplayTabKind,
+    ...(record.payload !== undefined ? { payload: record.payload } : {}),
+  };
+};
+
+export const fileNameFromDisplayTabId = (location: string): string => {
+  const withoutDrive = location.startsWith("drive:")
+    ? location.slice("drive:".length)
+    : location;
+  const separator = withoutDrive.indexOf(":");
+  const rest =
+    separator > 0 ? withoutDrive.slice(separator + 1) : withoutDrive;
+  const first = rest.split("|")[0] ?? rest;
+  return first.split(/[\\/]/).filter(Boolean).pop() || first || "File";
+};
 
 type PersistedState = { tabs: SidebarTab[]; activeTabId: string | null };
 
@@ -187,21 +275,28 @@ const readPersistedState = (): PersistedState => {
             // stale sign-in surface after relaunch is still misleading and can
             // accidentally mint fresh access without an explicit user action.
             if (restored.kind === "takeover") continue;
+            const location =
+              restored.keepLocation &&
+              typeof candidate.location === "string" &&
+              candidate.location
+                ? candidate.location
+                : null;
+            const file =
+              restored.kind === "files" && location !== null
+                ? readFileRecord(candidate.file)
+                : undefined;
             tabs.push({
               id: candidate.id,
               kind: restored.kind,
-              location:
-                restored.keepLocation &&
-                typeof candidate.location === "string" &&
-                candidate.location
-                  ? candidate.location
-                  : null,
+              location,
+              ...(file ? { file } : {}),
             });
           }
-          if (tabs.length > 0) {
+          const kept = withoutRepeats(tabs);
+          if (kept.length > 0) {
             const activeTabId =
               typeof record.activeTabId === "string" ? record.activeTabId : null;
-            return { tabs, activeTabId: withActive(tabs, activeTabId) };
+            return { tabs: kept, activeTabId: withActive(kept, activeTabId) };
           }
         }
       }
@@ -221,6 +316,26 @@ if (snapshot.activeTabId === null) {
 }
 
 const listeners = new Set<Listener>();
+
+type UnavailableFileTab = {
+  location: string;
+  message: string;
+};
+
+let unavailableFileTabs: ReadonlyMap<string, UnavailableFileTab> = new Map();
+const unavailableListeners = new Set<Listener>();
+
+const setUnavailableFileTabs = (
+  next: ReadonlyMap<string, UnavailableFileTab>,
+): void => {
+  unavailableFileTabs = next;
+  for (const listener of unavailableListeners) listener();
+};
+
+const isFileTabUnavailable = (tab: SidebarTab): boolean =>
+  tab.kind === "files" &&
+  tab.location !== null &&
+  unavailableFileTabs.get(tab.id)?.location === tab.location;
 
 const persist = (next: SidebarSectionsSnapshot): void => {
   if (typeof window === "undefined") return;
@@ -251,7 +366,8 @@ const activeTabOf = (state: SidebarSectionsSnapshot): SidebarTab | null =>
  */
 const isReusableNavTab = (tab: SidebarTab): boolean =>
   tab.kind === "home" ||
-  (tab.location === null && (tab.kind === "files" || tab.kind === "apps"));
+  (tab.location === null && (tab.kind === "files" || tab.kind === "apps")) ||
+  isFileTabUnavailable(tab);
 
 export const sidebarSections = {
   subscribe(listener: Listener): () => void {
@@ -282,7 +398,9 @@ export const sidebarSections = {
    * Open an item as a tab.
    *
    * - If a tab for this exact concrete item (kind + location) is already open,
-   *   it is focused — never duplicated.
+   *   it is focused — never duplicated. A single-tab surface (Updates) is
+   *   focused wherever its one tab is, closing the empty Home tab it was
+   *   picked from.
    * - Else, if the active tab is a launcher/list surface (the empty Home
    *   launcher, or a Files/Apps list with nothing drilled in), that SAME tab is
    *   reused in place — selecting an item from a list/launcher is in-place
@@ -298,12 +416,27 @@ export const sidebarSections = {
     const loc = location ?? null;
 
     // Dedupe concrete items: focus an already-open tab for this exact item.
-    if (loc !== null) {
+    if (loc !== null || SINGLE_TAB_SECTIONS.has(kind)) {
       const existing = snapshot.tabs.find(
-        (tab) => tab.kind === kind && tab.location === loc,
+        (tab) =>
+          tab.kind === kind &&
+          (SINGLE_TAB_SECTIONS.has(kind) || tab.location === loc),
       );
       if (existing) {
-        if (snapshot.activeTabId !== existing.id) {
+        // Reached from an empty Home tab opened just to get there: switching
+        // to the one already open leaves no empty tab behind.
+        const active = activeTabOf(snapshot);
+        if (
+          active &&
+          active.id !== existing.id &&
+          active.kind === "home" &&
+          SINGLE_TAB_SECTIONS.has(kind)
+        ) {
+          emit({
+            tabs: snapshot.tabs.filter((tab) => tab.id !== active.id),
+            activeTabId: existing.id,
+          });
+        } else if (snapshot.activeTabId !== existing.id) {
           emit({ ...snapshot, activeTabId: existing.id });
         }
         displayTabs.setPanelOpen(true);
@@ -314,11 +447,12 @@ export const sidebarSections = {
     const active = activeTabOf(snapshot);
     if (active && isReusableNavTab(active)) {
       const tabs = snapshot.tabs.map((tab) =>
-        tab.id === active.id ? { ...tab, kind, location: loc } : tab,
+        tab.id === active.id ? withLocation(tab, kind, loc) : tab,
       );
       emit({ tabs, activeTabId: active.id });
     } else {
-      const tab = makeTab(kind, loc);
+      const created = makeTab(kind, loc);
+      const tab = withLocation(created, created.kind, created.location);
       emit({ tabs: [...snapshot.tabs, tab], activeTabId: tab.id });
     }
     displayTabs.setPanelOpen(true);
@@ -344,6 +478,11 @@ export const sidebarSections = {
     const index = snapshot.tabs.findIndex((tab) => tab.id === tabId);
     if (index === -1) return;
     const tabs = snapshot.tabs.filter((tab) => tab.id !== tabId);
+    if (unavailableFileTabs.has(tabId)) {
+      const next = new Map(unavailableFileTabs);
+      next.delete(tabId);
+      setUnavailableFileTabs(next);
+    }
 
     if (tabs.length === 0) {
       const seeded = defaultTabs();
@@ -370,9 +509,71 @@ export const sidebarSections = {
     if (!active || active.kind !== kind) return;
     if (active.location === (location ?? null)) return;
     const tabs = snapshot.tabs.map((tab) =>
-      tab.id === active.id ? { ...tab, location: location ?? null } : tab,
+      tab.id === active.id ? withLocation(tab, tab.kind, location ?? null) : tab,
     );
     emit({ ...snapshot, tabs });
+  },
+
+  rememberFile(
+    tabId: string,
+    location: string,
+    title: string,
+    kind: DisplayTabKind,
+    payload: unknown,
+  ): void {
+    const tab = snapshot.tabs.find((item) => item.id === tabId);
+    if (!tab || tab.kind !== "files" || tab.location !== location) return;
+    if (
+      tab.file &&
+      tab.file.title === title &&
+      tab.file.kind === kind &&
+      (payload === undefined || tab.file.payload === payload)
+    ) {
+      return;
+    }
+    const file =
+      payload === undefined && tab.file?.payload !== undefined
+        ? { title, kind, payload: tab.file.payload }
+        : fileRecordFrom(title, kind, payload);
+    emit({
+      ...snapshot,
+      tabs: snapshot.tabs.map((item) =>
+        item.id === tabId ? { ...item, file } : item,
+      ),
+    });
+  },
+
+  retargetFile(tabId: string, from: string, to: string): void {
+    const tab = snapshot.tabs.find((item) => item.id === tabId);
+    if (!tab || tab.kind !== "files" || tab.location !== from || from === to)
+      return;
+    emit({
+      ...snapshot,
+      tabs: snapshot.tabs.map((item) =>
+        item.id === tabId ? { ...item, location: to } : item,
+      ),
+    });
+  },
+
+  markFileUnavailable(
+    tabId: string,
+    location: string,
+    message: string,
+  ): void {
+    const current = unavailableFileTabs.get(tabId);
+    if (current?.location === location && current.message === message) return;
+    const next = new Map(unavailableFileTabs);
+    next.set(tabId, { location, message });
+    setUnavailableFileTabs(next);
+  },
+
+  subscribeUnavailable(listener: Listener): () => void {
+    unavailableListeners.add(listener);
+    return () => unavailableListeners.delete(listener);
+  },
+
+  getUnavailableSnapshot(): ReadonlyMap<string, UnavailableFileTab> {
+    return unavailableFileTabs;
   },
 
   /** Return the active `section` tab to its default list view. */
@@ -385,6 +586,31 @@ export const sidebarSections = {
     emit({ tabs, activeTabId: tabs[0]!.id });
   },
 };
+
+export const useSidebarFileUnavailable = (
+  tabId: string | undefined,
+  location: string | null,
+): string | null =>
+  useSyncExternalStore(
+    sidebarSections.subscribeUnavailable,
+    () => {
+      if (tabId === undefined || location === null) return null;
+      const entry = sidebarSections.getUnavailableSnapshot().get(tabId);
+      return entry?.location === location ? entry.message : null;
+    },
+    () => null,
+  );
+
+export const useSidebarTab = (tabId: string | undefined): SidebarTab | null =>
+  useSyncExternalStore(
+    sidebarSections.subscribe,
+    () =>
+      tabId === undefined
+        ? null
+        : (sidebarSections.getSnapshot().tabs.find((tab) => tab.id === tabId) ??
+          null),
+    () => null,
+  );
 
 export const useSidebarSections = (): SidebarSectionsSnapshot =>
   useSyncExternalStore(

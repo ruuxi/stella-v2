@@ -119,7 +119,7 @@ function CloudProjectsCardImpl() {
                   .join(", ")}.`
               : github && !github.appConfigured
                 ? "GitHub projects aren't configured on this deployment yet."
-                : "Install Stella's GitHub App to give cloud agents repository access. Stella keeps only the installation id and mints short-lived tokens when an agent needs them. GitHub will show you a connect code at the end — bring it back here to finish."}
+                : "Give cloud agents access to your repositories."}
           </div>
         </div>
         <div className="settings-row-control">
@@ -138,9 +138,7 @@ function CloudProjectsCardImpl() {
         <div className="settings-row">
           <div className="settings-row-info" style={{ flex: 1 }}>
             <div className="settings-row-sublabel">
-              Enter the connect code GitHub showed you. It expires in ten
-              minutes, and it is what tells Stella the installation belongs to
-              this account.
+              Enter the connect code GitHub showed you.
             </div>
             <input
               type="text"
@@ -182,7 +180,7 @@ function CloudProjectsCardImpl() {
       <div className="settings-row">
         <div className="settings-row-info" style={{ flex: 1 }}>
           <div className="settings-row-sublabel">
-            Add a project. Leave the repository blank for a Stella-hosted one.
+            New project
           </div>
           <input
             type="text"
@@ -197,7 +195,7 @@ function CloudProjectsCardImpl() {
             type="text"
             value={remoteUrl}
             onChange={(event) => setRemoteUrl(event.target.value)}
-            placeholder="https://github.com/owner/repo (optional)"
+            placeholder="GitHub repository URL (optional)"
             autoComplete="off"
             spellCheck={false}
             style={{ width: "100%", marginTop: 6 }}

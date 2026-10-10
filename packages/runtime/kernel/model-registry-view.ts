@@ -1,4 +1,4 @@
-import type { Api, Model } from "../ai/types.js";
+import type { Api, Model } from "@earendil-works/pi-ai";
 
 export const findModelCandidate = (
   models: readonly Model<Api>[],

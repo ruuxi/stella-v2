@@ -6,6 +6,8 @@ import { resolveJwtOwnerScope } from "@stella/runtime/kernel/runner/computer-age
 const REQUEST_TIMEOUT_MS = 15_000;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
 const LOCATION_CACHE_TTL_MS = 30_000;
+const COPY_URL_EXPIRY_MARGIN_MS = 60_000;
+const SIGNED_OUT_MESSAGE = "Sign in to open files from your other devices.";
 
 type Deps = {
   getBackendUrl: () => string | null;
@@ -13,25 +15,43 @@ type Deps = {
   fetchImpl?: typeof fetch;
 };
 
+export type DeviceFileLookup =
+  | { ok: true; location: DeviceFileLocation | null }
+  | { ok: false; message: string };
+
 export type DeviceFileLocator = {
   locate: (
     sourcePath: string,
     readerDeviceId?: string | null,
   ) => Promise<DeviceFileLocation | null>;
+  lookup: (
+    sourcePath: string,
+    readerDeviceId?: string | null,
+  ) => Promise<DeviceFileLookup>;
+  copyUrl: (drivePath: string, options?: { fresh?: boolean }) => Promise<DriveFileUrl>;
   readCopy: (
     drivePath: string,
     maxBytes: number,
   ) => Promise<{ bytes: Uint8Array; sizeBytes: number; mimeType: string }>;
 };
 
+type Candidates = { ok: true; files: DeviceFileLocation[] } | { ok: false; message: string };
+
+type CopyUrlEntry = {
+  owner: string;
+  value: Promise<DriveFileUrl>;
+  file: DriveFileUrl | null;
+};
+
 export const createDeviceFileLocator = (deps: Deps): DeviceFileLocator => {
   const fetchImpl = deps.fetchImpl ?? fetch;
-  const cache = new Map<string, { at: number; value: Promise<DeviceFileLocation[]> }>();
+  const cache = new Map<string, { at: number; value: Promise<Candidates> }>();
+  const copyUrls = new Map<string, CopyUrlEntry>();
 
   const call = async <T>(name: string, args: unknown): Promise<T> => {
     const baseUrl = deps.getBackendUrl()?.trim().replace(/\/+$/, "");
     const token = await deps.getAuthToken().catch(() => null);
-    if (!baseUrl || !token) throw new Error("Sign in to open files from your other devices.");
+    if (!baseUrl || !token) throw new Error(SIGNED_OUT_MESSAGE);
     const response = await fetchImpl(`${baseUrl}${rpcPath(name)}`, {
       method: "POST",
       headers: {
@@ -47,11 +67,13 @@ export const createDeviceFileLocator = (deps: Deps): DeviceFileLocator => {
     return body.value;
   };
 
-  const candidates = async (sourcePath: string): Promise<DeviceFileLocation[]> => {
+  const currentOwner = async (): Promise<string | null> =>
+    resolveJwtOwnerScope(await deps.getAuthToken().catch(() => null));
+
+  const candidates = async (sourcePath: string): Promise<Candidates> => {
     const baseUrl = deps.getBackendUrl()?.trim() ?? "";
-    const token = await deps.getAuthToken().catch(() => null);
-    const owner = resolveJwtOwnerScope(token);
-    if (!baseUrl || !owner) return [];
+    const owner = await currentOwner();
+    if (!baseUrl || !owner) return { ok: false, message: SIGNED_OUT_MESSAGE };
     const cacheKey = `${baseUrl}\0${owner}\0${sourcePath}`;
     const now = Date.now();
     const cached = cache.get(cacheKey);
@@ -59,14 +81,12 @@ export const createDeviceFileLocator = (deps: Deps): DeviceFileLocator => {
     const value = call<{ files: DeviceFileLocation[] }>("drive.locateDeviceFiles", {
       paths: [sourcePath],
     })
-      .then((result) => result.files)
-      .catch((error: unknown) => {
+      .then((result): Candidates => ({ ok: true, files: result.files }))
+      .catch((error: unknown): Candidates => {
         cache.delete(cacheKey);
-        console.warn(
-          "[device-files] Could not look up where this file lives:",
-          error instanceof Error ? error.message : String(error),
-        );
-        return [] as DeviceFileLocation[];
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[device-files] Could not look up where this file lives:", message);
+        return { ok: false, message };
       });
     cache.set(cacheKey, { at: now, value });
     for (const [key, entry] of cache) {
@@ -75,11 +95,53 @@ export const createDeviceFileLocator = (deps: Deps): DeviceFileLocator => {
     return await value;
   };
 
-  const locate = async (sourcePath: string, readerDeviceId?: string | null) =>
-    pickDeviceFileLocation(await candidates(sourcePath), sourcePath, readerDeviceId);
+  const lookup = async (
+    sourcePath: string,
+    readerDeviceId?: string | null,
+  ): Promise<DeviceFileLookup> => {
+    const found = await candidates(sourcePath);
+    if (!found.ok) return found;
+    return {
+      ok: true,
+      location: pickDeviceFileLocation(found.files, sourcePath, readerDeviceId),
+    };
+  };
+
+  const locate = async (sourcePath: string, readerDeviceId?: string | null) => {
+    const found = await lookup(sourcePath, readerDeviceId);
+    return found.ok ? found.location : null;
+  };
+
+  const copyUrl = async (drivePath: string, options?: { fresh?: boolean }) => {
+    const owner = (await currentOwner()) ?? "";
+    const now = Date.now();
+    for (const [key, entry] of copyUrls) {
+      if (entry.file && entry.file.expiresAt <= now) copyUrls.delete(key);
+    }
+    const cached = copyUrls.get(drivePath);
+    if (cached && cached.owner === owner && !options?.fresh) {
+      const file = await cached.value.catch(() => null);
+      if (file && file.expiresAt - COPY_URL_EXPIRY_MARGIN_MS > Date.now()) return file;
+    }
+    const entry: CopyUrlEntry = {
+      owner,
+      value: call<DriveFileUrl>("drive.fileUrl", { path: drivePath }),
+      file: null,
+    };
+    copyUrls.set(drivePath, entry);
+    entry.value.then(
+      (file) => {
+        entry.file = file;
+      },
+      () => {
+        if (copyUrls.get(drivePath) === entry) copyUrls.delete(drivePath);
+      },
+    );
+    return await entry.value;
+  };
 
   const readCopy = async (drivePath: string, maxBytes: number) => {
-    const file = await call<DriveFileUrl>("drive.fileUrl", { path: drivePath });
+    const file = await copyUrl(drivePath);
     const response = await fetchImpl(file.url, {
       signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
     });
@@ -113,5 +175,5 @@ export const createDeviceFileLocator = (deps: Deps): DeviceFileLocator => {
     };
   };
 
-  return { locate, readCopy };
+  return { locate, lookup, copyUrl, readCopy };
 };

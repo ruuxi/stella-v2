@@ -13,6 +13,10 @@ import type {
 import type { OfficePreviewSnapshot } from "@stella/contracts/office-preview";
 import type { EvidenceCardSet } from "@stella/contracts/chat-evidence";
 import type {
+  DeviceFileMissingReason,
+  DeviceFileSource,
+} from "@stella/contracts/device-files";
+import type {
   ChatGptProfileSummary,
   ChatGptProfilesState,
 } from "@stella/contracts/chatgpt-siwc-types";
@@ -97,8 +101,6 @@ import {
   IPC_HOME_GET_ACTIVE_BROWSER_TAB,
   IPC_HOME_LIST_RECENT_APPS,
   IPC_LOCAL_CHAT_DELETE_CONVERSATION,
-  IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
-  IPC_LOCAL_CHAT_FORK_CONVERSATION,
   IPC_LOCAL_CHAT_LIST_CONVERSATIONS,
   IPC_LOCAL_CHAT_LIST_MESSAGES_AFTER,
   IPC_LOCAL_CHAT_LIST_LINEAGE_MESSAGES,
@@ -120,6 +122,7 @@ import {
   IPC_DISPLAY_CANVAS_FILE_URL,
   IPC_DISPLAY_CANVAS_HTML_URL,
   IPC_DISPLAY_LIST_CANVAS_HTML,
+  IPC_DISPLAY_MEDIA_SOURCE,
   IPC_DISPLAY_OPEN_SHARED_CANVAS,
   IPC_DISPLAY_TRASH_FORCE_DELETE,
   IPC_DISPLAY_TRASH_LIST,
@@ -138,7 +141,12 @@ import {
   IPC_APP_SOURCE_STATE,
   IPC_APP_SOURCE_UNDO,
   IPC_WINDOW_SET_NATIVE_BUTTONS_VISIBLE,
+  IPC_PI_CHAT_ENABLED,
+  IPC_PI_CHAT_ENABLED_CHANGED,
+  IPC_PI_CHAT_EVENTS,
+  IPC_PI_CHAT_REQUEST,
 } from "@stella/contracts/desktop/ipc-channels";
+import type { PiChatEventsPayload, PiChatRequest } from "@stella/contracts/pi-chat";
 import type {
   AppSourceActionResult,
   AppSourceState,
@@ -437,8 +445,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
             truncated: boolean;
             missing: false;
           }
-        | { missing: true; mimeType: string; path: string }
+        | {
+            missing: true;
+            mimeType: string;
+            path: string;
+            reason?: DeviceFileMissingReason;
+          }
       >,
+    mediaSource: (filePath: string) =>
+      ipcRenderer.invoke(IPC_DISPLAY_MEDIA_SOURCE, {
+        filePath,
+      }) as Promise<DeviceFileSource>,
     listCanvasHtml: () =>
       ipcRenderer.invoke(IPC_DISPLAY_LIST_CANVAS_HTML) as Promise<
         Array<{
@@ -458,7 +475,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       } | null>,
     canvasFileUrl: (filePath: string) =>
       ipcRenderer.invoke(IPC_DISPLAY_CANVAS_FILE_URL, { filePath }) as Promise<
-        { url: string } | { missing: true }
+        { url: string } | { missing: true; message?: string }
       >,
     canvasHtmlUrl: (html: string) =>
       ipcRenderer.invoke(IPC_DISPLAY_CANVAS_HTML_URL, { html }) as Promise<{
@@ -917,6 +934,27 @@ contextBridge.exposeInMainWorld("electronAPI", {
     onVisibleChanged: onIpc<CompanionVisibility>(IPC_COMPANION_VISIBLE_CHANGED),
   },
 
+  piChat: (() => {
+    let enabled = (() => {
+      try {
+        return ipcRenderer.sendSync(IPC_PI_CHAT_ENABLED) === true;
+      } catch {
+        return false;
+      }
+    })();
+    // Registered before any page listener, so a listener reads the new value.
+    ipcRenderer.on(IPC_PI_CHAT_ENABLED_CHANGED, (_event, next: unknown) => {
+      enabled = next === true;
+    });
+    return {
+      isEnabled: () => enabled,
+      onEnabledChanged: onIpc<boolean>(IPC_PI_CHAT_ENABLED_CHANGED),
+      request: (request: PiChatRequest) =>
+        ipcRenderer.invoke(IPC_PI_CHAT_REQUEST, request) as Promise<unknown>,
+      onEvents: onIpc<PiChatEventsPayload>(IPC_PI_CHAT_EVENTS),
+    };
+  })(),
+
   agent: {
     oneShotCompletion: (payload: {
       agentType: string;
@@ -1005,7 +1043,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
             | "run-started"
             | "run-finished"
             | "status"
-            | "provider-lifecycle"
             | "stream"
             | "tool-start"
             | "tool-end"
@@ -1026,20 +1063,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
           chunk?: string;
           statusState?:
             "running" | "compacting" | "provider-retry" | "model-fallback";
-          providerLifecyclePhase?:
-            | "request-admitted"
-            | "request-dispatched"
-            | "stream-open"
-            | "transport-closed"
-            | "transport-joined"
-            | "abandoned"
-            | "outcome-unknown";
-          providerRequestIdSha256?: string;
-          providerPhysicalAttempt?: number;
-          providerStreamOrdinal?: number;
-          providerName?: string;
-          providerModelId?: string;
-          providerOutcome?: "completed" | "canceled" | "error";
           toolCallId?: string;
           toolName?: string;
           args?: Record<string, unknown>;
@@ -1064,7 +1087,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
         | "run-started"
         | "run-finished"
         | "status"
-        | "provider-lifecycle"
         | "stream"
         | "tool-start"
         | "tool-end"
@@ -1085,20 +1107,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       chunk?: string;
       statusState?:
         "running" | "compacting" | "provider-retry" | "model-fallback";
-      providerLifecyclePhase?:
-        | "request-admitted"
-        | "request-dispatched"
-        | "stream-open"
-        | "transport-closed"
-        | "transport-joined"
-        | "abandoned"
-        | "outcome-unknown";
-      providerRequestIdSha256?: string;
-      providerPhysicalAttempt?: number;
-      providerStreamOrdinal?: number;
-      providerName?: string;
-      providerModelId?: string;
-      providerOutcome?: "completed" | "canceled" | "error";
       toolCallId?: string;
       toolName?: string;
       args?: Record<string, unknown>;
@@ -1133,6 +1141,46 @@ contextBridge.exposeInMainWorld("electronAPI", {
     }>("runtime:availability"),
     triggerViteError: () => ipcRenderer.invoke("devtest:triggerViteError"),
     fixViteError: () => ipcRenderer.invoke("devtest:fixViteError"),
+  },
+
+  // The renderer reads asks as electronAPI.userAsk (user-ask-store).
+  userAsk: {
+    onOpened: onIpcWithEvent<UserAsk>("userAsk:opened"),
+    onUpdated: onIpcWithEvent<UserAsk>("userAsk:updated"),
+    onClosed: onIpcWithEvent<{
+      askId: string;
+      state: UserAskState;
+    }>("userAsk:closed"),
+    list: () => ipcRenderer.invoke("userAsk:list") as Promise<UserAsk[]>,
+    answer: (payload: UserAskAnswer) =>
+      ipcRenderer.invoke("userAsk:answer", payload) as Promise<{
+        ok: boolean;
+        late?: boolean;
+        error?: string;
+      }>,
+    cancel: (payload: { askId: string; revision?: number }) =>
+      ipcRenderer.invoke("userAsk:cancel", payload) as Promise<{
+        ok: boolean;
+        error?: string;
+      }>,
+    overrideSensitive: (payload: {
+      askId: string;
+      fieldId: string;
+      sensitive: boolean;
+    }) =>
+      ipcRenderer.invoke("userAsk:overrideSensitive", payload) as Promise<{
+        ok: boolean;
+        error?: string;
+      }>,
+    policyGet: () =>
+      ipcRenderer.invoke(
+        "userAsk:policyGet",
+      ) as Promise<UserAskEscalationPolicy>,
+    policySet: (policy: UserAskEscalationPolicy) =>
+      ipcRenderer.invoke(
+        "userAsk:policySet",
+        policy,
+      ) as Promise<UserAskEscalationPolicy>,
   },
 
   system: {
@@ -1623,44 +1671,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       }>,
     resetMessages: () =>
       ipcRenderer.invoke("app:resetLocalMessages") as Promise<{ ok: boolean }>,
-    userAsk: {
-      onOpened: onIpcWithEvent<UserAsk>("userAsk:opened"),
-      onUpdated: onIpcWithEvent<UserAsk>("userAsk:updated"),
-      onClosed: onIpcWithEvent<{
-        askId: string;
-        state: UserAskState;
-      }>("userAsk:closed"),
-      list: () => ipcRenderer.invoke("userAsk:list") as Promise<UserAsk[]>,
-      answer: (payload: UserAskAnswer) =>
-        ipcRenderer.invoke("userAsk:answer", payload) as Promise<{
-          ok: boolean;
-          late?: boolean;
-          error?: string;
-        }>,
-      cancel: (payload: { askId: string; revision?: number }) =>
-        ipcRenderer.invoke("userAsk:cancel", payload) as Promise<{
-          ok: boolean;
-          error?: string;
-        }>,
-      overrideSensitive: (payload: {
-        askId: string;
-        fieldId: string;
-        sensitive: boolean;
-      }) =>
-        ipcRenderer.invoke("userAsk:overrideSensitive", payload) as Promise<{
-          ok: boolean;
-          error?: string;
-        }>,
-      policyGet: () =>
-        ipcRenderer.invoke(
-          "userAsk:policyGet",
-        ) as Promise<UserAskEscalationPolicy>,
-      policySet: (policy: UserAskEscalationPolicy) =>
-        ipcRenderer.invoke(
-          "userAsk:policySet",
-          policy,
-        ) as Promise<UserAskEscalationPolicy>,
-    },
     onConnectorCredentialRequest: onIpcWithEvent<{
       requestId: string;
       tokenKey: string;
@@ -1967,16 +1977,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke(IPC_LOCAL_CHAT_LIST_CONVERSATIONS, payload),
     deleteConversation: (payload: { conversationId: string }) =>
       ipcRenderer.invoke(IPC_LOCAL_CHAT_DELETE_CONVERSATION, payload),
-    truncateConversation: (payload: {
-      conversationId: string;
-      eventId: string;
-    }): Promise<{ removed: number }> =>
-      ipcRenderer.invoke(IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION, payload),
-    forkConversation: (payload: {
-      conversationId: string;
-      eventId: string;
-    }): Promise<{ conversationId: string } | null> =>
-      ipcRenderer.invoke(IPC_LOCAL_CHAT_FORK_CONVERSATION, payload),
     listEvents: (payload: { conversationId: string; maxItems?: number }) =>
       ipcRenderer.invoke("localChat:listEvents", payload),
     listMessages: (payload: {

@@ -137,6 +137,15 @@ export class WorldStore extends DurableObject<Env> {
     return result;
   }
 
+  /** Drop paths from every checkpoint; garbage collection follows. */
+  async purgeHistory(paths: readonly string[]) {
+    const dropped = await this.ctx.blockConcurrencyWhile(() =>
+      Promise.resolve(this.world.purgeHistory(paths)),
+    );
+    await this.ctx.storage.setAlarm(Date.now() + 1_000);
+    return dropped;
+  }
+
   manifest(
     manifestId: string,
     options: { cursor?: string; limit?: number } = {},

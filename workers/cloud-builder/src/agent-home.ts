@@ -17,6 +17,7 @@ import {
 import {
   WORLD_PERSONALITY_FILE,
   readWorldStellaText,
+  type MemoryEpochFence,
   type MemoryWorld,
 } from "./world-memory.js";
 
@@ -35,12 +36,19 @@ export class AgentHomeUnavailableError extends Error {
 
 const DISPLAY_PREFIX = "~/.stella/";
 
+/**
+ * Owners whose memory from before it moved into the world is already there
+ * (`CloudHomeStore.importLegacyMemory`), per isolate.
+ */
+const legacyMemoryImported = new Set<string>();
+
 export class AgentHome {
   private readonly cloud?: CloudHomeStore;
+  private legacyImport?: Promise<void>;
 
   constructor(
     bucket: R2Bucket | undefined,
-    ownerId: string,
+    private readonly ownerId: string,
     endpoint: Omit<CloudHomeEndpoint, "ownerId">,
     /** The owner's world, where memory lives; absent, there is none. */
     private readonly world?: () => Promise<MemoryWorld>,
@@ -67,6 +75,41 @@ export class AgentHome {
   }
 
   /**
+   * Memory kept before it moved into the world (the owner's `memory_docs`
+   * and their R2 copies) is copied into the world once, before the world is
+   * read, so it does not disappear from turns.
+   */
+  private importLegacyMemory(): Promise<void> {
+    const cloud = this.cloud;
+    if (!cloud || legacyMemoryImported.has(this.ownerId)) {
+      return Promise.resolve();
+    }
+    this.legacyImport ??= cloud.importLegacyMemory().then(
+      () => {
+        legacyMemoryImported.add(this.ownerId);
+      },
+      (error: unknown) => {
+        this.legacyImport = undefined;
+        throw error;
+      },
+    );
+    return this.legacyImport;
+  }
+
+  /**
+   * The owner's open memory epoch, read fresh from the owner's object, for
+   * `createWorldMemory`'s write fence; absent without a cloud home.
+   */
+  memoryEpochFence(): MemoryEpochFence | undefined {
+    const cloud = this.cloud;
+    if (!cloud) return undefined;
+    return async () => {
+      const { preference } = await cloud.getMemoryContext();
+      return preference.memoryEpoch;
+    };
+  }
+
+  /**
    * The owner's resident memory documents (`~/.stella/core-memory.md`,
    * `memories/profile.md`, `memories/index.md`) as raw file text from the
    * world, keyed by the display path the model sees. The shared resident
@@ -74,6 +117,7 @@ export class AgentHome {
    */
   async readDocuments(): Promise<MemoryDocument[]> {
     if (!this.world) return [];
+    await this.importLegacyMemory();
     const world = await this.world();
     const documents = await Promise.all(
       RESIDENT_MEMORY_DISPLAY_PATHS.map(async (displayPath) => {
@@ -95,6 +139,7 @@ export class AgentHome {
    */
   async readPersonality(): Promise<string | null> {
     if (!this.world) return null;
+    await this.importLegacyMemory();
     const content = await readWorldStellaText(
       await this.world(),
       WORLD_PERSONALITY_FILE,

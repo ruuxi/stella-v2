@@ -484,6 +484,14 @@ export class CloudHomeStore {
     return { preference };
   }
 
+  /**
+   * Copy the owner's memory from before it moved into the world (the home's
+   * `memory_docs` and their R2 copies) into the world, once; a no-op after.
+   */
+  async importLegacyMemory(): Promise<void> {
+    await this.control("memory.legacyImport", {});
+  }
+
   async loadSkillCatalog(
     agentType: "orchestrator" | "general",
   ): Promise<CloudSkillCatalogSnapshot> {

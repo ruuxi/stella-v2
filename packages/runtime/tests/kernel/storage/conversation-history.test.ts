@@ -48,25 +48,25 @@ describe("conversation history storage", () => {
     const first = conversationId("A");
     const second = conversationId("B");
     const third = conversationId("C");
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: first,
       type: "user_message",
       timestamp: 1_000,
       payload: { text: " First   title\nline " },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: second,
       type: "assistant_message",
       timestamp: 2_000,
       payload: { text: "Second title" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: third,
       type: "assistant_message",
       timestamp: 2_900,
       payload: { text: "Visible third title" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: third,
       type: "user_message",
       timestamp: 3_000,
@@ -75,7 +75,7 @@ describe("conversation history storage", () => {
         metadata: { trigger: { kind: "workspace_creation_request" } },
       },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: third,
       type: "user_message",
       timestamp: 3_100,
@@ -85,7 +85,7 @@ describe("conversation history storage", () => {
       },
     });
 
-    const firstPage = store.listConversationSummaries({ limit: 2 });
+    const firstPage = store.chat.listConversationSummaries({ limit: 2 });
     expect(
       firstPage.conversations.map((item) => [item.conversationId, item.title]),
     ).toEqual([
@@ -98,7 +98,7 @@ describe("conversation history storage", () => {
       conversationId: second,
     });
     expect(
-      store.listConversationSummaries({
+      store.chat.listConversationSummaries({
         limit: 2,
         cursor: firstPage.nextCursor,
       }).conversations,
@@ -107,27 +107,31 @@ describe("conversation history storage", () => {
 
   it("omits synthetic sessions and falls back to New chat", () => {
     const { store } = createContext();
-    const empty = store.createNewDefaultConversationId();
-    store.appendEvent({
+    const empty = store.chat.createNewDefaultConversationId();
+    store.chat.appendEvent({
       conversationId: "synthetic:not-a-chat-id",
       type: "assistant_message",
       timestamp: Date.now() + 1,
       payload: { text: "Synthetic event" },
     });
-    expect(store.listConversationSummaries().conversations).toEqual([
+    expect(store.chat.listConversationSummaries().conversations).toEqual([
       expect.objectContaining({ conversationId: empty, title: "New chat" }),
     ]);
   });
 
   it("reuses the active empty conversation on repeated new-chat requests", () => {
     const { db, store } = createContext();
-    const emptyConversationId = store.getOrCreateDefaultConversationId();
+    const emptyConversationId = store.chat.getOrCreateDefaultConversationId();
     db.prepare(`UPDATE settings SET updated_at = 123 WHERE key = ?`).run(
       "default_conversation_id",
     );
 
-    expect(store.createNewDefaultConversationId()).toBe(emptyConversationId);
-    expect(store.createNewDefaultConversationId()).toBe(emptyConversationId);
+    expect(store.chat.createNewDefaultConversationId()).toBe(
+      emptyConversationId,
+    );
+    expect(store.chat.createNewDefaultConversationId()).toBe(
+      emptyConversationId,
+    );
     expect(
       db.prepare(`SELECT COUNT(*) AS count FROM conversation`).get(),
     ).toEqual({
@@ -142,8 +146,8 @@ describe("conversation history storage", () => {
 
   it("reuses the newest eligible empty conversation from a nonempty current chat", () => {
     const { db, store } = createContext();
-    const occupied = store.getOrCreateDefaultConversationId();
-    store.appendEvent({
+    const occupied = store.chat.getOrCreateDefaultConversationId();
+    store.chat.appendEvent({
       conversationId: occupied,
       type: "user_message",
       timestamp: 1_000,
@@ -159,10 +163,10 @@ describe("conversation history storage", () => {
       `INSERT INTO conversation (id, title, status, created_at, updated_at)
        VALUES (?, '', 'active', ?, ?)`,
     ).run(newerEmpty, 2_000, 2_000);
-    store.setActiveDefaultConversationId(occupied);
+    store.chat.setActiveDefaultConversationId(occupied);
 
-    expect(store.createNewDefaultConversationId()).toBe(newerEmpty);
-    expect(store.getOrCreateDefaultConversationId()).toBe(newerEmpty);
+    expect(store.chat.createNewDefaultConversationId()).toBe(newerEmpty);
+    expect(store.chat.getOrCreateDefaultConversationId()).toBe(newerEmpty);
     expect(
       (
         db.prepare(`SELECT COUNT(*) AS count FROM conversation`).get() as {
@@ -174,15 +178,15 @@ describe("conversation history storage", () => {
 
   it("creates only when every existing chat has visible conversation content", () => {
     const { db, store } = createContext();
-    const occupied = store.getOrCreateDefaultConversationId();
-    store.appendEvent({
+    const occupied = store.chat.getOrCreateDefaultConversationId();
+    store.chat.appendEvent({
       conversationId: occupied,
       type: "assistant_message",
       timestamp: 1_000,
       payload: { text: "Occupied" },
     });
 
-    const created = store.createNewDefaultConversationId();
+    const created = store.chat.createNewDefaultConversationId();
 
     expect(created).not.toBe(occupied);
     expect(
@@ -194,12 +198,12 @@ describe("conversation history storage", () => {
     ).toBe(2);
     // The second call models a rapid duplicate invocation after the first
     // atomic transaction has completed; it must resolve to the same empty ID.
-    expect(store.createNewDefaultConversationId()).toBe(created);
+    expect(store.chat.createNewDefaultConversationId()).toBe(created);
   });
 
   it("does not reuse an agent-owned chat even without visible messages", () => {
     const { db, store } = createContext();
-    const agentOwned = store.getOrCreateDefaultConversationId();
+    const agentOwned = store.chat.getOrCreateDefaultConversationId();
     db.prepare(
       `INSERT INTO agent (
         thread_id, conversation_id, agent_type, description, agent_depth,
@@ -207,16 +211,16 @@ describe("conversation history storage", () => {
       ) VALUES (?, ?, 'general', 'Background task', 1, 'completed', 1000, 1000)`,
     ).run("completed-agent-thread", agentOwned);
 
-    const created = store.createNewDefaultConversationId();
+    const created = store.chat.createNewDefaultConversationId();
 
     expect(created).not.toBe(agentOwned);
-    expect(store.createNewDefaultConversationId()).toBe(created);
+    expect(store.chat.createNewDefaultConversationId()).toBe(created);
   });
 
   it("ignores hidden and system-only events when deciding emptiness", () => {
     const { store } = createContext();
-    const id = store.getOrCreateDefaultConversationId();
-    store.appendEvent({
+    const id = store.chat.getOrCreateDefaultConversationId();
+    store.chat.appendEvent({
       conversationId: id,
       type: "assistant_message",
       timestamp: 1_000,
@@ -225,20 +229,20 @@ describe("conversation history storage", () => {
         metadata: { ui: { visibility: "hidden" } },
       },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: id,
       type: "tool_result",
       timestamp: 1_001,
       payload: { text: "System result" },
     });
 
-    expect(store.createNewDefaultConversationId()).toBe(id);
+    expect(store.chat.createNewDefaultConversationId()).toBe(id);
   });
 
   it("treats visible attachment-only and context-only messages as occupied", () => {
     const { db, store } = createContext();
-    const attachmentOnly = store.getOrCreateDefaultConversationId();
-    store.appendEvent({
+    const attachmentOnly = store.chat.getOrCreateDefaultConversationId();
+    store.chat.appendEvent({
       conversationId: attachmentOnly,
       type: "user_message",
       timestamp: 1_000,
@@ -252,7 +256,7 @@ describe("conversation history storage", () => {
       `INSERT INTO conversation (id, title, status, created_at, updated_at)
        VALUES (?, '', 'active', 2000, 2000)`,
     ).run(contextOnly);
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: contextOnly,
       type: "user_message",
       timestamp: 2_000,
@@ -261,9 +265,9 @@ describe("conversation history storage", () => {
         metadata: { context: { appSelectionLabel: "Selected settings" } },
       },
     });
-    store.setActiveDefaultConversationId(attachmentOnly);
+    store.chat.setActiveDefaultConversationId(attachmentOnly);
 
-    const created = store.createNewDefaultConversationId();
+    const created = store.chat.createNewDefaultConversationId();
 
     expect(created).not.toBe(attachmentOnly);
     expect(created).not.toBe(contextOnly);
@@ -271,8 +275,8 @@ describe("conversation history storage", () => {
 
   it("serializes New Chat selection across two WAL connections", async () => {
     const { rootPath, db, store } = createContext();
-    const occupied = store.getOrCreateDefaultConversationId();
-    store.appendEvent({
+    const occupied = store.chat.getOrCreateDefaultConversationId();
+    store.chat.appendEvent({
       conversationId: occupied,
       type: "user_message",
       timestamp: 1_000,
@@ -359,7 +363,7 @@ describe("conversation history storage", () => {
         conversationId: string;
       }>(worker, "result");
 
-      const resolved = store.createNewDefaultConversationId();
+      const resolved = store.chat.createNewDefaultConversationId();
       const competing = await competingResult;
       expect(resolved).toBe(competing.conversationId);
       expect(resolved).toBe(competingEmpty);
@@ -377,8 +381,8 @@ describe("conversation history storage", () => {
 
   it("deletes conversation-owned transcript and thread data", () => {
     const { db, store } = createContext();
-    const id = store.getOrCreateDefaultConversationId();
-    const event = store.appendEvent({
+    const id = store.chat.getOrCreateDefaultConversationId();
+    const event = store.chat.appendEvent({
       conversationId: id,
       type: "user_message",
       timestamp: 1_000,
@@ -395,8 +399,8 @@ describe("conversation history storage", () => {
       ) VALUES (?, 1, ?, 'message', ?, 1000, '{}')`,
     ).run("deleted-thread", "deleted-entry", new Date(1_000).toISOString());
 
-    expect(store.deleteConversation(id)).toBe(true);
-    expect(store.deleteConversation(id)).toBe(false);
+    expect(store.chat.deleteConversation(id)).toBe(true);
+    expect(store.chat.deleteConversation(id)).toBe(false);
     expect(
       db.prepare(`SELECT 1 FROM entry WHERE id = ?`).get(event._id),
     ).toBeUndefined();
@@ -405,12 +409,12 @@ describe("conversation history storage", () => {
         .prepare(`SELECT 1 FROM thread_entry WHERE thread_id = ?`)
         .get("deleted-thread"),
     ).toBeUndefined();
-    expect(store.getOrCreateDefaultConversationId()).not.toBe(id);
+    expect(store.chat.getOrCreateDefaultConversationId()).not.toBe(id);
   });
 
   it("refuses deletion while a conversation has a running agent", () => {
     const { db, store } = createContext();
-    const id = store.getOrCreateDefaultConversationId();
+    const id = store.chat.getOrCreateDefaultConversationId();
     db.prepare(
       `INSERT INTO agent (
         thread_id, conversation_id, agent_type, description, agent_depth,
@@ -418,11 +422,11 @@ describe("conversation history storage", () => {
       ) VALUES (?, ?, 'general', 'Still running', 1, 'running', 1000, 1000)`,
     ).run("running-thread", id);
 
-    expect(() => store.deleteConversation(id)).toThrow(
+    expect(() => store.chat.deleteConversation(id)).toThrow(
       "A conversation with running tasks cannot be deleted.",
     );
     expect(
-      store
+      store.chat
         .listConversationSummaries()
         .conversations.some((item) => item.conversationId === id),
     ).toBe(true);
@@ -432,16 +436,16 @@ describe("conversation history storage", () => {
 it("reserves a private draft without saving history until its first message", () => {
   const { store } = createContext();
   const id = "local_draft-first-message";
-  store.setActiveDefaultConversationId(id);
-  expect(store.getOrCreateDefaultConversationId()).toBe(id);
-  expect(store.listConversationSummaries({}).conversations).toEqual([]);
-  store.appendEvent({
+  store.chat.setActiveDefaultConversationId(id);
+  expect(store.chat.getOrCreateDefaultConversationId()).toBe(id);
+  expect(store.chat.listConversationSummaries({}).conversations).toEqual([]);
+  store.chat.appendEvent({
     conversationId: id,
     type: "user_message",
     timestamp: Date.now(),
     payload: { text: "First message" },
   });
-  expect(store.listConversationSummaries({}).conversations).toMatchObject([
+  expect(store.chat.listConversationSummaries({}).conversations).toMatchObject([
     { conversationId: id, title: "First message" },
   ]);
 });

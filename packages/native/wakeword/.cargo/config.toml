@@ -1,0 +1,12 @@
+# wakeword_listener is the only helper that was linking the CRT dynamically,
+# so it was the only one importing VCRUNTIME140.dll and needing the Visual C++
+# redistributable at runtime. Nothing installs that redistributable, so on a
+# clean Windows box the listener failed to start and "Hey Stella" went dead.
+#
+# Static CRT matches the posture of every other Windows helper (cl.exe defaults
+# to /MT on the command line). Scoped to the MSVC target so the macOS and Linux
+# builds are unaffected.
+#
+# Note: a RUSTFLAGS environment variable would override this whole table.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

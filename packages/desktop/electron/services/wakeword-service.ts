@@ -47,9 +47,24 @@ type WakewordOptions = {
   scoreSmoothing?: number;
   onWake: (event: Extract<WakewordEvent, { event: "wake" }>) => void;
   onReady?: (event: Extract<WakewordEvent, { event: "ready" }>) => void;
+  /** Called once when wake word has given up, so a caller can surface it. */
+  onUnavailable?: (info: {
+    reason: string;
+    detail: Record<string, unknown>;
+  }) => void;
 };
 
 const RESTART_BACKOFF_MS = 5000;
+const MAX_CONSECUTIVE_START_FAILURES = 5;
+
+// Windows refuses to start a process whose imports can't be resolved and
+// reports it only as an exit status, with nothing on stderr. These are the
+// codes a missing or mismatched DLL produces, so name them instead of leaving
+// a bare number in the log.
+const WINDOWS_LOAD_FAILURE_CODES = new Map<number, string>([
+  [3221225781, "a DLL it needs is not installed (0xC0000135)"],
+  [3221225785, "a DLL it needs is missing an entry point (0xC0000139)"],
+]);
 
 const resolveModelPath = (binaryPath: string): string | null => {
   const helperDir = path.dirname(binaryPath);
@@ -79,6 +94,9 @@ export class WakewordService {
   private enabled = false;
   private paused = false;
   private disposed = false;
+  private consecutiveStartFailures = 0;
+  private unavailableReported = false;
+  private lastStderrLine = "";
 
   constructor(private readonly options: WakewordOptions) {}
 
@@ -86,6 +104,10 @@ export class WakewordService {
     if (this.enabled === enabled) return;
     this.enabled = enabled;
     if (enabled) {
+      // An explicit opt-in is the user asking us to try again, so clear a
+      // previous give-up rather than staying dead for the rest of the session.
+      this.consecutiveStartFailures = 0;
+      this.unavailableReported = false;
       this.spawnIfIdle();
     } else {
       this.stopChild();
@@ -116,17 +138,17 @@ export class WakewordService {
 
     const binaryPath = resolveNativeHelperPath("wakeword_listener");
     if (!binaryPath) {
-      console.warn(
-        "[wakeword] listener binary not found — wake word disabled.",
-      );
+      this.reportUnavailable("the listener binary was not found", {
+        helper: "wakeword_listener",
+      });
       return;
     }
 
     const modelPath = this.options.modelPath ?? resolveModelPath(binaryPath);
     if (!modelPath) {
-      console.warn(
-        "[wakeword] hey_stella.onnx model not found near binary — wake word disabled.",
-      );
+      this.reportUnavailable("the hey_stella.onnx model was not found", {
+        binaryPath,
+      });
       return;
     }
 
@@ -138,10 +160,14 @@ export class WakewordService {
       this.options.threshold.toString(),
     ];
     const o = this.options;
-    if (o.predictStrideMs != null) args.push("--predict-stride-ms", String(o.predictStrideMs));
-    if (o.vadHangoverMs != null) args.push("--vad-hangover-ms", String(o.vadHangoverMs));
-    if (o.energyRmsThreshold != null) args.push("--energy-rms-threshold", String(o.energyRmsThreshold));
-    if (o.energyPeakThreshold != null) args.push("--energy-peak-threshold", String(o.energyPeakThreshold));
+    if (o.predictStrideMs != null)
+      args.push("--predict-stride-ms", String(o.predictStrideMs));
+    if (o.vadHangoverMs != null)
+      args.push("--vad-hangover-ms", String(o.vadHangoverMs));
+    if (o.energyRmsThreshold != null)
+      args.push("--energy-rms-threshold", String(o.energyRmsThreshold));
+    if (o.energyPeakThreshold != null)
+      args.push("--energy-peak-threshold", String(o.energyPeakThreshold));
     if (o.disableVad) args.push("--disable-vad");
     if (o.disableEnergyGate) args.push("--disable-energy-gate");
 
@@ -156,9 +182,9 @@ export class WakewordService {
             : process.env,
       });
     } catch (error) {
-      console.warn("[wakeword] failed to spawn listener:", error);
-      getFileLogger()?.error("native.wakeword.spawn-failed", { error });
-      this.scheduleRestart();
+      this.noteStartFailure("the listener could not be spawned", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       return;
     }
 
@@ -169,14 +195,13 @@ export class WakewordService {
     const stdout = child.stdout as Readable | null;
     const stderr = child.stderr as Readable | null;
     if (!stdout || !stderr) {
-      console.warn("[wakeword] listener spawned without stdio pipes");
       try {
         child.kill();
       } catch {
         // already gone
       }
       this.child = null;
-      this.scheduleRestart();
+      this.noteStartFailure("the listener spawned without stdio pipes");
       return;
     }
     stdout.setEncoding("utf8");
@@ -184,9 +209,13 @@ export class WakewordService {
     stderr.setEncoding("utf8");
     stderr.on("data", (chunk: string) => {
       // Listener uses stderr only for fatal cpal/onnx errors; surface them
-      // for debugging without spamming.
+      // for debugging without spamming, and keep the last line so a terminal
+      // failure can report why.
       const line = chunk.trim();
-      if (line) console.warn("[wakeword]", line);
+      if (line) {
+        this.lastStderrLine = line.split("\n").pop() ?? line;
+        console.warn("[wakeword]", line);
+      }
     });
     child.on("exit", (code, signal) => {
       if (this.child === child) {
@@ -194,15 +223,25 @@ export class WakewordService {
       }
       if (this.disposed) return;
       if (code === 0 && signal === null) return;
-      console.warn(
-        `[wakeword] listener exited (code=${code} signal=${signal}); will retry`,
-      );
-      getFileLogger()?.warn("native.wakeword.exited", {
+      const detail = {
         code,
         signal,
-        willRetry: true,
-      });
-      this.scheduleRestart();
+        stderr: this.lastStderrLine || undefined,
+      };
+      const loadFailure =
+        code != null ? WINDOWS_LOAD_FAILURE_CODES.get(code) : undefined;
+      if (loadFailure) {
+        // This never fixes itself on retry, so stop instead of looping.
+        this.reportUnavailable(
+          `the listener could not start because ${loadFailure}`,
+          detail,
+        );
+        return;
+      }
+      console.warn(
+        `[wakeword] listener exited (code=${code} signal=${signal})`,
+      );
+      this.noteStartFailure("the listener keeps exiting", detail);
     });
     child.on("error", (error) => {
       console.warn("[wakeword] listener error:", error.message);
@@ -223,6 +262,8 @@ export class WakewordService {
         continue;
       }
       if (parsed.event === "ready") {
+        // Reaching ready is the only proof a start actually worked.
+        this.consecutiveStartFailures = 0;
         this.options.onReady?.(parsed);
       } else if (parsed.event === "wake") {
         try {
@@ -250,6 +291,57 @@ export class WakewordService {
       child.kill();
     } catch {
       // Already dead — ignore.
+    }
+  }
+
+  /**
+   * A start attempt failed. Retry a bounded number of times, then give up
+   * loudly — the old code retried every 5s forever behind a console warning,
+   * so a user whose wake word never worked got no signal anywhere.
+   */
+  private noteStartFailure(
+    reason: string,
+    detail: Record<string, unknown> = {},
+  ): void {
+    this.consecutiveStartFailures += 1;
+    const willRetry =
+      this.consecutiveStartFailures < MAX_CONSECUTIVE_START_FAILURES;
+    getFileLogger()?.warn("native.wakeword.start-failed", {
+      ...detail,
+      reason,
+      consecutiveFailures: this.consecutiveStartFailures,
+      willRetry,
+    });
+    if (!willRetry) {
+      this.reportUnavailable(reason, {
+        ...detail,
+        consecutiveFailures: this.consecutiveStartFailures,
+      });
+      return;
+    }
+    this.scheduleRestart();
+  }
+
+  /** Terminal state: wake word is off until the user re-enables it. */
+  private reportUnavailable(
+    reason: string,
+    detail: Record<string, unknown> = {},
+  ): void {
+    if (this.unavailableReported) return;
+    this.unavailableReported = true;
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
+    console.error(`[wakeword] wake word is unavailable: ${reason}.`);
+    getFileLogger()?.error("native.wakeword.unavailable", {
+      ...detail,
+      reason,
+    });
+    try {
+      this.options.onUnavailable?.({ reason, detail });
+    } catch (error) {
+      console.warn("[wakeword] onUnavailable handler threw:", error);
     }
   }
 

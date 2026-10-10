@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stella first-party connector program handoff — 31 August 2026</title>
+<style>
+:root{--ink:#18211d;--muted:#647169;--paper:#f5f2e9;--card:#fffdf8;--line:#d9ddd7;--green:#236747;--amber:#8b6413;--red:#983b32;--blue:#315e85;--violet:#674d84}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}header{padding:46px max(24px,calc((100vw - 1420px)/2));background:#173b2b;color:#fff}h1{max-width:1100px;margin:0 0 12px;font:700 clamp(32px,4.5vw,58px)/1.02 Georgia,serif;letter-spacing:-.025em}header p{max-width:1050px;color:#dbe9e1;font-size:16px}main{width:min(1420px,calc(100% - 30px));margin:24px auto 64px}h2{margin:38px 0 14px;font:700 29px/1.1 Georgia,serif;border-top:1px solid var(--line);padding-top:24px}h3{margin:22px 0 8px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:11px}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}.metric b{display:block;font:700 31px/1 Georgia,serif;margin-bottom:7px}.metric span,.muted{color:var(--muted)}.callout{margin:14px 0;padding:14px 17px;border-left:5px solid var(--amber);background:#fff7df;border-radius:8px}.critical{border-color:var(--red);background:#fff0ed}.good{border-color:var(--green);background:#edf8f1}.info{border-color:var(--blue);background:#edf5fb}code,.mono{font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--card)}table{border-collapse:collapse;width:100%}th,td{border-bottom:1px solid var(--line);padding:9px 10px;text-align:left;vertical-align:top}th{background:#e9eee9;font-size:11px;text-transform:uppercase;letter-spacing:.035em}.matrix{min-width:1650px}.pill{display:inline-block;border:1px solid currentColor;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:700;white-space:nowrap}.yes{color:var(--green);background:#edf8f1}.partial{color:var(--amber);background:#fff7df}.no{color:var(--red);background:#fff0ed}.blue{color:var(--blue);background:#edf5fb}.controls{position:sticky;top:0;z-index:3;display:flex;gap:8px;flex-wrap:wrap;padding:10px;background:#f5f2e9ee;border:1px solid var(--line);border-radius:9px}.controls input,.controls select{min-height:36px;padding:6px 9px;border:1px solid #bdc7c0;border-radius:7px;background:white}.controls input{flex:1;min-width:230px}.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}.inventory{columns:2;column-gap:34px}.inventory li{break-inside:avoid;margin:4px 0}.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.step{position:relative;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px}.step b{display:block;margin-bottom:5px}.small{font-size:12px}.status-list li{margin:7px 0}.ranked{counter-reset:item;padding:0}.ranked li{list-style:none;position:relative;margin:10px 0;padding:13px 14px 13px 50px;background:var(--card);border:1px solid var(--line);border-radius:9px}.ranked li:before{counter-increment:item;content:counter(item);position:absolute;left:14px;top:12px;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:#173b2b;color:#fff;font-weight:800}a{color:#245e86}footer{margin-top:34px;color:var(--muted);font-size:12px}@media(max-width:850px){.two,.flow{grid-template-columns:1fr}.inventory{columns:1}}@media print{header{padding:24px}main{width:100%;margin:10px}.controls{display:none}.table-wrap{overflow:visible}.matrix{min-width:0;font-size:8px}th,td{padding:4px}}
+</style>
+</head>
+<body>
+<header>
+<h1>First-party connector program handoff</h1>
+<p>Read-only reconstruction of the Composio replacement work in Stella v2, dated 31 August 2026. It separates preserved branch capability from default-branch and production truth.</p>
+<p class="mono">Repository: stella-v2 · Production: benevolent-minnow-586 · Machine matrix: <a href="composio-native-connectors-handoff-2026-08-31.json">composio-native-connectors-handoff-2026-08-31.json</a></p>
+</header>
+<main>
+<section>
+<h2>Executive summary</h2>
+<div class="grid">
+<div class="card metric"><b>59</b><span>authoritative in-scope connectors</span></div>
+<div class="card metric"><b>55</b><span>executor-ready on the preserved connector lineage</span></div>
+<div class="card metric"><b>3</b><span>native aliases, not provider connectors</span></div>
+<div class="card metric"><b>1</b><span>planner-ready: 1Password</span></div>
+<div class="card metric"><b>29</b><span>currently Store-published in production</span></div>
+<div class="card metric"><b>0</b><span>first-party production-routed</span></div>
+</div>
+<div class="callout critical"><b>The most important correction:</b> “55 executor-ready” is a valid code result only on preserved local <code>connectors-wip@ee3cd5712</code>, which contains the Snowflake milestone. It is not the state of <code>origin/master@a075a7962</code>, and it is not established by the divergent remote <code>origin/connectors-wip@08c3ee726</code>. Production remains Composio-authoritative.</div>
+<div class="callout good"><b>Fresh production read:</b> <code>/api/native-integrations/catalog</code> returned 110 rows on 31 August. Exactly 29 of the 59 were present, and every one reported provider <code>composio</code>. The first-party production count is zero.</div>
+<div class="callout"><b>Immediate program decision:</b> preserve every existing connector worktree, create a clean integration worktree from current <code>origin/master</code>, and transplant the connector program in reviewed dependency waves. Do not merge the old lineage wholesale and do not activate any provider during the port.</div>
+</section>
+
+<section>
+<h2>Authoritative scope: Popularity pages 1–2</h2>
+<div class="two">
+<div class="card"><h3>Page 1 — positions 1–30</h3><ol class="inventory">
+<li>Gmail</li><li>Google Calendar</li><li>Google Drive</li><li>Outlook</li><li>Twitter / X</li><li>Google Sheets</li><li>Supabase</li><li><s>Composio</s> — excluded self-listing</li><li>Notion</li><li>Slack</li><li>Airtable</li><li>Google Docs</li><li>Google Super / Google Workspace</li><li>HubSpot</li><li>Codeinterpreter</li><li>Gong</li><li>Asana</li><li>Ashby</li><li>Pipedrive</li><li>Google Tasks</li><li>Linear</li><li>GitHub</li><li>Microsoft Teams</li><li>Firecrawl</li><li>Canvas</li><li>Composio Search</li><li>Salesforce</li><li>Tavily</li><li>Jira</li><li>Exa</li>
+</ol></div>
+<div class="card"><h3>Page 2 — positions 31–60</h3><ol class="inventory" start="31">
+<li>Instagram</li><li>SerpAPI</li><li>YouTube</li><li>ClickUp</li><li>Slackbot</li><li>Excel</li><li>monday.com</li><li>Reddit</li><li>Perplexity AI</li><li>Apollo</li><li>Figma</li><li>People Data Labs</li><li>Attio</li><li>Stripe</li><li>Snowflake</li><li>Facebook</li><li>Browser Tool</li><li>PostHog</li><li>Meta Ads</li><li>LinkedIn</li><li>21risk</li><li>2Chat</li><li>0CodeKit</li><li>1Password</li><li>44API</li><li>7shifts</li><li>Ably</li><li>Abstract</li><li>AbuseIPDB</li><li>Abyssale</li>
+</ol></div>
+</div>
+<p class="muted">There is no music toolkit, WhatsApp toolkit, SharePoint, Discord, Dropbox, or OneDrive in these 60 positions. 2Chat includes WhatsApp actions, but its toolkit is 2Chat. Scope must not be expanded beyond page 2.</p>
+</section>
+
+<section>
+<h2>Repository and branch reality</h2>
+<table>
+<thead><tr><th>Line</th><th>Tip</th><th>Observed reality</th><th>Disposition</th></tr></thead>
+<tbody>
+<tr><td><code>origin/master</code></td><td><code>a075a79627f9d45acd1a019d0600c3c2f3001547</code></td><td>Remote default branch. It has zero files under <code>packages/backend/convex/connectors/</code>; the preserved connector backend is not integrated.</td><td>Shipping baseline and the only safe start for a new integration branch.</td></tr>
+<tr><td>Local <code>connectors-wip</code></td><td><code>ee3cd57122fa2fa99398e73a2f618cb522e7c00c</code></td><td>Most complete preserved connector lineage. Contains Snowflake <code>ca6490499</code>, encrypted API keys, hosted-connect guards, all family work, and exact Google scope parity.</td><td>Canonical evidence/source branch, not a release base.</td></tr>
+<tr><td><code>origin/connectors-wip</code></td><td><code>08c3ee72629ceb5902efdf650de0f09da63088b1</code></td><td>Divergent remote history. It neither contains the local connector tip nor proves the complete milestone.</td><td>Do not treat as canonical without a new patch/tree audit.</td></tr>
+<tr><td>Snowflake worktree</td><td><code>ca64904991b4daf8c76a2905ec0225ea52e13ad8</code></td><td>Preserved account-bound OAuth and refresh hardening; an ancestor of local <code>connectors-wip</code>.</td><td>Keep as focused evidence.</td></tr>
+<tr><td>Primary checkout</td><td><code>safety/main-dirty-before-sync-20260830@12e752492</code></td><td>Dirty with unrelated desktop/runtime/app-sdk work.</td><td>Do not use for connector integration and do not clean or reset it.</td></tr>
+</tbody>
+</table>
+<div class="callout info"><b>Ancestry:</b> <code>origin/master</code> and local <code>connectors-wip</code> merge at <code>69e8075463</code> and are thousands of commits apart. Exact connector milestone commits are not ancestors of <code>origin/master</code>. Current default also has zero commits touching the new backend connector directory, while the preserved lineage has 26. This is substantive absence, not merely changed commit hashes.</div>
+<p>All 36 connector-program worktrees identified by the 30 August provenance audit should remain preserved. Most were clean; the isolated Google demo worktree had deliberate uncommitted harness changes. The worktrees are evidence and patch sources, not competing production branches.</p>
+</section>
+
+<section>
+<h2>Architecture handoff</h2>
+<h3>Current Composio path</h3>
+<div class="flow">
+<div class="step"><b>1. Publish</b><code>integrations_public</code> and per-action rows hold Composio-shaped Store metadata.</div>
+<div class="step"><b>2. Discover</b><code>/api/native-integrations/catalog</code> feeds runtime live/cache/bundled catalog resolution.</div>
+<div class="step"><b>3. Connect/status</b>Store enablement and <code>connector_status</code> resolve backend-managed Composio accounts.</div>
+<div class="step"><b>4. Execute</b><code>connect.call</code> crosses the CLI/worker broker, validates action/input/account, then calls backend <code>/run</code>.</div>
+<div class="step"><b>5. Provider</b>The backend invokes Composio <code>/execute</code>; Composio owns OAuth custody and provider calls.</div>
+</div>
+<h3>First-party target</h3>
+<div class="grid">
+<div class="card"><b>Provider registry</b><p>Non-secret manifests pin authorization/token/identity/revocation endpoints, exact callback paths, scope groups, refresh semantics, and verification status. One app per provider per environment.</p></div>
+<div class="card"><b>Hosted OAuth</b><p>Authenticated connect start creates hashed state, encrypted PKCE verifier, owner/provider/scope binding, secret version, and expiry. The callback consumes state once before exchange and returns only an opaque attempt result.</p></div>
+<div class="card"><b>Account model</b><p><code>oauth_connect_attempts</code>, <code>oauth_accounts</code>, encrypted <code>oauth_credentials</code>, connector/account bindings, and per-connector rollout records separate product identity from executor identity.</p></div>
+<div class="card"><b>Encrypted custody</b><p>AES-GCM envelope encryption with versioned master-key rings; tokens decrypt only inside backend executors. Refresh uses generation-safe expiring leases and preserves omitted refresh tokens.</p></div>
+<div class="card"><b>Native execution</b><p>Canonical actions map to fixed provider origins, schemas, required scopes, operation class, response bounds, redaction, and explicit retry policy. Models cannot choose auth headers or arbitrary hosts.</p></div>
+<div class="card"><b>Independent API keys</b><p>Owner-scoped encrypted key slots remain separate from OAuth. Activation requires explicit provider enablement plus a representative-call verification allowlist.</p></div>
+<div class="card"><b>Provider-neutral broker</b><p>The backend resolves connector, action, account, scope, route, and executor. Desktop/mobile receive status, never provider tokens.</p></div>
+<div class="card"><b>Safe rollout</b><p><code>composio_only → read-only shadow → deterministic canary → first_party_preferred → first_party_only</code>. Never dual-run or silently replay a write; uncertain writes return <code>ambiguous_write</code>.</p></div>
+</div>
+<div class="callout"><b>Production callback invariant:</b> exact HTTPS non-loopback callbacks only. On 31 August both <code>https://benevolent-minnow-586.convex.site/api/connectors/oauth/callback</code> and <code>https://connect.stella.sh/</code> returned HTTP 404. No provider should be registered or activated against that state.</div>
+</section>
+
+<section>
+<h2>Readiness reconciliation</h2>
+<table>
+<thead><tr><th>Statement</th><th>Correct interpretation</th></tr></thead>
+<tbody>
+<tr><td>55 executor-ready</td><td>Fixed action/provider execution exists on the preserved connector lineage. This is a branch code fact only.</td></tr>
+<tr><td>3 native aliases</td><td>Codeinterpreter, Composio Search, and Browser Tool redirect to Stella-native capabilities. They are not OAuth connector parity.</td></tr>
+<tr><td>1 planner-ready</td><td>1Password remains deliberately inert because safe customer-hosted egress is absent.</td></tr>
+<tr><td>Configured</td><td>Registration names or protected credential structure were observed. It does not mean connected or approved.</td></tr>
+<tr><td>Connected</td><td>A real owner-bound provider account/grant is stored.</td></tr>
+<tr><td>Representative verified</td><td>A real provider operation completed through the intended first-party path. Google had isolated demo proofs for six service cards; those are not production-route proof.</td></tr>
+<tr><td>Production-routed</td><td>Production deterministically selects first-party execution. Current count: zero.</td></tr>
+</tbody>
+</table>
+<div class="callout critical"><b>Do not collapse these layers.</b> Metadata, an executor, a configured app, a stored grant, a successful call, provider approval, and production routing are seven different milestones.</div>
+</section>
+
+<section>
+<h2>Google Workspace: current verification state</h2>
+<div class="grid">
+<div class="card"><h3>Status</h3><p><span class="pill partial">SUBMITTED · ACTION REQUIRED</span></p><p>Project <code>fromyou-468223</code>. Not approved and not rejected.</p></div>
+<div class="card"><h3>Latest live Gmail evidence</h3><p>The existing nine-message thread ends with Google’s message dated <b>23 August 2026, 8:11 AM</b>. A read-only 31 August search found no newer message.</p></div>
+<div class="card"><h3>Code target</h3><p>One shared <code>google-workspace</code> grant with nine exact strings: OIDC identity plus Gmail, Calendar, Docs, Drive, Sheets, and Tasks. Scope-parity commit: <code>ee3cd5712</code>.</p></div>
+<div class="card"><h3>Submission package</h3><p><code>google-workspace-oauth-second-round-response-package.html</code> is a draft and remains unsent.</p></div>
+</div>
+<h3>Chronology and exact open asks</h3>
+<ul class="status-list">
+<li><b>May 21:</b> Google said the video did not show the full consent workflow or enough functionality.</li>
+<li><b>June:</b> attachments and later Drive links were supplied; Google still required side-by-side source-account proof.</li>
+<li><b>August 22:</b> The application owner sent the corrected public link and asked review to resume.</li>
+<li><b>August 23:</b> Google required stronger justifications for all six submitted service scopes, exact code/Cloud Console alignment, a comprehensive continuous demo, and reviewer credentials/navigation without login blockers.</li>
+</ul>
+<div class="two">
+<div class="card"><h3>Technical blockers</h3><ul>
+<li>Cloud Console Data Access capture is blocked by owner reauthentication.</li>
+<li>Continuous capture is blocked by macOS Screen Recording denial: <code>SCStreamErrorDomain -3801</code>; Electron and native capture both fail.</li>
+<li>No acceptable second-round movie exists. The older movie does not satisfy the six-service brief.</li>
+<li>The exact scope parity commit is on the preserved connector lineage, not current <code>origin/master</code>.</li>
+<li>A reviewer-accessible build and live callback are absent.</li>
+</ul></div>
+<div class="card"><h3>Owner-only blockers</h3><ul>
+<li>Complete Google password/2FA reauthentication and permit Console evidence capture.</li>
+<li>Grant Screen &amp; System Audio Recording to the recording host and relaunch it.</li>
+<li>Create/provide challenge-free Google and Stella reviewer accounts with no 2FA, passkey, recovery, CAPTCHA, phone, device, forced-reset, or admin prompt.</li>
+<li>Approve the final continuous video and response text before any reply is sent.</li>
+</ul></div>
+</div>
+<p><b>Required replacement video:</b> one continuous recording of connect → expanded consent → connected state → Stella action → source-account effect for Gmail Sent, Calendar event, Sheets values, Docs content, a distinct Drive folder create/rename, and Tasks create/update/complete.</p>
+</section>
+
+<section>
+<h2>Provider-family blocker ledger</h2>
+<table>
+<thead><tr><th>Priority/family</th><th>Application and approval truth</th><th>Exact next gate</th><th>Owner-only dependency</th></tr></thead>
+<tbody>
+<tr><td>Google Workspace</td><td>Real app and verification submission; latest status is action required.</td><td>Console scope capture, continuous six-service demo, reviewer build/accounts, approved response.</td><td>Password/2FA, recording permission, reviewer accounts, final approval.</td></tr>
+<tr><td>Microsoft: Outlook, Teams, Excel</td><td>Microsoft account-verification emails exist; no evidence an Entra app was created or submitted.</td><td>Deploy callback, app registration, credentials, delegated scopes, admin consent where required, real Graph calls.</td><td>Portal login/2FA and tenant/admin consent.</td></tr>
+<tr><td>X / Twitter</td><td>Registration names historically observed; no activated first-party route or real call.</td><td>Confirm app/tier, callback, real read/write, review, per-ID canary.</td><td>Paid API tier if writes require it.</td></tr>
+<tr><td>YouTube</td><td>No submission evidence. Separate grant from Google Workspace.</td><td>Create client/consent config, quota and sensitive-scope review, real channel/search plus write proof.</td><td>Google reauthentication and reviewer approval.</td></tr>
+<tr><td>Meta: Instagram, Facebook, Meta Ads</td><td>No app/review evidence. One shared grant is the required design.</td><td>App + Business verification, product permissions, app review, per-connector real calls.</td><td>Owner login/2FA and business/admin approval.</td></tr>
+<tr><td>LinkedIn</td><td>No application/review evidence.</td><td>Company Page, product access including publishing, callback, live profile/post proof.</td><td>Company Page/admin and review approval.</td></tr>
+<tr><td>Reddit</td><td>No application/approval evidence.</td><td>Register app, commercial API approval if applicable, real read/submit proof.</td><td>Commercial terms/approval.</td></tr>
+<tr><td>Slack + Slackbot</td><td>No application/review evidence.</td><td>Freeze user/bot split, one shared app/grant, public distribution review, live read/send.</td><td>Workspace/admin and provider review.</td></tr>
+<tr><td>OAuth SaaS/CRM/productivity</td><td>No provider-app submission evidence for Supabase, Notion, Airtable, HubSpot, Gong, Asana, Pipedrive, Linear, GitHub, Salesforce/Jira, ClickUp, monday, Figma, Attio, Stripe, and peers.</td><td>Register app only after callback works; store secrets in prod Convex env; real connect/read/write/refresh; review and canary independently.</td><td>Provider 2FA, org admin, enterprise review, or legal terms when presented.</td></tr>
+<tr><td>API-key providers</td><td>Encrypted execution code exists on the preserved lineage; no key or activation is implied.</td><td>Obtain key, encrypted owner custody, enablement + verification allowlists, representative calls, canary.</td><td>Any purchase or organization-held key requires owner approval.</td></tr>
+<tr><td>Snowflake</td><td>Account-bound OAuth executor exists; no external setup/verification.</td><td>Admin OAuth integration, exact tenant registration, callback, credentials, representative SQL call.</td><td>Snowflake admin.</td></tr>
+<tr><td>1Password</td><td>Planner/profile scaffolding only; deliberately fail-closed.</td><td>DNS-pinning/IP-allowlisting egress proxy and security review before token custody.</td><td>Connect server/service account after transport exists.</td></tr>
+<tr><td>21RISK</td><td>Curated reports/organizations subset implemented.</td><td>Real tenant key and authenticated OData metadata for broader EntitySets.</td><td>Tenant access/key.</td></tr>
+<tr><td>Canvas</td><td>No institution app evidence.</td><td>Tenant-safe origin and institution developer-key approval, then real course calls.</td><td>Institution admin approval.</td></tr>
+</tbody>
+</table>
+<p class="muted">Google Ads API Basic Access was separately approved in late August, but Google Ads is not one of these 59 and does not imply Google Workspace OAuth approval.</p>
+</section>
+
+<section>
+<h2>59-row machine-backed matrix</h2>
+<div class="controls"><input id="search" type="search" placeholder="Filter connector, grant, auth, blocker…"><select id="stage"><option value="">All code stages</option><option>executor_ready</option><option>native_alias</option><option>planner_ready</option></select><select id="page"><option value="">Both pages</option><option value="1">Page 1</option><option value="2">Page 2</option></select><span class="pill blue" id="shown">59 shown</span></div>
+<div class="table-wrap"><table class="matrix"><thead><tr><th>Rank</th><th>Connector</th><th>Grant / auth</th><th>Preserved-lineage code</th><th>Implementation lineage</th><th>Production</th><th>Next blocking gate</th></tr></thead><tbody id="matrix"></tbody></table></div>
+</section>
+
+<section>
+<h2>Ordered continuation plan</h2>
+<ol class="ranked">
+<li><b>Freeze evidence, not development.</b> Keep all connector worktrees and the local <code>connectors-wip</code> tip. Record commit/path manifests. Do not clean the primary checkout or push the local branch as if it were release-ready.</li>
+<li><b>Create a clean integration worktree from current <code>origin/master</code>.</b> The current default is the product baseline. Never integrate in the dirty primary checkout.</li>
+<li><b>Port the shared core first.</b> Schema, encrypted OAuth/API-key custody, refresh leases, callback/start/status/disconnect, provider registry, provider-neutral broker, rollout rows, redaction/audit, account deletion/migration, and package smoke tests.</li>
+<li><b>Restore a real HTTPS callback before provider registration.</b> Wire <code>connect.stella.sh</code> or an approved equivalent, add no-store/no-referrer behavior, and prove start/callback/status end to end in non-production.</li>
+<li><b>Port Google Workspace next.</b> Bring exact nine-scope parity and native action fixes onto the new integration branch, run focused tests, create a reviewer-accessible staging build, then unblock Console capture and the continuous video.</li>
+<li><b>After owner approval, answer Google.</b> Fill the draft only with the validated movie, clean-device reviewer credentials, exact navigation, and scope capture. Reply in the existing thread; do not create a new submission.</li>
+<li><b>Port Microsoft and social families.</b> Microsoft first, then X, YouTube, Meta, LinkedIn, Reddit, Slack. Register apps only after the callback is live; stop at 2FA, payment, business verification, legal terms, or admin consent.</li>
+<li><b>Port OAuth SaaS families in bounded groups.</b> Productivity/CRM/developer/design executors, each with exact stable IDs, fixed origins, app registration, real connect/read/write/refresh proof, and an independent rollout row.</li>
+<li><b>Port API-key and hosted families last.</b> Reapply the encrypted API-key core and reviewed provider contracts. Keep 1Password dormant until network-enforced egress exists; keep Snowflake and 21RISK externally gated.</li>
+<li><b>Canary connector by connector.</b> Composio-only, read-only shadow where safe, deterministic first-party canary, preferred, then first-party-only after rollback proof. Never dual-execute or auto-fallback an ambiguous mutation.</li>
+</ol>
+</section>
+
+<section>
+<h2>Evidence and audit boundaries</h2>
+<ul>
+<li>Core design and operational invariants: <a href="../README.md"><code>packages/backend/convex/connectors/README.md</code></a>.</li>
+<li>Authoritative inventory: <code>composio-wave0-popularity-pages1-2.html</code>.</li>
+<li>Latest preserved-lineage readiness: <code>connector-59-readiness-snowflake-milestone-2026-08-22.html</code>.</li>
+<li>Google response draft: <code>google-workspace-oauth-second-round-response-package.html</code>.</li>
+<li>Worktree provenance: <code>connector-worktree-provenance-audit-2026-08-30.json</code>.</li>
+<li>Machine matrix beside this report: <code>composio-native-connectors-handoff-2026-08-31.json</code>.</li>
+</ul>
+<p>This audit changed no repository file, branch, worktree, deployment, provider console, account, email, draft, or routing setting. It read the public production catalog and callback status, inspected Git and existing artifacts, and performed a read-only Gmail search. No secret values were viewed or printed.</p>
+</section>
+<footer>Program handoff, 31 August 2026. Readiness is evidence, not activation authority.</footer>
+</main>
+<script>
+const blockers={"google-workspace":"Google remediation package, Console scope capture, continuous six-service video, reviewer access, owner approval.",microsoft:"Live HTTPS callback, Entra app, credentials, delegated/admin consent, real Graph calls.",twitter:"Confirm X app/tier, callback, real read/write and provider approval.","oauth-saas":"Provider app, callback, protected credentials, real connect/read/write/refresh and review.",slack:"One shared app/grant, exact user-vs-bot split, distribution review and real send/read.",native:"Explicit Store redirect and parity/security tests; not OAuth parity.","api-key":"Real key, encrypted custody, enablement + verification allowlists, representative calls and canary.",canvas:"Institution developer key, tenant-safe origin and real calls.",meta:"Meta app + Business verification, product review and per-connector calls.",youtube:"Separate Google app/grant, sensitive-scope review, quota and real calls.",reddit:"App registration, commercial approval if applicable, real read/submit.",linkedin:"Company Page, product access/review and real profile/post.",snowflake:"Admin OAuth integration, registered tenant/callback/secret and representative SQL.","21risk":"Real tenant key and OData metadata for broader parity.","1password":"Network-enforced DNS-pinning/IP-allowlisting egress before token custody."};
+const r=(rank,page,id,name,grant,auth,stage,lineage,prod,family)=>({rank,page,id,name,grant,auth,stage,lineage,prod,family});
+const rows=[
+r(0,1,"gmail","Gmail","google-workspace","oauth","executor_ready","Google native + ee3cd5712","composio","google-workspace"),r(1,1,"googlecalendar","Google Calendar","google-workspace","oauth","executor_ready","Google native + ee3cd5712","composio","google-workspace"),r(2,1,"googledrive","Google Drive","google-workspace","oauth","executor_ready","Google native + ee3cd5712","composio","google-workspace"),r(3,1,"outlook","Outlook","microsoft","oauth","executor_ready","Microsoft Graph family","composio","microsoft"),r(4,1,"twitter","Twitter / X","twitter","oauth","executor_ready","Social family","not published","twitter"),r(5,1,"googlesheets","Google Sheets","google-workspace","oauth","executor_ready","Google native + ee3cd5712","composio","google-workspace"),r(6,1,"supabase","Supabase","supabase","oauth","executor_ready","Developer/data family","composio","oauth-saas"),r(8,1,"notion","Notion","notion","oauth","executor_ready","Productivity family","composio","oauth-saas"),r(9,1,"slack","Slack","slack","oauth","executor_ready","Productivity family","not published","slack"),r(10,1,"airtable","Airtable","airtable","oauth","executor_ready","Productivity family","composio","oauth-saas"),r(11,1,"googledocs","Google Docs","google-workspace","oauth","executor_ready","Google native + ee3cd5712","composio","google-workspace"),r(12,1,"googlesuper","Google Workspace","google-workspace","oauth","executor_ready","Google native bundle + ee3cd5712","composio","google-workspace"),r(13,1,"hubspot","HubSpot","hubspot","oauth","executor_ready","CRM family","composio","oauth-saas"),r(14,1,"codeinterpreter","Codeinterpreter","native-exec","native","native_alias","Native capability alias","not published","native"),r(15,1,"gong","Gong","gong","oauth","executor_ready","CRM family","composio","oauth-saas"),r(16,1,"asana","Asana","asana","oauth","executor_ready","Productivity family","composio","oauth-saas"),r(17,1,"ashby","Ashby","ashby","api_key","executor_ready","Encrypted API-key family","not published","api-key"),r(18,1,"pipedrive","Pipedrive","pipedrive","oauth","executor_ready","CRM family","not published","oauth-saas"),r(19,1,"googletasks","Google Tasks","google-workspace","oauth","executor_ready","Google native + ee3cd5712","composio","google-workspace"),r(20,1,"linear","Linear","linear","oauth","executor_ready","Productivity family","composio","oauth-saas"),r(21,1,"github","GitHub","github","oauth","executor_ready","Developer/data family","composio","oauth-saas"),r(22,1,"microsoft_teams","Microsoft Teams","microsoft","oauth","executor_ready","Microsoft Graph family","not published","microsoft"),r(23,1,"firecrawl","Firecrawl","firecrawl","api_key","executor_ready","Encrypted API-key family","not published","api-key"),r(24,1,"canvas","Canvas LMS","canvas","oauth","executor_ready","Productivity family","not published","canvas"),r(25,1,"composio_search","Composio Search","native-web","native","native_alias","Native web alias","not published","native"),r(26,1,"salesforce","Salesforce","salesforce","oauth","executor_ready","CRM family","composio","oauth-saas"),r(27,1,"tavily","Tavily","tavily","api_key","executor_ready","b937f8edb","not published","api-key"),r(28,1,"jira","Jira","atlassian","oauth","executor_ready","Productivity family","composio","oauth-saas"),r(29,1,"exa","Exa","exa","api_key","executor_ready","Encrypted API-key family","not published","api-key"),
+r(30,2,"instagram","Instagram","meta","oauth","executor_ready","Social family","composio","meta"),r(31,2,"serpapi","SerpAPI","serpapi","api_key","executor_ready","Encrypted API-key family","not published","api-key"),r(32,2,"youtube","YouTube","youtube","oauth","executor_ready","Social/media family","composio","youtube"),r(33,2,"clickup","ClickUp","clickup","oauth","executor_ready","Productivity family","composio","oauth-saas"),r(34,2,"slackbot","Slackbot","slack","oauth","executor_ready","Productivity family","not published","slack"),r(35,2,"excel","Excel","microsoft","oauth","executor_ready","Microsoft Graph family","composio","microsoft"),r(36,2,"monday","monday.com","monday","oauth","executor_ready","Productivity family","composio","oauth-saas"),r(37,2,"reddit","Reddit","reddit","oauth","executor_ready","Social family","composio","reddit"),r(38,2,"perplexityai","Perplexity AI","perplexityai","api_key","executor_ready","b937f8edb","not published","api-key"),r(39,2,"apollo","Apollo","apollo","api_key","executor_ready","f426b8ce7","not published","api-key"),r(40,2,"figma","Figma","figma","oauth","executor_ready","Design/finance family","composio","oauth-saas"),r(41,2,"peopledatalabs","People Data Labs","peopledatalabs","api_key","executor_ready","Canonical-ID API-key family","not published","api-key"),r(42,2,"attio","Attio","attio","oauth","executor_ready","CRM family","composio","oauth-saas"),r(43,2,"stripe","Stripe","stripe","oauth","executor_ready","Design/finance family","composio","oauth-saas"),r(44,2,"snowflake","Snowflake","snowflake","oauth","executor_ready","ca6490499","not published","snowflake"),r(45,2,"facebook","Facebook","meta","oauth","executor_ready","Social family","composio","meta"),r(46,2,"browser_tool","Browser Tool","native-browser","native","native_alias","Native browser alias","not published","native"),r(47,2,"posthog","PostHog","posthog","api_key","executor_ready","b937f8edb","not published","api-key"),r(48,2,"metaads","Meta Ads","meta","oauth","executor_ready","Social family","not published","meta"),r(49,2,"linkedin","LinkedIn","linkedin","oauth","executor_ready","Social family","composio","linkedin"),r(50,2,"21risk","21risk","21risk","api_key","executor_ready","5f924ca9b subset","not published","21risk"),r(51,2,"2chat","2Chat","2chat","api_key","executor_ready","Encrypted API-key family","not published","api-key"),r(52,2,"0codekit","0CodeKit","0codekit","api_key","executor_ready","Encrypted API-key family","not published","api-key"),r(53,2,"1password","1Password","1password","hosted_connect","planner_ready","eb6365e31 fail-closed","not published","1password"),r(54,2,"44api","44API","44api","api_key","executor_ready","fff68e46d + key core","not published","api-key"),r(55,2,"7shifts","7shifts","7shifts","api_key","executor_ready","b937f8edb","not published","api-key"),r(56,2,"ably","Ably","ably","api_key","executor_ready","b937f8edb","not published","api-key"),r(57,2,"abstract","Abstract","abstract","api_key","executor_ready","a85dab974","not published","api-key"),r(58,2,"abuseipdb","AbuseIPDB","abuseipdb","api_key","executor_ready","b937f8edb","not published","api-key"),r(59,2,"abyssale","Abyssale","abyssale","api_key","executor_ready","b937f8edb","not published","api-key")];
+const esc=v=>String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
+function render(){const q=document.querySelector("#search").value.toLowerCase(),s=document.querySelector("#stage").value,p=document.querySelector("#page").value;const visible=rows.filter(x=>(!s||x.stage===s)&&(!p||String(x.page)===p)&&JSON.stringify(x).toLowerCase().includes(q));document.querySelector("#shown").textContent=`${visible.length} shown`;document.querySelector("#matrix").innerHTML=visible.map(x=>`<tr><td class="mono">${x.rank}</td><td><b>${esc(x.name)}</b><div class="mono">${esc(x.id)}</div></td><td><span class="mono">${esc(x.grant)}</span><br><span class="pill blue">${esc(x.auth)}</span></td><td><span class="pill ${x.stage==="executor_ready"?"yes":x.stage==="native_alias"?"blue":"partial"}">${esc(x.stage)}</span><div class="small muted">not integrated on origin/master</div></td><td class="mono">${esc(x.lineage)}<br>tip ee3cd5712</td><td><span class="pill ${x.prod==="composio"?"blue":"no"}">${esc(x.prod)}</span><div class="small muted">first-party: no</div></td><td>${esc(blockers[x.family])}</td></tr>`).join("")}
+document.querySelectorAll(".controls input,.controls select").forEach(x=>x.addEventListener("input",render));render();
+</script>
+</body>
+</html>

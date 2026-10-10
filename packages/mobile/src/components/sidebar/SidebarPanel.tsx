@@ -19,6 +19,10 @@ import { Rise, SIDEBAR_PLACES, SidebarPlaceRow } from "./SidebarNav";
 
 const AVATAR = 52;
 const BRAND_MARK = 40;
+const BRAND_TOP = 18;
+const BRAND_ROW = 44;
+
+export const SIDEBAR_BRAND_CENTER = BRAND_TOP + BRAND_ROW / 2;
 const PLACES_FROM_TOP = [...SIDEBAR_PLACES].reverse();
 
 export function SidebarPanel({
@@ -56,7 +60,7 @@ export function SidebarPanel({
           styles.content,
           {
             paddingBottom: insets.bottom + 18,
-            paddingTop: insets.top + 18,
+            paddingTop: insets.top + BRAND_TOP,
           },
         ]}
         showsVerticalScrollIndicator={false}
@@ -241,6 +245,7 @@ const makeStyles = (colors: Colors) =>
       alignItems: "center",
       flexDirection: "row",
       gap: 12,
+      height: BRAND_ROW,
     },
     wordmark: {
       color: colors.text,

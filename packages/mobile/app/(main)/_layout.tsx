@@ -31,7 +31,10 @@ import {
   AppBackdrop,
   TOP_BAR_BAR_HEIGHT,
 } from "../../src/components/AppBackdrop";
-import { SidebarPanel } from "../../src/components/sidebar/SidebarPanel";
+import {
+  SIDEBAR_BRAND_CENTER,
+  SidebarPanel,
+} from "../../src/components/sidebar/SidebarPanel";
 import {
   DRAWER_CHEVRON_SIZE,
   DrawerStage,
@@ -351,6 +354,7 @@ export default function MainLayout() {
           chevron={{
             left: TOP_BAR_INSET,
             top: topBarHeight - TOP_BAR_BUTTON,
+            openCenterY: insets.top + SIDEBAR_BRAND_CENTER,
             openLabel: t("mobile.nav.openLabel"),
             closeLabel:
               activeTab === "chat"

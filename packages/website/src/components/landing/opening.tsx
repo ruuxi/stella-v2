@@ -92,8 +92,8 @@ function frameAt(t: number): Frame {
   return f;
 }
 
-const SETTLE_VH = 52;
-const CENTER_VH = 40;
+const SETTLE_VH = 55;
+const CENTER_VH = 42;
 const CENTER_MS = 950;
 const UP_MS = 440;
 const REST: Frame = { line: -1, base: 0, next: -1, s: 0 };

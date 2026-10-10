@@ -1,7 +1,7 @@
 .track {
   --h: max(100svh, 680px);
   position: relative;
-  height: calc(var(--h) + 66svh);
+  height: calc(var(--h) + 80svh);
 }
 
 .sticky {
@@ -308,7 +308,7 @@
 
 @media (max-width: 700px) {
   .track {
-    height: calc(var(--h) + 60svh);
+    height: calc(var(--h) + 76svh);
   }
 
   .sticky {

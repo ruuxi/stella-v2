@@ -1379,6 +1379,7 @@
         "enableFailedTitle": "Tidak dapat mengaktifkan komputer itu",
         "enableLabel": "Aktifkan {name}",
         "enabling": "Mengaktifkan…",
+        "ownSignIn": "{name} memakai login {engine} miliknya sendiri.",
         "pairingCode": "Gunakan kode pemasangan",
         "sectionLabel": "Tempat Stella bekerja",
         "statusAwaitingConsent": "Menunggu izin di komputer itu",

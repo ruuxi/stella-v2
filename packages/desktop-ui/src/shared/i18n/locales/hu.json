@@ -1389,6 +1389,7 @@
         "enableFailedTitle": "A számítógépet nem sikerült engedélyezni",
         "enableLabel": "{name} engedélyezése",
         "enabling": "Engedélyezés…",
+        "ownSignIn": "A(z) {name} a saját {engine}-bejelentkezését használja.",
         "pairingCode": "Párosítási kód használata",
         "sectionLabel": "Hol dolgozik a Stella",
         "statusAwaitingConsent": "Engedélyre vár azon a számítógépen",

@@ -1389,6 +1389,7 @@
         "enableFailedTitle": "Kunne ikke aktivere den datamaskinen",
         "enableLabel": "Aktiver {name}",
         "enabling": "Aktiverer…",
+        "ownSignIn": "{name} bruker sin egen {engine}-pålogging.",
         "pairingCode": "Bruk en tilkoblingskode",
         "sectionLabel": "Hvor Stella jobber",
         "statusAwaitingConsent": "Venter på tillatelse på den datamaskinen",

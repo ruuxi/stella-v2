@@ -1379,6 +1379,7 @@
         "enableFailedTitle": "Không thể bật máy tính đó",
         "enableLabel": "Bật {name}",
         "enabling": "Đang bật…",
+        "ownSignIn": "{name} dùng thông tin đăng nhập {engine} riêng của nó.",
         "pairingCode": "Dùng mã ghép nối",
         "sectionLabel": "Nơi Stella làm việc",
         "statusAwaitingConsent": "Đang chờ cho phép trên máy tính đó",

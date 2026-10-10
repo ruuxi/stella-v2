@@ -1409,6 +1409,7 @@
         "enableFailedTitle": "Не удалось включить этот компьютер",
         "enableLabel": "Включить {name}",
         "enabling": "Включение…",
+        "ownSignIn": "{name} использует собственный вход в {engine}.",
         "pairingCode": "Использовать код сопряжения",
         "sectionLabel": "Где работает Stella",
         "statusAwaitingConsent": "Ожидание разрешения на том компьютере",

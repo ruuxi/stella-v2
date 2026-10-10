@@ -1389,6 +1389,7 @@
         "enableFailedTitle": "उस कंप्यूटर को सक्षम नहीं कर सके",
         "enableLabel": "{name} को सक्षम करें",
         "enabling": "सक्षम कर रहे हैं…",
+        "ownSignIn": "{name} अपने खुद के {engine} साइन-इन का उपयोग करता है।",
         "pairingCode": "पेयरिंग कोड का उपयोग करें",
         "sectionLabel": "Stella कहाँ काम करती है",
         "statusAwaitingConsent": "उस कंप्यूटर पर अनुमति की प्रतीक्षा है",

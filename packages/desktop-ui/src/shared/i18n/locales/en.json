@@ -1389,6 +1389,7 @@
         "enableFailedTitle": "Couldn't enable that computer",
         "enableLabel": "Enable {name}",
         "enabling": "Enabling…",
+        "ownSignIn": "{name} uses its own {engine} sign-in.",
         "pairingCode": "Use a pairing code",
         "sectionLabel": "Where Stella works",
         "statusAwaitingConsent": "Waiting for permission on that computer",

@@ -1379,6 +1379,7 @@
         "enableFailedTitle": "해당 컴퓨터를 사용 설정할 수 없습니다",
         "enableLabel": "{name} 사용 설정",
         "enabling": "사용 설정 중…",
+        "ownSignIn": "{name}은(는) 자체 {engine} 로그인을 사용합니다.",
         "pairingCode": "페어링 코드 사용",
         "sectionLabel": "Stella가 작업하는 곳",
         "statusAwaitingConsent": "해당 컴퓨터에서 허용을 기다리는 중",

@@ -1409,6 +1409,7 @@
         "enableFailedTitle": "Počítač se nepodařilo povolit",
         "enableLabel": "Povolit {name}",
         "enabling": "Povolování…",
+        "ownSignIn": "{name} používá vlastní přihlášení do {engine}.",
         "pairingCode": "Použít párovací kód",
         "sectionLabel": "Kde Stella pracuje",
         "statusAwaitingConsent": "Čeká se na povolení na tom počítači",

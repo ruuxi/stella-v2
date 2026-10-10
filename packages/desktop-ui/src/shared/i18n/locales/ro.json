@@ -1399,6 +1399,7 @@
         "enableFailedTitle": "Nu s-a putut activa acel computer",
         "enableLabel": "Activează {name}",
         "enabling": "Se activează…",
+        "ownSignIn": "{name} folosește propria conectare la {engine}.",
         "pairingCode": "Folosește un cod de asociere",
         "sectionLabel": "Unde lucrează Stella",
         "statusAwaitingConsent": "Se așteaptă permisiunea pe acel computer",

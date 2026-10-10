@@ -1399,6 +1399,7 @@
         "enableFailedTitle": "No se pudo activar ese ordenador",
         "enableLabel": "Activar {name}",
         "enabling": "Activando…",
+        "ownSignIn": "{name} usa su propio inicio de sesión de {engine}.",
         "pairingCode": "Usar un código de vinculación",
         "sectionLabel": "Dónde trabaja Stella",
         "statusAwaitingConsent": "Esperando permiso en ese ordenador",

@@ -1399,6 +1399,7 @@
         "enableFailedTitle": "Não foi possível ativar esse computador",
         "enableLabel": "Ativar {name}",
         "enabling": "A ativar…",
+        "ownSignIn": "{name} usa o próprio login do {engine}.",
         "pairingCode": "Usar um código de emparelhamento",
         "sectionLabel": "Onde a Stella trabalha",
         "statusAwaitingConsent": "À espera de permissão nesse computador",

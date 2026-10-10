@@ -1379,6 +1379,7 @@
         "enableFailedTitle": "無法啟用那台電腦",
         "enableLabel": "啟用 {name}",
         "enabling": "正在啟用…",
+        "ownSignIn": "{name} 使用自己的 {engine} 登入。",
         "pairingCode": "使用配對碼",
         "sectionLabel": "Stella 在哪裡工作",
         "statusAwaitingConsent": "等待那台電腦上的許可",

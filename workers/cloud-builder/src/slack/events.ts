@@ -285,7 +285,7 @@ const handleMessage = async (env: Cloudflare.Env, install: SlackInstallation, ev
       channelId,
       slackUserId: userId,
       isDm,
-      ...(isDm ? {} : { threadTs: threadTs ?? ts }),
+      ...(threadTs ? { threadTs } : {}),
     });
     log("slack_unlinked_prompted", { teamId: install.teamId, trigger });
     return;

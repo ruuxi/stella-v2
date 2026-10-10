@@ -20,6 +20,7 @@ import {
   RefreshCw,
   X,
 } from "@/ui/icons";
+import { useTabStripCloseFreeze } from "@/shared/hooks/use-tab-strip-close-freeze";
 import "./browser-section.css";
 
 type BrowserConnection = "checking" | "disconnected" | "connected";
@@ -370,6 +371,12 @@ export function BrowserSection() {
   const pageRef = useRef<HTMLDivElement | null>(null);
   const shownRef = useRef(false);
   const mountedRef = useRef(true);
+  const tabStripRef = useRef<HTMLDivElement | null>(null);
+  const { onTabCloseClick } = useTabStripCloseFreeze({
+    stripRef: tabStripRef,
+    tabSelector: ".browser-section__tab-shell",
+    tabIds: state.tabs.map((tab) => tab.id),
+  });
   const scopedOwnerId = useMemo(
     () => conversationOwnerId(chat.conversation.conversationId),
     [chat.conversation.conversationId],
@@ -677,6 +684,7 @@ export function BrowserSection() {
         <>
           <div className="browser-section__chrome">
             <div
+              ref={tabStripRef}
               className="browser-section__tabs"
               role="tablist"
               aria-label="Browser tabs"
@@ -687,6 +695,7 @@ export function BrowserSection() {
                   <div
                     key={tab.id}
                     className="browser-section__tab-shell"
+                    data-tab-id={tab.id}
                     data-active={active || undefined}
                   >
                     <button
@@ -722,12 +731,13 @@ export function BrowserSection() {
                       type="button"
                       className="browser-section__tab-close"
                       aria-label={`Close ${tab.title || "tab"}`}
-                      onClick={() =>
+                      onClick={(event) => {
+                        onTabCloseClick(event, tab.id);
                         void browserViewApi()?.closeTab({
                           tabId: tab.id,
                           ownerId: tab.ownerId,
-                        })
-                      }
+                        });
+                      }}
                     >
                       <X size={12} strokeWidth={1.8} />
                     </button>

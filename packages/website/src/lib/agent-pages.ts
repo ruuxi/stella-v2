@@ -80,7 +80,7 @@ for the apps you already use (Word, Excel, PowerPoint, PDF).
 ## Choose your tools
 Work with your preferred agents, providers, keys, and models.
 
-Agents & harnesses: Claude Code, Codex, Cursor, OpenClaw, Hermes Agent.
+Agents & harnesses: Claude Code, Codex.
 Models & providers: OpenAI, Anthropic, Google, xAI, DeepSeek, Moonshot AI.
 
 ## Explore
@@ -118,8 +118,8 @@ already have — with the context still intact.
 
 ## Nothing to set up — or bring your own
 Out of the box, Stella runs on her own models. No keys, no accounts, no setup —
-just open the app and go. Prefer something else? Plug in Claude, Codex, Cursor,
-or your own key and Stella runs on that instead.
+just open the app and go. Prefer something else? Plug in Claude Code, Codex,
+your own key or a local model and Stella runs on that instead.
 
 ## Pictures, voice, and more — on Pro
 Ask Stella to make an image, a video, a song, or a spoken reading, and she just

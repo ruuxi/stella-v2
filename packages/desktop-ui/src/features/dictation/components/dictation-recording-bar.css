@@ -17,6 +17,10 @@
 
 .composer-dictation-transcript {
   min-width: 0;
+  box-sizing: border-box;
+  max-height: var(--composer-dictation-transcript-max-height, 200px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 1px 4px 0;
   color: color-mix(in oklch, var(--text-base) 66%, transparent);
   font-size: 15px;

@@ -1,7 +1,9 @@
 /**
  * DictationRecordingBar — replaces the composer's textarea + toolbar while
- * dictation is active. The transcript grows as cumulative text wraps,
- * while the waveform and controls remain anchored underneath:
+ * dictation is active. The transcript grows as cumulative text wraps, up to
+ * the same cap as the typed text area (`--composer-dictation-transcript-max-height`),
+ * then scrolls and follows the newest words, while the waveform and controls
+ * remain anchored underneath:
  *
  *   A live transcript that can wrap and revise
  *   [waveform — flex 1]   [0:24]   [X]   [✓]   [↑ (optional)]
@@ -13,7 +15,7 @@
  * uses one <canvas>, so transcript and meter updates do not reconcile the chat tree.
  */
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import { cn } from "@/shared/lib/utils";
 import { ArrowUp, Check, X } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
@@ -133,6 +135,8 @@ export function DictationCancelButton({
   );
 }
 
+const TRANSCRIPT_FOLLOW_SLACK_PX = 8;
+
 function LiveTranscript({
   placeholder,
   text,
@@ -144,6 +148,18 @@ function LiveTranscript({
   revision: number;
   stableWordCount: number;
 }) {
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const followRef = useRef(true);
+
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) {
+      followRef.current = true;
+      return;
+    }
+    if (followRef.current) viewport.scrollTop = viewport.scrollHeight;
+  }, [text]);
+
   if (!text) {
     return placeholder ? (
       <div className="composer-dictation-transcript composer-dictation-transcript--placeholder">
@@ -154,9 +170,16 @@ function LiveTranscript({
   const words = tokenizeDictationTranscript(text);
   return (
     <div
+      ref={viewportRef}
       className="composer-dictation-transcript"
       aria-label={text}
       aria-live="polite"
+      onScroll={(event) => {
+        const viewport = event.currentTarget;
+        followRef.current =
+          viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <
+          TRANSCRIPT_FOLLOW_SLACK_PX;
+      }}
     >
       <span aria-hidden>
         {words.map((word, index) => (

@@ -215,13 +215,14 @@
   display: grid;
   grid-template-columns: 1fr 2fr;
   gap: 40px;
-  padding: 60px var(--l-margin) 40px;
+  padding: 60px var(--l-margin) 28px;
   color: rgba(255, 255, 255, 0.6);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   font-size: 14px;
 }
 
 .footBrand {
+  align-self: start;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -271,15 +272,24 @@
 
 .legal :global(.footer-operator) {
   margin: 0;
+  font-size: inherit;
+  color: rgba(255, 255, 255, 0.45);
 }
 
 .legal :global(.legal-links) {
   display: flex;
+  flex-direction: row;
   flex-wrap: wrap;
-  gap: 18px;
+  gap: 22px;
   margin: 0;
   padding: 0;
+  font-size: inherit;
   list-style: none;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.legal :global(.legal-links) a:hover {
+  color: #fff;
 }
 
 @media (max-width: 700px) {

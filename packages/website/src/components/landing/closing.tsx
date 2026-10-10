@@ -101,7 +101,7 @@ export function Finale() {
           Android
         </a>
         <Link href="/chat">Web</Link>
-        <a href="/download/linux">Linux</a>
+        <Link href="/download/linux">Linux</Link>
       </div>
     </section>
   );

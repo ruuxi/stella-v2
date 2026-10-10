@@ -18,6 +18,7 @@ import {
   type Conversation,
   type EntryDraft,
   type EntryId,
+  type EntryRecord,
   type Harness,
 } from "@earendil-works/pi-durable";
 import {
@@ -304,6 +305,69 @@ export async function localLogMirror(args: {
       }
       return "stands";
     }, context);
+  /** How an agent's task ended, from its report (a hidden pi.user entry), as the log writes it. */
+  const taskEnded = (entry: Pick<EntryRecord, "id" | "kind" | "model">): LocalLogWrite | undefined => {
+    const message = entry.model?.[0];
+    if (entry.kind !== "pi.user" || message?.role !== "user" || !piUserHidden(message as PiUserMessage)) return undefined;
+    const report = piMessageText(message);
+    const task = lifecycleWakeTask(report);
+    const outcome = task ? lifecycleWakeOutcome(report) : null;
+    if (!task || !outcome) return undefined;
+    return {
+      key: `${root.id}:${entry.id}:agent-${outcome.kind}`,
+      role: "lifecycle",
+      type: outcome.kind === "completed" ? "agent-completed" : outcome.kind === "failed" ? "agent-failed" : "agent-canceled",
+      timestamp: message.timestamp,
+      agentId: task.threadId,
+      payload: {
+        agentId: task.threadId,
+        ...(task.description ? { description: task.description } : {}),
+        ...(outcome.kind === "completed" ? { result: outcome.body } : outcome.body ? { error: outcome.body } : {}),
+      },
+    };
+  };
+  /** A pi.assistant entry the log writes as a reply bubble. */
+  const isReply = (entry: Pick<EntryRecord, "kind" | "model">): boolean => {
+    const message = entry.model?.[0];
+    return (
+      entry.kind === "pi.assistant" &&
+      message?.role === "assistant" &&
+      splitReplyRefs(piMessageText(message)).text.trim().length > 0
+    );
+  };
+  /**
+   * The reply that relays an agent's report: the first one after it, before
+   * the next input. In the journal the report opens its own turn, whose
+   * reply carries how the task ended; the log has no turn for a hidden
+   * input, so that reply writes the task's end after itself and the log
+   * groups the two the same way. "pending" while the run answering it goes on.
+   */
+  const relayOf = (entryId: EntryId) =>
+    harness.commit(async (tx): Promise<"pending" | "relayed" | "none"> => {
+      if ((await tx.doc(LiveDoc, root.id)).run !== undefined) return "pending";
+      const later = await tx.scanEntries(
+        { conversationId: root.id, minEntryId: (entryId + 1) as EntryId, order: "ascending" },
+        PAGE,
+      );
+      for (const next of later.items) {
+        if (next.kind === "pi.user") return "none";
+        if (isReply(next)) return "relayed";
+      }
+      return "none";
+    }, context);
+  /** The report a reply relays, if the reply is the first after one (`relayOf`). */
+  const relayedReport = (entryId: EntryId) =>
+    harness.commit(async (tx): Promise<LocalLogWrite | undefined> => {
+      const earlier = await tx.scanEntries(
+        { conversationId: root.id, maxEntryId: (entryId - 1) as EntryId, order: "descending" },
+        PAGE,
+      );
+      for (const previous of earlier.items) {
+        if (previous.kind === "pi.user") return taskEnded(previous);
+        if (isReply(previous)) return undefined;
+      }
+      return undefined;
+    }, context);
   const mirrorOnce = async () => {
     const state = await doc();
     let replyTo = state.replyTo;
@@ -323,22 +387,16 @@ export async function localLogMirror(args: {
             const { text, display } = piUserView(message as PiUserMessage);
             const hidden = piUserHidden(message as PiUserMessage);
             // An agent's report is how its task ended, as the loops log a task's end.
-            const report = hidden ? piMessageText(message) : "";
-            const task = report ? lifecycleWakeTask(report) : null;
-            const outcome = task ? lifecycleWakeOutcome(report) : null;
-            if (task && outcome) {
-              await log.write({
-                key: `${key}:agent-${outcome.kind}`,
-                role: "lifecycle",
-                type: outcome.kind === "completed" ? "agent-completed" : outcome.kind === "failed" ? "agent-failed" : "agent-canceled",
-                timestamp: message.timestamp,
-                agentId: task.threadId,
-                payload: {
-                  agentId: task.threadId,
-                  ...(task.description ? { description: task.description } : {}),
-                  ...(outcome.kind === "completed" ? { result: outcome.body } : outcome.body ? { error: outcome.body } : {}),
-                },
-              });
+            const ended = taskEnded(entry);
+            if (ended) {
+              const relay = await relayOf(entry.id);
+              if (relay === "pending") {
+                // Taken up again when the run ends (`run_end`).
+                held = true;
+                break;
+              }
+              // A reply that relays it writes it after itself.
+              if (relay === "none") await log.write(ended);
             }
             // An agent's report or note and a prompt the app sent are not the user's words.
             if (text.trim() && !hidden) {
@@ -364,6 +422,9 @@ export async function localLogMirror(args: {
                 ...(replyTo ? { replyTo } : {}),
                 ...(calls.length > 0 ? { followedByToolCall: true } : {}),
               });
+              // The log's timeline orders by time: the task's end goes just after the reply relaying it.
+              const relayed = await relayedReport(entry.id);
+              if (relayed) await log.write({ ...relayed, timestamp: Math.max(relayed.timestamp, message.timestamp + 1) });
             }
             for (const [index, call] of calls.entries()) {
               const description = (call.arguments as { description?: unknown } | undefined)?.description;

@@ -148,7 +148,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "이 스레드를 불러올 수 없어요",
+        "errorBody": "닫았다가 잠시 후 다시 여세요."
       },
       "generatedImage": {
         "generating": "생성 중...",
@@ -176,13 +178,10 @@
       "messageActions": {
         "copied": "복사됨",
         "copy": "복사",
-        "fork": "Fork to new chat",
         "more": "추가 작업",
         "quote": "Quote",
         "readAloud": "소리 내어 읽기",
         "reply": "답장",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "읽기 중지"
@@ -825,7 +824,6 @@
     },
     "integrations": {
       "connectStellaApp": "Stella 앱에 연결",
-      "connectStellaAppSub": "휴대폰의 Stella 앱을 이 컴퓨터와 페어링합니다",
       "connectTitle": "연결",
       "connected": "연결됨",
       "credential": {
@@ -841,11 +839,16 @@
         "saving": "저장 중...",
         "title": "{provider} 연결"
       },
-      "heroTagline": "원하는 어떤 플랫폼에서든 Stella에게 메시지를 보내세요 — 자연스럽게 대화하거나, 컴퓨터에서 바로 일을 처리하도록 요청하세요.",
       "phoneTitle": "내 휴대폰",
       "signInHeadline": "로그인하고 시작하세요",
       "signInSub": "{provider}을(를) 연결하려면 Stella 계정에 로그인하세요.",
-      "signInToConnect": "연결하려면 Stella에 로그인하세요"
+      "signInToConnect": "연결하려면 Stella에 로그인하세요",
+      "getApp": {
+        "appStoreQrAlt": "스캔해 App Store에서 Stella 다운로드",
+        "platformLabel": "모바일 플랫폼 선택",
+        "playStoreQrAlt": "스캔해 Google Play에서 Stella 다운로드",
+        "title": "앱 받기"
+      }
     },
     "legal": {
       "privacy": {
@@ -896,9 +899,16 @@
         "title": "이 대화"
       },
       "files": {
-        "empty": "아직 파일이 없습니다. Stella가 만든 모든 것이 여기에 표시됩니다.",
+        "empty": "Stella가 만들거나 공유한 파일이 여기에 표시됩니다.",
         "emptyFiltered": "일치하는 파일이 없습니다.",
-        "searchPlaceholder": "파일 검색"
+        "filterAll": "모든 파일",
+        "filterLabel": "파일 필터 및 정렬",
+        "searchPlaceholder": "파일 검색",
+        "sortName": "이름",
+        "sortNewest": "최신순",
+        "sortOldest": "오래된 순",
+        "sourceCloud": "클라우드",
+        "sourceUpload": "내가 보낸 파일"
       },
       "schedule": {
         "actionFailed": "처리하지 못했습니다.",
@@ -906,7 +916,9 @@
         "customCadence": "사용자 지정 일정",
         "deleteConfirm": "“{title}”이(가) 더 이상 실행되지 않습니다.",
         "deleteSchedule": "일정 삭제",
-        "empty": "아직 일정이 없습니다. 컴퓨터의 Stella에게 무언가를 정기적으로 실행해 달라고 요청하면 여기에 표시됩니다.",
+        "empty": "아직 예약된 항목이 없습니다.",
+        "emptyAction": "예약 만들기",
+        "emptyActionPrompt": "리마인드해 줘: ",
         "lastRunFailed": "마지막 실행 실패: {error}",
         "loadFailed": "일정을 불러오지 못했습니다.",
         "next": "다음 실행 {when}",
@@ -931,6 +943,11 @@
         "stopped": "중지됨",
         "working": "백그라운드에서 작업 중"
       }
+    },
+    "apps": {
+      "empty": "Stella가 만들어 준 앱이 여기에 표시됩니다.",
+      "emptyAction": "앱 만들기",
+      "emptyActionPrompt": "이런 앱을 만들어 줘: "
     },
     "authCallback": {
       "backToSignIn": "로그인으로 돌아가기",
@@ -996,7 +1013,6 @@
       "disconnectedLabel": "컴퓨터 연결 끊김",
       "guestHeroBody": "웹 탐색, 파일 관리, 작업 실행 등 컴퓨터에서 할 일을 Stella에게 맡기세요.",
       "guestHeroTitle": "내 컴퓨터를 손안에",
-      "pairLabel": "컴퓨터 페어링",
       "statusAsleep": "잠자기",
       "statusChecking": "확인 중…",
       "statusConnected": "연결됨"
@@ -1004,20 +1020,11 @@
     "desktop": {
       "connecting": "데스크톱에 연결 중",
       "deviceUnreachable": "{platform}에 연결할 수 없음",
-      "enterCode": "컴퓨터에 표시된 코드를 입력하세요.",
-      "guestBody": "Stella 데스크톱 앱을 휴대폰에서 바로 볼 수 있습니다. 페어링 후에는 자동으로 다시 연결됩니다.",
       "guestSignInPrompt": "로그인하고 시작하세요.",
       "limitedCapabilities": "일부 기능에는 컴퓨터가 필요합니다",
       "linkInterrupted": "컴퓨터와의 연결이 중단되었습니다.",
-      "pairAnother": "다른 컴퓨터 페어링",
-      "pairTitle": "휴대폰 페어링",
-      "pairing": "이 휴대폰 페어링 중",
       "reconnecting": "다시 연결하는 중...",
-      "repairNeeded": "이 휴대폰을 컴퓨터와 다시 페어링해야 합니다.",
       "retryLabel": "다시 연결 시도",
-      "startPairingLabel": "컴퓨터 페어링 시작",
-      "unavailableBodyPaired": "컴퓨터에서 Stella가 열려 있고 인터넷에 연결되어 있는지 확인하세요. 연결되면 데스크톱 앱이 바로 이 휴대폰에 나타납니다.",
-      "unavailableBodyUnpaired": "Stella 데스크톱 앱을 휴대폰에서 바로 볼 수 있습니다. 컴퓨터의 Stella에 표시된 QR 코드를 스캔해 시작하세요. 이후에는 자동으로 다시 연결됩니다.",
       "unreachable": "데스크톱에 연결할 수 없음"
     },
     "engineAccounts": {
@@ -1130,26 +1137,28 @@
         "signInBody": "대화, 설정, 연결된 컴퓨터를 모든 기기에서 그대로 이어 가세요.",
         "signInTitle": "Stella에 로그인",
         "skip": "나중에 하기",
-        "subscriptionsBody": "이미 Claude나 ChatGPT를 구독 중인가요? 연결하면 클라우드에서 사용할게요. 컴퓨터는 각자의 로그인을 사용합니다.",
+        "subscriptionsBody": "사용 중인 Claude 또는 ChatGPT 구독을 쓰시겠어요?",
         "subscriptionsLabel": "선택 사항"
       },
       "composerPlaceholder": "아니면 그냥 물어보세요",
       "computer": {
-        "body": "이 휴대폰을 컴퓨터의 Stella와 페어링하면, 외출 중에도 제가 거기서 작업을 실행할 수 있어요.",
-        "connectedBody": "어디서든 말씀만 하세요. 컴퓨터에서 제가 작업할게요.",
+        "body": "컴퓨터에서 로그인하면 자동으로 연결돼요.",
         "connectedTo": "{name}에 연결됨",
-        "guestHint": "페어링은 Stella 계정에 연결되므로 먼저 로그인하세요. 바로 여기서 이어갈게요.",
-        "hint": "컴퓨터에서 Stella를 열고 '휴대폰 페어링'을 선택하세요.",
+        "getDesktop": "데스크톱용 Stella 받기",
         "later": "나중에",
-        "pair": "내 컴퓨터 페어링",
-        "point1": "파일을 찾아서 보내 드려요",
-        "point2": "내보내기나 다운로드를 마무리해요",
-        "point3": "이미 쓰는 앱을 그대로 써요",
-        "settledConnectedDesc": "휴대폰에서 거기에 작업을 시킬 수 있어요.",
-        "settledSkippedDesc": "설정에서 언제든 페어링할 수 있어요.",
         "settledSkippedTitle": "아직 컴퓨터 없음",
-        "signInToPair": "로그인하고 페어링",
-        "title": "주머니 속의 내 컴퓨터"
+        "title": "컴퓨터의 Stella"
+      },
+      "gmail": {
+        "body": "이메일 찾기, 스레드 따라잡기, 답장 초안 작성까지 말만 하면 돼요.",
+        "connect": "Gmail 연결",
+        "connected": "연결됨",
+        "error": "Gmail을 연결하지 못했어요. 다시 시도하거나 지금은 건너뛰세요.",
+        "settledSkippedTitle": "지금은 Gmail 없이",
+        "settledTitle": "Gmail 연결됨",
+        "skip": "나중에",
+        "title": "Gmail 연결",
+        "waiting": "Google을 기다리는 중…"
       },
       "hello": {
         "cta": "보여 주세요",
@@ -1173,6 +1182,7 @@
         "account": "이 모든 걸 간직하고 싶으세요? Stella 계정이 있으면 모든 기기에서 이어져요.",
         "accountSignedIn": "로그인되어 있어서 모든 게 기기 간에 이어져요. 선택 사항이 하나 더 있어요.",
         "computer": "Mac이나 PC가 있다면 거기서도 일할 수 있어요.",
+        "gmail": "생활의 많은 부분이 이메일로 오가요. Gmail을 연결하면 이메일도 도와드릴게요.",
         "hello": "안녕하세요, Stella예요.\n\n저는 챗봇이 아니에요. 필요한 걸 말씀해 주세요. 하루를 보내시는 동안 백그라운드에서 해낼게요.",
         "ready": "이제 끝났어요. 함께하면서 차차 알아갈게요.\n\n먼저 뭘 해 볼까요?",
         "showcase": "이런 식으로 일해요.",
@@ -1206,6 +1216,8 @@
         "accountSkipped": "나중에 할게요.",
         "computerDone": "연결했어요!",
         "computerSkipped": "나중에요.",
+        "gmailDone": "완료했어요.",
+        "gmailSkipped": "나중에 할게요.",
         "helloDone": "보여 주세요.",
         "showcaseDone": "알겠어요.",
         "themeDone": "이걸로 할게요.",
@@ -1354,7 +1366,6 @@
         "enableFailedTitle": "해당 컴퓨터를 사용 설정할 수 없습니다",
         "enableLabel": "{name} 사용 설정",
         "enabling": "사용 설정 중…",
-        "pairingCode": "페어링 코드 사용",
         "sectionLabel": "Stella가 작업하는 곳",
         "statusAwaitingConsent": "해당 컴퓨터에서 허용을 기다리는 중",
         "statusDeclined": "해당 컴퓨터에서 거부됨",
@@ -1370,10 +1381,6 @@
       "deleteConfirmTitle": "계정 삭제",
       "deleteFailedTitle": "계정을 삭제할 수 없음",
       "deletingAccount": "계정 삭제 중…",
-      "forget": "해제",
-      "forgetConfirmBody": "다시 페어링할 때까지 이 휴대폰은 해당 컴퓨터에 다시 연결하지 않습니다.",
-      "forgetConfirmTitle": "{name}을(를) 해제할까요?",
-      "forgetLabel": "{name} 해제",
       "hideEmailLabel": "이메일 숨기기",
       "loadingSession": "세션 불러오는 중…",
       "notificationsSection": "알림",
@@ -1383,9 +1390,6 @@
       "paired": {
         "unnamedComputer": "컴퓨터 · {id}"
       },
-      "pairedEmpty": "아직 페어링된 컴퓨터가 없습니다.",
-      "pairedOn": "{date}에 페어링",
-      "pairedSection": "페어링된 컴퓨터",
       "privacyPolicy": "개인정보 처리방침",
       "pushToggleA11y": "푸시 알림 전환",
       "pushToggleLabel": "푸시 알림 허용",
@@ -1536,6 +1540,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "이메일 찾기, 스레드 따라잡기, 답장 초안 작성까지 말만 하면 돼요.",
+        "connect": "Gmail 연결",
+        "connected": "연결됨",
+        "connecting": "Google을 기다리는 중…",
+        "error": "Gmail을 연결하지 못했어요. 다시 시도하거나 지금은 건너뛰세요.",
+        "settledDesc": "커넥터에서 언제든 관리할 수 있어요.",
+        "settledSkippedTitle": "지금은 Gmail 없이",
+        "settledTitle": "Gmail 연결됨",
+        "skip": "나중에",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1549,7 +1565,9 @@
       "messages": {
         "capabilities": "안녕하세요, Stella예요.\n\n저는 챗봇이 아니에요. 이 컴퓨터를 직접 사용해서 필요한 일을 실제로 해내요. 하시던 일을 계속하시는 동안 백그라운드에서요.\n\n어떤 모습인지 보여 드릴게요.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "생활의 많은 부분이 이메일로 오가요. Gmail을 연결하면 이메일도 도와드릴게요.",
         "memory": "One more thing that makes me different.",
+        "phone": "휴대폰에서도 만날 수 있어요.",
         "quickstart": "이게 전부예요. 마지막으로 하나만 남았고, 선택 사항이에요. 바로 퀵스타트예요.",
         "quickstartDone": "완료했어요. 제가 파악한 내용과 함께 시작해 볼 만한 일 몇 가지를 정리했어요.",
         "quickstartFailed": "이번에는 브라우저를 끝까지 읽지 못했어요. 그래도 먼저 시작해요. 하면서 배울게요.",
@@ -1607,6 +1625,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "완료했어요.",
+        "gmailSkipped": "나중에 할게요.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "정말 멋지네요.",
@@ -1837,10 +1857,10 @@
       "microphoneDeviceFallback": "마이크 {index}",
       "recovery": {
         "closing": "종료 중…",
-        "manageDescription": "마이크 권한이 멈추면 재설정하고 macOS가 다시 묻도록 요청할 수 있습니다.",
+        "manageDescription": "마이크 권한이 멈추면 재설정하세요.",
         "manageLabel": "마이크 접근 관리",
         "openSettings": "설정 열기",
-        "recoverDescription": "한 번 거부하면 macOS가 자동으로 다시 묻지 않습니다. 권한을 재설정한 다음 Stella를 종료했다가 다시 여세요.",
+        "recoverDescription": "macOS는 다시 묻지 않습니다. 재설정한 뒤 Stella를 다시 여세요.",
         "recoverLabel": "마이크 접근 복구",
         "reset": "재설정 후 재시작"
       },
@@ -1853,22 +1873,22 @@
       },
       "speakerDeviceFallback": "스피커 {index}",
       "superFast": {
-        "description": "마이크를 준비 상태로 유지해 받아쓰기가 더 적은 지연으로 시작되도록 합니다.",
+        "description": "받아쓰기가 더 빨리 시작되도록 마이크를 대기 상태로 유지합니다.",
         "label": "초고속 받아쓰기"
       },
       "systemDefault": "시스템 기본값",
       "wakeWord": {
-        "description": "백그라운드에서 “Hey Stella”를 듣고 음성 대화를 시작합니다. 꺼져 있으면 받아쓰기를 누를 때까지 마이크가 대기 상태로 유지됩니다.",
+        "description": "“Hey Stella”라고 말해 음성 대화를 시작하세요.",
         "label": "호출어 “Hey Stella”"
       }
     },
     "browserExtension": {
       "action": "확장 프로그램 받기",
-      "description": "Stella가 현재 보고 있는 페이지를 확인하고 브라우저에서 작업을 수행할 수 있게 합니다.",
+      "description": "Stella가 브라우저를 보고 조작하도록 허용합니다.",
       "title": "Stella for Chrome"
     },
     "chatStorage": {
-      "description": "모든 기기에서 대화를 확인하세요. 끄면 이 컴퓨터에만 별도의 대화 기록이 저장됩니다. 다시 켜도 그 대화는 업로드되지 않습니다. AI 제공업체는 여전히 메시지를 처리합니다.",
+      "description": "기기 간에 채팅을 동기화합니다. 끄면 이 컴퓨터에만 보관됩니다.",
       "endVoice": "대화 저장 방식을 변경하려면 음성 대화를 종료하세요.",
       "error": "대화 저장 방식을 변경하지 못했습니다. 다시 시도하세요.",
       "title": "대화 기록을 클라우드에 저장"
@@ -1887,13 +1907,13 @@
       "upgrade": "업그레이드"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "데스크톱 위에 떠 있는 작은 Stella.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "API 키",
-      "empty": "아직 연결된 제공업체가 없습니다. 위의 모델 선택기에서 Stella 이외의 옵션을 선택해 API 키를 추가하거나 로그인하세요.",
+      "empty": "아직 제공자가 없습니다. 위의 모델 선택기에서 추가하세요.",
       "removeKey": "키 제거",
       "removingKey": "제거 중…",
       "signOut": "로그아웃",
@@ -1912,7 +1932,7 @@
       "addClaude": "Claude 계정 추가",
       "addInCloud": "클라우드에서",
       "addOnComputer": "이 컴퓨터에서",
-      "cardIntro": "이미 결제 중인 Claude 또는 ChatGPT 요금제를 사용하세요. 로그인은 위치마다 따로 해야 합니다. 각 컴퓨터와 클라우드 모두요.",
+      "cardIntro": "이미 결제 중인 Claude 또는 ChatGPT 요금제를 사용하세요.",
       "cardTitle": "Claude 및 ChatGPT 계정",
       "chatgptBrowserWaiting": "브라우저에서 ChatGPT 로그인을 완료하세요.",
       "chatgptCloudSignedIn": "클라우드가 ChatGPT에 로그인되어 있습니다.",
@@ -1933,7 +1953,7 @@
         "whereComputer": "이 컴퓨터의 Claude Code에 로그인하는 중입니다."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "이 컴퓨터에 Claude Code가 설치되어 있지 않습니다. 여기서 Claude를 사용하려면 설치하세요.",
+      "cliMissing": "여기서 Claude를 사용하려면 이 컴퓨터에 Claude Code를 설치하세요.",
       "connecting": "연결 중…",
       "defaultSignedOut": "이 컴퓨터의 Claude Code에 로그인되어 있지 않습니다.",
       "enablePlanUsage": "ChatGPT 요금제 사용 활성화",
@@ -1944,14 +1964,14 @@
       "needsChatgptCloud": "먼저 클라우드용 ChatGPT를 설정하세요",
       "needsClaudeCloud": "먼저 클라우드에서 Claude에 로그인하세요",
       "openChatgptAgain": "ChatGPT 다시 열기",
-      "pasteHintChatgpt": "승인하면 ChatGPT가 로드되지 않는 페이지로 이동합니다. 그 페이지의 전체 주소를 복사해 여기에 붙여넣으세요.",
+      "pasteHintChatgpt": "ChatGPT가 연 페이지의 주소를 복사해 여기에 붙여넣으세요.",
       "pastePlaceholderUrl": "여기에 주소 붙여넣기",
       "placeCloud": "클라우드",
       "placeComputer": "이 컴퓨터",
       "placeOtherComputer": "다른 컴퓨터",
       "placeSignedIn": "{place}: 로그인됨",
       "placeSignedOut": "{place}: 로그인 안 됨",
-      "planUsageOffBody": "허용하기 전까지 Stella는 ChatGPT 요금제를 사용할 수 없습니다. 계정에서 ‘ChatGPT 요금제 사용 켜기’를 선택하거나 다른 모델을 사용하세요.",
+      "planUsageOffBody": "계정에서 ‘ChatGPT 요금제 사용 활성화’을 선택하거나 다른 모델을 고르세요.",
       "planUsageOffTitle": "로그인했지만 ChatGPT 요금제 사용이 켜져 있지 않습니다",
       "remove": "삭제",
       "removed": "삭제했습니다.",
@@ -2008,7 +2028,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "답이 필요할 때 Stella가 얼마나 적극적으로 연락할지 정합니다.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2043,16 +2063,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2066,16 +2081,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Stella가 앱 전반과 답변에서 사용할 언어를 선택하세요.",
+      "description": "앱과 Stella의 답변에 사용됩니다.",
       "title": "언어"
     },
     "lockedComputerUse": {
-      "description": "이 Mac이 잠긴 후에도 Stella가 컴퓨터 사용 작업을 계속하도록 허용합니다. 관리자 확인이 필요하며 Stella가 작업하는 동안 화면을 가립니다.",
+      "description": "이 Mac이 잠겨도 컴퓨터 사용 작업을 계속 실행합니다.",
       "title": "잠금 상태에서 컴퓨터 사용",
       "unsupported": "잠금 상태에서 컴퓨터 사용은 macOS에서만 가능합니다."
     },
     "memory": {
-      "description": "저장된 메모리와 프로필을 Stella의 모델 컨텍스트에 포함합니다. 사용자의 컴퓨터와 클라우드는 같은 메모리를 유지하며, 전송 중과 저장 시 모두 암호화됩니다. 이 기능을 끄면 동기화가 일시 중지되고 이후 대화에서 메모리를 제외하지만 삭제하지는 않습니다.",
+      "description": "저장된 기억을 답변에 사용합니다. 꺼도 삭제되지 않습니다.",
       "title": "메모리"
     },
     "modelPicker": {
@@ -2109,7 +2124,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "OpenAI 호환 로컬 서버를 사용할 수 있습니다. Ollama는 보통 아래 URL에서 실행됩니다.",
+        "hint": "Ollama 같은 OpenAI 호환 로컬 서버.",
         "modelNameAriaLabel": "로컬 모델 이름",
         "serverUrlAriaLabel": "로컬 서버 URL"
       },
@@ -2153,7 +2168,7 @@
       "title": "모션"
     },
     "nativeFontSmoothing": {
-      "description": "macOS 앱처럼 회색조 안티앨리어싱으로 텍스트를 렌더링합니다.",
+      "description": "기본 macOS 앱처럼 그레이스케일 안티앨리어싱을 사용합니다.",
       "title": "네이티브 글꼴 매끄럽게 처리"
     },
     "notifications": {
@@ -2162,18 +2177,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "온보딩을 다시 진행합니다. 데이터는 유지됩니다.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Stella가 선택한 텍스트를 읽고 컴퓨터 어디서나 ⌘+오른쪽 클릭 단축키로 열 수 있게 합니다.",
+        "description": "선택한 텍스트를 읽고 ⌘+우클릭으로 엽니다.",
         "label": "손쉬운 사용"
       },
       "enable": "사용",
       "granted": "허용됨",
       "microphone": {
-        "description": "음성 및 받아쓰기에 사용됩니다. 이전에 Stella가 거부되어 macOS가 다시 묻지 않으면 재설정하세요.",
+        "description": "음성과 받아쓰기에 사용됩니다.",
         "label": "마이크"
       },
       "opening": "여는 중…",
@@ -2182,54 +2197,14 @@
       "restart": {
         "action": "재시작",
         "closing": "종료 중…",
-        "description": "화면 기록이 방금 켜졌습니다. 설정을 완료하려면 Stella를 종료했다가 다시 여세요.",
+        "description": "화면 기록 켜기를 마치려면 Stella를 다시 여세요.",
         "label": "Stella 재시작"
       },
       "screen": {
-        "description": "Stella가 화면을 보고 보고 있는 내용을 도울 수 있게 합니다. 켠 후 Stella를 종료했다가 다시 열어야 할 수 있습니다.",
+        "description": "Stella가 화면의 내용을 볼 수 있게 합니다.",
         "label": "화면 기록"
       },
       "title": "권한"
-    },
-    "phoneAccess": {
-      "copy": "복사",
-      "deviceFallback": "휴대폰",
-      "errors": {
-        "createPairing": "연결 코드를 만들 수 없습니다."
-      },
-      "expired": "만료됨",
-      "getCode": "코드 받기",
-      "intro": {
-        "headline": "휴대폰을 컴퓨터에 연결하세요"
-      },
-      "pairedCount": {
-        "other": "휴대폰 {count}대 연결됨"
-      },
-      "pairing": {
-        "body": "휴대폰에서 Stella 앱을 열고 QR 코드를 스캔하거나 아래 코드를 입력하세요. 이 과정은 한 번만 하면 됩니다.",
-        "headline": "이 코드를 스캔하거나 입력하세요",
-        "qrAlt": "스캔해 휴대폰 연결"
-      },
-      "preparing": "준비 중...",
-      "remove": "제거",
-      "removing": "제거 중...",
-      "signedOut": {
-        "body": "모바일 앱과 연결하려면 Stella 계정에 로그인하세요.",
-        "headline": "로그인하고 시작하세요"
-      },
-      "steps": {
-        "appStoreQrAlt": "스캔해 App Store에서 Stella 다운로드",
-        "connect": "휴대폰 연결",
-        "download": "앱 다운로드",
-        "platformSelectorLabel": "모바일 플랫폼 선택",
-        "playStoreQrAlt": "스캔해 Google Play에서 Stella 다운로드"
-      },
-      "timeLeft": "{time} 남음",
-      "toasts": {
-        "codeCopied": "코드가 클립보드에 복사됨",
-        "phoneRemoved": "휴대폰이 제거됨",
-        "removeFailed": "휴대폰 제거 실패"
-      }
     },
     "power": {
       "description": "Stella가 열려 있는 동안 컴퓨터가 잠자기로 전환되지 않도록 합니다.",
@@ -2242,7 +2217,7 @@
         "description": "Stella의 채팅 어시스턴트를 {provider}(으)로 연결합니다.",
         "label": "어시스턴트"
       },
-      "description": "{provider}은(는) Stella의 여러 부분을 담당할 수 있습니다. 맡길 영역을 선택하세요 — 나머지는 Stella가 계속 처리합니다.",
+      "description": "{provider}를 어디에 사용할지 선택하세요.",
       "errors": {
         "apply": "제공업체 설정을 적용하지 못했습니다."
       },
@@ -2271,7 +2246,7 @@
     },
     "resetCustomizations": {
       "action": "기본값 복원",
-      "description": "스킬 사용자 지정과 성격 편집을 제거하고 Stella 기본 설정을 적용합니다. 제거된 항목은 ~/.stella/.trash에 보관되어 언제든 되찾을 수 있습니다.",
+      "description": "기본 스킬과 성격을 복원합니다. 이전 파일은 ~/.stella/.trash로 이동합니다.",
       "done": "기본값을 복원했습니다. 이전 사용자 지정은 ~/.stella/.trash로 이동되었습니다.",
       "error": "기본값을 복원하지 못했습니다.",
       "none": "이미 Stella 기본값을 사용하고 있습니다.",
@@ -2305,7 +2280,7 @@
       "change": "변경",
       "clear": "지우기",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "눌러서 받아쓰기를 시작하고, 다시 눌러 끝냅니다."
       },
       "errors": {
         "load": "단축키를 불러오지 못했습니다.",
@@ -2343,7 +2318,7 @@
       "defaultOption": "Stella 기본값",
       "delete": "삭제",
       "deleted": "프롬프트를 삭제했습니다.",
-      "description": "Stella의 기본 프롬프트는 항상 앱과 함께 업데이트됩니다. 직접 만든 프롬프트를 저장하면 그것이 사용됩니다. 별도로 보관되므로 업데이트가 덮어쓰지 않습니다.",
+      "description": "Stella 기본값 대신 직접 만든 프롬프트를 사용합니다.",
       "duplicate": "복제",
       "edit": "편집",
       "error": "문제가 발생했습니다.",
@@ -2360,11 +2335,12 @@
       "account": "계정 및 법적 고지",
       "audio": "오디오",
       "general": "기본",
-      "shortcuts": "단축키"
+      "shortcuts": "단축키",
+      "privacy": "개인정보 보호"
     },
     "title": "설정",
     "voiceAgent": {
-      "description": "음성 및 통화 컨트롤을 표시해 Stella와 소리로 대화할 수 있게 합니다. 음성 입력은 어느 쪽이든 계속 작동합니다.",
+      "description": "음성 및 통화 컨트롤을 표시합니다. 받아쓰기는 어느 쪽이든 작동합니다.",
       "error": "음성 설정을 업데이트할 수 없습니다.",
       "title": "음성 대화"
     },
@@ -2386,6 +2362,13 @@
         "openai": "OpenAI 음성",
         "xai": "Grok 음성"
       }
+    },
+    "groups": {
+      "app": "앱",
+      "personal": "개인"
+    },
+    "nav": {
+      "more": "더 보기"
     }
   },
   "shell": {
@@ -2405,6 +2388,7 @@
       "undoneAgo": "{ago} 되돌림",
       "undoneJustNow": "방금 되돌림",
       "update": "업데이트",
+      "updateAvailable": "업데이트 가능",
       "updatedAgo": "{ago} 업데이트됨",
       "updatedJustNow": "방금 업데이트됨",
       "updates": {
@@ -2418,17 +2402,17 @@
         "justNow": "방금",
         "newVersion": "Stella 새 버전",
         "newVersionDetail": "Stella 팀의 개선 사항 및 수정 사항",
-        "pill": {
-          "other": "업데이트 {count}개"
-        },
         "readyChange": "추가할 수 있는 변경 사항",
         "removed": "제거됨: {change}",
         "skip": "건너뛰기",
         "skipped": "건너뜀",
         "undoing": "실행 취소 중…",
         "upToDate": "대기 중인 항목이 없습니다",
-        "waiting": "대기 중"
-      }
+        "waiting": "대기 중",
+        "upToDateTitle": "최신 상태예요",
+        "upToDateBody": "Stella의 새 버전이 여기에 표시돼요."
+      },
+      "updating": "업데이트 중…"
     },
     "audioPlayer": {
       "pause": "일시정지",
@@ -2456,7 +2440,9 @@
       "noMatches": "검색과 일치하는 커넥터가 없습니다.",
       "searchLabel": "커넥터 검색",
       "searchPlaceholder": "검색",
-      "title": "커넥터"
+      "title": "커넥터",
+      "noMatchesTitle": "일치하는 항목 없음",
+      "noMatchesBody": "다른 이름으로 시도해 보세요."
     },
     "display": {
       "agentThread": {
@@ -2506,11 +2492,19 @@
       },
       "canvasShare": {
         "copyLink": "링크 복사",
-        "empty": "아직 활성 공유가 없습니다. 캔버스를 게시하면 공개 링크가 생깁니다.",
+        "empty": "아직 공개된 캔버스가 없습니다. 캔버스를 공개로 전환하면 링크를 공유할 수 있습니다.",
         "expires": "{date} 만료",
         "links": "링크",
         "live": "캔버스가 공개되었습니다",
         "loadFailed": "공유 목록을 불러오지 못했습니다.",
+        "makePrivate": "비공개로 전환",
+        "makePublic": "공개로 전환",
+        "noLink": "이 캔버스에는 아직 링크가 없습니다. 공개로 전환하면 누구나 열 수 있는 링크가 생깁니다.",
+        "openInBrowser": "브라우저에서 열기",
+        "privateHint": "이 링크는 나만 열 수 있습니다.",
+        "privateLink": "비공개 링크",
+        "public": "공개",
+        "publicHint": "링크가 있는 누구나 볼 수 있습니다.",
         "publicLink": "공개 캔버스 링크",
         "publishFailed": "이 캔버스를 게시하지 못했습니다. 다시 시도해 주세요.",
         "publishing": "캔버스 게시 중…",
@@ -2522,8 +2516,12 @@
         "toasts": {
           "copyFailed": "링크를 복사하지 못했습니다",
           "linkCopied": "공유 링크가 복사됨",
+          "madePrivate": "링크가 비공개로 전환되었습니다",
+          "madePublic": "링크가 공개로 전환되었습니다",
+          "openFailed": "링크를 열 수 없습니다",
           "revokeFailed": "이 공유를 취소하지 못했습니다",
-          "revoked": "공유가 취소됨"
+          "revoked": "공유가 취소됨",
+          "visibilityFailed": "이 링크를 열 수 있는 사람을 변경할 수 없습니다"
         },
         "untitled": "제목 없는 캔버스"
       },
@@ -2532,7 +2530,10 @@
         "codeChanges": "코드 변경 사항",
         "desktopRequired": "코드 미리보기에는 Stella 데스크탑 앱이 필요합니다.",
         "empty": "아직 파일 변경 사항이 없습니다. 에이전트가 코드를 편집하면 변경 사항이 여기에 표시됩니다.",
-        "noChanges": "변경 사항을 찾을 수 없습니다."
+        "noChanges": "변경 사항을 찾을 수 없습니다.",
+        "emptyTitle": "아직 변경 사항이 없어요",
+        "emptyBody": "에이전트가 코드를 수정하면 변경 사항이 여기에 표시돼요.",
+        "noChangesTitle": "변경 사항 없음"
       },
       "filePreview": {
         "copy": "복사",
@@ -2567,7 +2568,11 @@
         "revealInFinder": "Finder에서 보기",
         "save": "저장",
         "saveFailed": "저장할 수 없습니다",
-        "saved": "저장됨"
+        "saved": "저장됨",
+        "zoom": "이미지 확대",
+        "imageUnavailable": "이미지를 사용할 수 없어요",
+        "videoUnavailable": "동영상을 사용할 수 없어요",
+        "audioUnavailable": "오디오를 사용할 수 없어요"
       },
       "office": {
         "frameTitle": "{kind} 미리보기: {title}",
@@ -2591,7 +2596,11 @@
       },
       "preview": {
         "limited": "미리보기가 제한되었습니다. 전체 내용을 보려면 원본 파일을 저장하거나 여세요.",
-        "unavailable": "이 미리보기를 준비할 수 없습니다."
+        "unavailable": "이 미리보기를 준비할 수 없습니다.",
+        "failedTitle": "미리보기를 표시할 수 없어요",
+        "failedBody": "다시 시도하거나 파일을 저장해 다른 곳에서 여세요.",
+        "unavailableTitle": "파일을 사용할 수 없어요",
+        "emptyTitle": "이 파일은 비어 있어요"
       },
       "spreadsheet": {
         "column": "열 {index}",
@@ -2612,7 +2621,9 @@
         "pendingPurge": "완전 삭제 대기 중",
         "refresh": "새로 고침",
         "title": "휴지통",
-        "trashedAgo": "{time} 전에 삭제됨"
+        "trashedAgo": "{time} 전에 삭제됨",
+        "emptyTitle": "휴지통이 비어 있어요",
+        "emptyBody": "삭제한 항목은 24시간 동안 여기에 보관돼요."
       },
       "url": {
         "eyebrow": "실시간 미리보기",

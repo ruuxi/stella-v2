@@ -10,6 +10,10 @@ import type {
   DeviceRequestErrorCode,
   DeviceRequestMethod,
 } from "@stella/contracts/turn-plane/device-requests";
+import {
+  deviceFileMissingMessage,
+  type DeviceFileMissingReason,
+} from "@stella/contracts/device-files";
 import { REMOTE_VIEW_DENIAL_PREFIX } from "../ipc/display-handlers.js";
 
 export type DeviceRequestHandlers = {
@@ -17,7 +21,12 @@ export type DeviceRequestHandlers = {
     filePath?: unknown;
     conversationId?: unknown;
   }) => Promise<
-    | { missing: true; mimeType: string; path: string }
+    | {
+        missing: true;
+        mimeType: string;
+        path: string;
+        reason?: DeviceFileMissingReason;
+      }
     | { missing: false; bytes: Uint8Array; mimeType: string }
   >;
   renderOfficePreview: (payload: {
@@ -85,7 +94,7 @@ export const serveDeviceRequest = async (
           return {
             ok: false,
             code: "not_found",
-            message: "This file is no longer available.",
+            message: deviceFileMissingMessage(result.reason, result.path),
           };
         }
         return {

@@ -73,7 +73,7 @@ describe("run-owned external engine turn lifecycle", () => {
     let toreDown = false;
     void superviseExternalEngineTurn({
       supervise: (resource) => scope.supervise(resource),
-      engine: "codex",
+      engine: "claude-code",
       runId: "run-3",
       signal: undefined,
       run: (signal) =>

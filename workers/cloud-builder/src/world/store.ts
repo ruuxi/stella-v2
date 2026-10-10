@@ -1589,7 +1589,7 @@ export class WorldSqlStore implements WorldToolFileApi {
   }
 
   /**
-   * Apply a worker-shell run's change set, but only if nothing it read or
+   * Apply a code cell's `fs` change set, but only if nothing it read or
    * wrote changed after `baseRevision`. The check and the apply happen in one
    * call, so under the Durable Object's single-writer rule no other mutation
    * lands between them. A refused commit changes nothing, and the caller may

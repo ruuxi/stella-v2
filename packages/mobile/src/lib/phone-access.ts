@@ -324,32 +324,6 @@ export async function ensurePhoneAccess(
 }
 
 /**
- * Redeem a desktop's pairing code.
- *
- * Kept alongside `attachPhoneAccess` rather than replaced by it: builds
- * already in the field use this route, and a typed code is still the way in
- * when the phone cannot see the computer in the account's device list.
- */
-export async function completePhonePairing(args: {
-  pairingCode: string;
-  displayName?: string;
-}) {
-  const mobileDeviceId = await getOrCreateMobileDeviceId();
-  const result = readPairingResult(
-    await postJson("/api/mobile/pairing/complete", {
-      pairingCode: args.pairingCode,
-      mobileDeviceId,
-      ...(args.displayName?.trim()
-        ? { displayName: args.displayName.trim().slice(0, 64) }
-        : {}),
-      platform: readPlatformLabel(),
-    }, { origin: backendOrigin() }),
-  );
-
-  return await storeGrantedPhoneAccess({ ...result, mobileDeviceId });
-}
-
-/**
  * Re-file this phone's stored pairing under the desktop's current device id.
  *
  * A desktop mints a new device id whenever its local keypair stops being

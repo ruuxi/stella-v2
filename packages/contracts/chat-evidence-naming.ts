@@ -178,8 +178,6 @@ export type EvidenceNameParts = {
   /** Lowercase tokens with noise, numbering and variant words removed. */
   subject: string[];
   variant: "before" | "after" | null;
-  /** The subject with its variant and ordinal stripped, for pairing. */
-  pairingKey: string;
 };
 
 export const parseEvidenceName = (filePath: string): EvidenceNameParts => {
@@ -199,11 +197,7 @@ export const parseEvidenceName = (filePath: string): EvidenceNameParts => {
     if (isTimestampToken(token)) continue;
     subject.push(token);
   }
-  return {
-    subject,
-    variant,
-    pairingKey: subject.join(" "),
-  };
+  return { subject, variant };
 };
 
 const sentenceCase = (words: string[]): string => {
@@ -223,11 +217,6 @@ export const humanTitleFor = (
   if (parts.variant === "before") return `${base}, before`;
   if (parts.variant === "after") return `${base}, after`;
   return base;
-};
-
-export const pairTitleFor = (beforePath: string): string => {
-  const subject = sentenceCase(parseEvidenceName(beforePath).subject);
-  return subject ? `${subject}, before and after` : "Before and after";
 };
 
 export const stackTitleFor = (

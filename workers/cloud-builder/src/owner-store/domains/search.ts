@@ -2,8 +2,8 @@
  * Web search, metered in the owner's object: the plan admits the request,
  * and a request that reached the provider is charged once.
  *
- * The desktop runtime calls `search.web`; the orchestrator, resident agent
- * turns and the turn broker reach the same operation as an internal call.
+ * The desktop runtime calls `search.web`; the orchestrator, cloud agents and
+ * the turn broker reach the same operation as an internal call.
  */
 
 import type { SearchCalls } from "@stella/contracts/backend/search";

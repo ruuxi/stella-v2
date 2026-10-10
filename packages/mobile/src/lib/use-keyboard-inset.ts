@@ -1,45 +1,39 @@
 import { useEffect, useState } from "react";
-import { Keyboard, Platform } from "react-native";
-import { useSharedValue } from "react-native-reanimated";
+import { Keyboard } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // ---------------------------------------------------------------------------
 // Keyboard inset — keeps the composer and message list above the OS keyboard.
 //
-// The composer's *motion* is driven separately, on the UI thread, by
-// reanimated's `useAnimatedKeyboard` (see `composerKeyboardStyle`), so it stays
-// glued to the keyboard frame-for-frame in both directions. This hook only
-// tracks the settled height as JS state, used to reserve the message list's
-// bottom inset — that reserve doesn't need frame-perfect smoothness (content
-// just scrolls under the composer), so no `LayoutAnimation` is needed here.
+// The *motion* of the composer and the message list is driven on the UI thread
+// from one value, the keyboard's height as react-native-keyboard-controller
+// reads it from the keyboard's own animation every frame (see `keyboardLift`),
+// so both move with the keyboard frame for frame and together. Nothing here
+// may re-render or re-lay-out the chat while the keyboard animates: the
+// keyboard moves in the render server regardless, and any main-thread layout
+// work left the composer frozen behind it while the list jumped ahead. So this
+// hook only publishes the settled height as JS state after the animation ends.
 // ---------------------------------------------------------------------------
 
 export function useKeyboardInset() {
   const bottomInset = useSafeAreaInsets().bottom;
   const [height, setHeight] = useState(0);
-  // The height the keyboard is heading to, for the composer's UI-thread lift.
-  const targetHeight = useSharedValue(0);
 
   useEffect(() => {
-    const showEvent =
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent =
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-
-    const onShow = (e: { endCoordinates: { height: number } }) => {
-      targetHeight.value = e.endCoordinates.height;
+    const onDidShow = (e: { endCoordinates: { height: number } }) => {
       setHeight(e.endCoordinates.height);
     };
-    const onHide = () => setHeight(0);
+    const onDidHide = () => setHeight(0);
 
-    const showSub = Keyboard.addListener(showEvent, onShow);
-    const hideSub = Keyboard.addListener(hideEvent, onHide);
+    const subs = [
+      Keyboard.addListener("keyboardDidShow", onDidShow),
+      Keyboard.addListener("keyboardDidHide", onDidHide),
+    ];
 
     return () => {
-      showSub.remove();
-      hideSub.remove();
+      for (const sub of subs) sub.remove();
     };
-  }, [targetHeight]);
+  }, []);
 
   const open = height > 0;
   // The composer's bottom pad is keyboard-independent: it always reserves the
@@ -50,5 +44,5 @@ export function useKeyboardInset() {
   // animate.
   const composerBottomPad = 6 + bottomInset;
 
-  return { height, open, composerBottomPad, targetHeight };
+  return { height, open, composerBottomPad };
 }

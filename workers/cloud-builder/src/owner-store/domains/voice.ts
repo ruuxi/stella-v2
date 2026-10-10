@@ -17,6 +17,7 @@
  *   and charges its audio once with `dictation.settle`.
  */
 
+import { Deferred, Effect } from "effect";
 import {
   GPT_LIVE_MODEL,
   VOICE_HISTORY_MAX_CHARS,
@@ -191,23 +192,27 @@ const closeLiveSession = async (env: Cloudflare.Env, sessionId: string): Promise
       return response.status === 404;
     }
     socket.accept();
-    const closed = new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => resolve(false), 10_000);
-      const settle = (value: boolean) => {
-        clearTimeout(timer);
-        resolve(value);
-      };
-      socket!.addEventListener("message", (event) => {
-        if (typeof event.data !== "string") return;
-        try {
-          if ((JSON.parse(event.data) as { type?: unknown }).type === "session.closed") settle(true);
-        } catch {
-          // Not a frame we care about.
-        }
-      });
-      socket!.addEventListener("close", () => settle(true));
-      socket!.addEventListener("error", () => settle(false));
+    // Listeners register before the send, so no reply can slip past them;
+    // the first outcome wins and the wait gives up after 10 seconds.
+    const outcome = Deferred.makeUnsafe<boolean>();
+    const settle = (value: boolean) => {
+      Deferred.doneUnsafe(outcome, Effect.succeed(value));
+    };
+    socket.addEventListener("message", (event) => {
+      if (typeof event.data !== "string") return;
+      try {
+        if ((JSON.parse(event.data) as { type?: unknown }).type === "session.closed") settle(true);
+      } catch {
+        // Not a frame we care about.
+      }
     });
+    socket.addEventListener("close", () => settle(true));
+    socket.addEventListener("error", () => settle(false));
+    const closed = Effect.runPromise(
+      Deferred.await(outcome).pipe(
+        Effect.timeoutOrElse({ duration: 10_000, orElse: () => Effect.succeed(false) }),
+      ),
+    );
     socket.send(JSON.stringify({ type: "session.close", event_id: `close_${sessionId}` }));
     return await closed;
   } catch {

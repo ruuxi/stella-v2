@@ -158,7 +158,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Impossible de charger ce fil",
+        "errorBody": "Fermez-le et rouvrez-le dans un instant."
       },
       "generatedImage": {
         "generating": "Génération...",
@@ -188,13 +190,10 @@
       "messageActions": {
         "copied": "Copié",
         "copy": "Copier",
-        "fork": "Fork to new chat",
         "more": "Plus d'actions",
         "quote": "Quote",
         "readAloud": "Lire à voix haute",
         "reply": "Répondre",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Arrêter la lecture"
@@ -841,7 +840,6 @@
     },
     "integrations": {
       "connectStellaApp": "Se connecter à l’app Stella",
-      "connectStellaAppSub": "Associez l’app Stella de votre téléphone à cet ordinateur",
       "connectTitle": "Connecter",
       "connected": "Connecté",
       "credential": {
@@ -857,11 +855,16 @@
         "saving": "Enregistrement...",
         "title": "Connecter {provider}"
       },
-      "heroTagline": "Écrivez à Stella depuis la plateforme de votre choix — discutez naturellement, ou demandez-lui d’agir directement sur votre ordinateur.",
       "phoneTitle": "Votre téléphone",
       "signInHeadline": "Connectez-vous pour commencer",
       "signInSub": "Connectez-vous à votre compte Stella pour connecter {provider}.",
-      "signInToConnect": "Connectez-vous à Stella pour établir la connexion"
+      "signInToConnect": "Connectez-vous à Stella pour établir la connexion",
+      "getApp": {
+        "appStoreQrAlt": "Scannez pour télécharger Stella depuis l'App Store",
+        "platformLabel": "Choisissez une plateforme mobile",
+        "playStoreQrAlt": "Scannez pour télécharger Stella depuis Google Play",
+        "title": "Obtenir l’app"
+      }
     },
     "legal": {
       "privacy": {
@@ -914,9 +917,16 @@
         "title": "Cette conversation"
       },
       "files": {
-        "empty": "Aucun fichier pour l’instant. Tout ce que Stella produit apparaît ici.",
+        "empty": "Les fichiers que Stella crée ou partage apparaîtront ici.",
         "emptyFiltered": "Aucun fichier ne correspond.",
-        "searchPlaceholder": "Rechercher des fichiers"
+        "filterAll": "Tous les fichiers",
+        "filterLabel": "Filtrer et trier les fichiers",
+        "searchPlaceholder": "Rechercher des fichiers",
+        "sortName": "Nom",
+        "sortNewest": "Plus récents d’abord",
+        "sortOldest": "Plus anciens d’abord",
+        "sourceCloud": "Cloud",
+        "sourceUpload": "Envoyés par vous"
       },
       "schedule": {
         "actionFailed": "Ça n’a pas fonctionné.",
@@ -924,7 +934,9 @@
         "customCadence": "Planification personnalisée",
         "deleteConfirm": "« {title} » ne s’exécutera plus.",
         "deleteSchedule": "Supprimer la planification",
-        "empty": "Aucune planification pour l’instant. Demandez à Stella sur votre ordinateur d’exécuter quelque chose régulièrement et elle apparaîtra ici.",
+        "empty": "Rien de programmé pour l’instant.",
+        "emptyAction": "Programmer quelque chose",
+        "emptyActionPrompt": "Rappelle-moi de ",
         "lastRunFailed": "Échec de la dernière exécution : {error}",
         "loadFailed": "Impossible de charger les planifications.",
         "next": "Prochaine exécution {when}",
@@ -949,6 +961,11 @@
         "stopped": "Arrêté",
         "working": "Travaille en arrière-plan"
       }
+    },
+    "apps": {
+      "empty": "Les apps que Stella crée pour vous apparaîtront ici.",
+      "emptyAction": "Créer une app",
+      "emptyActionPrompt": "Crée-moi une app qui "
     },
     "authCallback": {
       "backToSignIn": "Retour à la connexion",
@@ -1016,7 +1033,6 @@
       "disconnectedLabel": "Ordinateur déconnecté",
       "guestHeroBody": "Demandez à Stella d'agir sur votre ordinateur : naviguer sur le web, gérer des fichiers, exécuter des tâches et bien plus.",
       "guestHeroTitle": "Votre ordinateur à portée de main",
-      "pairLabel": "Associer un ordinateur",
       "statusAsleep": "En veille",
       "statusChecking": "Vérification…",
       "statusConnected": "Connecté"
@@ -1024,20 +1040,11 @@
     "desktop": {
       "connecting": "Connexion au bureau",
       "deviceUnreachable": "Votre {platform} est injoignable",
-      "enterCode": "Saisissez le code affiché sur votre ordinateur.",
-      "guestBody": "Retrouvez votre app de bureau Stella directement sur votre téléphone. Après l'association, votre téléphone se reconnectera automatiquement.",
       "guestSignInPrompt": "Connectez-vous pour commencer.",
       "limitedCapabilities": "Certaines choses nécessitent votre ordinateur",
       "linkInterrupted": "La liaison avec votre ordinateur a été interrompue.",
-      "pairAnother": "Associer un autre ordinateur",
-      "pairTitle": "Associez votre téléphone",
-      "pairing": "Association de ce téléphone",
       "reconnecting": "Reconnexion...",
-      "repairNeeded": "Ce téléphone doit être associé à nouveau à votre ordinateur.",
       "retryLabel": "Réessayer de se connecter",
-      "startPairingLabel": "Commencer à associer un ordinateur",
-      "unavailableBodyPaired": "Vérifiez que Stella est ouverte sur votre ordinateur et connectée à internet. Une fois connectée, votre app de bureau apparaîtra ici même, sur votre téléphone.",
-      "unavailableBodyUnpaired": "Retrouvez votre app de bureau Stella directement sur votre téléphone. Scannez le QR code affiché dans Stella sur votre ordinateur pour commencer — ensuite, votre téléphone se reconnectera automatiquement.",
       "unreachable": "Impossible de joindre votre ordinateur de bureau"
     },
     "engineAccounts": {
@@ -1150,26 +1157,28 @@
         "signInBody": "Retrouvez votre conversation, vos réglages et votre ordinateur connecté sur chaque appareil.",
         "signInTitle": "Connectez-vous à Stella",
         "skip": "Pas maintenant",
-        "subscriptionsBody": "Vous payez déjà Claude ou ChatGPT ? Connectez-le et je l'utiliserai dans le cloud. Vos ordinateurs utilisent leurs propres connexions.",
+        "subscriptionsBody": "Utiliser votre abonnement Claude ou ChatGPT existant ?",
         "subscriptionsLabel": "Facultatif"
       },
       "composerPlaceholder": "Ou posez-moi simplement une question",
       "computer": {
-        "body": "Associez ce téléphone à Stella sur votre ordinateur et je pourrai y exécuter des tâches pendant que vous êtes dehors.",
-        "connectedBody": "Demandez depuis n'importe où et je ferai le travail sur votre ordinateur.",
+        "body": "Connectez-vous sur votre ordinateur et il se relie automatiquement.",
         "connectedTo": "Connecté à {name}",
-        "guestHint": "L'association est liée à votre compte Stella : connectez-vous d'abord. Je reprends exactement ici.",
-        "hint": "Sur votre ordinateur, ouvrez Stella et choisissez Associer le téléphone.",
+        "getDesktop": "Obtenir Stella pour ordinateur",
         "later": "Plus tard",
-        "pair": "Associer mon ordinateur",
-        "point1": "Retrouver un fichier et vous l'envoyer",
-        "point2": "Terminer un export ou un téléchargement",
-        "point3": "Utiliser les apps que vous avez déjà",
-        "settledConnectedDesc": "Je peux y exécuter des tâches depuis votre téléphone.",
-        "settledSkippedDesc": "Vous pouvez en associer un à tout moment dans Paramètres.",
         "settledSkippedTitle": "Pas encore d'ordinateur",
-        "signInToPair": "Se connecter pour associer",
-        "title": "Votre ordinateur, dans votre poche"
+        "title": "Stella sur votre ordinateur"
+      },
+      "gmail": {
+        "body": "Retrouve des e-mails, rattrape des conversations et rédige des réponses, simplement en demandant.",
+        "connect": "Connecter Gmail",
+        "connected": "Connecté",
+        "error": "Impossible de connecter Gmail. Réessaie, ou passe pour l'instant.",
+        "settledSkippedTitle": "Pas de Gmail pour l'instant",
+        "settledTitle": "Gmail connecté",
+        "skip": "Pas maintenant",
+        "title": "Connecter Gmail",
+        "waiting": "En attente de Google…"
       },
       "hello": {
         "cta": "Montre-moi",
@@ -1193,6 +1202,7 @@
         "account": "Envie de tout garder ? Un compte Stella vous suit sur tous vos appareils.",
         "accountSignedIn": "Votre session est ouverte, donc tout vous suit d'un appareil à l'autre. Un petit plus, facultatif :",
         "computer": "Si vous avez un Mac ou un PC, je peux aussi y travailler.",
+        "gmail": "Une grande partie de la vie passe par l'e-mail. Connecte Gmail et je t'aiderai avec le tien.",
         "hello": "Bonjour, je suis Stella.\n\nJe ne suis pas un chatbot. Dites-moi ce dont vous avez besoin et je m'en occupe, en arrière-plan, pendant que vous vaquez à vos occupations.",
         "ready": "Voilà, c'est tout. Je vous découvrirai au fil du temps.\n\nPar quoi commence-t-on ?",
         "showcase": "Voici à quoi ça ressemble.",
@@ -1226,6 +1236,8 @@
         "accountSkipped": "Pas maintenant.",
         "computerDone": "Connecté !",
         "computerSkipped": "Plus tard.",
+        "gmailDone": "C'est fait.",
+        "gmailSkipped": "Pas maintenant.",
         "helloDone": "Montre-moi.",
         "showcaseDone": "Compris.",
         "themeDone": "Celui-ci.",
@@ -1374,7 +1386,6 @@
         "enableFailedTitle": "Impossible d'activer cet ordinateur",
         "enableLabel": "Activer {name}",
         "enabling": "Activation…",
-        "pairingCode": "Utiliser un code d'association",
         "sectionLabel": "Où Stella travaille",
         "statusAwaitingConsent": "En attente d'autorisation sur cet ordinateur",
         "statusDeclined": "Refusé sur cet ordinateur",
@@ -1390,10 +1401,6 @@
       "deleteConfirmTitle": "Supprimer le compte",
       "deleteFailedTitle": "Impossible de supprimer le compte",
       "deletingAccount": "Suppression du compte…",
-      "forget": "Oublier",
-      "forgetConfirmBody": "Ce téléphone cessera de se reconnecter à cet ordinateur jusqu'à ce que vous l'associez de nouveau.",
-      "forgetConfirmTitle": "Oublier {name} ?",
-      "forgetLabel": "Oublier {name}",
       "hideEmailLabel": "Masquer l'e-mail",
       "loadingSession": "Chargement de la session…",
       "notificationsSection": "Notifications",
@@ -1403,9 +1410,6 @@
       "paired": {
         "unnamedComputer": "Ordinateur · {id}"
       },
-      "pairedEmpty": "Aucun ordinateur associé.",
-      "pairedOn": "Associé le {date}",
-      "pairedSection": "Ordinateurs associés",
       "privacyPolicy": "Politique de confidentialité",
       "pushToggleA11y": "Activer ou désactiver les notifications push",
       "pushToggleLabel": "Autoriser les notifications push",
@@ -1556,6 +1560,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "Retrouve des e-mails, rattrape des conversations et rédige des réponses, simplement en demandant.",
+        "connect": "Connecter Gmail",
+        "connected": "Connecté",
+        "connecting": "En attente de Google…",
+        "error": "Impossible de connecter Gmail. Réessaie, ou passe pour l'instant.",
+        "settledDesc": "Gère-le à tout moment dans Connecteurs.",
+        "settledSkippedTitle": "Pas de Gmail pour l'instant",
+        "settledTitle": "Gmail connecté",
+        "skip": "Pas maintenant",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1569,7 +1585,9 @@
       "messages": {
         "capabilities": "Bonjour, je suis Stella.\n\nJe ne suis pas un chatbot. J'utilise cet ordinateur pour faire réellement les choses à votre place, en arrière-plan, pendant que vous continuez.\n\nVoici à quoi cela ressemble.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "Une grande partie de la vie passe par l'e-mail. Connecte Gmail et je t'aiderai avec le tien.",
         "memory": "One more thing that makes me different.",
+        "phone": "Je suis aussi sur votre téléphone.",
         "quickstart": "C'est tout. Une dernière chose, facultative : un démarrage rapide.",
         "quickstartDone": "C'est fait. Voici ce que j'ai retenu, et quelques idées pour commencer.",
         "quickstartFailed": "Je n'ai pas pu finir de lire votre navigateur cette fois. Nous pouvons commencer quand même, et j'apprendrai en chemin.",
@@ -1627,6 +1645,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "C'est fait.",
+        "gmailSkipped": "Pas maintenant.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Très cool.",
@@ -1857,10 +1877,10 @@
       "microphoneDeviceFallback": "Microphone {index}",
       "recovery": {
         "closing": "Fermeture…",
-        "manageDescription": "Si l'autorisation du microphone se bloque, vous pouvez la réinitialiser et demander à macOS de redemander.",
+        "manageDescription": "Réinitialisez l'autorisation du micro si elle bloque.",
         "manageLabel": "Gérer l'accès au microphone",
         "openSettings": "Ouvrir les Réglages",
-        "recoverDescription": "Une fois que vous avez refusé, macOS ne redemande plus de lui-même. Réinitialisez l'autorisation, puis quittez et rouvrez Stella.",
+        "recoverDescription": "macOS ne redemandera pas. Réinitialisez-la, puis rouvrez Stella.",
         "recoverLabel": "Récupérer l'accès au microphone",
         "reset": "Réinitialiser et redémarrer"
       },
@@ -1873,22 +1893,22 @@
       },
       "speakerDeviceFallback": "Haut-parleur {index}",
       "superFast": {
-        "description": "Garde le microphone prêt pour que la dictée démarre avec moins de délai.",
+        "description": "Garde le micro prêt pour que la dictée démarre plus vite.",
         "label": "Dictée ultra-rapide"
       },
       "systemDefault": "Réglage système par défaut",
       "wakeWord": {
-        "description": "Écoute « Hey Stella » en arrière-plan et démarre une conversation vocale. Lorsqu'il est désactivé, le micro reste inactif jusqu'à ce que vous appuyiez sur dicter.",
+        "description": "Dites « Hey Stella » pour lancer une conversation vocale.",
         "label": "Mot d'activation « Hey Stella »"
       }
     },
     "browserExtension": {
       "action": "Obtenir l'extension",
-      "description": "Permet à Stella de voir la page sur laquelle vous êtes et d'agir dans votre navigateur.",
+      "description": "Permet à Stella de voir et d'agir dans votre navigateur.",
       "title": "Stella pour Chrome"
     },
     "chatStorage": {
-      "description": "Accédez à vos conversations sur tous vos appareils. Désactivez cette option pour conserver un historique distinct uniquement sur cet ordinateur. En réactivant, ces conversations ne seront pas envoyées. Les fournisseurs d'IA traitent toujours vos messages.",
+      "description": "Synchronise les chats entre appareils. Désactivé, ils restent sur cet ordinateur.",
       "endVoice": "Terminez votre conversation vocale pour modifier le stockage des conversations.",
       "error": "Impossible de modifier le stockage des conversations. Réessayez.",
       "title": "Enregistrer l'historique des conversations dans le cloud"
@@ -1907,13 +1927,13 @@
       "upgrade": "Passer à un plan supérieur"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Une petite Stella flottant sur votre bureau.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "Clé d'API",
-      "empty": "Aucun fournisseur connecté pour l'instant. Choisissez une option autre que Stella dans le sélecteur de modèles ci-dessus pour ajouter une clé d'API ou vous connecter.",
+      "empty": "Aucun fournisseur pour l'instant. Ajoutez-en un depuis le sélecteur de modèle ci-dessus.",
       "removeKey": "Retirer la clé",
       "removingKey": "Retrait…",
       "signOut": "Se déconnecter",
@@ -1932,7 +1952,7 @@
       "addClaude": "Ajouter un compte Claude",
       "addInCloud": "Dans le cloud",
       "addOnComputer": "Sur cet ordinateur",
-      "cardIntro": "Utilisez le forfait Claude ou ChatGPT que vous payez déjà. Chaque emplacement se connecte séparément : chaque ordinateur et votre cloud.",
+      "cardIntro": "Utilisez le forfait Claude ou ChatGPT que vous payez déjà.",
       "cardTitle": "Comptes Claude et ChatGPT",
       "chatgptBrowserWaiting": "Terminez la connexion à ChatGPT dans votre navigateur.",
       "chatgptCloudSignedIn": "Votre cloud est connecté à ChatGPT.",
@@ -1953,7 +1973,7 @@
         "whereComputer": "Connexion à Claude Code sur cet ordinateur."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Code n'est pas installé sur cet ordinateur. Installez-le pour utiliser Claude ici.",
+      "cliMissing": "Installez Claude Code sur cet ordinateur pour utiliser Claude ici.",
       "connecting": "Connexion…",
       "defaultSignedOut": "Claude Code n'est pas connecté sur cet ordinateur.",
       "enablePlanUsage": "Activer l'utilisation du forfait ChatGPT",
@@ -1964,14 +1984,14 @@
       "needsChatgptCloud": "Connectez d'abord ChatGPT à votre cloud",
       "needsClaudeCloud": "Connectez-vous d'abord à Claude dans le cloud",
       "openChatgptAgain": "Rouvrir ChatGPT",
-      "pasteHintChatgpt": "Après votre approbation, ChatGPT vous redirige vers une page qui ne se charge pas. Copiez l'adresse complète de cette page et collez-la ici.",
+      "pasteHintChatgpt": "Copiez l'adresse de la page ouverte par ChatGPT et collez-la ici.",
       "pastePlaceholderUrl": "Collez l'adresse ici",
       "placeCloud": "Cloud",
       "placeComputer": "Cet ordinateur",
       "placeOtherComputer": "Autre ordinateur",
       "placeSignedIn": "{place} : connecté",
       "placeSignedOut": "{place} : non connecté",
-      "planUsageOffBody": "Stella ne peut pas utiliser votre forfait ChatGPT tant que vous ne l'avez pas autorisé. Choisissez « Activer l'utilisation du forfait ChatGPT » sur le compte, ou utilisez un autre modèle.",
+      "planUsageOffBody": "Choisissez « Activer l'utilisation du forfait ChatGPT » sur le compte, ou un autre modèle.",
       "planUsageOffTitle": "Connecté, mais l'utilisation du forfait ChatGPT n'est pas activée",
       "remove": "Supprimer",
       "removed": "Supprimé.",
@@ -2028,7 +2048,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "L'insistance de Stella pour vous joindre quand elle a besoin d'une réponse.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2063,16 +2083,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2086,16 +2101,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Choisissez la langue que Stella utilisera dans l'app et pour vous répondre.",
+      "description": "Pour l'app et les réponses de Stella.",
       "title": "Langue"
     },
     "lockedComputerUse": {
-      "description": "Laisse Stella poursuivre les tâches d'utilisation de l'ordinateur après le verrouillage de ce Mac. Nécessite une autorisation administrateur et masque l'écran pendant que Stella travaille.",
+      "description": "Les tâches d'utilisation de l'ordinateur continuent quand ce Mac se verrouille.",
       "title": "Utilisation de l'ordinateur verrouillé",
       "unsupported": "L'utilisation de l'ordinateur verrouillé n'est disponible que sur macOS."
     },
     "memory": {
-      "description": "Incluez les souvenirs enregistrés et votre profil dans le contexte du modèle de Stella. Vos ordinateurs et le cloud gardent la même mémoire, chiffrée en transit et au repos. Désactiver cette option met cela en pause et exclut la mémoire des futurs échanges sans la supprimer.",
+      "description": "Utilise les souvenirs enregistrés dans les réponses. Désactiver ne les supprime pas.",
       "title": "Mémoire"
     },
     "modelPicker": {
@@ -2129,7 +2144,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Utilisez n'importe quel serveur local compatible OpenAI. Ollama tourne généralement à l'URL ci-dessous.",
+        "hint": "Tout serveur local compatible OpenAI, comme Ollama.",
         "modelNameAriaLabel": "Nom du modèle local",
         "serverUrlAriaLabel": "URL du serveur local"
       },
@@ -2173,7 +2188,7 @@
       "title": "Animations"
     },
     "nativeFontSmoothing": {
-      "description": "Affiche le texte comme les apps macOS, avec un anticrénelage en niveaux de gris.",
+      "description": "Lissage en niveaux de gris, comme les apps macOS natives.",
       "title": "Lissage des polices natif"
     },
     "notifications": {
@@ -2182,18 +2197,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Relancez l'accueil. Vos données sont conservées.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Permet à Stella de lire le texte sélectionné et de s'ouvrir via le raccourci ⌘+clic droit partout sur votre ordinateur.",
+        "description": "Lire le texte sélectionné et ouvrir avec ⌘+clic droit.",
         "label": "Accessibilité"
       },
       "enable": "Activer",
       "granted": "Accordée",
       "microphone": {
-        "description": "Utilisé pour la voix et la dictée. Réinitialisez si Stella a été refusée auparavant et que macOS ne redemande plus.",
+        "description": "Pour la voix et la dictée.",
         "label": "Microphone"
       },
       "opening": "Ouverture…",
@@ -2202,56 +2217,14 @@
       "restart": {
         "action": "Redémarrer",
         "closing": "Fermeture…",
-        "description": "La capture d'écran vient d'être activée. Quittez et rouvrez Stella pour terminer sa configuration.",
+        "description": "Rouvrez Stella pour finir d'activer la capture d'écran.",
         "label": "Redémarrer Stella"
       },
       "screen": {
-        "description": "Permet à Stella de voir votre écran pour vous aider avec ce que vous regardez. Vous devrez peut-être quitter et rouvrir Stella après l'avoir activé.",
+        "description": "Permet à Stella de voir ce qui est à l'écran.",
         "label": "Capture d'écran"
       },
       "title": "Autorisations"
-    },
-    "phoneAccess": {
-      "copy": "Copier",
-      "deviceFallback": "Téléphone",
-      "errors": {
-        "createPairing": "Impossible de créer un code d'association."
-      },
-      "expired": "Expiré",
-      "getCode": "Obtenir un code",
-      "intro": {
-        "headline": "Connectez votre téléphone à votre ordinateur"
-      },
-      "pairedCount": {
-        "many": "{count} téléphones associés",
-        "one": "{count} téléphone associé",
-        "other": "{count} téléphones associés"
-      },
-      "pairing": {
-        "body": "Ouvrez l'app Stella sur votre téléphone et scannez le QR code, ou saisissez le code ci-dessous. Vous n'avez à le faire qu'une seule fois.",
-        "headline": "Scannez ou saisissez ce code",
-        "qrAlt": "Scannez pour associer votre téléphone"
-      },
-      "preparing": "Préparation...",
-      "remove": "Supprimer",
-      "removing": "Suppression...",
-      "signedOut": {
-        "body": "Connectez-vous à votre compte Stella pour l'associer à l'app mobile.",
-        "headline": "Connectez-vous pour commencer"
-      },
-      "steps": {
-        "appStoreQrAlt": "Scannez pour télécharger Stella depuis l'App Store",
-        "connect": "Connectez votre téléphone",
-        "download": "Téléchargez l'app",
-        "platformSelectorLabel": "Choisissez une plateforme mobile",
-        "playStoreQrAlt": "Scannez pour télécharger Stella depuis Google Play"
-      },
-      "timeLeft": "{time} restant",
-      "toasts": {
-        "codeCopied": "Code copié dans le presse-papiers",
-        "phoneRemoved": "Téléphone supprimé",
-        "removeFailed": "Échec de la suppression du téléphone"
-      }
     },
     "power": {
       "description": "Empêche votre ordinateur de se mettre en veille pendant que Stella est ouverte.",
@@ -2264,7 +2237,7 @@
         "description": "Faire passer l'assistant de conversation de Stella par {provider}.",
         "label": "Assistant"
       },
-      "description": "{provider} peut alimenter plusieurs parties de Stella. Choisissez où vous souhaitez qu'il prenne le relais — Stella s'occupe du reste.",
+      "description": "Choisissez ce que {provider} doit alimenter.",
       "errors": {
         "apply": "Échec de l'application des paramètres du fournisseur."
       },
@@ -2293,7 +2266,7 @@
     },
     "resetCustomizations": {
       "action": "Restaurer les réglages par défaut",
-      "description": "Supprime vos personnalisations de compétences et modifications de personnalité pour appliquer les réglages par défaut de Stella. Les éléments supprimés sont conservés dans ~/.stella/.trash au cas où.",
+      "description": "Restaure les compétences et la personnalité par défaut. Les anciens fichiers vont dans ~/.stella/.trash.",
       "done": "Réglages par défaut restaurés. Vos personnalisations précédentes ont été déplacées vers ~/.stella/.trash.",
       "error": "Impossible de restaurer les réglages par défaut.",
       "none": "Vous utilisez déjà les réglages par défaut de Stella.",
@@ -2327,7 +2300,7 @@
       "change": "Modifier",
       "clear": "Effacer",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Appuyez pour dicter, appuyez à nouveau pour terminer."
       },
       "errors": {
         "load": "Échec du chargement des raccourcis.",
@@ -2365,7 +2338,7 @@
       "defaultOption": "Par défaut de Stella",
       "delete": "Supprimer",
       "deleted": "Prompt supprimé.",
-      "description": "Le prompt par défaut de Stella se met toujours à jour avec l'app. Enregistrez le vôtre pour l'utiliser à la place : il est conservé séparément, donc les mises à jour ne l'écrasent jamais.",
+      "description": "Utilisez votre propre prompt au lieu de celui de Stella.",
       "duplicate": "Dupliquer",
       "edit": "Modifier",
       "error": "Une erreur est survenue.",
@@ -2382,11 +2355,12 @@
       "account": "Compte et mentions légales",
       "audio": "Audio",
       "general": "Général",
-      "shortcuts": "Raccourcis"
+      "shortcuts": "Raccourcis",
+      "privacy": "Confidentialité"
     },
     "title": "Paramètres",
     "voiceAgent": {
-      "description": "Affiche les commandes vocales et d'appel pour parler à Stella à voix haute. La dictée fonctionne dans les deux cas.",
+      "description": "Affiche les commandes de voix et d'appel. La dictée fonctionne dans tous les cas.",
       "error": "Impossible de mettre à jour le réglage vocal.",
       "title": "Conversations vocales"
     },
@@ -2408,6 +2382,13 @@
         "openai": "Voix OpenAI",
         "xai": "Voix Grok"
       }
+    },
+    "groups": {
+      "app": "App",
+      "personal": "Personnel"
+    },
+    "nav": {
+      "more": "Plus"
     }
   },
   "shell": {
@@ -2429,6 +2410,7 @@
       "undoneAgo": "Annulé {ago}",
       "undoneJustNow": "Annulé à l'instant",
       "update": "Mettre à jour",
+      "updateAvailable": "Mise à jour disponible",
       "updatedAgo": "Mis à jour {ago}",
       "updatedJustNow": "Mis à jour à l'instant",
       "updates": {
@@ -2442,19 +2424,17 @@
         "justNow": "À l’instant",
         "newVersion": "Nouvelle version de Stella",
         "newVersionDetail": "Améliorations et corrections de l’équipe Stella",
-        "pill": {
-          "many": "{count} mises à jour",
-          "one": "{count} mise à jour",
-          "other": "{count} mises à jour"
-        },
         "readyChange": "Une modification prête à ajouter",
         "removed": "Retiré : {change}",
         "skip": "Ignorer",
         "skipped": "Ignorées",
         "undoing": "Annulation…",
         "upToDate": "Rien en attente",
-        "waiting": "En attente"
-      }
+        "waiting": "En attente",
+        "upToDateTitle": "Tout est à jour",
+        "upToDateBody": "Les nouvelles versions de Stella apparaissent ici."
+      },
+      "updating": "Mise à jour…"
     },
     "audioPlayer": {
       "pause": "Pause",
@@ -2482,7 +2462,9 @@
       "noMatches": "Aucun connecteur ne correspond à cette recherche.",
       "searchLabel": "Rechercher des connecteurs",
       "searchPlaceholder": "Rechercher",
-      "title": "Connecteurs"
+      "title": "Connecteurs",
+      "noMatchesTitle": "Aucun résultat",
+      "noMatchesBody": "Essayez un autre nom."
     },
     "display": {
       "agentThread": {
@@ -2538,11 +2520,19 @@
       },
       "canvasShare": {
         "copyLink": "Copier le lien",
-        "empty": "Aucun partage actif pour l’instant. Publiez un canvas pour obtenir un lien public.",
+        "empty": "Aucun canevas public pour l’instant. Rendez un canevas public pour partager son lien.",
         "expires": "Expire le {date}",
         "links": "Liens",
         "live": "Le canvas est en ligne",
         "loadFailed": "Impossible de charger vos partages.",
+        "makePrivate": "Rendre privé",
+        "makePublic": "Rendre public",
+        "noLink": "Ce canevas n’a pas encore de lien. Rendez-le public pour obtenir un lien que tout le monde peut ouvrir.",
+        "openInBrowser": "Ouvrir dans le navigateur",
+        "privateHint": "Vous seul pouvez ouvrir ce lien.",
+        "privateLink": "Lien privé",
+        "public": "Public",
+        "publicHint": "Toute personne disposant du lien peut le voir.",
         "publicLink": "Lien public du canvas",
         "publishFailed": "Impossible de publier ce canvas. Veuillez réessayer.",
         "publishing": "Publication du canvas…",
@@ -2554,8 +2544,12 @@
         "toasts": {
           "copyFailed": "Impossible de copier le lien",
           "linkCopied": "Lien de partage copié",
+          "madePrivate": "Le lien est désormais privé",
+          "madePublic": "Le lien est désormais public",
+          "openFailed": "Impossible d’ouvrir le lien",
           "revokeFailed": "Impossible de révoquer ce partage",
-          "revoked": "Partage révoqué"
+          "revoked": "Partage révoqué",
+          "visibilityFailed": "Impossible de modifier qui peut ouvrir ce lien"
         },
         "untitled": "Canvas sans titre"
       },
@@ -2564,7 +2558,10 @@
         "codeChanges": "Modifications de code",
         "desktopRequired": "L’aperçu de code nécessite l’app Stella pour ordinateur.",
         "empty": "Aucune modification de fichier pour l’instant. Quand un agent modifie du code, les changements apparaissent ici.",
-        "noChanges": "Aucune modification trouvée."
+        "noChanges": "Aucune modification trouvée.",
+        "emptyTitle": "Aucune modification pour l'instant",
+        "emptyBody": "Quand un agent modifie du code, les changements apparaissent ici.",
+        "noChangesTitle": "Aucune modification"
       },
       "filePreview": {
         "copy": "Copier",
@@ -2599,7 +2596,11 @@
         "revealInFinder": "Afficher dans le Finder",
         "save": "Enregistrer",
         "saveFailed": "Impossible d’enregistrer",
-        "saved": "Enregistré"
+        "saved": "Enregistré",
+        "zoom": "Zoomer sur l’image",
+        "imageUnavailable": "Image indisponible",
+        "videoUnavailable": "Vidéo indisponible",
+        "audioUnavailable": "Audio indisponible"
       },
       "office": {
         "frameTitle": "Aperçu {kind} : {title}",
@@ -2627,7 +2628,11 @@
       },
       "preview": {
         "limited": "Aperçu limité. Enregistrez ou ouvrez le fichier d'origine pour voir tout le contenu.",
-        "unavailable": "Impossible de préparer cet aperçu."
+        "unavailable": "Impossible de préparer cet aperçu.",
+        "failedTitle": "Impossible d'afficher un aperçu",
+        "failedBody": "Réessayez, ou enregistrez le fichier pour l'ouvrir ailleurs.",
+        "unavailableTitle": "Fichier indisponible",
+        "emptyTitle": "Ce fichier est vide"
       },
       "spreadsheet": {
         "column": "Colonne {index}",
@@ -2650,7 +2655,9 @@
         "pendingPurge": "Purge en attente",
         "refresh": "Actualiser",
         "title": "Corbeille",
-        "trashedAgo": "Mis à la corbeille il y a {time}"
+        "trashedAgo": "Mis à la corbeille il y a {time}",
+        "emptyTitle": "La corbeille est vide",
+        "emptyBody": "Les éléments supprimés restent ici pendant 24 heures."
       },
       "url": {
         "eyebrow": "Aperçu en direct",

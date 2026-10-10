@@ -16,6 +16,7 @@ import {
 } from "react";
 import type { ElectronNativeIntegration } from "@/shared/types/electron";
 import { useT } from "@/shared/i18n";
+import { EmptyState } from "@/ui/empty-state/EmptyState";
 import {
   Popover,
   PopoverBody,
@@ -156,9 +157,12 @@ export function ConnectorsPopover({
               {t("shell.connectors.empty")}
             </div>
           ) : visibleConnectors.length === 0 ? (
-            <div className="connectors-popover__status">
-              {t("shell.connectors.noMatches")}
-            </div>
+            <EmptyState
+              motif="search"
+              size="compact"
+              title={t("shell.connectors.noMatchesTitle")}
+              body={t("shell.connectors.noMatchesBody")}
+            />
           ) : (
             <ul className="connectors-popover__list">
               {visibleConnectors.map((connector) => {

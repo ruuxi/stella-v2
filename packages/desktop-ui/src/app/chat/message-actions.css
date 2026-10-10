@@ -97,15 +97,6 @@
   text-transform: none;
 }
 
-/* Armed "click again to rewind" confirm state — mirrors the top bar's two-step
-   confirm affordance (data-armed). The destructive tint already comes from the
-   menu's own `data-variant="destructive"` styling; arming deepens it so the
-   first click is unmistakable. */
-.message-actions-menu [data-slot="dropdown-menu-item"][data-armed="true"] {
-  background: color-mix(in srgb, var(--destructive) 14%, transparent);
-  color: color-mix(in srgb, var(--text-strong) 30%, var(--destructive) 70%);
-}
-
 .message-actions__spinner {
   animation: message-actions-spin 0.8s linear infinite;
 }

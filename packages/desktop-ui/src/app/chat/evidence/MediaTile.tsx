@@ -6,9 +6,14 @@ import {
 import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
 import { buildPayloadFromBarePath } from "@/features/chat/lib/derive-turn-resource";
 import { Maximize2 } from "@/ui/icons";
-import { CompareFrame } from "./CompareFrame";
 import { VideoFrame } from "./VideoFrame";
 import { WaveformTile } from "./WaveformTile";
+
+const VISUAL_KINDS: ReadonlySet<EvidenceCard["kind"]> = new Set([
+  "image",
+  "stack",
+  "video",
+]);
 
 const openSource = (filePath: string) => {
   const payload = buildPayloadFromBarePath(filePath, Date.now());
@@ -43,15 +48,6 @@ const StackBody = ({ card }: { card: EvidenceCard }) => {
 };
 
 const TileBody = ({ card }: { card: EvidenceCard }) => {
-  if (card.kind === "image-pair" && card.thumbnail && card.thumbnailAfter) {
-    return (
-      <CompareFrame
-        before={card.thumbnail}
-        after={card.thumbnailAfter}
-        title={card.title}
-      />
-    );
-  }
   if (card.kind === "video") {
     return (
       <VideoFrame
@@ -117,8 +113,10 @@ export const MediaTile = ({
         <Maximize2 size={11} />
       </button>
     </div>
-    <figcaption className="media-tile__caption" title={card.sourcePaths.join(", ")}>
-      {card.title}
-    </figcaption>
+    {VISUAL_KINDS.has(card.kind) ? null : (
+      <figcaption className="media-tile__caption" title={card.sourcePaths.join(", ")}>
+        {card.title}
+      </figcaption>
+    )}
   </figure>
 );

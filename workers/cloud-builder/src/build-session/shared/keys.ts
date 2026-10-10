@@ -1,6 +1,5 @@
 import { Effect } from "effect";
 import { runToolEffect } from "@stella/runtime/kernel/tools/effect-runtime.js";
-import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ExecutionSession } from "../../sandbox-client.js";
 import {
   TURN_OWNER_GENERATION_HEADER,
@@ -9,7 +8,6 @@ import {
 import { HEADER_OWNER } from "../../conversation-types.js";
 import type { TurnEventEvent } from "@stella/contracts/turn-plane/owner-events";
 import { classifyAgentFailureDiagnostic } from "../../agent-failure-diagnostic.js";
-import { mintTurnCapability } from "../../capability-signer.js";
 import { sha256Hex } from "../../hash.js";
 import { inSubshell } from "../../shell-subshell.js";
 import { sandboxLifecycleId } from "../../sandbox-lifecycle.js";
@@ -17,12 +15,8 @@ import type { InstanceSize } from "../../instance-size.js";
 import { APP_BUILD_ROOT, WORLD_ROOT } from "../../workspace.js";
 import type { OwnerGateRefusalCode } from "../../owner-gate.js";
 import { AgentTurnAuthorityLostError } from "./errors.js";
-import { isCloudBrowserSuspension } from "@stella/contracts/cloud-browser";
-import type { CloudBrowserSuspension } from "@stella/contracts/cloud-browser";
-import type { TurnBrokerTurnStateCheckpointReceipt } from "@stella/contracts/turn-credential-broker";
-import { nativeHistoryCursorFromRows } from "../../native-state-checkpoint.js";
 import type { Env } from "./env.js";
-import type { ObservedBrowserSuspension, TurnRequest } from "./types.js";
+import type { TurnRequest } from "./types.js";
 
 /** Owner events the owner object refused, kept for the alarm to retry. */
 export const OWNER_EVENT_DEBT_KEY = "ownerEventDebt";
@@ -173,9 +167,7 @@ export const exactTurnIdentityMatches = (
   current.conversationId === expected.conversationId &&
   current.sessionId === expected.sessionId &&
   current.threadId === expected.threadId &&
-  current.attemptGeneration === expected.attemptGeneration &&
-  JSON.stringify(current.browserResume ?? null) ===
-    JSON.stringify(expected.browserResume ?? null);
+  current.attemptGeneration === expected.attemptGeneration;
 
 export const BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX =
   "buildOwnerFenceLeaseReceipt:";
@@ -191,16 +183,7 @@ export const isBuildOwnerFenceDurabilityKey = (key: string): boolean =>
   key.startsWith(BUILD_OWNER_FENCE_LEASE_RECEIPT_PREFIX) ||
   key.startsWith(BUILD_OWNER_FENCE_LEASE_SLOT_PREFIX);
 
-export const agentComputeRecoveryClaimKey = (
-  turnId: string,
-  attemptGeneration: number,
-): string => `agentComputeRecovery:${turnId}:${attemptGeneration}`;
-
 export const APP_TURN_ADMISSION_CLAIM_KEY = "appTurnAdmissionClaim";
-
-export const PENDING_BROWSER_SUSPENSION_KEY = "pendingBrowserSuspension";
-
-export const OBSERVED_BROWSER_SUSPENSION_KEY = "observedBrowserSuspension";
 
 export const json = (body: unknown, status = 200): Response =>
   Response.json(body, {
@@ -368,10 +351,9 @@ export const builderFallbackRetryKey = (
  * How often a live agent turn re-arms its alarm when nothing else (a world
  * lease renewal) would. The alarm is the only thing that notices a turn whose
  * isolate was replaced under it — a deploy, an eviction — so without this a
- * resident turn lost that way sat as "running" until its full watchdog
- * deadline, holding the owner's agent lane for the whole wait. Short because
- * a lost resident turn now resumes on this alarm: the beat is the stall a
- * deploy costs the user. A beat on a live turn is a few storage reads.
+ * turn lost that way sat as "running" until its full watchdog deadline,
+ * holding the owner's agent lane for the whole wait. A beat on a live turn is
+ * a few storage reads.
  */
 export const AGENT_TURN_HEARTBEAT_MS = 15_000;
 
@@ -389,8 +371,6 @@ export const HEADER_CONVERSATION_ID = "x-stella-conversation-id";
 export const HEADER_BUILD_SESSION_NAME = "x-stella-build-session-name";
 export const HEADER_TURN_BROKER_ENDPOINT = "x-stella-turn-broker-endpoint";
 export const HEADER_PREVIEW_BASE_URL = "x-stella-preview-base-url";
-/** Digest shape every artifact and gateway observation must present. */
-export const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 
 /** Header the outer Worker forwards a signed preview capability on. */
@@ -507,7 +487,7 @@ export const sweepR2Prefix = async (
 /**
  * Where the broker credential is handed to the executor: a one-shot file in
  * `directory` (a container attempt's root-only directory, or `/workspace` for
- * a resident turn's tool host), above the checkpointed world, with a random
+ * an attached tool host), above the checkpointed world, with a random
  * name so nothing can be waiting on a known path.
  *
  * Deliberately not an env var on the exec session: the executor's own
@@ -517,202 +497,3 @@ export const sweepR2Prefix = async (
  */
 export const turnBrokerCredentialsPath = (directory: string): string =>
   `${directory}/.turn-broker-${crypto.randomUUID()}.json`;
-
-/**
- * Mint the model-gateway capability for one admitted agent turn. It is the
- * only credential the sandbox or resident loop presents for model calls:
- * turn-scoped, pinned to the admitted execution, budgeted, expiring, and
- * meaningless anywhere but the gateway. The old reusable turn token never
- * accompanies model traffic.
- *
- * Never minted for a Claude (`anthropic`) execution: the container's Claude
- * Code CLI talks to Anthropic directly on the login it holds itself.
- */
-export const mintAgentTurnModelGateway = async (
-  env: Pick<
-    Env,
-    "MODEL_GATEWAY_URL" | "CAPABILITY_SIGNING_KEY" | "CAPABILITY_SIGNING_KID"
-  >,
-  turn: TurnRequest,
-  execution: Exclude<CloudExecutionSelection, { engine: "anthropic" }>,
-  agentTypes: readonly string[] = ["general"],
-): Promise<{ origin: string; capability: string; expiresAt: number }> => {
-  const origin = env.MODEL_GATEWAY_URL?.trim() ?? "";
-  if (!origin) throw new Error("Model gateway is not configured.");
-  if (!turn.conversationId) throw new AgentTurnAuthorityLostError();
-  const base = {
-    ownerId: turn.ownerId,
-    ownerGeneration: turn.ownerGeneration,
-    turnId: turn.turnId,
-    conversationId: turn.conversationId,
-    audience: turn.audience,
-    budgetMicroCents: turn.budgetMicroCents,
-    agentTypes,
-  };
-  const minted = await mintTurnCapability(env, { ...base, execution });
-  return { origin, capability: minted.token, expiresAt: minted.expiresAt };
-};
-
-import { validTurnStateCheckpointReceipt } from "../public-helpers.js";
-
-export const cloudBrowserSuspensionMarker = (
-  suspension: CloudBrowserSuspension,
-): string =>
-  JSON.stringify([
-    suspension.schemaVersion,
-    suspension.outcome,
-    suspension.interactionId,
-    suspension.interactionRevision,
-    suspension.interactionKind,
-    suspension.toolCallId,
-    suspension.requestDigest,
-    suspension.profileId,
-    suspension.profileEpoch,
-    suspension.displayOrigin,
-    suspension.displayTitle ?? null,
-    suspension.expiresAt,
-  ]);
-
-export const canonicalToolCallId = (value: unknown): value is string =>
-  typeof value === "string" &&
-  value.length > 0 &&
-  new TextEncoder().encode(value).byteLength <= 256 &&
-  !/[\u0000-\u001f\u007f]/u.test(value);
-
-/**
- * Bind the Gateway's neutral request id to the one unresolved outer Code call
- * in the exact canonical checkpoint. This is the trust boundary that makes a
- * Gateway observation resumable after executor stdout/finalizer loss.
- */
-export const bindObservedBrowserSuspensionToCanonicalCodeCall = async (args: {
-  observation: ObservedBrowserSuspension;
-  turnId: string;
-  attemptGeneration: number;
-  checkpoint: TurnBrokerTurnStateCheckpointReceipt;
-  rows: Array<{ turnId: string; role: string; payloadJson: string }>;
-  now?: number;
-}): Promise<CloudBrowserSuspension | null> =>
-  validTurnStateCheckpointReceipt(args.checkpoint)
-    ? await bindObservedBrowserSuspensionToCanonicalCursor({
-        observation: args.observation,
-        turnId: args.turnId,
-        attemptGeneration: args.attemptGeneration,
-        historyCursor: args.checkpoint.historyCursor,
-        rows: args.rows,
-        ...(args.now === undefined ? {} : { now: args.now }),
-      })
-    : null;
-
-/**
- * The same binding against a canonical history cursor alone. A resident turn
- * that never attached a sandbox has no workspace checkpoint to name; its
- * verified transcript receipt is the authoritative cursor instead.
- */
-export const bindObservedBrowserSuspensionToCanonicalCursor = async (args: {
-  observation: ObservedBrowserSuspension;
-  turnId: string;
-  attemptGeneration: number;
-  historyCursor: string;
-  rows: Array<{ turnId: string; role: string; payloadJson: string }>;
-  now?: number;
-}): Promise<CloudBrowserSuspension | null> => {
-  const { observation, rows } = args;
-  const now = args.now ?? Date.now();
-  if (
-    observation.schemaVersion !== 1 ||
-    observation.turnId !== args.turnId ||
-    observation.attemptGeneration !== args.attemptGeneration ||
-    !Number.isSafeInteger(observation.observedAt) ||
-    observation.observedAt < 0 ||
-    typeof observation.brokerRequestId !== "string" ||
-    observation.brokerRequestId.length === 0 ||
-    !SHA256_HEX.test(observation.requestBodySha256) ||
-    !SHA256_HEX.test(observation.responseBodySha256) ||
-    !isCloudBrowserSuspension(observation.suspension) ||
-    observation.suspension.expiresAt <= now ||
-    rows.at(-1)?.turnId !== args.turnId ||
-    (await nativeHistoryCursorFromRows(rows)) !== args.historyCursor
-  ) {
-    return null;
-  }
-
-  const currentRows = rows.filter((row) => row.turnId === args.turnId);
-  if (currentRows.length === 0) return null;
-  const parsedRows: Array<{
-    row: (typeof currentRows)[number];
-    payload: Record<string, unknown>;
-  }> = [];
-  for (const row of currentRows) {
-    try {
-      const payload = JSON.parse(row.payloadJson) as unknown;
-      if (
-        !payload ||
-        typeof payload !== "object" ||
-        Array.isArray(payload) ||
-        (payload as Record<string, unknown>).role !== row.role
-      ) {
-        return null;
-      }
-      parsedRows.push({ row, payload: payload as Record<string, unknown> });
-    } catch {
-      return null;
-    }
-  }
-
-  let assistantIndex = -1;
-  for (let index = parsedRows.length - 1; index >= 0; index -= 1) {
-    if (parsedRows[index]?.row.role === "assistant") {
-      assistantIndex = index;
-      break;
-    }
-  }
-  if (
-    assistantIndex < 0 ||
-    parsedRows
-      .slice(assistantIndex + 1)
-      .some((entry) => entry.row.role !== "toolResult")
-  ) {
-    return null;
-  }
-
-  const assistantContent = parsedRows[assistantIndex]?.payload.content;
-  if (!Array.isArray(assistantContent)) return null;
-  const toolCalls: Array<{ id: string; name: string }> = [];
-  for (const part of assistantContent) {
-    if (
-      !part ||
-      typeof part !== "object" ||
-      Array.isArray(part) ||
-      (part as Record<string, unknown>).type !== "toolCall"
-    ) {
-      continue;
-    }
-    const candidate = part as Record<string, unknown>;
-    if (
-      !canonicalToolCallId(candidate.id) ||
-      typeof candidate.name !== "string"
-    ) {
-      return null;
-    }
-    toolCalls.push({ id: candidate.id, name: candidate.name });
-  }
-
-  const resolved = new Set<string>();
-  for (const entry of parsedRows.slice(assistantIndex + 1)) {
-    if (
-      entry.row.role !== "toolResult" ||
-      !canonicalToolCallId(entry.payload.toolCallId)
-    ) {
-      return null;
-    }
-    resolved.add(entry.payload.toolCallId);
-  }
-  const unresolved = toolCalls.filter((call) => !resolved.has(call.id));
-  if (unresolved.length !== 1 || unresolved[0]?.name !== "code") return null;
-
-  const bound = {
-    ...observation.suspension,
-    toolCallId: unresolved[0].id,
-  };
-  return isCloudBrowserSuspension(bound) ? bound : null;
-};

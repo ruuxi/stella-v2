@@ -5,6 +5,7 @@ import {
   mobileReplyContexts,
   type MobileReplyContexts,
 } from "../lib/mobile-reply-context";
+import { useAgentReplyTitles } from "../lib/use-agent-reply-titles";
 import {
   type ReactNode,
   useCallback,
@@ -53,10 +54,9 @@ import {
   type ChatDraftStore,
 } from "../lib/chat-draft-store";
 import Reanimated, {
-  KeyboardState,
-  useAnimatedKeyboard,
-  useAnimatedReaction,
   useAnimatedStyle,
+  useDerivedValue,
+  useSharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AddContextSheet } from "./AddContextSheet";
@@ -72,9 +72,12 @@ import {
 } from "./MessageContextMenu";
 import { AppBackdrop } from "./AppBackdrop";
 import { useShellTopInset } from "./MainScreenSurface";
+import { useKeyboardHandler } from "react-native-keyboard-controller";
 import {
+  ASSISTANT_ROW_PAD_VERTICAL,
   ChatMessageRow,
   MessageEntry,
+  carryCompletionQuotes,
   makeMessageRowStyles,
   type MessageMenuRequest,
   type MessageRowActions,
@@ -417,7 +420,10 @@ export type ChatPaneProps = {
   desktopAccess?: StoredPhoneAccess | null;
 
   /** Opens a desktop artifact linked from an assistant message. */
-  onOpenArtifact?: (artifact: ChatArtifact) => void;
+  onOpenArtifact?: (
+    artifact: ChatArtifact,
+    gallery?: readonly ChatArtifact[],
+  ) => void;
 
   /**
    * Conversation the transcript belongs to. Used to key artifacts built from
@@ -460,7 +466,7 @@ const NO_QUOTES: ChatPaneQuotes = {};
 const NO_REALTIME_VOICE: ChatPaneRealtimeVoice = {};
 
 export function ChatPane({
-  messages,
+  messages: projectedMessages,
   streaming,
   workingIndicator,
   offline = false,
@@ -520,6 +526,7 @@ export function ChatPane({
   // Transcript file links open on the preferred paired computer even when the
   // voice route itself is the phone's cloud session.
   const desktopAccess = desktopAccessProp ?? realtimeVoiceDesktopAccess;
+  const messages = useAgentReplyTitles(conversationId, projectedMessages);
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const t = useT();
@@ -532,39 +539,42 @@ export function ChatPane({
   const { height: screenHeight } = useWindowDimensions();
 
   const inputRef = useRef<TextInput>(null);
-  const {
-    height: keyboardHeight,
-    composerBottomPad,
-    targetHeight: keyboardTargetHeight,
-  } = useKeyboardInset();
-  // UI-thread keyboard frame. Drives the composer's lift directly so it tracks
-  // the keyboard exactly — both rising and falling — instead of chasing it via
-  // a JS-scheduled layout animation that the OS curve always out-runs.
-  const keyboard = useAnimatedKeyboard();
-  // Once the keyboard settles, its height is the travel for the next close
-  // and open, including a height change while it's up (QuickType, emoji).
-  useAnimatedReaction(
-    () =>
-      keyboard.state.value === KeyboardState.OPEN ? keyboard.height.value : -1,
-    (settled) => {
-      if (settled > 0) keyboardTargetHeight.value = settled;
-    },
-  );
+  const { height: keyboardHeight, composerBottomPad } = useKeyboardInset();
   // The composer rests at `composerBottomPad` (the home-indicator band) above
-  // the screen bottom, and must end a constant gap above the keyboard, so it
-  // travels the keyboard height *minus* that band. Spread that travel over
-  // the keyboard's whole motion rather than waiting for the keyboard to climb
-  // past the band: the composer starts moving on the keyboard's first frame
-  // and the two land together, in both directions.
-  const composerKeyboardStyle = useAnimatedStyle(() => {
-    const height = keyboard.height.value;
-    const travel = Math.max(keyboardTargetHeight.value, height);
-    const lift =
-      travel > 0 ? (height / travel) * Math.max(0, travel - bottomInset) : 0;
-    return { transform: [{ translateY: -lift }] };
-  });
-  // Extra reading area the message list must reserve below its content while the
-  // keyboard is up, mirroring the composer's lift (JS side, for the list inset).
+  // the screen bottom and rides the keyboard's top edge, a constant gap above
+  // it, once the keyboard reaches it: it is lifted by the keyboard height
+  // minus that band.
+  const keyboardHeightNow = useSharedValue(0);
+  useKeyboardHandler(
+    {
+      onStart: (e) => {
+        "worklet";
+        if (e.duration === 0) keyboardHeightNow.value = e.height;
+      },
+      onMove: (e) => {
+        "worklet";
+        keyboardHeightNow.value = e.height;
+      },
+      onInteractive: (e) => {
+        "worklet";
+        keyboardHeightNow.value = e.height;
+      },
+      onEnd: (e) => {
+        "worklet";
+        keyboardHeightNow.value = e.height;
+      },
+    },
+    [],
+  );
+  const keyboardLift = useDerivedValue(() =>
+    Math.max(0, keyboardHeightNow.value - bottomInset),
+  );
+  const composerKeyboardStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -keyboardLift.value }],
+  }));
+  const listKeyboardStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -keyboardLift.value }],
+  }));
   const keyboardExtra = Math.max(0, keyboardHeight - bottomInset);
 
   // The composer + working indicator overlay the bottom of the chat. We
@@ -576,7 +586,7 @@ export function ChatPane({
   const [footerHeight, setFooterHeight] = useState(0);
   // The list runs under the composer, so its reserved inset is exactly the
   // overlay; the chat tail supplies the gap between the last row and it.
-  const listBottomInsetPx = footerHeight + keyboardExtra;
+  const listBottomInsetPx = footerHeight;
   const listTrailingSlackPx = listBottomInsetPx + CHAT_TAIL_GAP;
 
   // The footer (working indicator + composer) re-measures on every frame of any
@@ -630,6 +640,10 @@ export function ChatPane({
         canOpenArtifacts: Boolean(onOpenArtifact),
       }),
     [messages, replyContexts, onOpenArtifact],
+  );
+  const quoteCarry = useMemo(
+    () => carryCompletionQuotes(visibleMessages),
+    [visibleMessages],
   );
   // A conversation first observed empty mounts its list on the optimistic
   // send. Our post-send owner already places that row; starting Legend's
@@ -702,47 +716,9 @@ export function ChatPane({
   // Assistant identity changes reset its measurements above. A busy-state
   // transition alone must not cancel the in-flight post-send placement.
 
-  // When the keyboard rises while the user is at/near the bottom, pull the
-  // chat up so the keyboard doesn't cover the latest messages. If the user
-  // is reading further up, leave their scroll position alone.
-  //
-  // The list's reserved bottom inset grows with `keyboardExtra` in the same
-  // render as `keyboardHeight` changes, but the layout pass that applies the
-  // larger inset only commits the following frame. Scrolling immediately here
-  // would race that pass and land short — the keyboard ends up covering the
-  // tail. So we record the intent and do the authoritative scroll once the
-  // inset has actually grown (the effect keyed on `keyboardExtra` below).
-  const prevKeyboardHeightRef = useRef(0);
-  const pinTailForKeyboardRef = useRef(false);
-  useEffect(() => {
-    const prev = prevKeyboardHeightRef.current;
-    prevKeyboardHeightRef.current = keyboardHeight;
-    if (keyboardHeight > prev && !scroll.awayFromBottom) {
-      pinTailForKeyboardRef.current = true;
-      requestAnimationFrame(() =>
-        scroll.listRef.current?.scrollToEnd({ animated: true }),
-      );
-    } else if (keyboardHeight === 0) {
-      pinTailForKeyboardRef.current = false;
-    }
-  }, [keyboardHeight, scroll.awayFromBottom, scroll.listRef]);
-
-  // The list's bottom inset just grew to include the keyboard — this is the
-  // layout pass the keyboard effect above was racing, so finish pinning to the
-  // tail now that there's actually room to scroll into.
-  useEffect(() => {
-    if (!pinTailForKeyboardRef.current) return;
-    pinTailForKeyboardRef.current = false;
-    scroll.listRef.current?.scrollToEnd({ animated: true });
-  }, [keyboardExtra, scroll.listRef]);
-
-  // A send anchors its scroll target against the keyboard-DOWN inset (submit
-  // dismisses the keyboard), but the list's padding only sheds `keyboardExtra`
-  // once the dismissal commits. Nudging immediately would measure content that
-  // still carries the keyboard-inflated padding and land ~keyboard-height past
-  // the tail — the same race `pinTailForKeyboardRef` above solves for the
-  // keyboard rising. Record the intent here and fire the nudge on the render
-  // where the inset has actually collapsed.
+  // A send records its intent here and fires the nudge on the render where
+  // the submitted row has reached the list. The keyboard no longer changes
+  // the list's insets, so the dismissal that follows a send cannot skew it.
   const pendingSendNudgeRef = useRef<{
     userMessageId: string;
   } | null>(null);
@@ -755,13 +731,13 @@ export function ChatPane({
       !canStartPostSendPlacement(
         pending.userMessageId,
         visibleMessages.map((message) => message.id),
-        keyboardExtra,
+        0,
       )
     )
       return;
     pendingSendNudgeRef.current = null;
     scroll.nudgeAfterSend(pending.userMessageId);
-  }, [keyboardExtra, visibleMessages, scroll.nudgeAfterSend]);
+  }, [visibleMessages, scroll.nudgeAfterSend]);
 
   // LegendList's `dataChange` auto-pin fires on the optimistic send append —
   // `streaming` is often still false at that render (always for a placed
@@ -884,9 +860,6 @@ export function ChatPane({
     if (submitted && shouldPlaceLatestTurn) {
       setSendPinSuppressForId(submitted.userMessageId);
       // Always start from the committed message list, even with no keyboard.
-      // The effect waits for the keyboard-down inset: `Keyboard.dismiss()`
-      // below collapses `keyboardExtra` a few frames from now, and a target
-      // derived from the inflated inset would land past the content end.
       pendingSendNudgeRef.current = {
         userMessageId: submitted.userMessageId,
       };
@@ -1517,8 +1490,13 @@ export function ChatPane({
   const onOpenStellaFile = useMemo(
     () =>
       onOpenArtifact
-        ? (path: string) =>
-            onOpenArtifact(stellaFileChatArtifact(path, conversationId ?? ""))
+        ? (path: string, gallery?: readonly string[]) =>
+            onOpenArtifact(
+              stellaFileChatArtifact(path, conversationId ?? ""),
+              gallery?.map((entry) =>
+                stellaFileChatArtifact(entry, conversationId ?? ""),
+              ),
+            )
         : undefined,
     [onOpenArtifact, conversationId],
   );
@@ -1613,6 +1591,8 @@ export function ChatPane({
             )}
             desktopAccess={desktopAccess}
             receiptLabel={receipt?.id === item.id ? receipt.label : null}
+            carriedQuotes={quoteCarry.carried.get(item.id)}
+            quotesForwarded={quoteCarry.forwarded.has(item.id)}
           />
         </MessageEntry>
       );
@@ -1621,6 +1601,7 @@ export function ChatPane({
       timeHeaders,
       receipt,
       replyContexts,
+      quoteCarry,
       contextStatusFor,
       lastMessage?.id,
       historyLoading,
@@ -1803,65 +1784,67 @@ export function ChatPane({
           </Pressable>
         ) : (
           <>
-            <LegendList<ChatMessage>
-              ref={scroll.listRef}
-              pointerEvents={replyFocus ? "none" : "auto"}
-              accessibilityElementsHidden={Boolean(replyFocus)}
-              importantForAccessibility={
-                replyFocus ? "no-hide-descendants" : "auto"
-              }
-              style={styles.messageList}
-              contentContainerStyle={listContentContainerStyle}
-              data={visibleMessages}
-              extraData={listExtraData}
-              // Short transcript rows measure roughly 44–70 pt. Reserve
-              // enough containers for those runs; measured heights still
-              // determine layout for longer replies and artifacts.
-              estimatedItemSize={64}
-              renderItem={renderItem}
-              keyExtractor={keyExtractor}
-              getItemType={getItemType}
-              ItemSeparatorComponent={renderSeparator}
-              ListFooterComponent={listFooter}
-              onScroll={handleListScroll}
-              onScrollBeginDrag={handleListScrollBeginDrag}
-              onScrollEndDrag={handleListScrollEndDrag}
-              onMomentumScrollBegin={handleListMomentumScrollBegin}
-              onMomentumScrollEnd={handleListMomentumScrollEnd}
-              onContentSizeChange={handleListContentSizeChange}
-              scrollEventThrottle={16}
-              showsVerticalScrollIndicator={false}
-              keyboardDismissMode="on-drag"
-              fadingEdgeLength={EDGE_FADE}
-              // Open at the latest message every time the tab mounts, instead
-              // of landing at the top of history. Short conversations that
-              // don't fill the viewport read top-down (no `alignItemsAtEnd`)
-              // so the first message sits at the top rather than the bottom.
-              initialScrollAtEnd={initialScrollAtEndRef.current === true}
-              // Keep the visible message anchored when the data array changes
-              // (e.g. messages syncing in from the desktop) so the list never
-              // snaps back to the top.
-              maintainVisibleContentPosition={maintainVisibleContentPosition}
-              // Pin to the tail only when new/synced messages arrive while the
-              // user is already near the bottom. Scoped to data changes so it
-              // doesn't fight the custom streaming-follow target updates,
-              // which own item-layout/size growth.
-              //
-              // While streaming, every token mutates the data array, so a
-              // dataChange-pinned tail would fire `scrollToEnd` on each token —
-              // overriding the custom "freeze once the message reaches the top"
-              // target and snapping the user back down whenever they try to
-              // scroll up. The custom follow loop already keeps the tail in view
-              // during streaming, so disable the built-in pin for that window.
-              // Position ownership is exclusive: history anchoring wins while
-              // follow is released, the custom loop owns streams/post-send
-              // placement, and this pin owns only ordinary live-tail appends.
-              maintainScrollAtEnd={
-                dataChangeScrollOwner === "legend-tail"
-                  ? LEGEND_TAIL_SCROLL_AT_END
-                  : false
-              }
-            />
+            <Reanimated.View style={[styles.messageList, listKeyboardStyle]}>
+              <LegendList<ChatMessage>
+                ref={scroll.listRef}
+                pointerEvents={replyFocus ? "none" : "auto"}
+                accessibilityElementsHidden={Boolean(replyFocus)}
+                importantForAccessibility={
+                  replyFocus ? "no-hide-descendants" : "auto"
+                }
+                style={styles.messageList}
+                contentContainerStyle={listContentContainerStyle}
+                data={visibleMessages}
+                extraData={listExtraData}
+                // Short transcript rows measure roughly 44–70 pt. Reserve
+                // enough containers for those runs; measured heights still
+                // determine layout for longer replies and artifacts.
+                estimatedItemSize={64}
+                renderItem={renderItem}
+                keyExtractor={keyExtractor}
+                getItemType={getItemType}
+                ItemSeparatorComponent={renderSeparator}
+                ListFooterComponent={listFooter}
+                onScroll={handleListScroll}
+                onScrollBeginDrag={handleListScrollBeginDrag}
+                onScrollEndDrag={handleListScrollEndDrag}
+                onMomentumScrollBegin={handleListMomentumScrollBegin}
+                onMomentumScrollEnd={handleListMomentumScrollEnd}
+                onContentSizeChange={handleListContentSizeChange}
+                scrollEventThrottle={16}
+                showsVerticalScrollIndicator={false}
+                keyboardDismissMode="on-drag"
+                fadingEdgeLength={EDGE_FADE}
+                // Open at the latest message every time the tab mounts, instead
+                // of landing at the top of history. Short conversations that
+                // don't fill the viewport read top-down (no `alignItemsAtEnd`)
+                // so the first message sits at the top rather than the bottom.
+                initialScrollAtEnd={initialScrollAtEndRef.current === true}
+                // Keep the visible message anchored when the data array changes
+                // (e.g. messages syncing in from the desktop) so the list never
+                // snaps back to the top.
+                maintainVisibleContentPosition={maintainVisibleContentPosition}
+                // Pin to the tail only when new/synced messages arrive while the
+                // user is already near the bottom. Scoped to data changes so it
+                // doesn't fight the custom streaming-follow target updates,
+                // which own item-layout/size growth.
+                //
+                // While streaming, every token mutates the data array, so a
+                // dataChange-pinned tail would fire `scrollToEnd` on each token —
+                // overriding the custom "freeze once the message reaches the top"
+                // target and snapping the user back down whenever they try to
+                // scroll up. The custom follow loop already keeps the tail in view
+                // during streaming, so disable the built-in pin for that window.
+                // Position ownership is exclusive: history anchoring wins while
+                // follow is released, the custom loop owns streams/post-send
+                // placement, and this pin owns only ordinary live-tail appends.
+                maintainScrollAtEnd={
+                  dataChangeScrollOwner === "legend-tail"
+                    ? LEGEND_TAIL_SCROLL_AT_END
+                    : false
+                }
+              />
+            </Reanimated.View>
             {/* Top taper — fades the list into the surface at the top edge so
                 messages scrolling under the top bar dissolve instead of
                 hard-cutting. Cross-platform (RN `fadingEdgeLength` is
@@ -1899,6 +1882,8 @@ export function ChatPane({
                 isSelecting={false}
                 anySelecting={false}
                 actions={rowActions}
+                carriedQuotes={quoteCarry.carried.get(item.id)}
+                quotesForwarded={quoteCarry.forwarded.has(item.id)}
                 contextRef={contexts.contexts.get(item.id)}
                 contextStatus={contextStatusFor(
                   contexts,
@@ -1945,13 +1930,18 @@ export function ChatPane({
             />
           ) : null}
           {!historyLoading && !empty ? (
-            <ScrollToBottomFab
-              visible={scroll.awayFromBottom}
-              hasUnread={unread}
-              onPress={scroll.scrollToBottom}
-              colors={colors}
-              bottomOffset={footerHeight + FLOATING_CONTROL_LIFT - 24}
-            />
+            <Reanimated.View
+              pointerEvents="box-none"
+              style={[StyleSheet.absoluteFill, listKeyboardStyle]}
+            >
+              <ScrollToBottomFab
+                visible={scroll.awayFromBottom}
+                hasUnread={unread}
+                onPress={scroll.scrollToBottom}
+                colors={colors}
+                bottomOffset={footerHeight + FLOATING_CONTROL_LIFT - 24}
+              />
+            </Reanimated.View>
           ) : null}
         </View>
         {searchOpen && searchActive ? (
@@ -2126,9 +2116,12 @@ const makeStyles = (colors: Colors) =>
     itemSeparator: { height: MESSAGE_LIST_GAP },
     // Fixed-height tail below the last message. Hosts the inline working
     // indicator and keeps its footprint constant whether or not it's showing.
+    // Its top padding matches the user-to-assistant bubble gap (separator plus
+    // the assistant row's padding), so the indicator bubble sits as far below
+    // the last message as the next reply will.
     chatTail: {
       minHeight: CHAT_TAIL_GAP,
-      paddingTop: 4,
+      paddingTop: MESSAGE_LIST_GAP + ASSISTANT_ROW_PAD_VERTICAL,
       justifyContent: "flex-start",
     },
     emptyState: {

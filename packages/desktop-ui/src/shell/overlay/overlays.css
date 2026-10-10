@@ -107,6 +107,15 @@
   cursor: default;
 }
 
+.dictation-overlay .composer-dictation-control {
+  width: 26px;
+  height: 26px;
+}
+
+.dictation-overlay .composer-dictation-recording-row {
+  min-height: 0;
+}
+
 .dictation-overlay .composer-dictation-waveform {
   flex: 0 1 200px;
   max-width: 210px;

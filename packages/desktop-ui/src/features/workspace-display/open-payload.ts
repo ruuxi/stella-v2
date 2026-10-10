@@ -43,12 +43,13 @@ const getAdapter = (): WorkspaceDisplayPayloadAdapter => {
 export const openDisplayPayloadTab = (
   payload: DisplayTabPayload,
   opts?: OpenTabOptions,
-): void => {
+): string => {
   const spec = getAdapter().payloadToTabSpec(payload);
   displayTabs.openTab(spec, opts);
   if (isFilesPayload(payload) && (opts?.activate ?? true)) {
     sidebarSections.openLocation("files", spec.id);
   }
+  return spec.id;
 };
 
 export const openSourceDiffBatch = (batch: SourceDiffBatch): void => {

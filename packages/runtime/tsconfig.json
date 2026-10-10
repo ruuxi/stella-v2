@@ -18,6 +18,9 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
+    // `@stella/agent` (the pi-durable chat the worker loads) imports its
+    // modules by their .ts paths.
+    "allowImportingTsExtensions": true,
     "types": ["node", "bun-types"]
   },
   "include": ["**/*.ts"],

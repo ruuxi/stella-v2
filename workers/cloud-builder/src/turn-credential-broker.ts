@@ -1,6 +1,5 @@
 import {
   TURN_BROKER_AUTH_SCHEME,
-  TURN_BROKER_CODE_PATHS,
   TURN_BROKER_HEADERS,
   TURN_BROKER_NATIVE_STATE_CHECKPOINT_PATH,
   TURN_BROKER_RESPONSE_HEADERS,
@@ -20,9 +19,8 @@ import { sha256Hex } from "./hash.js";
  * sandbox gets this independently random, short-lived capability instead; it
  * can only ask the owning BuildSession to perform one of the bounded
  * turn-scoped requests below. The session performs each itself: the turn's
- * event stream and its thread transcript are the session's own state, the
- * drive and web search are the owner object's, and the browser gateway is a
- * private Worker reached through a service binding.
+ * event stream and its thread transcript are the session's own state, and
+ * the drive and web search are the owner object's.
  *
  * Model traffic does not pass through here. The sandbox holds a separate
  * turn capability that is only valid at the model gateway, and speaks to the
@@ -89,7 +87,6 @@ export type TurnBrokerLiveFence = TurnBrokerIdentity & {
 
 export type TurnBrokerTarget = {
   kind:
-    | "browser-gateway"
     | "builder-callback"
     | "drive"
     | "search"
@@ -97,9 +94,7 @@ export type TurnBrokerTarget = {
     | "thread-messages"
     | "user-ask"
     | "orchestrator-tool"
-    | "orchestrator-events"
-    | "code-connect"
-    | "code-history";
+    | "orchestrator-events";
   method: "POST";
   path: string;
   maxBodyBytes: number;
@@ -429,52 +424,18 @@ export const validateTurnBrokerTarget = (
       maxBodyBytes: CLOUD_ORCHESTRATOR_EVENTS_REQUEST_MAX_BYTES,
     };
   }
-  if (parsed.pathname === "/api/cloud/browser/command") {
-    return {
-      kind: "browser-gateway",
-      method: "POST",
-      path: parsed.pathname,
-      maxBodyBytes: MAX_CONTROL_BODY_BYTES,
-    };
-  }
-  // A connector action's arguments can carry a document or an attachment.
-  if (parsed.pathname === TURN_BROKER_CODE_PATHS.connect) {
-    return {
-      kind: "code-connect",
-      method: "POST",
-      path: parsed.pathname,
-      maxBodyBytes: MAX_CALLBACK_BODY_BYTES,
-    };
-  }
-  if (parsed.pathname === TURN_BROKER_CODE_PATHS.history) {
-    return {
-      kind: "code-history",
-      method: "POST",
-      path: parsed.pathname,
-      maxBodyBytes: MAX_CONTROL_BODY_BYTES,
-    };
-  }
   return null;
 };
 
 /**
- * Engine-scoped targets. Callbacks are engine-agnostic; the Browser Gateway
- * and the `code` cell's connect and history belong to Stella's own tool loop
- * and are refused for connected engines, and the orchestrator routes exist
- * only for the Claude Code CLI's turn (the session also requires the turn's
- * `agentRole`).
+ * Engine-scoped targets. Callbacks are engine-agnostic; the orchestrator
+ * routes exist only for the Claude Code CLI's turn (the session also
+ * requires the turn's `agentRole`).
  */
 export const turnBrokerTargetMatchesEngine = (
   target: TurnBrokerTarget,
   engine: TurnBrokerEngine,
 ): boolean => {
-  if (
-    target.kind === "browser-gateway" ||
-    target.kind === "code-connect" ||
-    target.kind === "code-history"
-  ) {
-    return engine === "stella";
-  }
   if (
     target.kind === "orchestrator-tool" ||
     target.kind === "orchestrator-events"
@@ -543,8 +504,7 @@ export const preflightTurnBrokerRequest = async (args: {
   if (
     sequence < record.nextSequence &&
     !(
-      (target.kind === "builder-callback" ||
-        target.kind === "browser-gateway") &&
+      target.kind === "builder-callback" &&
       sequence === record.nextSequence - 1 &&
       record.lastClaim?.sequence === sequence &&
       record.lastClaim.requestId === requestId &&
@@ -626,8 +586,7 @@ export const claimTurnBrokerRequest = async (args: {
   }
   if (sequence < record.nextSequence) {
     const exactReplay =
-      (target.kind === "builder-callback" ||
-        target.kind === "browser-gateway") &&
+      target.kind === "builder-callback" &&
       sequence === record.nextSequence - 1 &&
       record.lastClaim?.sequence === sequence &&
       record.lastClaim.requestId === requestId &&
@@ -709,25 +668,6 @@ export const readTurnBrokerRequestBody = async (
     offset += chunk.byteLength;
   }
   return body;
-};
-
-/** Never send backend cookies or broker metadata back into the sandbox. */
-export const turnBrokerSandboxResponseHeaders = (
-  incoming: Headers,
-): Headers => {
-  const headers = new Headers();
-  incoming.forEach((value, name) => {
-    const lower = name.toLowerCase();
-    if (
-      lower !== "set-cookie" &&
-      lower !== "authorization" &&
-      !lower.startsWith("x-stella-") &&
-      !lower.startsWith("cf-")
-    ) {
-      headers.set(name, value);
-    }
-  });
-  return headers;
 };
 
 export const turnBrokerDenialResponse = (

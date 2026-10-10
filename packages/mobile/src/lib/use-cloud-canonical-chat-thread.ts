@@ -66,16 +66,11 @@ import {
   type AutomaticExecutionTarget,
 } from "./execution-placement";
 import { collectActivityHubArtifacts } from "./activity-hub-model";
-import {
-  EMPTY_SETTLED_AGENTS,
-  rememberSettledAgents,
-  withoutSettledAgents,
-  type SettledAgentMemory,
-} from "./settled-agent-memory";
 import { canonicalWorkingState } from "./canonical-working-state";
 import {
   collectJournalTasks,
   markAuthoritativeRunning,
+  settleUnlistedTasks,
 } from "./journal-tasks";
 import { mergeJournalTasks } from "./mobile-task-merge";
 import { planCloudTranscriptDisplay } from "./cloud-transcript-display";
@@ -314,6 +309,7 @@ const EMPTY_STATE: ConversationState = {
   live: null,
   activity: "idle",
   runningAgents: [],
+  runningAgentsAtMs: 0,
   title: "",
   floorSeq: 0,
   hasOlder: false,
@@ -888,33 +884,17 @@ export const useCloudCanonicalChatThread = (
     [messages],
   );
   // Background work is read from the journal, where every placement records
-  // it, including agents running on a paired computer.
-  // The journal's own owner says which agents are running, folded over the
-  // whole journal rather than the tail this device holds — the only source that
-  // can name an agent whose start row is below the window, which after any real
-  // time away is most of them. It is seeded into the record fold rather than
-  // merged after it, so a terminal row this device *can* see still settles the
-  // agent instead of being dropped for having no row to settle.
-  // Minus whatever this device already watched finish: that snapshot is only
-  // re-sent on connect, so once a terminal row has aged out of the retained
-  // window the snapshot alone would seed the agent as running for good (see
-  // `settled-agent-memory`).
-  const [settledAgents, setSettledAgents] =
-    useState<SettledAgentMemory>(EMPTY_SETTLED_AGENTS);
-  useEffect(() => {
-    setSettledAgents(EMPTY_SETTLED_AGENTS);
-  }, [authority.accountScope, authority.conversationId]);
-  const runningAgents = useMemo(
-    () => withoutSettledAgents(state.runningAgents, settledAgents),
-    [state.runningAgents, settledAgents],
-  );
+  // it, including agents running on a paired computer. Which of it is running
+  // is the server's list (`ready.agents`, then each `agents` frame), the only
+  // source that names an agent whose start row is below the window, which
+  // after any real time away is most of them. It is seeded into the record
+  // fold so a row this device holds draws it; a row the fold left running and
+  // the list does not name has ended (`settleUnlistedTasks`).
+  const runningAgents = state.runningAgents;
   const journalTasks = useMemo(
     () => collectJournalTasks(state.records, runningAgents),
     [state.records, runningAgents],
   );
-  useEffect(() => {
-    setSettledAgents((current) => rememberSettledAgents(current, journalTasks));
-  }, [journalTasks]);
   const authoritativeTasks = useMemo(
     () => markAuthoritativeRunning(journalTasks, runningAgents),
     [journalTasks, runningAgents],
@@ -922,11 +902,15 @@ export const useCloudCanonicalChatThread = (
   const localConversationTasks = local.conversationTasks;
   const conversationTasks = useMemo(
     () =>
-      markAuthoritativeRunning(
-        mergeJournalTasks(authoritativeTasks, localConversationTasks),
+      settleUnlistedTasks(
+        markAuthoritativeRunning(
+          mergeJournalTasks(authoritativeTasks, localConversationTasks),
+          runningAgents,
+        ),
         runningAgents,
+        state.runningAgentsAtMs,
       ),
-    [authoritativeTasks, localConversationTasks, runningAgents],
+    [authoritativeTasks, localConversationTasks, runningAgents, state.runningAgentsAtMs],
   );
   const canonicalCancellationRef = useRef<{
     dispatchId: string;

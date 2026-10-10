@@ -3,10 +3,13 @@
  * surface (see `defs/html-def.ts`). The device writes the canvas to
  * `~/.stella/outputs/html/<slug>.html`; the cloud writes the same document
  * into the owner's drive at `outputs/html/<slug>.html` and publishes a
- * `files` card, which both clients open as a canvas.
+ * `files` card, which both clients open as a canvas. Like the device, it then
+ * saves the canvas to its private link and returns that URL, or only the
+ * drive path when the link cannot be made.
  */
 
 import type { TSchema } from "@sinclair/typebox";
+import type { SavedCanvasShare } from "@stella/contracts/backend/shares";
 import {
   HTML_TOOL_DESCRIPTION,
   HTML_TOOL_NAME,
@@ -118,11 +121,29 @@ export const createCloudHtmlTool = (
     context.publishFiles(`html:${toolCallId}`, [
       { path, name, sizeBytes: bytes.byteLength, contentType: CLOUD_HTML_CONTENT_TYPE },
     ]);
+    // The canvas is saved and on screen; a link that cannot be made (no
+    // share bucket or domain, a failed write) leaves the drive path.
+    let link: SavedCanvasShare | null = null;
+    try {
+      link = (await context.ownerInternal("shares.saveCanvas", {
+        canvas: slug,
+        html,
+        title,
+      })) as SavedCanvasShare;
+    } catch {
+      link = null;
+    }
     return {
       content: [
         {
           type: "text",
-          text: `Canvas "${title}" saved to your drive at ${path} and opened in the panel.`,
+          text: link
+            ? `Canvas "${title}" saved to your drive at ${path} and opened in the panel. Its link is ${link.url} (${
+                link.visibility === "public"
+                  ? "public: anyone with it can view"
+                  : "private: only the user can open it until they make it public from the canvas's Share menu"
+              }).`
+            : `Canvas "${title}" saved to your drive at ${path} and opened in the panel.`,
         },
       ],
       details: {
@@ -132,6 +153,7 @@ export const createCloudHtmlTool = (
         createdAt,
         bytes: bytes.byteLength,
         driveBacked: true,
+        ...(link ? { shareUrl: link.url, shareVisibility: link.visibility } : {}),
       },
     };
   },

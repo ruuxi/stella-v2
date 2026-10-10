@@ -52,7 +52,7 @@ at Stella's account:
 
 | Where | Key | Set it to |
 |---|---|---|
-| all `workers/*/wrangler.jsonc` | every `*.fromyou.workers.dev` URL | your workers.dev subdomain (Dashboard → Workers → Subdomain). `sed -i '' 's/lolruuxi\.workers\.dev/YOURSUB.workers.dev/g' workers/*/wrangler.jsonc` (drop `''` on Linux) |
+| all `workers/*/wrangler.jsonc` | every `*.fromyou.workers.dev` URL | your workers.dev subdomain (Dashboard → Workers → Subdomain). `sed -i '' 's/fromyou\.workers\.dev/YOURSUB.workers.dev/g' workers/*/wrangler.jsonc` (drop `''` on Linux) |
 | `workers/cloud-builder/wrangler.jsonc` | `vars.R2_S3_ENDPOINT` | `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` |
 | 〃 | `vars.STELLA_TEST_ACCOUNTS`, `vars.ENABLE_DEV_ACCEPTANCE_PROBES` | delete both unless you want test accounts / acceptance probes on dev |
 | 〃 | `d1_databases[0].database_id` | from `wrangler d1 create` (1.3) |

@@ -11,6 +11,7 @@
 import { shell } from "electron";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -35,6 +36,7 @@ import {
   IPC_SHELL_OPEN_WITH,
 } from "@stella/contracts/desktop/ipc-channels";
 import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
+import { localPathNotFoundMessage } from "@stella/contracts/device-files";
 import { handleIpc } from "./typed-ipc.js";
 
 /**
@@ -48,6 +50,24 @@ import { handleIpc } from "./typed-ipc.js";
  */
 const CLOUD_WORKSPACE_OPEN_ERROR =
   "This file lives in Stella's cloud workspace, not on this computer, so there is no local file to open. Ask Stella to put it in your Drive.";
+
+/**
+ * `shell.openPath` and `shell.showItemInFolder` do nothing useful for a path
+ * that is not here (the second fails silently), so every lane checks first
+ * and says whether the path was moved or deleted or was never on this
+ * computer.
+ */
+const localPathMissingError = async (
+  filePath: string,
+): Promise<string | null> => {
+  if (!path.isAbsolute(filePath)) return null;
+  const target = path.resolve(filePath);
+  if (await fs.stat(target).then(() => true, () => false)) return null;
+  const parentIsHere = await fs
+    .stat(path.dirname(target))
+    .then((stats) => stats.isDirectory(), () => false);
+  return localPathNotFoundMessage(target, parentIsHere);
+};
 
 type MacAppDef = {
   id: string;
@@ -316,6 +336,8 @@ export const registerExternalOpenerHandlers = (options: {
       if (isCloudWorkspacePath(filePath)) {
         return { ok: false, error: CLOUD_WORKSPACE_OPEN_ERROR };
       }
+      const missing = await localPathMissingError(filePath);
+      if (missing) return { ok: false, error: missing };
       if (openerId === "__default") {
         const error = await shell.openPath(filePath);
         return error ? { ok: false, error } : { ok: true };
@@ -354,6 +376,8 @@ export const registerExternalOpenerHandlers = (options: {
       if (isCloudWorkspacePath(filePath)) {
         return { ok: false, error: CLOUD_WORKSPACE_OPEN_ERROR };
       }
+      const missing = await localPathMissingError(filePath);
+      if (missing) return { ok: false, error: missing };
       const error = await shell.openPath(filePath);
       return error ? { ok: false, error } : { ok: true };
     },

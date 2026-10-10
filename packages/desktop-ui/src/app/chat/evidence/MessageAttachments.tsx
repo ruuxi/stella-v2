@@ -6,8 +6,7 @@ import {
   type EvidenceCard,
 } from "@stella/contracts/chat-evidence";
 import { useEvidenceCards } from "@/features/chat/hooks/use-evidence-cards";
-import { buildPayloadFromBarePath } from "@/features/chat/lib/derive-turn-resource";
-import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
+import { openLocalPathOrExplain } from "@/features/chat/lib/open-local-path";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -108,11 +107,6 @@ const useRowWidth = (
 const fileNameOf = (card: EvidenceCard): string =>
   card.sourcePaths[0] ? fileDisplayName(card.sourcePaths[0]) : card.title;
 
-const openFile = (filePath: string) => {
-  const payload = buildPayloadFromBarePath(filePath, Date.now());
-  if (payload) openDisplayPayloadTab(payload);
-};
-
 const MenuGlyph = ({ card }: { card: EvidenceCard }) =>
   card.kind === "video" ? (
     <Film size={14} aria-hidden="true" />
@@ -145,7 +139,7 @@ const MoreTile = ({ cards }: { cards: readonly EvidenceCard[] }) => (
           key={card.id}
           onSelect={() => {
             const target = card.sourcePaths[0];
-            if (target) openFile(target);
+            if (target) openLocalPathOrExplain(target);
           }}
         >
           <span className="attachment-strip__more-item">

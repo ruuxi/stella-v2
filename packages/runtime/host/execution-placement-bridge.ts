@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { BackendClient } from "@stella/contracts/backend/client";
 import WebSocket from "ws";
 import {
@@ -34,17 +34,16 @@ import {
 } from "./device-request-server.js";
 import type { SqliteDatabase } from "../kernel/storage/shared.js";
 import {
+  ExecutionPlacementInbox,
+  type ExecutionPlacementInboxRow,
+} from "./execution-placement-inbox.js";
+import { ExecutionPlacementLeases } from "./execution-placement-leases.js";
+import {
   forkDelayed,
   forkInterval,
   type HostTimerHandle,
 } from "./effect-runtime.js";
 
-/** Lease renewal cadence for an accepted local run. */
-const HEARTBEAT_INTERVAL_MS = 25_000;
-const PRESENCE_SOCKET_RECONNECT_MAX_MS = 30_000;
-const EXECUTION_LEASE_RENEWAL_FAILSAFE_MS = 2 * 60_000;
-const CLAIM_ACK_RETRY_BASE_MS = 1_000;
-const CLAIM_ACK_RETRY_MAX_MS = 15_000;
 /** A claim the gate does not answer inside the offer window lost its race. */
 const CLAIM_RESPONSE_TIMEOUT_MS = DISPATCH_OFFER_WINDOW_MS + 1_000;
 /** How long a `complete` frame waits for the owner gate's terminal echo. */
@@ -57,15 +56,7 @@ const DISPATCH_WATCH_POLL_MS = 750;
 
 type PlacementKind = ExecutionKind;
 type PlacementCapability = ExecutionCapability;
-type PlacementOutcome = "completed" | "failed" | "canceled";
 type PlacementSubject = ExecutionSubject;
-type LocalInboxState =
-  | "claimed"
-  | "accepted"
-  | "running"
-  | "terminal_pending"
-  | "terminal"
-  | "orphaned";
 
 export type ExecutionPlacementDesktopSubmit = {
   idempotencyKey: string;
@@ -103,7 +94,10 @@ export type ExecutionPlacementSocket = {
   close(code?: number, reason?: string): void;
   on(event: "open", listener: () => void): unknown;
   on(event: "message", listener: (data: unknown) => void): unknown;
-  on(event: "close", listener: (code: number, reason: unknown) => void): unknown;
+  on(
+    event: "close",
+    listener: (code: number, reason: unknown) => void,
+  ): unknown;
   on(event: "error", listener: (error: unknown) => void): unknown;
 };
 
@@ -194,495 +188,6 @@ type PlacementBridgeOptions = {
   createSocket?: (url: string, protocols: string[]) => ExecutionPlacementSocket;
   fetch?: typeof fetch;
 };
-
-type SessionRow = {
-  owner_id: string;
-  owner_generation: string;
-  presence_session_id: string;
-};
-
-export type ExecutionPlacementInboxRow = {
-  dispatchId: string;
-  ownerId: string;
-  ownerGeneration: string;
-  presenceSessionId: string;
-  kind: PlacementKind;
-  conversationId: string;
-  /** The claim request id this device used; names the exact handoff. */
-  claimToken: string;
-  payloadHash: string;
-  payloadJson: string;
-  dispatchJson: string;
-  state: LocalInboxState;
-  terminalOutcome?: PlacementOutcome;
-  resultJson?: string;
-  errorCode?: string;
-  errorMessage?: string;
-  cancelRpcPending: boolean;
-  cancelOrphanOnAck: boolean;
-  persistedAt: number;
-  startedAt?: number;
-  updatedAt: number;
-};
-
-type InboxDbRow = {
-  dispatch_id: string;
-  owner_id: string;
-  owner_generation: string;
-  presence_session_id: string;
-  kind: PlacementKind;
-  conversation_id: string;
-  claim_token: string;
-  payload_hash: string;
-  payload_json: string;
-  dispatch_json: string;
-  state: LocalInboxState;
-  terminal_outcome: PlacementOutcome | null;
-  result_json: string | null;
-  error_code: string | null;
-  error_message: string | null;
-  cancel_rpc_pending: number;
-  cancel_orphan_on_ack: number;
-  persisted_at: number;
-  started_at: number | null;
-  updated_at: number;
-};
-
-type ClaimedExecution = {
-  dispatch: DispatchSummary;
-  payloadJson: string;
-  payloadHash: string;
-  claimExpiresAt: number;
-};
-
-const fromInboxRow = (row: InboxDbRow): ExecutionPlacementInboxRow => ({
-  dispatchId: row.dispatch_id,
-  ownerId: row.owner_id,
-  ownerGeneration: row.owner_generation,
-  presenceSessionId: row.presence_session_id,
-  kind: row.kind,
-  conversationId: row.conversation_id,
-  claimToken: row.claim_token,
-  payloadHash: row.payload_hash,
-  payloadJson: row.payload_json,
-  dispatchJson: row.dispatch_json,
-  state: row.state,
-  ...(row.terminal_outcome ? { terminalOutcome: row.terminal_outcome } : {}),
-  ...(row.result_json !== null ? { resultJson: row.result_json } : {}),
-  ...(row.error_code !== null ? { errorCode: row.error_code } : {}),
-  ...(row.error_message !== null ? { errorMessage: row.error_message } : {}),
-  cancelRpcPending: row.cancel_rpc_pending === 1,
-  cancelOrphanOnAck: row.cancel_orphan_on_ack === 1,
-  persistedAt: row.persisted_at,
-  ...(row.started_at !== null ? { startedAt: row.started_at } : {}),
-  updatedAt: row.updated_at,
-});
-
-/**
- * Durable ownership boundary. An owner-gate claim is acknowledged only after
- * the exact payload the offer carried is committed here in one SQLite
- * transaction: from `ack` on, this row is the only copy of the prompt.
- */
-export class ExecutionPlacementInbox {
-  constructor(private readonly database: SqliteDatabase) {
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS execution_placement_runtime_state (
-        id INTEGER PRIMARY KEY CHECK (id = 1),
-        owner_id TEXT NOT NULL,
-        owner_generation TEXT NOT NULL,
-        presence_session_id TEXT NOT NULL,
-        proof_seq INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-      );
-    `);
-    this.database.exec(`
-      CREATE TABLE IF NOT EXISTS execution_placement_inbox (
-        dispatch_id TEXT PRIMARY KEY,
-        owner_id TEXT NOT NULL,
-        owner_generation TEXT NOT NULL,
-        presence_session_id TEXT NOT NULL,
-        kind TEXT NOT NULL CHECK (kind IN ('chat', 'agent')),
-        conversation_id TEXT NOT NULL,
-        claim_token TEXT NOT NULL,
-        payload_hash TEXT NOT NULL,
-        payload_json TEXT NOT NULL,
-        dispatch_json TEXT NOT NULL,
-        state TEXT NOT NULL CHECK (
-          state IN (
-            'claimed', 'accepted', 'running', 'terminal_pending',
-            'terminal', 'orphaned'
-          )
-        ),
-        terminal_outcome TEXT,
-        result_json TEXT,
-        error_code TEXT,
-        error_message TEXT,
-        cancel_rpc_pending INTEGER NOT NULL DEFAULT 0,
-        cancel_orphan_on_ack INTEGER NOT NULL DEFAULT 0,
-        persisted_at INTEGER NOT NULL,
-        started_at INTEGER,
-        updated_at INTEGER NOT NULL
-      );
-    `);
-    const inboxColumns = new Set(
-      (
-        this.database
-          .prepare("PRAGMA table_info(execution_placement_inbox)")
-          .all() as Array<{ name: string }>
-      ).map((column) => column.name),
-    );
-    if (!inboxColumns.has("cancel_rpc_pending")) {
-      this.database.exec(
-        "ALTER TABLE execution_placement_inbox ADD COLUMN cancel_rpc_pending INTEGER NOT NULL DEFAULT 0",
-      );
-    }
-    if (!inboxColumns.has("cancel_orphan_on_ack")) {
-      this.database.exec(
-        "ALTER TABLE execution_placement_inbox ADD COLUMN cancel_orphan_on_ack INTEGER NOT NULL DEFAULT 0",
-      );
-    }
-    this.database.exec(`
-      CREATE INDEX IF NOT EXISTS idx_execution_placement_inbox_recovery
-      ON execution_placement_inbox(
-        owner_id, owner_generation, presence_session_id, state, updated_at
-      );
-    `);
-  }
-
-  openSession(args: {
-    ownerId: string;
-    ownerGeneration: string;
-    now: number;
-  }): { presenceSessionId: string; reused: boolean } {
-    const current = this.database
-      .prepare(
-        `SELECT owner_id, owner_generation, presence_session_id
-         FROM execution_placement_runtime_state WHERE id = 1`,
-      )
-      .get() as SessionRow | undefined;
-    if (
-      current?.owner_id === args.ownerId &&
-      current.owner_generation === args.ownerGeneration
-    ) {
-      return { presenceSessionId: current.presence_session_id, reused: true };
-    }
-    const presenceSessionId = `presence:${randomUUID()}`;
-    this.database.exec("BEGIN IMMEDIATE;");
-    try {
-      // A generation/session rotation can strand a worker effect that was
-      // started by the previous process. Persist the exact local cancellation
-      // obligation before changing ownership. openSession deliberately keeps
-      // these rows non-terminal until the cancellation RPC is acknowledged.
-      this.database
-        .prepare(
-          `UPDATE execution_placement_inbox
-           SET cancel_rpc_pending = 1, cancel_orphan_on_ack = 1,
-               terminal_outcome = 'canceled', result_json = NULL,
-               error_code = 'LOCAL_EXECUTION_OWNER_CHANGED',
-               error_message =
-                 'The local execution owner changed before completion.',
-               updated_at = ?
-           WHERE state IN ('claimed', 'accepted', 'running')`,
-        )
-        .run(args.now);
-      this.database
-        .prepare(
-          `UPDATE execution_placement_inbox
-           SET state = 'orphaned', updated_at = ?
-           WHERE state NOT IN ('terminal', 'orphaned')
-             AND cancel_rpc_pending = 0`,
-        )
-        .run(args.now);
-      this.database
-        .prepare(
-          `INSERT INTO execution_placement_runtime_state (
-             id, owner_id, owner_generation, presence_session_id,
-             proof_seq, updated_at
-           ) VALUES (1, ?, ?, ?, 0, ?)
-           ON CONFLICT(id) DO UPDATE SET
-             owner_id = excluded.owner_id,
-             owner_generation = excluded.owner_generation,
-             presence_session_id = excluded.presence_session_id,
-             proof_seq = 0,
-             updated_at = excluded.updated_at`,
-        )
-        .run(args.ownerId, args.ownerGeneration, presenceSessionId, args.now);
-      this.database.exec("COMMIT;");
-    } catch (error) {
-      try {
-        this.database.exec("ROLLBACK;");
-      } catch {
-        // BEGIN itself failed.
-      }
-      throw error;
-    }
-    return { presenceSessionId, reused: false };
-  }
-
-  persistClaim(args: {
-    ownerId: string;
-    ownerGeneration: string;
-    presenceSessionId: string;
-    claimToken: string;
-    claimed: ClaimedExecution;
-    now: number;
-  }): { replayed: boolean } {
-    const existing = this.get(args.claimed.dispatch.dispatchId);
-    if (existing) {
-      const same =
-        existing.ownerId === args.ownerId &&
-        existing.ownerGeneration === args.ownerGeneration &&
-        existing.presenceSessionId === args.presenceSessionId &&
-        existing.claimToken === args.claimToken &&
-        existing.payloadHash === args.claimed.payloadHash &&
-        existing.payloadJson === args.claimed.payloadJson;
-      if (!same) {
-        throw new Error(
-          "A local execution dispatch was replayed with different claim bytes.",
-        );
-      }
-      return { replayed: true };
-    }
-    this.database.exec("BEGIN IMMEDIATE;");
-    try {
-      this.database
-        .prepare(
-          `INSERT INTO execution_placement_inbox (
-             dispatch_id, owner_id, owner_generation, presence_session_id,
-             kind, conversation_id, claim_token, payload_hash, payload_json,
-             dispatch_json, state, persisted_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'claimed', ?, ?)`,
-        )
-        .run(
-          args.claimed.dispatch.dispatchId,
-          args.ownerId,
-          args.ownerGeneration,
-          args.presenceSessionId,
-          args.claimed.dispatch.kind,
-          args.claimed.dispatch.conversationId,
-          args.claimToken,
-          args.claimed.payloadHash,
-          args.claimed.payloadJson,
-          JSON.stringify(args.claimed.dispatch),
-          args.now,
-          args.now,
-        );
-      this.database.exec("COMMIT;");
-    } catch (error) {
-      try {
-        this.database.exec("ROLLBACK;");
-      } catch {
-        // BEGIN itself failed.
-      }
-      throw error;
-    }
-    return { replayed: false };
-  }
-
-  get(dispatchId: string): ExecutionPlacementInboxRow | null {
-    const row = this.database
-      .prepare(`SELECT * FROM execution_placement_inbox WHERE dispatch_id = ?`)
-      .get(dispatchId) as InboxDbRow | undefined;
-    return row ? fromInboxRow(row) : null;
-  }
-
-  listUnfinished(args: {
-    ownerId: string;
-    ownerGeneration: string;
-    presenceSessionId: string;
-  }): ExecutionPlacementInboxRow[] {
-    return (
-      this.database
-        .prepare(
-          `SELECT * FROM execution_placement_inbox
-           WHERE owner_id = ? AND owner_generation = ?
-             AND presence_session_id = ?
-             AND state IN (
-               'claimed', 'accepted', 'running', 'terminal_pending'
-             )
-           ORDER BY persisted_at ASC`,
-        )
-        .all(
-          args.ownerId,
-          args.ownerGeneration,
-          args.presenceSessionId,
-        ) as InboxDbRow[]
-    ).map(fromInboxRow);
-  }
-
-  listAllUnfinished(): ExecutionPlacementInboxRow[] {
-    return (
-      this.database
-        .prepare(
-          `SELECT * FROM execution_placement_inbox
-           WHERE state IN (
-             'claimed', 'accepted', 'running', 'terminal_pending'
-           )
-           ORDER BY persisted_at ASC`,
-        )
-        .all() as InboxDbRow[]
-    ).map(fromInboxRow);
-  }
-
-  listCancellationPending(): ExecutionPlacementInboxRow[] {
-    return (
-      this.database
-        .prepare(
-          `SELECT * FROM execution_placement_inbox
-           WHERE cancel_rpc_pending = 1
-           ORDER BY persisted_at ASC`,
-        )
-        .all() as InboxDbRow[]
-    ).map(fromInboxRow);
-  }
-
-  stageCancellation(
-    dispatchId: string,
-    args: {
-      outcome: PlacementOutcome;
-      errorCode?: string;
-      errorMessage?: string;
-      orphanOnAck?: boolean;
-      now: number;
-    },
-  ) {
-    this.database
-      .prepare(
-        `UPDATE execution_placement_inbox
-         SET cancel_rpc_pending = 1,
-             cancel_orphan_on_ack = CASE
-               WHEN cancel_orphan_on_ack = 1 OR ? = 1 THEN 1
-               ELSE 0
-             END,
-             terminal_outcome = ?, result_json = NULL,
-             error_code = ?, error_message = ?, updated_at = ?
-         WHERE dispatch_id = ?
-           AND state IN (
-             'claimed', 'accepted', 'running', 'terminal_pending'
-           )`,
-      )
-      .run(
-        args.orphanOnAck ? 1 : 0,
-        args.outcome,
-        args.errorCode ?? null,
-        args.errorMessage ?? null,
-        args.now,
-        dispatchId,
-      );
-  }
-
-  acknowledgeCancellation(dispatchId: string, now: number) {
-    this.database
-      .prepare(
-        `UPDATE execution_placement_inbox
-         SET state = CASE
-               WHEN cancel_orphan_on_ack = 1 THEN 'orphaned'
-               ELSE 'terminal_pending'
-             END,
-             cancel_rpc_pending = 0,
-             cancel_orphan_on_ack = 0,
-             updated_at = ?
-         WHERE dispatch_id = ? AND cancel_rpc_pending = 1`,
-      )
-      .run(now, dispatchId);
-  }
-
-  acknowledgeClaimRelease(dispatchId: string, now: number) {
-    this.database
-      .prepare(
-        `UPDATE execution_placement_inbox
-         SET state = 'orphaned', cancel_rpc_pending = 0,
-             cancel_orphan_on_ack = 0, updated_at = ?
-         WHERE dispatch_id = ? AND state = 'claimed'`,
-      )
-      .run(now, dispatchId);
-  }
-
-  markAccepted(dispatchId: string, dispatch: DispatchSummary, now: number) {
-    this.database
-      .prepare(
-        `UPDATE execution_placement_inbox
-         SET state = 'accepted', dispatch_json = ?, updated_at = ?
-         WHERE dispatch_id = ? AND cancel_rpc_pending = 0
-           AND state IN ('claimed', 'accepted')`,
-      )
-      .run(JSON.stringify(dispatch), now, dispatchId);
-  }
-
-  markRunning(dispatchId: string, now: number) {
-    this.database
-      .prepare(
-        `UPDATE execution_placement_inbox
-         SET state = 'running', started_at = COALESCE(started_at, ?),
-             updated_at = ?
-         WHERE dispatch_id = ? AND cancel_rpc_pending = 0
-           AND state IN ('accepted', 'running')`,
-      )
-      .run(now, now, dispatchId);
-  }
-
-  markTerminalPending(
-    dispatchId: string,
-    args: {
-      outcome: PlacementOutcome;
-      resultJson?: string;
-      errorCode?: string;
-      errorMessage?: string;
-      now: number;
-    },
-  ) {
-    this.database
-      .prepare(
-        `UPDATE execution_placement_inbox
-         SET state = 'terminal_pending', terminal_outcome = ?,
-             result_json = ?, error_code = ?, error_message = ?,
-             cancel_rpc_pending = 0, cancel_orphan_on_ack = 0,
-             updated_at = ?
-         WHERE dispatch_id = ?
-           AND cancel_rpc_pending = 0
-           AND state IN ('claimed', 'accepted', 'running', 'terminal_pending')`,
-      )
-      .run(
-        args.outcome,
-        args.resultJson ?? null,
-        args.errorCode ?? null,
-        args.errorMessage ?? null,
-        args.now,
-        dispatchId,
-      );
-  }
-
-  markTerminal(dispatchId: string, dispatch: DispatchSummary, now: number) {
-    this.database
-      .prepare(
-        `UPDATE execution_placement_inbox
-         SET state = 'terminal', dispatch_json = ?, cancel_rpc_pending = 0,
-             cancel_orphan_on_ack = 0, updated_at = ?
-         WHERE dispatch_id = ? AND cancel_rpc_pending = 0`,
-      )
-      .run(JSON.stringify(dispatch), now, dispatchId);
-  }
-
-  markOrphaned(dispatchId: string, now: number) {
-    this.database
-      .prepare(
-        `UPDATE execution_placement_inbox
-         SET state = 'orphaned', cancel_rpc_pending = 0,
-             cancel_orphan_on_ack = 0, updated_at = ?
-         WHERE dispatch_id = ? AND cancel_rpc_pending = 0`,
-      )
-      .run(now, dispatchId);
-  }
-
-  pruneTerminal(before: number) {
-    this.database
-      .prepare(
-        `DELETE FROM execution_placement_inbox
-         WHERE state IN ('terminal', 'orphaned') AND updated_at < ?`,
-      )
-      .run(before);
-  }
-}
 
 const sha256 = (value: string) =>
   createHash("sha256").update(value, "utf8").digest("hex");
@@ -834,6 +339,13 @@ type PendingFrameWait<T> = {
 
 export type DispatchWatchHandle = { unsubscribe(): void };
 
+type ServerFrameHandlers = {
+  [Type in Exclude<DevicePresenceServerFrame["type"], "challenge">]: (
+    frame: Extract<DevicePresenceServerFrame, { type: Type }>,
+    socket: ExecutionPlacementSocket,
+  ) => void | Promise<void>;
+};
+
 /**
  * Device presence + durable claim/ack runtime against the owner gate.
  *
@@ -848,7 +360,7 @@ export class ExecutionPlacementBridge {
   readonly client: ExecutionPlacementClient;
   private readonly inbox: ExecutionPlacementInbox;
   private readonly fetchImpl: typeof fetch;
-  private heartbeatTimer: HostTimerHandle | null = null;
+  private readonly leases: ExecutionPlacementLeases;
   private ownerId: string | null = null;
   private ownerGeneration: string | null = null;
   private builderOrigin: string | null = null;
@@ -857,25 +369,16 @@ export class ExecutionPlacementBridge {
   private started = false;
   private stopped = false;
   private lifecycleEpoch = 0;
-  private heartbeatTask: Promise<void> | null = null;
   private socket: ExecutionPlacementSocket | null = null;
   private socketProven = false;
-  private socketReconnectTimer: HostTimerHandle | null = null;
   private socketPingTimer: HostTimerHandle | null = null;
   private socketTokenTimer: HostTimerHandle | null = null;
-  private socketReconnectAttempt = 0;
   private advertisedAvailability = "";
   private stopTask: Promise<void> | null = null;
-  private readonly renewalFailureSince = new Map<string, number>();
-  private readonly claimAckRetry = new Map<
-    string,
-    { attempts: number; nextAt: number }
-  >();
   private readonly offerTasks = new Set<Promise<void>>();
   private readonly offersInFlight = new Set<string>();
   private readonly executing = new Set<string>();
   private readonly executionTasks = new Map<string, Promise<void>>();
-  private readonly cancellationInFlight = new Map<string, Promise<boolean>>();
   private readonly terminalFlushes = new Map<string, Promise<void>>();
   private readonly pendingClaims = new Map<string, PendingFrameWait<number>>();
   private readonly pendingCompletes = new Map<
@@ -893,6 +396,11 @@ export class ExecutionPlacementBridge {
     this.client = options.client;
     this.inbox = new ExecutionPlacementInbox(options.database);
     this.fetchImpl = options.fetch ?? globalThis.fetch;
+    this.leases = new ExecutionPlacementLeases({
+      now: () => this.now(),
+      leaseRenewalGraceMs: options.leaseRenewalGraceMs,
+      claimAckRetryBaseMs: options.claimAckRetryBaseMs,
+    });
     this.deviceRequests = new DeviceRequestServer({
       serve: options.serveDeviceRequest,
       send: (frame) => this.send(frame),
@@ -1013,7 +521,10 @@ export class ExecutionPlacementBridge {
     const requestedExecutorDeviceId =
       args.requestedExecutorDeviceId?.trim() || undefined;
     const requiredCapabilities = [
-      ...new Set<PlacementCapability>([args.kind, ...args.requiredCapabilities]),
+      ...new Set<PlacementCapability>([
+        args.kind,
+        ...args.requiredCapabilities,
+      ]),
     ].sort();
     const body = {
       protocol: PLACEMENT_PROTOCOL,
@@ -1044,7 +555,8 @@ export class ExecutionPlacementBridge {
     const dispatch = parseDispatch(parseRecord(await response.json()).dispatch);
     getFileLogger()?.process("chat.dispatch-response", {
       originUserMessageId: args.payload.userMessageEventId,
-      dispatchId: dispatch.dispatchId, requestAt,
+      dispatchId: dispatch.dispatchId,
+      requestAt,
       responseMs: Math.round(performance.now() - requestStarted),
     });
     this.notifyDispatchWatchers(dispatch);
@@ -1146,7 +658,11 @@ export class ExecutionPlacementBridge {
   private send(frame: DevicePresenceDeviceFrame): boolean {
     const socket = this.socket;
     if (!socket || socket.readyState !== 1) return false;
-    if (frame.type !== "begin" && frame.type !== "proof" && !this.socketProven) {
+    if (
+      frame.type !== "begin" &&
+      frame.type !== "proof" &&
+      !this.socketProven
+    ) {
       return false;
     }
     try {
@@ -1159,8 +675,7 @@ export class ExecutionPlacementBridge {
   }
 
   private closeSocket(code = 1000, reason = "desktop_stopped") {
-    this.socketReconnectTimer?.cancel();
-    this.socketReconnectTimer = null;
+    this.leases.cancelReconnect();
     this.socketPingTimer?.cancel();
     this.socketPingTimer = null;
     this.socketTokenTimer?.cancel();
@@ -1177,20 +692,11 @@ export class ExecutionPlacementBridge {
       this.stopped ||
       !this.started ||
       !this.sessionReady ||
-      !this.builderOrigin ||
-      this.socketReconnectTimer
+      !this.builderOrigin
     ) {
       return;
     }
-    const attempt = this.socketReconnectAttempt++;
-    const delay = Math.min(
-      PRESENCE_SOCKET_RECONNECT_MAX_MS,
-      500 * 2 ** Math.min(attempt, 6),
-    );
-    this.socketReconnectTimer = forkDelayed(delay, () => {
-      this.socketReconnectTimer = null;
-      this.openSocket();
-    });
+    this.leases.scheduleReconnect(() => this.openSocket());
   }
 
   private openSocket() {
@@ -1215,7 +721,10 @@ export class ExecutionPlacementBridge {
     const create =
       this.options.createSocket ??
       ((target: string, protocols: string[]) =>
-        new WebSocket(target, protocols) as unknown as ExecutionPlacementSocket);
+        new WebSocket(
+          target,
+          protocols,
+        ) as unknown as ExecutionPlacementSocket);
     let socket: ExecutionPlacementSocket;
     try {
       socket = create(url, [
@@ -1240,7 +749,7 @@ export class ExecutionPlacementBridge {
       this.socketTokenTimer?.cancel();
       this.socketTokenTimer = forkDelayed(delay, () => {
         if (this.socket !== socket) return;
-        this.socketReconnectAttempt = 0;
+        this.leases.resetReconnectBackoff();
         socket.close(1000, "token_refresh");
       });
     }
@@ -1334,93 +843,94 @@ export class ExecutionPlacementBridge {
     this.advertisedAvailability = JSON.stringify(availability);
   }
 
+  /**
+   * One handler per server frame type. `challenge` is the handshake and is
+   * answered by `openSocket` itself; every other frame reaches its handler
+   * only while its socket is still the live one.
+   */
+  private readonly serverFrameHandlers: ServerFrameHandlers = {
+    connected: async () => {
+      this.socketProven = true;
+      this.leases.resetReconnectBackoff();
+      this.socketPingTimer?.cancel();
+      this.socketPingTimer = forkInterval(
+        DEVICE_PRESENCE_PING_INTERVAL_MS,
+        () => {
+          this.send({ type: "ping" });
+        },
+      );
+      await this.resumeAfterConnect();
+    },
+    offer: (frame) => {
+      const task = this.handleOffer(frame).catch((error) =>
+        this.log("error", "Execution placement offer handling failed.", error),
+      );
+      this.offerTasks.add(task);
+      void task.finally(() => this.offerTasks.delete(task));
+    },
+    "offer.withdrawn": (frame) => {
+      this.settleClaim(frame.dispatchId, {
+        error: new Error(`The offer was withdrawn (${frame.reason}).`),
+      });
+    },
+    claimed: (frame) => {
+      this.settleClaim(frame.dispatchId, {
+        claimExpiresAt: frame.claimExpiresAt,
+      });
+    },
+    cancel: async (frame) => {
+      const local = this.inbox.get(frame.dispatchId);
+      if (local) await this.cancelAccepted(local);
+    },
+    steer: async (frame) => {
+      await this.steerAccepted(frame.dispatchId, frame.messageId, frame.text);
+    },
+    "agent-message": async (frame) => {
+      await this.deliverAgentMessage(frame);
+    },
+    "consent.request": (frame) => {
+      // Only raise the question. This computer answers when its own user
+      // does, and the attempt that triggered the ask has already been told
+      // to come back later, so there is nothing here to keep waiting on.
+      this.options.onRemoteExecutionRequest?.({
+        requestedAt: frame.requestedAt,
+        ...(frame.requesterLabel
+          ? { requesterLabel: frame.requesterLabel }
+          : {}),
+      });
+    },
+    dispatch: async (frame) => {
+      await this.applyDispatchUpdate(frame.dispatch);
+    },
+    request: (frame) => {
+      this.deviceRequests.handle(frame);
+    },
+    "request.cancel": (frame) => {
+      this.deviceRequests.cancel(frame.requestId);
+    },
+    error: (frame, socket) => {
+      this.log(
+        "warn",
+        `The owner gate refused a presence frame (${frame.code}): ${frame.message}`,
+      );
+      if (!frame.retryable) socket.close(4000, frame.code);
+    },
+    pong: () => {},
+  };
+
   private async handleServerFrame(
     socket: ExecutionPlacementSocket,
     frame: DevicePresenceServerFrame,
   ) {
     if (this.socket !== socket) return;
-    switch (frame.type) {
-      case "connected": {
-        this.socketProven = true;
-        this.socketReconnectAttempt = 0;
-        this.socketPingTimer?.cancel();
-        this.socketPingTimer = forkInterval(
-          DEVICE_PRESENCE_PING_INTERVAL_MS,
-          () => {
-            this.send({ type: "ping" });
-          },
-        );
-        await this.resumeAfterConnect();
-        return;
-      }
-      case "offer": {
-        const task = this.handleOffer(frame).catch((error) =>
-          this.log("error", "Execution placement offer handling failed.", error),
-        );
-        this.offerTasks.add(task);
-        void task.finally(() => this.offerTasks.delete(task));
-        return;
-      }
-      case "offer.withdrawn": {
-        this.settleClaim(frame.dispatchId, {
-          error: new Error(`The offer was withdrawn (${frame.reason}).`),
-        });
-        return;
-      }
-      case "claimed": {
-        this.settleClaim(frame.dispatchId, {
-          claimExpiresAt: frame.claimExpiresAt,
-        });
-        return;
-      }
-      case "cancel": {
-        const local = this.inbox.get(frame.dispatchId);
-        if (local) await this.cancelAccepted(local);
-        return;
-      }
-      case "steer": {
-        await this.steerAccepted(frame.dispatchId, frame.messageId, frame.text);
-        return;
-      }
-      case "agent-message": {
-        await this.deliverAgentMessage(frame);
-        return;
-      }
-      case "consent.request": {
-        // Only raise the question. This computer answers when its own user
-        // does, and the attempt that triggered the ask has already been told
-        // to come back later, so there is nothing here to keep waiting on.
-        this.options.onRemoteExecutionRequest?.({
-          requestedAt: frame.requestedAt,
-          ...(frame.requesterLabel
-            ? { requesterLabel: frame.requesterLabel }
-            : {}),
-        });
-        return;
-      }
-      case "dispatch": {
-        await this.applyDispatchUpdate(frame.dispatch);
-        return;
-      }
-      case "request": {
-        this.deviceRequests.handle(frame);
-        return;
-      }
-      case "request.cancel": {
-        this.deviceRequests.cancel(frame.requestId);
-        return;
-      }
-      case "error": {
-        this.log(
-          "warn",
-          `The owner gate refused a presence frame (${frame.code}): ${frame.message}`,
-        );
-        if (!frame.retryable) socket.close(4000, frame.code);
-        return;
-      }
-      default:
-        return;
-    }
+    if (!Object.hasOwn(this.serverFrameHandlers, frame.type)) return;
+    const handler = this.serverFrameHandlers[
+      frame.type as keyof ServerFrameHandlers
+    ] as (
+      frame: DevicePresenceServerFrame,
+      socket: ExecutionPlacementSocket,
+    ) => void | Promise<void>;
+    await handler(frame, socket);
   }
 
   /** Hand a steer to the accepted agent run it names, then report back. */
@@ -1668,7 +1178,7 @@ export class ExecutionPlacementBridge {
     if (!cancellationsAcknowledged) {
       // Stay alive only as a cancellation reconciler. No presence socket
       // exists until a later heartbeat has joined every exact run.
-      this.heartbeatTimer = forkInterval(HEARTBEAT_INTERVAL_MS, () => {
+      this.leases.startHeartbeat(() => {
         void this.heartbeat();
       });
       return;
@@ -1680,7 +1190,7 @@ export class ExecutionPlacementBridge {
     this.sessionReady = true;
     this.openSocket();
     await this.reconcileInbox();
-    this.heartbeatTimer = forkInterval(HEARTBEAT_INTERVAL_MS, () => {
+    this.leases.startHeartbeat(() => {
       void this.heartbeat();
     });
   }
@@ -1703,17 +1213,14 @@ export class ExecutionPlacementBridge {
     this.stopped = true;
     this.started = false;
     this.sessionReady = false;
-    this.heartbeatTimer?.cancel();
-    this.heartbeatTimer = null;
-    this.socketReconnectTimer?.cancel();
-    this.socketReconnectTimer = null;
-    this.renewalFailureSince.clear();
-    this.claimAckRetry.clear();
+    this.leases.stopHeartbeat();
+    this.leases.cancelReconnect();
+    this.leases.clearLeaseHistory();
     this.dispatchWatchers.clear();
 
     // No replacement bridge may take over presence until every continuation
     // already admitted by this instance has crossed the stop fence.
-    await this.heartbeatTask?.catch(() => undefined);
+    await this.leases.joinHeartbeat();
     await Promise.allSettled([...this.offerTasks]);
 
     const now = this.now();
@@ -1741,7 +1248,7 @@ export class ExecutionPlacementBridge {
     if (cancellationsAcknowledged) {
       await Promise.allSettled([...this.executionTasks.values()]);
     }
-    await Promise.allSettled([...this.cancellationInFlight.values()]);
+    await Promise.allSettled(this.leases.cancellationsInFlight());
 
     for (const row of this.inbox.listAllUnfinished()) {
       if (row.state === "terminal_pending" && !row.cancelRpcPending) {
@@ -1835,8 +1342,7 @@ export class ExecutionPlacementBridge {
     }
 
     this.closeSocket(1000, "owner_rotated");
-    this.renewalFailureSince.clear();
-    this.claimAckRetry.clear();
+    this.leases.clearLeaseHistory();
     this.sessionReady = false;
     this.lifecycleEpoch += 1;
     await Promise.allSettled([...this.offerTasks]);
@@ -1867,15 +1373,9 @@ export class ExecutionPlacementBridge {
   // -------------------------------------------------------------------------
 
   private heartbeat(): Promise<void> {
-    if (this.heartbeatTask) return this.heartbeatTask;
-    if (!this.started || this.stopped) return Promise.resolve();
-    const task = this.runHeartbeat();
-    this.heartbeatTask = task;
-    const clear = () => {
-      if (this.heartbeatTask === task) this.heartbeatTask = null;
-    };
-    void task.then(clear, clear);
-    return task;
+    return this.leases.heartbeat(() =>
+      !this.started || this.stopped ? null : this.runHeartbeat(),
+    );
   }
 
   private async runHeartbeat() {
@@ -1898,7 +1398,7 @@ export class ExecutionPlacementBridge {
       if (row.cancelRpcPending) {
         try {
           await this.renew(row);
-          this.renewalFailureSince.delete(row.dispatchId);
+          this.leases.clearRenewalFailure(row.dispatchId);
         } catch (error) {
           identityRefreshNeeded = true;
           this.log(
@@ -1910,13 +1410,13 @@ export class ExecutionPlacementBridge {
         continue;
       }
       if (row.state === "claimed") {
-        this.renewalFailureSince.delete(row.dispatchId);
-        if (this.claimAckRetryIsDue(row.dispatchId)) {
+        this.leases.clearRenewalFailure(row.dispatchId);
+        if (this.leases.claimAckRetryIsDue(row.dispatchId)) {
           let remote: DispatchSummary | null = null;
           try {
             remote = await this.getDispatchStatus(row.dispatchId);
           } catch (error) {
-            this.noteClaimAckFailure(row.dispatchId);
+            this.leases.noteClaimAckFailure(row.dispatchId);
             this.log(
               "warn",
               "Execution placement claim-ACK status retry was deferred.",
@@ -1929,7 +1429,7 @@ export class ExecutionPlacementBridge {
             remote.placement === "cloud" ||
             isTerminalState(remote.state)
           ) {
-            this.claimAckRetry.delete(row.dispatchId);
+            this.leases.clearClaimAckRetry(row.dispatchId);
             this.inbox.markOrphaned(row.dispatchId, now);
           } else {
             this.launchLocal(row, remote);
@@ -1938,7 +1438,7 @@ export class ExecutionPlacementBridge {
         continue;
       }
       if (row.state === "terminal_pending") {
-        this.renewalFailureSince.delete(row.dispatchId);
+        this.leases.clearRenewalFailure(row.dispatchId);
         await this.flushTerminal(row).catch((error) =>
           this.log(
             "warn",
@@ -1950,18 +1450,12 @@ export class ExecutionPlacementBridge {
       }
       try {
         await this.renew(row);
-        this.renewalFailureSince.delete(row.dispatchId);
+        this.leases.clearRenewalFailure(row.dispatchId);
       } catch (error) {
         identityRefreshNeeded = true;
-        const failedSince = this.renewalFailureSince.get(row.dispatchId) ?? now;
-        this.renewalFailureSince.set(row.dispatchId, failedSince);
+        const leaseLost = this.leases.noteRenewalFailure(row.dispatchId, now);
         this.log("warn", "Execution placement lease renewal failed.", error);
-        if (
-          isOwnerLifecycleFenceError(error) ||
-          now - failedSince >=
-            (this.options.leaseRenewalGraceMs ??
-              EXECUTION_LEASE_RENEWAL_FAILSAFE_MS)
-        ) {
+        if (isOwnerLifecycleFenceError(error) || leaseLost) {
           await this.cancelForLostLease(row);
         }
       }
@@ -1978,30 +1472,8 @@ export class ExecutionPlacementBridge {
     }
   }
 
-  private noteClaimAckFailure(dispatchId: string) {
-    const previous = this.claimAckRetry.get(dispatchId);
-    const attempts = (previous?.attempts ?? 0) + 1;
-    const baseMs = Math.max(
-      1,
-      this.options.claimAckRetryBaseMs ?? CLAIM_ACK_RETRY_BASE_MS,
-    );
-    const delayMs = Math.min(
-      CLAIM_ACK_RETRY_MAX_MS,
-      baseMs * 2 ** Math.min(attempts - 1, 8),
-    );
-    this.claimAckRetry.set(dispatchId, {
-      attempts,
-      nextAt: this.now() + delayMs,
-    });
-  }
-
-  private claimAckRetryIsDue(dispatchId: string) {
-    const retry = this.claimAckRetry.get(dispatchId);
-    return !retry || this.now() >= retry.nextAt;
-  }
-
   private async cancelForLostLease(row: ExecutionPlacementInboxRow) {
-    this.renewalFailureSince.delete(row.dispatchId);
+    this.leases.clearRenewalFailure(row.dispatchId);
     this.inbox.stageCancellation(row.dispatchId, {
       outcome: "canceled",
       errorCode: "LOCAL_EXECUTION_LEASE_EXPIRED",
@@ -2021,9 +1493,7 @@ export class ExecutionPlacementBridge {
   }
 
   private retryCancellation(dispatchId: string): Promise<boolean> {
-    const existing = this.cancellationInFlight.get(dispatchId);
-    if (existing) return existing;
-    const pending = (async () => {
+    return this.leases.retryCancellation(dispatchId, async () => {
       const row = this.inbox.get(dispatchId);
       if (!row?.cancelRpcPending) return true;
       try {
@@ -2083,7 +1553,7 @@ export class ExecutionPlacementBridge {
           afterLocalCancel.dispatchId,
           this.now(),
         );
-        this.claimAckRetry.delete(afterLocalCancel.dispatchId);
+        this.leases.clearClaimAckRetry(afterLocalCancel.dispatchId);
         return true;
       }
       this.inbox.acknowledgeCancellation(
@@ -2101,15 +1571,7 @@ export class ExecutionPlacementBridge {
         );
       }
       return true;
-    })();
-    this.cancellationInFlight.set(dispatchId, pending);
-    const clear = () => {
-      if (this.cancellationInFlight.get(dispatchId) === pending) {
-        this.cancellationInFlight.delete(dispatchId);
-      }
-    };
-    void pending.then(clear, clear);
-    return pending;
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -2399,7 +1861,7 @@ export class ExecutionPlacementBridge {
       if (row.state === "claimed") {
         // The payload is committed locally; taking ownership is one frame.
         if (!this.send({ type: "ack", dispatchId: row.dispatchId })) {
-          this.noteClaimAckFailure(row.dispatchId);
+          this.leases.noteClaimAckFailure(row.dispatchId);
           return;
         }
         const accepted: DispatchSummary = {
@@ -2409,7 +1871,7 @@ export class ExecutionPlacementBridge {
           executorDeviceId: this.options.deviceIdentity.deviceId,
         };
         this.inbox.markAccepted(row.dispatchId, accepted, this.now());
-        this.claimAckRetry.delete(row.dispatchId);
+        this.leases.clearClaimAckRetry(row.dispatchId);
         remote = accepted;
         row = this.inbox.get(row.dispatchId)!;
         if (!this.isLiveEpoch(epoch)) {
@@ -2518,7 +1980,7 @@ export class ExecutionPlacementBridge {
         !current.cancelRpcPending &&
         this.isLiveEpoch(epoch)
       ) {
-        this.noteClaimAckFailure(row.dispatchId);
+        this.leases.noteClaimAckFailure(row.dispatchId);
         this.log(
           "warn",
           "Execution placement claim acknowledgement was deferred.",

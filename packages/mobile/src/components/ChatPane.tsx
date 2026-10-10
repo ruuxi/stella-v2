@@ -1544,9 +1544,12 @@ const ChatMessageRow = memo(function ChatMessageRow({
   isSelecting: boolean;
   /** True while ANY row is selecting — lets other rows tap-to-dismiss it. */
   anySelecting: boolean;
-  onOpenArtifact?: (artifact: ChatArtifact) => void;
+  onOpenArtifact?: (
+    artifact: ChatArtifact,
+    gallery?: readonly ChatArtifact[],
+  ) => void;
   /** Opens a tapped `stella://file/...` markdown link in the file viewer. */
-  onOpenStellaFile?: (path: string) => void;
+  onOpenStellaFile?: (path: string, gallery?: readonly string[]) => void;
   onOpenMessageMenu: (request: MessageMenuRequest) => void;
   /** Leaves native text-selection mode for this row. */
   onEndSelecting: () => void;
@@ -3171,7 +3174,10 @@ export type ChatPaneProps = {
   dictationHeaders?: Record<string, string>;
 
   /** Opens a desktop artifact linked from an assistant message. */
-  onOpenArtifact?: (artifact: ChatArtifact) => void;
+  onOpenArtifact?: (
+    artifact: ChatArtifact,
+    gallery?: readonly ChatArtifact[],
+  ) => void;
 
   /**
    * Conversation the transcript belongs to. Used to key artifacts built from
@@ -4235,8 +4241,13 @@ export function ChatPane({
   const onOpenStellaFile = useMemo(
     () =>
       onOpenArtifact
-        ? (path: string) =>
-            onOpenArtifact(stellaFileChatArtifact(path, conversationId ?? ""))
+        ? (path: string, gallery?: readonly string[]) =>
+            onOpenArtifact(
+              stellaFileChatArtifact(path, conversationId ?? ""),
+              gallery?.map((entry) =>
+                stellaFileChatArtifact(entry, conversationId ?? ""),
+              ),
+            )
         : undefined,
     [onOpenArtifact, conversationId],
   );

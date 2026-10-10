@@ -6,13 +6,11 @@ import {
 import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
 import { buildPayloadFromBarePath } from "@/features/chat/lib/derive-turn-resource";
 import { Maximize2 } from "@/ui/icons";
-import { CompareFrame } from "./CompareFrame";
 import { VideoFrame } from "./VideoFrame";
 import { WaveformTile } from "./WaveformTile";
 
 const VISUAL_KINDS: ReadonlySet<EvidenceCard["kind"]> = new Set([
   "image",
-  "image-pair",
   "stack",
   "video",
 ]);
@@ -50,15 +48,6 @@ const StackBody = ({ card }: { card: EvidenceCard }) => {
 };
 
 const TileBody = ({ card }: { card: EvidenceCard }) => {
-  if (card.kind === "image-pair" && card.thumbnail && card.thumbnailAfter) {
-    return (
-      <CompareFrame
-        before={card.thumbnail}
-        after={card.thumbnailAfter}
-        title={card.title}
-      />
-    );
-  }
   if (card.kind === "video") {
     return (
       <VideoFrame

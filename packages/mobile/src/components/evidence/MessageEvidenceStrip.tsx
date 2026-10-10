@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -24,7 +24,6 @@ import type { Colors } from "../../theme/colors";
 import { fonts } from "../../theme/fonts";
 import { fadeHex } from "../../theme/oklch";
 import { AGENT_ACTIVITY_INK } from "../../lib/agent-activity-presentation";
-import { CompareFrame } from "./CompareFrame";
 import { WaveformCard } from "./WaveformCard";
 
 const ROW_GAP = 8;
@@ -33,7 +32,6 @@ const MOUNT_MARGIN = 220;
 
 const VISUAL_KINDS: ReadonlySet<EvidenceCard["kind"]> = new Set([
   "image",
-  "image-pair",
   "stack",
   "video",
 ]);
@@ -127,7 +125,7 @@ export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
   conversationId: string;
   access: StoredPhoneAccess | null;
   colors: Colors;
-  onOpen?: (filePath: string) => void;
+  onOpen?: (filePath: string, gallery?: readonly string[]) => void;
   style?: StyleProp<ViewStyle>;
   part?: "media" | "documents";
 }) {
@@ -137,7 +135,6 @@ export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
     access,
   });
   const [range, setRange] = useState({ start: 0, end: MOUNT_MARGIN * 2 });
-  const rowRef = useRef<ScrollView>(null);
 
   const offsets = useMemo(() => {
     const spans: { start: number; end: number }[] = [];
@@ -149,6 +146,15 @@ export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
     }
     return spans;
   }, [media]);
+
+  const gallery = useMemo(
+    () =>
+      media
+        .filter((card) => card.kind === "image")
+        .map((card) => card.sourcePaths[0])
+        .filter((filePath): filePath is string => Boolean(filePath)),
+    [media],
+  );
 
   const onScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -174,7 +180,6 @@ export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
     <View style={[styles.strip, style]}>
       {showMedia ? (
         <ScrollView
-          ref={rowRef}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.row}
@@ -193,17 +198,6 @@ export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
                 width={width}
                 height={EVIDENCE_MEDIA_CARD_HEIGHT}
                 colors={colors}
-              />
-            ) : card.kind === "image-pair" && card.thumbnail && card.thumbnailAfter ? (
-              <CompareFrame
-                beforeUri={card.thumbnail}
-                afterUri={card.thumbnailAfter}
-                width={width}
-                height={EVIDENCE_MEDIA_CARD_HEIGHT}
-                colors={colors}
-                label={card.title}
-                rowRef={rowRef}
-                {...(onOpen && primary ? { onOpen: () => onOpen(primary) } : {})}
               />
             ) : card.kind === "audio" && card.peaks ? (
               <WaveformCard
@@ -239,14 +233,11 @@ export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
                 colors={colors}
               />
             );
-            // The whole frame opens the file, except on the two cards that own
-            // their own touch: audio's waveform is the transport, and the pair
-            // frame's wipe needs every horizontal move.
+            // The whole frame opens the file, except audio, whose waveform is
+            // its own transport. An image opens with the reply's other images
+            // as its neighbours, so the viewer swipes through them.
             const framed =
-              card.kind === "audio" ||
-              card.kind === "image-pair" ||
-              !onOpen ||
-              !primary ? (
+              card.kind === "audio" || !onOpen || !primary ? (
                 <View style={[styles.frame, { borderColor: colors.borderWeak }]}>
                   {body}
                 </View>
@@ -254,7 +245,9 @@ export const MessageEvidenceStrip = memo(function MessageEvidenceStrip({
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`Open ${card.title}`}
-                  onPress={() => onOpen(primary)}
+                  onPress={() =>
+                    onOpen(primary, card.kind === "image" ? gallery : undefined)
+                  }
                   style={({ pressed }) => [
                     styles.frame,
                     { borderColor: colors.borderWeak, opacity: pressed ? 0.78 : 1 },

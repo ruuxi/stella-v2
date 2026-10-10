@@ -307,6 +307,16 @@ function ChatSurface(props: {
   const [selectedArtifact, setSelectedArtifact] = useState<ChatArtifact | null>(
     null,
   );
+  const [selectedGallery, setSelectedGallery] = useState<
+    readonly ChatArtifact[] | null
+  >(null);
+  const openArtifact = useCallback(
+    (artifact: ChatArtifact, gallery?: readonly ChatArtifact[]) => {
+      setSelectedGallery(gallery ?? null);
+      setSelectedArtifact(artifact);
+    },
+    [],
+  );
   const [appActive, setAppActive] = useState(
     () =>
       AppState.currentState !== "background" &&
@@ -655,7 +665,7 @@ function ChatSurface(props: {
         onRemoveQuote={thread.removeQuote}
         maxAttachments={thread.maxAttachments}
         dictationAnonymous={anonymous}
-        onOpenArtifact={setSelectedArtifact}
+        onOpenArtifact={openArtifact}
         conversationId={thread.conversationId}
         activityTasks={thread.conversationTasks}
         onOpenActivity={requestOpenSidebar}
@@ -666,8 +676,11 @@ function ChatSurface(props: {
         visible={Boolean(selectedArtifact)}
         artifact={selectedArtifact}
         access={access}
-        onClose={() => setSelectedArtifact(null)}
-        siblings={conversationArtifacts}
+        onClose={() => {
+          setSelectedArtifact(null);
+          setSelectedGallery(null);
+        }}
+        siblings={selectedGallery ?? conversationArtifacts}
         onNavigate={setSelectedArtifact}
       />
     </View>

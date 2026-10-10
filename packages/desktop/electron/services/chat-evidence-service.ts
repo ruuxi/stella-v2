@@ -28,8 +28,6 @@ import {
   formatByteSize,
   formatDuration,
   humanTitleFor,
-  pairTitleFor,
-  parseEvidenceName,
   plainKindLabel,
   playbackMimeTypeFor,
   stackTitleFor,
@@ -54,7 +52,6 @@ type SourceEntry = {
 
 type CardPlan =
   | { kind: "single"; entry: SourceEntry }
-  | { kind: "pair"; before: SourceEntry; after: SourceEntry }
   | { kind: "stack"; entries: SourceEntry[]; sourceKind: EvidenceSourceKind };
 
 const boxFor = (cardKind: EvidenceCardKind) => ({
@@ -128,43 +125,9 @@ const describeSource = async (
   }
 };
 
-const planCards = async (entries: SourceEntry[]): Promise<CardPlan[]> => {
+const planCards = (entries: SourceEntry[]): CardPlan[] => {
   const plans: CardPlan[] = [];
   const consumed = new Set<string>();
-
-  const images = entries.filter((entry) => entry.kind === "image");
-  const byPairingKey = new Map<string, SourceEntry[]>();
-  for (const image of images) {
-    const { pairingKey, variant } = parseEvidenceName(image.filePath);
-    if (!variant || !pairingKey) continue;
-    const group = byPairingKey.get(pairingKey) ?? [];
-    group.push(image);
-    byPairingKey.set(pairingKey, group);
-  }
-  for (const group of byPairingKey.values()) {
-    const before = group.find(
-      (entry) => parseEvidenceName(entry.filePath).variant === "before",
-    );
-    const after = group.find(
-      (entry) => parseEvidenceName(entry.filePath).variant === "after",
-    );
-    if (!before || !after) continue;
-    const [beforeSize, afterSize] = await Promise.all([
-      imageDimensions(before.filePath),
-      imageDimensions(after.filePath),
-    ]);
-    if (
-      !beforeSize ||
-      !afterSize ||
-      beforeSize.width !== afterSize.width ||
-      beforeSize.height !== afterSize.height
-    ) {
-      continue;
-    }
-    consumed.add(before.filePath);
-    consumed.add(after.filePath);
-    plans.push({ kind: "pair", before, after });
-  }
 
   const stackable: EvidenceSourceKind[] = ["image", "video"];
   for (const sourceKind of stackable) {
@@ -183,7 +146,6 @@ const planCards = async (entries: SourceEntry[]): Promise<CardPlan[]> => {
 
   const orderOf = (plan: CardPlan): number => {
     if (plan.kind === "single") return plan.entry.order;
-    if (plan.kind === "pair") return Math.min(plan.before.order, plan.after.order);
     return Math.min(...plan.entries.map((entry) => entry.order));
   };
   return plans.sort((left, right) => orderOf(left) - orderOf(right));
@@ -212,13 +174,6 @@ const planCacheKey = async (plan: CardPlan): Promise<string> => {
   };
   if (plan.kind === "single") {
     return `${CACHE_SCHEMA}:single:${plan.entry.kind}:${await hashOne(plan.entry)}`;
-  }
-  if (plan.kind === "pair") {
-    const [before, after] = await Promise.all([
-      hashOne(plan.before),
-      hashOne(plan.after),
-    ]);
-    return `${CACHE_SCHEMA}:pair:${before}:${after}`;
   }
   const hashes = await Promise.all(plan.entries.map(hashOne));
   return `${CACHE_SCHEMA}:stack:${plan.sourceKind}:${hashes.sort().join(",")}`;
@@ -342,31 +297,6 @@ const buildSingleCard = async (
   return plainCard(id, entry);
 };
 
-const buildPairCard = async (
-  id: string,
-  before: SourceEntry,
-  after: SourceEntry,
-): Promise<EvidenceCard> => {
-  const box = boxFor("image-pair");
-  const [beforeRaster, afterRaster] = await Promise.all([
-    rasterizeImageFile(before.filePath, box.width, box.height),
-    rasterizeImageFile(after.filePath, box.width, box.height),
-  ]);
-  if (!beforeRaster || !afterRaster) return plainCard(id, before);
-  const dimensions = await imageDimensions(before.filePath);
-  return {
-    id,
-    kind: "image-pair",
-    title: pairTitleFor(before.filePath),
-    subtitle: dimensions
-      ? `Drag to compare · ${dimensions.width} × ${dimensions.height}`
-      : "Drag to compare",
-    sourcePaths: [before.filePath, after.filePath],
-    thumbnail: beforeRaster,
-    thumbnailAfter: afterRaster,
-  };
-};
-
 const buildStackCard = async (
   id: string,
   entries: SourceEntry[],
@@ -403,7 +333,6 @@ const buildStackCard = async (
 
 const buildCard = async (id: string, plan: CardPlan): Promise<EvidenceCard> => {
   if (plan.kind === "single") return await buildSingleCard(id, plan.entry);
-  if (plan.kind === "pair") return await buildPairCard(id, plan.before, plan.after);
   return await buildStackCard(id, plan.entries, plan.sourceKind);
 };
 
@@ -504,13 +433,13 @@ export const createChatEvidenceService = (options: {
       );
       const entries = described.filter((entry): entry is SourceEntry => entry !== null);
       if (entries.length === 0) return { cards: [], overflowCount: 0 };
-      const plans = await planCards(entries);
+      const plans = planCards(entries);
       const shown = plans.slice(0, EVIDENCE_CARD_CAP);
       const hidden = plans.slice(EVIDENCE_CARD_CAP);
       const overflowCount = hidden.reduce(
         (total, plan) =>
           total +
-          (plan.kind === "single" ? 1 : plan.kind === "pair" ? 2 : plan.entries.length),
+          (plan.kind === "single" ? 1 : plan.entries.length),
         0,
       );
       const cards = await mapWithLimit(shown, GENERATION_CONCURRENCY, (plan) =>

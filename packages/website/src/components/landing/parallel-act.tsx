@@ -1,251 +1,174 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { ease, lerp, seg, usePlayOnce } from "./motion";
+import { useRef, useState } from "react";
+import { usePlayOnce } from "./motion";
+import { Composer, WindowBar } from "./skins";
 import p from "./parallel-act.module.css";
 
 const TASKS = [
-  { ask: "Find me a cheaper phone plan", title: "Phone plans", kind: "bars", status: "Comparing 14 plans", hue: "#2e6bff", speed: 7, done: "Switched to Mint. Saves $22 a month." },
-  { ask: "Expense report from these receipts", title: "Expenses", kind: "lines", status: "Reading 23 receipts", hue: "#0fbf6a", speed: 5 },
-  { ask: "Haircut Thursday, after 5", title: "Haircut", kind: "grid", status: "Calling Ruby's", hue: "#ff6a2b", speed: 9, done: "Ruby's, Thursday 5:30." },
-  { ask: "Watch for Wainwright tickets", title: "Tickets", kind: "radar", status: "Checking every 10 min", hue: "#ff4ac0", speed: 12 },
-  { ask: "Turn my notes into a deck", title: "Deck", kind: "slides", status: "Slide 4 of 12", hue: "#703cff", speed: 6 },
-  { ask: "Rename the Lisbon photos", title: "Photos", kind: "grid", status: "418 of 1,204", hue: "#00b8d9", speed: 4 },
-  { ask: "Reply to the landlord", title: "Landlord", kind: "lines", status: "Drafting, firm but nice", hue: "#e8a400", speed: 8, done: "Sent. Kept it polite." },
-  { ask: "Sell my old bike", title: "Bike", kind: "radar", status: "Listed on 3 sites", hue: "#e23c3c", speed: 10 },
-  { ask: "Plan Mum's birthday", title: "Birthday", kind: "slides", status: "Asking your sister", hue: "#c04aff", speed: 11 },
-  { ask: "Back up my laptop", title: "Backup", kind: "bars", status: "62 GB of 140 GB", hue: "#1d4fd8", speed: 6 },
+  { ask: "Find me a cheaper phone plan", run: "Comparing phone plans", done: "Switched you to Mint. Saves $22 a month.", at: 5.4 },
+  { ask: "Expense report from these receipts", run: "Reading 23 receipts", done: "Expense report is in Drive. $1,284.60 total.", at: 6.9 },
+  { ask: "Haircut Thursday, after 5", run: "Booking a haircut", done: "Ruby's, Thursday at 5:30.", at: 4.9 },
+  { ask: "Watch for Wainwright tickets", run: "Watching for tickets", done: null, at: 0 },
+  { ask: "Turn my notes into a deck", run: "Building the deck", done: null, at: 0 },
+  { ask: "Rename the Lisbon photos", run: "Renaming 1,204 photos", done: "Renamed 1,204 photos by place and day.", at: 6.2 },
+  { ask: "Reply to the landlord", run: "Drafting a reply", done: "Sent. Firm, but polite.", at: 5.8 },
+  { ask: "Sell my old bike", run: "Listing the bike", done: null, at: 0 },
+  { ask: "Plan Mum's birthday", run: "Planning the birthday", done: "Booked Nopa for 8 on the 14th.", at: 7.4 },
+  { ask: "Back up my laptop", run: "Backing up 140 GB", done: null, at: 0 },
 ];
 
-const D = 2.9;
-const START = 0.35;
-const GAP = 0.15;
-
-function Preview({ kind }: { kind: string }) {
-  if (kind === "bars") {
-    return (
-      <span className={p.preview} data-kind="bars">
-        {[0, 1, 2, 3, 4, 5].map((i) => (
-          <i key={i} style={{ ["--i" as string]: i }} />
-        ))}
-      </span>
-    );
-  }
-  if (kind === "lines") {
-    return (
-      <span className={p.preview} data-kind="lines">
-        <i />
-        <i />
-        <i />
-      </span>
-    );
-  }
-  if (kind === "grid") {
-    return (
-      <span className={p.preview} data-kind="grid">
-        {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
-          <i key={i} style={{ ["--i" as string]: i }} />
-        ))}
-      </span>
-    );
-  }
-  if (kind === "radar") {
-    return (
-      <span className={p.preview} data-kind="radar">
-        <i />
-        <i />
-        <b />
-      </span>
-    );
-  }
-  return (
-    <span className={p.preview} data-kind="slides">
-      <i />
-      <i />
-      <i />
-    </span>
-  );
-}
+const SPAWN0 = 0.35;
+const SPAWN_GAP = 0.32;
+const MENU_IN = 3.75;
+const MENU_OUT = 6.6;
+const TOTAL = 9;
+const REPLIES = TASKS.map((task, i) => ({ ...task, i }))
+  .filter((task) => task.done)
+  .sort((a, b) => a.at - b.at)
+  .map((task, rank) => ({ ...task, show: MENU_OUT + 0.15 + rank * 0.34 }));
 
 export function ParallelAct() {
   const sectionRef = useRef<HTMLElement>(null);
-  const bodyRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  const countRef = useRef<HTMLSpanElement>(null);
-  const bubbleRefs = useRef<(HTMLParagraphElement | null)[]>([]);
-  const replyRefs = useRef<(HTMLParagraphElement | null)[]>([]);
-  const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const offsets = useRef<{ dx: number; dy: number }[]>([]);
-  const last = useRef({ count: -1 });
-  const visible = useRef(6);
+  const winRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const askRefs = useRef<(HTMLElement | null)[]>([]);
+  const rowRefs = useRef<(HTMLElement | null)[]>([]);
+  const replyRefs = useRef<(HTMLElement | null)[]>([]);
+  const menuRowRefs = useRef<(HTMLElement | null)[]>([]);
+  const [count, setCount] = useState(0);
+  const last = useRef({ count: -1, menu: false });
 
-  useEffect(() => {
-    const measure = () => {
-      const chat = listRef.current?.parentElement;
-      if (!chat) return;
-      const chatRect = chat.getBoundingClientRect();
-      const win = listRef.current?.parentElement;
-      if (win) visible.current = Math.max(1, Math.round(win.clientHeight / 46));
-      offsets.current = cardRefs.current.map((card) => {
-        if (!card) return { dx: 0, dy: 0 };
-        const prev = card.style.transform;
-        card.style.transform = "none";
-        const r = card.getBoundingClientRect();
-        card.style.transform = prev;
-        return {
-          dx: chatRect.left + chatRect.width * 0.55 - (r.left + r.width / 2),
-          dy: chatRect.bottom - 90 - (r.top + r.height / 2),
-        };
-      });
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    if (sectionRef.current) ro.observe(sectionRef.current);
-    window.addEventListener("resize", measure);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", measure);
-    };
-  }, []);
-
-  usePlayOnce(bodyRef, 6200, (time) => {
-    const u = START - 0.1 + time * (D - START + 0.1);
-
-    let count = 0;
-    let shown = 0;
+  usePlayOnce(winRef, TOTAL * 1000, (u) => {
+    const t = u * TOTAL;
+    let running = 0;
     TASKS.forEach((task, i) => {
-      const s = START + i * GAP;
-      const b = bubbleRefs.current[i];
-      const bubbleIn = seg(u, s - 0.06, s);
-      if (bubbleIn > 0) shown += 1;
-      if (b) {
-        b.style.opacity = String(bubbleIn);
-        b.style.transform = `translate3d(0, ${(1 - ease.out(bubbleIn)) * 16}px, 0)`;
+      const s = SPAWN0 + i * SPAWN_GAP;
+      const ask = askRefs.current[i];
+      const row = rowRefs.current[i];
+      const reply = replyRefs.current[i];
+      const menuRow = menuRowRefs.current[i];
+      const askOn = t >= s;
+      const rowOn = t >= s + 0.16;
+      const done = task.done !== null && t >= task.at;
+      if (ask) ask.dataset.on = askOn ? "1" : "0";
+      if (row) {
+        row.dataset.on = rowOn ? "1" : "0";
+        row.dataset.done = done ? "1" : "0";
       }
-      const card = cardRefs.current[i];
-      const o = offsets.current[i];
-      if (!card || !o) return;
-      const t = seg(u, s, s + 0.3);
-      if (t > 0) count += 1;
-      const e = ease.outBack(t);
-      const k = 1 - e;
-      card.style.opacity = String(seg(t, 0, 0.12));
-      card.style.transform = `translate3d(${o.dx * k}px, ${o.dy * k}px, 0) scale(${lerp(0.25, 1, e)}) rotate(${k * (i % 2 ? 8 : -8)}deg)`;
-      const done = task.done && u > 2.2 + (i % 3) * 0.12;
-      card.dataset.done = done ? "1" : "0";
+      if (menuRow) menuRow.dataset.done = done ? "1" : "0";
+      if (rowOn && !done) running += 1;
     });
-
-    let replies = 0;
-    TASKS.forEach((task, i) => {
-      const r = replyRefs.current[i];
-      if (!r || !task.done) return;
-      const on = seg(u, 2.25 + (i % 3) * 0.12, 2.32 + (i % 3) * 0.12);
-      if (on > 0) replies += 1;
-      r.style.opacity = String(on);
-      r.style.transform = `translate3d(0, ${(1 - on) * 16}px, 0)`;
-      r.style.display = on > 0 ? "" : "none";
+    REPLIES.forEach((r) => {
+      const el = replyRefs.current[r.i];
+      if (el) el.dataset.on = t >= r.show ? "1" : "0";
     });
-
-    if (listRef.current) {
-      const total = shown + replies;
-      const overflow = Math.max(0, total - visible.current);
-      listRef.current.style.transform = `translate3d(0, ${-overflow * 46}px, 0)`;
+    const menu = t >= MENU_IN && t < MENU_OUT;
+    if (menu !== last.current.menu && menuRef.current) {
+      last.current.menu = menu;
+      menuRef.current.dataset.on = menu ? "1" : "0";
     }
-
-    const running = count - replies;
-    if (running !== last.current.count && countRef.current) {
+    if (running !== last.current.count) {
       last.current.count = running;
-      countRef.current.textContent = String(Math.max(0, running));
+      setCount(running);
     }
   });
 
-  const items: { kind: "ask" | "reply"; i: number }[] = [];
-  TASKS.forEach((_, i) => items.push({ kind: "ask", i }));
-  TASKS.forEach((t, i) => {
-    if (t.done) items.push({ kind: "reply", i });
-  });
+  const status = count > 0 ? `${count} ${count === 1 ? "task" : "tasks"} in progress` : null;
 
   return (
-    <section
-      ref={sectionRef}
-      className={p.act}
-      data-tone="light"
-      data-bg="#f1f1f4"
-      aria-labelledby="parallel-title"
-    >
-      <div className={p.sticky}>
+    <section ref={sectionRef} className={p.act} data-tone="light" data-bg="#f1f1f4" aria-labelledby="parallel-title">
+      <div className={p.inner}>
         <h2 id="parallel-title" className={p.title}>
           Ten things <span>at once.</span>
         </h2>
-        <div ref={bodyRef} className={p.body} aria-hidden="true">
-          <div className={p.chat}>
-            <div className={p.chatTop}>
-              <span className={p.dot} />
-              <span>
-                <span ref={countRef}>0</span> running
-              </span>
-            </div>
-            <div className={p.window}>
-              <div ref={listRef} className={p.list}>
-                {items.map(({ kind, i }) =>
-                  kind === "ask" ? (
+        <div ref={winRef} className={p.stage} aria-hidden="true">
+          <div className={p.window}>
+            <WindowBar status={status ? <span className={p.shimmer} data-text={status}>{status}</span> : null} />
+            <div className={p.column}>
+              <div className={p.scroll}>
+                <div className={p.list}>
+                  {TASKS.map((task, i) => (
+                    <div key={task.ask} className={p.pair}>
+                      <p
+                        ref={(el) => {
+                          askRefs.current[i] = el;
+                        }}
+                        className={p.me}
+                        data-on="0"
+                      >
+                        {task.ask}
+                      </p>
+                      <div
+                        ref={(el) => {
+                          rowRefs.current[i] = el;
+                        }}
+                        className={p.row}
+                        data-on="0"
+                        data-done="0"
+                      >
+                        <span className={p.glyph}>
+                          <svg className={p.star} viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M12 2 C12.9 8.2 15.8 11.1 22 12 C15.8 12.9 12.9 15.8 12 22 C11.1 15.8 8.2 12.9 2 12 C8.2 11.1 11.1 8.2 12 2 Z" />
+                          </svg>
+                          <svg className={p.check} viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M5 12.5l4.5 4.5L19 7.5" />
+                          </svg>
+                        </span>
+                        <span className={p.rowTitle}>
+                          <span className={p.shimmer} data-text={task.run}>
+                            {task.run}
+                          </span>
+                        </span>
+                        <svg className={p.chev} viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M9 6l6 6-6 6" />
+                        </svg>
+                      </div>
+                    </div>
+                  ))}
+                  {REPLIES.map((r) => (
                     <p
-                      key={`a${i}`}
+                      key={`r${r.i}`}
                       ref={(el) => {
-                        bubbleRefs.current[i] = el;
-                      }}
-                      className={p.me}
-                    >
-                      {TASKS[i].ask}
-                    </p>
-                  ) : (
-                    <p
-                      key={`r${i}`}
-                      ref={(el) => {
-                        replyRefs.current[i] = el;
+                        replyRefs.current[r.i] = el;
                       }}
                       className={p.her}
-                      style={{ display: "none" }}
+                      data-on="0"
                     >
-                      {TASKS[i].done}
+                      {r.done}
                     </p>
-                  ),
-                )}
+                  ))}
+                </div>
               </div>
+              <Composer />
             </div>
-            <div className={p.composer}>
-              Do anything
-              <i />
-            </div>
-          </div>
-          <div className={p.cards}>
-            {TASKS.map((task, i) => (
-              <div
-                key={task.title}
-                ref={(el) => {
-                  cardRefs.current[i] = el;
-                }}
-                className={p.card}
-                style={{
-                  ["--hue" as string]: task.hue,
-                  ["--speed" as string]: `${task.speed}s`,
-                  ["--delay" as string]: `${-i * 0.7}s`,
-                }}
-              >
-                <div className={p.cardTop}>
-                  <span className={p.icon} />
-                  <span className={p.state}>
-                    <i />
+            <div ref={menuRef} className={p.menu} data-on="0">
+              <p className={p.menuHead}>Activity</p>
+              {TASKS.map((task, i) => (
+                <div
+                  key={task.run}
+                  ref={(el) => {
+                    menuRowRefs.current[i] = el;
+                  }}
+                  className={p.menuRow}
+                  data-done="0"
+                >
+                  <span className={p.glyph}>
+                    <svg className={p.star} viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M12 2 C12.9 8.2 15.8 11.1 22 12 C15.8 12.9 12.9 15.8 12 22 C11.1 15.8 8.2 12.9 2 12 C8.2 11.1 11.1 8.2 12 2 Z" />
+                    </svg>
+                    <svg className={p.check} viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M5 12.5l4.5 4.5L19 7.5" />
+                    </svg>
+                  </span>
+                  <span className={p.rowTitle}>
+                    <span className={p.shimmer} data-text={task.run}>
+                      {task.run}
+                    </span>
                   </span>
                 </div>
-                <Preview kind={task.kind} />
-                <b>{task.title}</b>
-                <small>{task.status}</small>
-                <span className={p.bar}>
-                  <i />
-                </span>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
       </div>

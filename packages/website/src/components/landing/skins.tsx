@@ -13,7 +13,7 @@ export function WindowBar({ status, compact = false }: { status?: ReactNode; com
         <i />
       </span>
       <span className={s.activity}>
-        <StellaCharacter size={20} className={s.mark} />
+        <StellaCharacter size={20} className={s.mark} state={status ? "working" : "idle"} />
         {status ? <span className={s.status}>{status}</span> : null}
       </span>
       <span className={s.account}>

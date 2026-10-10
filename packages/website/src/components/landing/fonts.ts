@@ -1,4 +1,4 @@
-import { Doto, Fredoka, Martian_Mono, Mona_Sans, Silkscreen } from "next/font/google";
+import { Doto, Fraunces, Martian_Mono, Mona_Sans, Pixelify_Sans } from "next/font/google";
 
 export const mona = Mona_Sans({
   variable: "--l-sans",
@@ -23,18 +23,17 @@ export const doto = Doto({
   preload: false,
 });
 
-export const silkscreen = Silkscreen({
+export const pixelify = Pixelify_Sans({
   variable: "--l-pixel",
   subsets: ["latin"],
-  weight: ["400", "700"],
   display: "swap",
   preload: false,
 });
 
-export const fredoka = Fredoka({
-  variable: "--l-round",
+export const fraunces = Fraunces({
+  variable: "--l-serif",
   subsets: ["latin"],
-  axes: ["wdth"],
+  axes: ["opsz", "SOFT"],
   display: "swap",
   preload: false,
 });
@@ -43,6 +42,6 @@ export const landingFontVars = [
   mona.variable,
   martian.variable,
   doto.variable,
-  silkscreen.variable,
-  fredoka.variable,
+  pixelify.variable,
+  fraunces.variable,
 ].join(" ");

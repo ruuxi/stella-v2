@@ -1,0 +1,337 @@
+.blocks {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #8db7ff;
+  color: #fff;
+  font-family: var(--l-pixel), monospace;
+  box-shadow:
+    0 0 0 3px #1b1b1b,
+    0 0 0 6px #5a5a5a,
+    0 50px 120px -30px rgba(0, 0, 0, 0.8);
+}
+
+.world {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 55% 100%;
+  image-rendering: pixelated;
+}
+
+.clouds {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 40px;
+  height: 30%;
+  animation: drift 40s linear infinite;
+}
+
+.clouds i {
+  position: absolute;
+  height: 4.2cqh;
+  background: #ffffff;
+  box-shadow:
+    1.6cqw 1.6cqh 0 0 #ffffff,
+    -1.2cqw 1.6cqh 0 0 #f2f6ff;
+  opacity: 0.95;
+}
+
+@keyframes drift {
+  to {
+    transform: translateX(-12%);
+  }
+}
+
+.bar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  padding: 0 14px;
+  background:
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.18) 0 4px, transparent 4px 9px, rgba(255, 255, 255, 0.06) 9px 12px, transparent 12px 17px),
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.14) 0 3px, transparent 3px 8px),
+    #5c5c5c;
+  border-bottom: 3px solid #2b2b2b;
+  box-shadow: inset 0 3px 0 rgba(255, 255, 255, 0.18);
+}
+
+.lights {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.lights i {
+  width: 12px;
+  height: 12px;
+  background: #e23c3c;
+  box-shadow: inset -3px -3px 0 rgba(0, 0, 0, 0.3), inset 3px 3px 0 rgba(255, 255, 255, 0.3);
+}
+
+.lights i:nth-child(2) {
+  background: #f5c542;
+}
+
+.lights i:nth-child(3) {
+  background: #5fbf3a;
+}
+
+.pmark {
+  position: absolute;
+  left: 50%;
+  top: 9px;
+  width: 22px;
+  height: 22px;
+  margin-left: -11px;
+  image-rendering: pixelated;
+}
+
+.blocks[data-play="1"] .pmark {
+  animation: hop 1.6s steps(2) infinite;
+}
+
+@keyframes hop {
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+.account {
+  font-size: 14px;
+  color: #fff;
+  text-shadow: 2px 2px 0 #2b2b2b;
+}
+
+.cross {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  z-index: 2;
+  background:
+    linear-gradient(#fff, #fff) center / 3px 100% no-repeat,
+    linear-gradient(#fff, #fff) center / 100% 3px no-repeat;
+  mix-blend-mode: difference;
+}
+
+.chat {
+  position: absolute;
+  z-index: 2;
+  left: 10px;
+  bottom: calc(46px + 15cqh);
+  width: min(50%, 470px);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  font-size: clamp(11px, 1.55cqw, 17px);
+  line-height: 1.45;
+}
+
+.chat p {
+  margin: 0;
+  padding: 2px 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  text-shadow: 2px 2px 0 #3f3f3f;
+}
+
+.you {
+  color: #ffffff;
+}
+
+.her {
+  color: #55ffff;
+}
+
+.blocks[data-play="1"] .chat p {
+  animation: line 1ms steps(1) both;
+}
+
+.blocks[data-play="1"] .chat p:nth-child(1) {
+  animation-delay: 80ms;
+}
+
+.blocks[data-play="1"] .chat p:nth-child(2) {
+  animation-delay: 260ms;
+}
+
+.blocks[data-play="1"] .chat p:nth-child(3) {
+  animation-delay: 560ms;
+}
+
+.blocks[data-play="1"] .chat p:nth-child(4) {
+  animation-delay: 1250ms;
+}
+
+@keyframes line {
+  from {
+    visibility: hidden;
+  }
+}
+
+.hud {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: calc(34px + 1.5cqh);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  width: min(62%, 420px);
+}
+
+.hearts {
+  display: flex;
+  gap: 1px;
+  width: 50%;
+}
+
+.hearts svg {
+  flex: 1;
+  max-width: 18px;
+  aspect-ratio: 1;
+}
+
+.xp {
+  position: relative;
+  height: 6px;
+  background: #1b1b1b;
+  box-shadow: inset 0 0 0 1px #000;
+}
+
+.xp i {
+  position: absolute;
+  left: 1px;
+  top: 1px;
+  bottom: 1px;
+  width: 62%;
+  background: #80ff20;
+  box-shadow: inset 0 -2px 0 #4fbf10;
+}
+
+.blocks[data-play="1"] .xp i {
+  animation: xp 2.4s steps(12) 900ms both;
+}
+
+@keyframes xp {
+  from {
+    width: 20%;
+  }
+}
+
+.xp span {
+  position: absolute;
+  left: 50%;
+  bottom: 5px;
+  transform: translateX(-50%);
+  font-size: 13px;
+  color: #80ff20;
+  text-shadow: 2px 2px 0 #1b3a06;
+}
+
+.hotbar {
+  display: flex;
+  padding: 3px;
+  background: rgba(0, 0, 0, 0.55);
+  box-shadow: 0 0 0 2px #1b1b1b;
+}
+
+.slot {
+  position: relative;
+  flex: 1;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  box-shadow: inset 0 0 0 2px #8b8b8b, inset 0 0 0 4px #373737;
+}
+
+.slot svg {
+  width: 62%;
+  height: 62%;
+}
+
+.slot[data-on="1"] {
+  box-shadow: 0 0 0 3px #ffffff, inset 0 0 0 3px #000;
+  z-index: 1;
+}
+
+.blocks[data-play="1"] .slot[data-on="1"] {
+  animation: pick 2.4s steps(1) infinite;
+}
+
+@keyframes pick {
+  50% {
+    box-shadow: inset 0 0 0 2px #8b8b8b, inset 0 0 0 4px #373737;
+  }
+}
+
+.input {
+  position: absolute;
+  z-index: 2;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  background: rgba(0, 0, 0, 0.55);
+  font-size: 14px;
+  color: #e0e0e0;
+  text-shadow: 2px 2px 0 #3f3f3f;
+}
+
+.input span {
+  color: #ffff55;
+}
+
+.input i {
+  display: inline-block;
+  width: 8px;
+  height: 2px;
+  margin-top: 10px;
+  background: #fff;
+  animation: blink 1s steps(1) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@container (max-width: 640px) {
+  .chat {
+    width: calc(100% - 20px);
+    bottom: calc(40px + 18cqh);
+  }
+
+  .hud {
+    width: calc(100% - 40px);
+  }
+
+  .account {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clouds,
+  .input i,
+  .blocks[data-play="1"] .slot[data-on="1"],
+  .blocks[data-play="1"] .pmark {
+    animation: none;
+  }
+}

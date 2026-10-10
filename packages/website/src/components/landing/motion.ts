@@ -204,6 +204,30 @@ export function useTimeline(
   }, [ref, reducedAt, threshold]);
 }
 
+export function useLayerLive(ref: RefObject<HTMLElement | null>, onChange: (live: boolean) => void) {
+  const cb = useRef(onChange);
+  useEffect(() => {
+    cb.current = onChange;
+  });
+  useEffect(() => {
+    const host = ref.current?.closest<HTMLElement>("[data-live]");
+    if (!host) {
+      cb.current(true);
+      return;
+    }
+    let last = host.dataset.live === "1";
+    cb.current(last);
+    const mo = new MutationObserver(() => {
+      const next = host.dataset.live === "1";
+      if (next === last) return;
+      last = next;
+      cb.current(next);
+    });
+    mo.observe(host, { attributes: true, attributeFilter: ["data-live"] });
+    return () => mo.disconnect();
+  }, [ref]);
+}
+
 export function useInViewOnce(ref: RefObject<HTMLElement | null>, threshold = 0.25) {
   useEffect(() => {
     const el = ref.current;

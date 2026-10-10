@@ -11,6 +11,7 @@ import {
   NOTIFICATION_NAMES,
   type RuntimeChatPayload,
 } from "@stella/contracts/protocol";
+import { appendMessageRefTag } from "@stella/contracts/reply-refs";
 import { CLIENT_MSG_ID_PATTERN } from "@stella/contracts/turn-plane/turn-start";
 import {
   getAgentRuntimeEngine,
@@ -85,11 +86,16 @@ const piLocalLog = (
       };
     },
     write: async (message) => {
+      const written = (eventId: string) => {
+        if (message.role !== "user") return { id: eventId };
+        const seq = session.storage.chatStore.chat.getEventCursor(conversationId, eventId)?.sequence;
+        return { id: eventId, ...(typeof seq === "number" ? { seq } : {}) };
+      };
       const eventId =
         message.role === "user" && message.clientMsgId && CLIENT_MSG_ID_PATTERN.test(message.clientMsgId)
           ? message.clientMsgId
           : rowId(message.key);
-      if (session.storage.chatStore.chat.hasEvent(conversationId, eventId)) return eventId;
+      if (session.storage.chatStore.chat.hasEvent(conversationId, eventId)) return written(eventId);
       const writer = { writer: PI_WRITER };
       if (message.role === "lifecycle") {
         session.storage.appendChatEventAndNotify({
@@ -100,7 +106,7 @@ const piLocalLog = (
           timestamp: message.timestamp,
           payload: { ...message.payload, metadata: writer },
         });
-        return eventId;
+        return written(eventId);
       }
       if (message.role === "tool_request" || message.role === "tool_result") {
         const details =
@@ -127,7 +133,7 @@ const piLocalLog = (
                   metadata: writer,
                 },
         });
-        return eventId;
+        return written(eventId);
       }
       const type = message.role === "user" ? "user_message" : "assistant_message";
       const userMessageId = message.role === "assistant" && message.replyTo ? userRowId(message.replyTo) : undefined;
@@ -174,16 +180,19 @@ const piLocalLog = (
           timestamp: message.timestamp,
         }),
       });
-      if (message.role === "assistant" && message.notice) return eventId;
+      if (message.role === "assistant" && message.notice) return written(eventId);
       // Off the worker's boot path: the thread runtime brings prompts and compaction with it.
       const { resolveOrchestratorThreadKey } = await import("../../kernel/thread-runtime.js");
+      const row = written(eventId);
       session.storage.runtimeStore.appendThreadMessage({
         timestamp: message.timestamp,
         threadKey: resolveOrchestratorThreadKey(conversationId),
         role: message.role,
-        content: message.text,
+        // The thread is what Claude Code reads: a user message carries its id there, as its own do.
+        content:
+          message.role === "user" && row.seq !== undefined ? appendMessageRefTag(message.text, row.seq) : message.text,
       });
-      return eventId;
+      return row;
     },
   };
 };
@@ -226,6 +235,7 @@ export const piChatsFor = (
       workspace: os.homedir(),
       siteAuth: () => session.runnerCell.get()?.getStellaSiteAuth() ?? null,
       memoryEnabled: () => loadLocalPreferences(session.config.get().stellaDataDirPath).memoryEnabled,
+      executionContext: async () => await session.runnerCell.get()?.loadExecutionContext(),
       stellaModel: () => getModelOverride(session.config.get().stellaDataDirPath, "orchestrator"),
       credentials: {
         apiKey: (provider) => getAccessibleLocalLlmApiKey(session.config.get().stellaDataDirPath, provider),

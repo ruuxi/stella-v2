@@ -259,10 +259,11 @@ export const journalSeqOf = (entry: Pick<EntryRecord, "data"> | undefined): numb
 
 /**
  * A hidden prompt's text parts are marked, as the host's own hidden prompts
- * are; a prompt's client id goes on its first part, as a placed chat's does.
+ * are; a prompt's client id goes on its first part, as a placed chat's does,
+ * and a visible one's journal seq (its `message #N` id, `message-ids.ts`).
  */
-const asWritten = ({ message, hidden, clientMsgId }: JournalMessage): Message => {
-  if (message.role !== "user" || (!hidden && !clientMsgId)) return message;
+const asWritten = ({ message, hidden, clientMsgId, seq }: JournalMessage): Message => {
+  if (message.role !== "user") return message;
   const parts = typeof message.content === "string" ? [{ type: "text" as const, text: message.content }] : message.content;
   return {
     ...message,
@@ -271,6 +272,7 @@ const asWritten = ({ message, hidden, clientMsgId }: JournalMessage): Message =>
         ...(part as { stella?: Record<string, unknown> }).stella,
         ...(hidden && part.type === "text" ? { hidden: true } : {}),
         ...(clientMsgId && index === 0 ? { clientMsgId } : {}),
+        ...(!hidden && index === 0 ? { seq } : {}),
       };
       return Object.keys(marks).length > 0 ? { ...part, stella: marks } : part;
     }),

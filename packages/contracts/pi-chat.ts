@@ -32,6 +32,12 @@ export type PiPartMarks = {
    * pending message binds to the row instead of showing twice.
    */
   clientMsgId?: string;
+  /**
+   * The message's seq in its conversation's record (the journal, or the chat
+   * log of one kept on this computer): its `message #N` id for the model.
+   * Set where a message is written from that record.
+   */
+  seq?: number;
   /** A prompt a schedule fired: read by Stella, not shown, and answered in the chat. */
   source?: "schedule";
 };

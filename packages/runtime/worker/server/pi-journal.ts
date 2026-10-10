@@ -100,7 +100,8 @@ export const cloudJournalFor = (
         ...(turn.hidden ? { hidden: true } : {}),
         ...(turn.adopt ? { adoptExisting: true } : {}),
       });
-      return { leaseToken: ack.leaseToken, ownerGeneration };
+      const promptSeq = turn.hidden ? undefined : await runner().cloudJournal.promptSeq(conversationId, ack);
+      return { leaseToken: ack.leaseToken, ownerGeneration, ...(promptSeq === undefined ? {} : { promptSeq }) };
     },
     finish: async (turn) => {
       const status = await runner().cloudJournal.finish({

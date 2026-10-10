@@ -342,6 +342,8 @@ export abstract class OrchestratorLocalTurn extends OrchestratorJournalWrites {
     history: string[];
     contextStartSeq: number;
     contextEndSeq: number;
+    /** The journal seq of the turn's prompt, its `message #N` id. */
+    promptSeq: number;
   }> {
     for (const repaired of this.journal.repairTail(Date.now())) {
       this.publish(repaired.record);
@@ -448,7 +450,7 @@ export abstract class OrchestratorLocalTurn extends OrchestratorJournalWrites {
     void this.index
       .flush({ activity: "running", updatedAt: now })
       .catch(() => undefined);
-    return context;
+    return { ...context, promptSeq: promptRow.seq };
   }
 
   protected async handleLocalTurnRenewal(

@@ -32,6 +32,7 @@ import {
   type JournalStart,
   type JournalSyncState,
 } from "../stella/journal-sync.ts";
+import { NO_MESSAGE_ID, recordMessageId } from "../stella/message-ids.ts";
 import { stopStella } from "../stella/stop.ts";
 
 /** One journal record as `history.read` returns it; only messages are imported. */
@@ -74,7 +75,12 @@ export type DesktopJournal = {
     /** Reacquire the lease of a turn a previous process opened, under its owner epoch. */
     adopt?: boolean;
     ownerGeneration?: string;
-  }): Promise<{ leaseToken: string; ownerGeneration: string }>;
+  }): Promise<{
+    leaseToken: string;
+    ownerGeneration: string;
+    /** The journal seq of a visible prompt, its `message #N` id, when it could be read. */
+    promptSeq?: number;
+  }>;
   finish(turn: {
     localTurnId: string;
     leaseToken: string;
@@ -192,6 +198,10 @@ export async function journalMirror(args: {
           continue;
         }
         if (journal.ownTurn(record.turnId)) {
+          // One of this computer's prompts, which its begin may not have numbered.
+          if (record.kind === "message" && record.role === "user" && record.clientMsgId && !record.hidden) {
+            await recordMessageId(harness, root.id, record.clientMsgId, record.seq, context);
+          }
           // Stopped from another device (the phone's Stop) while it runs here.
           const open = [...held].some((localTurnId) => record.turnId.endsWith(`:${localTurnId}`));
           if (open && record.kind === "turn" && record.phase === "canceled") stoppedElsewhere = true;
@@ -331,6 +341,9 @@ export async function journalMirror(args: {
                 return undefined;
               });
             if (ack) held.add(localTurnId);
+            if (journaled.clientMsgId && !journaled.hidden) {
+              await recordMessageId(harness, root.id, journaled.clientMsgId, ack?.promptSeq ?? NO_MESSAGE_ID, context);
+            }
             open = ack
               ? { localTurnId, leaseToken: ack.leaseToken, ownerGeneration: ack.ownerGeneration, entries: [] }
               : undefined;

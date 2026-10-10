@@ -8,7 +8,7 @@
  * answers again.
  */
 import type { Context } from "@earendil-works/chord";
-import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message, TextContent } from "@earendil-works/pi-ai";
 import {
   defineDoc,
   InboxDoc,
@@ -32,6 +32,7 @@ import {
 } from "@stella/contracts/pi-chat";
 import { splitReplyRefs } from "@stella/contracts/reply-refs";
 import { lifecycleWakeOutcome, lifecycleWakeTask } from "@stella/contracts/conversation-journal-projection";
+import { NO_MESSAGE_ID, recordMessageId } from "../stella/message-ids.ts";
 
 /** The task a `spawn_agent` result started, by its thread id. */
 const spawnedThreadId = (details: unknown, text: string): string | undefined => {
@@ -55,8 +56,8 @@ export type DesktopLocalLog = {
    * pi did not write, and the last row read (`throughSeq`).
    */
   read(afterSeq: number, limit: number): Promise<{ messages: LocalLogMessage[]; throughSeq: number; complete: boolean }>;
-  /** One of pi's rows, written once per `key`; resolves with the row's id. */
-  write(message: LocalLogWrite): Promise<string>;
+  /** One of pi's rows, written once per `key`; resolves with the row's id and seq. */
+  write(message: LocalLogWrite): Promise<{ id: string; seq?: number }>;
 };
 
 /**
@@ -167,6 +168,12 @@ export const writtenReply = (text: string, timestamp: number, model: string): As
     timestamp,
   }) as AssistantMessage;
 
+/** A log message's text as a user part, marked with its seq (its `message #N` id). */
+const userPart = (text: string, seq: number): TextContent => {
+  const part = { type: "text" as const, text, stella: { seq } };
+  return part;
+};
+
 export async function localLogMirror(args: {
   harness: Harness;
   root: Conversation;
@@ -189,7 +196,7 @@ export async function localLogMirror(args: {
     kind: message.role === "user" ? "pi.user" : "pi.assistant",
     model: [
       message.role === "user"
-        ? ({ role: "user", content: [{ type: "text", text }], timestamp: message.timestamp } as Message)
+        ? ({ role: "user", content: [userPart(text, message.seq)], timestamp: message.timestamp } as Message)
         : writtenReply(text, message.timestamp, "legacy"),
     ],
     data: { localLog: message.id },
@@ -399,9 +406,14 @@ export async function localLogMirror(args: {
               if (relay === "none") await log.write(ended);
             }
             // An agent's report or note and a prompt the app sent are not the user's words.
+            if (!text.trim() && !hidden) {
+              const { clientMsgId } = piJournalUserMessage(message as PiUserMessage);
+              // Nothing of it goes in the log, so it has no id there.
+              if (clientMsgId) await recordMessageId(harness, root.id, clientMsgId, NO_MESSAGE_ID, context);
+            }
             if (text.trim() && !hidden) {
               const { clientMsgId } = piJournalUserMessage(message as PiUserMessage);
-              replyTo = await log.write({
+              const row = await log.write({
                 key,
                 role: "user",
                 text: text.trim(),
@@ -409,6 +421,8 @@ export async function localLogMirror(args: {
                 ...(clientMsgId ? { clientMsgId } : {}),
                 ...(display ? { display } : {}),
               });
+              replyTo = row.id;
+              if (clientMsgId) await recordMessageId(harness, root.id, clientMsgId, row.seq ?? NO_MESSAGE_ID, context);
             }
           } else if (entry.kind === "pi.assistant" && message.role === "assistant") {
             const text = splitReplyRefs(piMessageText(message)).text.trim();

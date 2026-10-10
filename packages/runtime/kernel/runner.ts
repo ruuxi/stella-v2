@@ -536,6 +536,7 @@ export const createStellaHostRunner = (
       const authToken = context.state.authToken?.trim();
       return baseUrl && authToken ? { baseUrl, authToken } : null;
     },
+    loadExecutionContext: async () => await context.loadExecutionContext?.(),
     killAllShells: () => context.toolHost.killAllShells(),
     killShellsByPort: (port) => context.toolHost.killShellsByPort(port),
     // Voice tool calls are model-issued; validate and run hooks like any
@@ -619,6 +620,8 @@ export const createStellaHostRunner = (
     appendCloudJournal: (request) => context.cloudTranscript.append(request),
     cloudJournal: {
       begin: (request) => context.cloudTranscript.begin(request),
+      promptSeq: (conversationId, ack) =>
+        context.cloudTranscript.promptSeq(conversationId, ack),
       finish: (request) => context.cloudTranscript.finish(request),
       append: (request) => context.cloudTranscript.append(request),
       history: (conversationId) => context.cloudTranscript.history(conversationId),

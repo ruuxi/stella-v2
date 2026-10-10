@@ -25,6 +25,7 @@ import {
 import { shapeResidentMemoryDoc } from "@stella/runtime/kernel/memory/resident-doc-shape";
 import { responseLanguageSection } from "@stella/runtime/kernel/runner/locale-prompt";
 import { StellaAgentDoc, type StellaAgentRole } from "./agent-doc.ts";
+import { messageIdsHook } from "./message-ids.ts";
 import { processableImagesHook } from "./processable-images.ts";
 import { residentContextHook } from "./resident-context.ts";
 import type { StellaAgentPromptId, StellaContextSources } from "./context.ts";
@@ -96,7 +97,7 @@ export function stellaPromptExtension(sources: StellaContextSources) {
   return defineExtension({
     name: STELLA_PROMPT_EXTENSION,
     // Every Stella conversation selects this extension, so its requests all pass here.
-    hooks: [processableImagesHook, residentContextHook],
+    hooks: [processableImagesHook, residentContextHook, messageIdsHook],
     sections: [
       section(
         "preamble",

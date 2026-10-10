@@ -52,6 +52,11 @@ export type CloudTranscriptBeginAck = {
   history: string[];
   contextStartSeq: number;
   contextEndSeq: number;
+  /**
+   * The journal seq of the turn's prompt, its `message #N` id. Absent from a
+   * renewal and from a backend that predates it.
+   */
+  promptSeq?: number;
   /** Set on a renewal ACK, which only extends `leaseToken`/`expiresAt`. */
   renewed?: true;
 };
@@ -182,6 +187,15 @@ export type CloudTranscriptWriter = {
   begin: (
     request: CloudTranscriptBeginRequest,
   ) => Promise<CloudTranscriptBeginAck>;
+  /**
+   * The journal seq of a begun turn's prompt (its `message #N` id): the
+   * ACK's, or read back from the journal when the backend's ACK predates it.
+   * Undefined when it cannot be read.
+   */
+  promptSeq: (
+    conversationId: string,
+    ack: CloudTranscriptBeginAck,
+  ) => Promise<number | undefined>;
   /**
    * Commits the terminal payload to SQLite before resolving. Delivery is
    * retried in the background, including after worker restart.
@@ -370,6 +384,11 @@ const parseBeginAck = (value: unknown): CloudTranscriptBeginAck | null => {
     history: candidate.history,
     contextStartSeq: candidate.contextStartSeq,
     contextEndSeq: candidate.contextEndSeq,
+    ...(typeof candidate.promptSeq === "number" &&
+    Number.isInteger(candidate.promptSeq) &&
+    candidate.promptSeq >= 0
+      ? { promptSeq: candidate.promptSeq }
+      : {}),
   };
 };
 
@@ -507,6 +526,42 @@ export const createCloudTranscriptWriter = (
       contextEndSeq: body.contextEndSeq,
       ...(checkpoint ? { checkpoint } : {}),
     };
+  };
+
+  const readPromptSeq = async (
+    conversationId: string,
+    ack: CloudTranscriptBeginAck,
+  ): Promise<number | undefined> => {
+    if (ack.promptSeq !== undefined) return ack.promptSeq;
+    const token = options.getAuthToken();
+    const baseUrl = token ? await options.getBaseUrl() : null;
+    if (!token || !baseUrl || stopped) return undefined;
+    const response = await doFetch(
+      `${baseUrl.replace(
+        /\/+$/,
+        "",
+      )}/conversations/${encodeURIComponent(conversationId)}/history/query`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          op: "sql",
+          query:
+            "SELECT seq FROM journal WHERE turn_id = ? AND kind = 'message' AND role = 'user' ORDER BY seq LIMIT 1",
+          params: [ack.turnId],
+        }),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      },
+    );
+    if (!response.ok) return undefined;
+    const rows = (await response.json().catch(() => null)) as unknown;
+    const seq = Array.isArray(rows)
+      ? (rows[0] as { seq?: unknown } | undefined)?.seq
+      : undefined;
+    return typeof seq === "number" && Number.isInteger(seq) ? seq : undefined;
   };
 
   const clearHistory = (conversationId: string): void => {
@@ -1335,6 +1390,8 @@ export const createCloudTranscriptWriter = (
     history: loadHistory,
     peekHistory: (conversationId) => historyWindows.get(conversationId) ?? null,
     refreshHistory,
+    promptSeq: (conversationId, ack) =>
+      readPromptSeq(conversationId, ack).catch(() => undefined),
     begin: (request) => {
       if (stopped) {
         return Promise.reject(new Error("Cloud transcript writer is stopped."));

@@ -30,7 +30,10 @@ import type {
   RuntimePromptMessage,
 } from "@stella/contracts/protocol";
 import type { PersistedRuntimeThreadPayload } from "../storage/shared.js";
-import { MESSAGE_REF_TAG_RE } from "@stella/contracts/reply-refs";
+import {
+  appendMessageRefTag,
+  MESSAGE_REF_TAG_RE,
+} from "@stella/contracts/reply-refs";
 import { GATEWAY_SIGN_IN_REQUIRED_MESSAGE } from "@stella/contracts/gateway/api";
 import { createRuntimeLogger } from "../debug.js";
 import {
@@ -167,6 +170,34 @@ export const buildCloudUserMessage = (
     },
     hidden,
   };
+};
+
+/**
+ * The prompt `buildCloudUserMessage` journals, tagged with its journal seq
+ * (`message #N`) for the model: the last user-typed prompt message, else
+ * `userPrompt`. The journal keeps the raw text; the tag rides only what the
+ * model reads and the turn's own thread, which a later turn may reuse.
+ */
+export const withCloudPromptRefTag = (
+  prepared: Pick<PreparedOrchestratorRun, "promptMessages" | "userPrompt">,
+  sequence: number,
+): Partial<Pick<PreparedOrchestratorRun, "promptMessages" | "userPrompt">> => {
+  const promptMessages = prepared.promptMessages ?? [];
+  const index = promptMessages.findLastIndex(
+    (message) => (message.messageType ?? "user") === "user",
+  );
+  if (index >= 0) {
+    return {
+      promptMessages: promptMessages.map((message, at) =>
+        at === index
+          ? { ...message, text: appendMessageRefTag(message.text, sequence) }
+          : message,
+      ),
+    };
+  }
+  return prepared.userPrompt.trim()
+    ? { userPrompt: appendMessageRefTag(prepared.userPrompt, sequence) }
+    : {};
 };
 
 export type CloudFileAttachmentMetadata = {
@@ -771,6 +802,15 @@ export const launchPreparedOrchestratorRun = (args: {
         const begin = await beginCloudTurn();
         leaseToken = begin.leaseToken;
         seedCloudHistory(begin);
+        if (!userMessageHidden) {
+          const promptSeq = await context.cloudTranscript.promptSeq(
+            prepared.conversationId,
+            begin,
+          );
+          if (promptSeq !== undefined) {
+            Object.assign(prepared, withCloudPromptRefTag(prepared, promptSeq));
+          }
+        }
         // The journal's window starts a fresh head on a new thread and after
         // the cloud compacts it; that head carries Stella's agent list.
         if (

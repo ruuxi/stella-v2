@@ -472,6 +472,10 @@ export type RunnerPublicApi = {
   stop: () => Promise<void>;
   waitUntilInitialized: () => Promise<void>;
   getStellaSiteAuth: () => { baseUrl: string; authToken: string } | null;
+  /** The owner's devices and media access, as an orchestrator turn reads them (`loadDeviceExecutionContext`). */
+  loadExecutionContext: () => Promise<
+    import("@stella/contracts/execution-context").ExecutionContextSnapshot | undefined
+  >;
   killAllShells: () => Promise<void>;
   killShellsByPort: (port: number) => void;
   executeTool: (
@@ -590,6 +594,7 @@ export type RunnerPublicApi = {
    */
   cloudJournal: {
     begin: import("./cloud-transcript-write.js").CloudTranscriptWriter["begin"];
+    promptSeq: import("./cloud-transcript-write.js").CloudTranscriptWriter["promptSeq"];
     finish: import("./cloud-transcript-write.js").CloudTranscriptWriter["finish"];
     append: import("./cloud-transcript-write.js").CloudTranscriptWriter["append"];
     history: import("./cloud-transcript-write.js").CloudTranscriptWriter["history"];

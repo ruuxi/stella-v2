@@ -803,12 +803,16 @@ export const createOrchestratorController = (
     // Tell the model this message's conversation number so a later reply can
     // cite it (`reply-refs`). The tag rides only the model-facing prompt: the
     // transcript row was appended by the host before this turn started and
-    // keeps the raw text.
-    const userPrompt = tagUserPromptWithSequence(
-      conversationId,
-      payload.userMessageId,
-      rawUserPrompt,
-    );
+    // keeps the raw text. A cloud conversation's number is its journal seq,
+    // which only the turn's begin assigns (`withCloudPromptRefTag`).
+    const userPrompt =
+      storageMode === "cloud"
+        ? rawUserPrompt
+        : tagUserPromptWithSequence(
+            conversationId,
+            payload.userMessageId,
+            rawUserPrompt,
+          );
 
     const liveSession = getLiveOrchestratorSession(conversationId, agentType);
     if (liveSession && storageMode !== "cloud") {

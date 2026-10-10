@@ -32,7 +32,7 @@ import {
   type AgentMessageSender,
 } from "@stella/contracts/agent-directory";
 import type { AgentMessageDelivery } from "@stella/contracts/backend/agent-threads";
-import type { ExecutionDestination } from "@stella/contracts/execution-context";
+import type { ExecutionContextSnapshot, ExecutionDestination } from "@stella/contracts/execution-context";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import { splitReplyRefs } from "@stella/contracts/reply-refs";
 import {
@@ -117,6 +117,8 @@ const FOLLOW_WINDOW_MS = 60_000;
 const BRAIN_TTL_MS = 5_000;
 /** How long a moved brain's brief waits for Stella's turn here to end. */
 const BRAIN_HANDOFF_WAIT_MS = 5 * 60_000;
+/** How long the owner's device list and media access are trusted before they are read again. */
+const EXECUTION_CONTEXT_TTL_MS = 30_000;
 /** Until signed in, recovered work retries the provider this often. */
 const PROVIDER_RETRY_MS = 5_000;
 /** How long the agents' directory waits for the cloud; a message waits out the cloud's own device wait. */
@@ -133,6 +135,8 @@ export type DesktopChatsOptions = {
   refreshAuthToken?(): Promise<string | null | undefined>;
   getDeviceSigner(): Promise<DeviceSigner> | DeviceSigner;
   memoryEnabled?(): boolean;
+  /** The owner's devices and media access, as the app reads them; the destination is this computer's own. */
+  executionContext?(): Promise<ExecutionContextSnapshot | undefined>;
   /** The model the user picked for the orchestrator (`stella/<alias>`, or another provider's). */
   stellaModel?(): string | undefined;
   /** The keys the user brought for other providers' models (BYOK), as the app keeps them. */
@@ -268,6 +272,26 @@ const fileName = (conversationId: string): string => {
 
 export function desktopChats(options: DesktopChatsOptions) {
   const chats = new Map<string, Promise<Chat>>();
+  /**
+   * The owner's devices and media access for every conversation's prompt,
+   * read once per `EXECUTION_CONTEXT_TTL_MS`: the first request waits for it,
+   * later ones get the last answer while a newer one loads, and a failed
+   * read keeps the last answer, so a moment offline does not rewrite the prompt.
+   */
+  let executionContextRead: { snapshot?: ExecutionContextSnapshot; at: number; pending?: Promise<void> } = { at: 0 };
+  const sharedExecutionContext = async (): Promise<ExecutionContextSnapshot | undefined> => {
+    const loadOnce = () =>
+      (executionContextRead.pending ??= (async () => {
+        const snapshot = await options.executionContext?.().catch(() => undefined);
+        executionContextRead = {
+          snapshot: snapshot?.devicesKnown || !executionContextRead.snapshot ? snapshot : executionContextRead.snapshot,
+          at: Date.now(),
+        };
+      })());
+    if (executionContextRead.at === 0) await loadOnce();
+    else if (Date.now() - executionContextRead.at >= EXECUTION_CONTEXT_TTL_MS) void loadOnce();
+    return executionContextRead.snapshot;
+  };
   /** The conversation each agent placed here runs in, by its key at the placing host. */
   const placedIn = new Map<string, string>();
   /** Runs of agents placed here, until they settle, so the host that placed one can stop it. */
@@ -612,6 +636,7 @@ export function desktopChats(options: DesktopChatsOptions) {
               backendUrl: options.siteAuth()?.baseUrl,
               ...(options.memoryEnabled ? { memoryEnabled: options.memoryEnabled } : {}),
               destination,
+              ...(options.executionContext ? { executionContext: sharedExecutionContext } : {}),
               locale: async () =>
                 opened && (await opened.harness.snapshot(LocaleDoc, opened.root.id, context))?.locale,
               cloudStored: !conversationId.startsWith("local_"),

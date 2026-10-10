@@ -15,6 +15,7 @@ import {
   type DeviceFileMissingReason,
 } from "@stella/contracts/device-files";
 import { REMOTE_VIEW_DENIAL_PREFIX } from "../ipc/display-handlers.js";
+import { EVIDENCE_THUMBNAIL_VARIANT } from "@stella/contracts/chat-evidence-thumbnails";
 
 export type DeviceRequestHandlers = {
   readFile: (payload: {
@@ -29,6 +30,7 @@ export type DeviceRequestHandlers = {
       }
     | { missing: false; bytes: Uint8Array; mimeType: string }
   >;
+  readThumbnail?: DeviceRequestHandlers["readFile"];
   renderOfficePreview: (payload: {
     filePath?: unknown;
     sessionId?: unknown;
@@ -86,7 +88,11 @@ export const serveDeviceRequest = async (
   try {
     switch (request.method) {
       case "file.read": {
-        const result = await handlers.readFile({
+        const read =
+          request.params.variant === EVIDENCE_THUMBNAIL_VARIANT && handlers.readThumbnail
+            ? handlers.readThumbnail
+            : handlers.readFile;
+        const result = await read({
           filePath: request.params.filePath,
           conversationId: request.params.conversationId,
         });

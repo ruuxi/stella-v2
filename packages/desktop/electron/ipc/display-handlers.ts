@@ -28,6 +28,11 @@ import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
 import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 import { planDisplayFileRead } from "./display-read-limit.js";
 import {
+  EVIDENCE_THUMBNAIL_CONTENT_TYPE,
+  isEvidenceThumbnailSource,
+} from "@stella/contracts/chat-evidence-thumbnails";
+import { renderDesktopEvidenceThumbnail } from "../services/evidence-thumbnail.js";
+import {
   canvasUrlForOutputsFile,
   MAX_CANVAS_HTML_BYTES,
   registerCanvasHtml,
@@ -358,12 +363,11 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
     }
   };
 
-  const readDisplayFile = async (
+  const authorizeDisplayRead = async (
     payload:
       | {
           filePath?: unknown;
           conversationId?: unknown;
-          maxBytes?: unknown;
         }
       | undefined,
     access: { remote: boolean },
@@ -454,6 +458,23 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
       );
     }
     const mimeType = MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
+    return { requestedPath, resolved, mimeType };
+  };
+
+  const readDisplayFile = async (
+    payload:
+      | {
+          filePath?: unknown;
+          conversationId?: unknown;
+          maxBytes?: unknown;
+        }
+      | undefined,
+    access: { remote: boolean },
+  ) => {
+    const { requestedPath, resolved, mimeType } = await authorizeDisplayRead(
+      payload,
+      access,
+    );
 
     // Paths can outlive the file they point at — e.g. an `image_gen` /
     // tool-result registered a path in `generatedMediaItems`, and the
@@ -724,5 +745,26 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
       filePath?: unknown;
       conversationId?: unknown;
     }) => readDisplayFile(payload, { remote: true }),
+    readThumbnailForRequest: async (payload: {
+      filePath?: unknown;
+      conversationId?: unknown;
+    }) => {
+      const { resolved } = await authorizeDisplayRead(payload, { remote: true });
+      const thumbnail = isEvidenceThumbnailSource(resolved)
+        ? await renderDesktopEvidenceThumbnail(resolved)
+        : null;
+      if (thumbnail) {
+        return {
+          missing: false as const,
+          bytes: new Uint8Array(
+            thumbnail.buffer,
+            thumbnail.byteOffset,
+            thumbnail.byteLength,
+          ),
+          mimeType: EVIDENCE_THUMBNAIL_CONTENT_TYPE,
+        };
+      }
+      return await readDisplayFile(payload, { remote: true });
+    },
   };
 };

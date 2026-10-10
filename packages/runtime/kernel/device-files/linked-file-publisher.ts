@@ -9,6 +9,11 @@ import {
   deviceFileCopyDrivePath,
 } from "@stella/contracts/device-files";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
+import {
+  EVIDENCE_THUMBNAIL_CONTENT_TYPE,
+  evidenceThumbnailDrivePath,
+} from "@stella/contracts/chat-evidence-thumbnails";
+import { renderEvidenceThumbnail } from "../shared/evidence-thumbnail.js";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".png": "image/png",
@@ -118,6 +123,57 @@ export const createLinkedFilePublisher = (deps: {
     }
   };
 
+  const uploadToDrive = async (
+    client: BackendClient,
+    drivePath: string,
+    bytes: Uint8Array,
+    contentType: string,
+  ) => {
+    const prepared = await client.call("drive.prepareUpload", {
+      path: drivePath,
+      sizeBytes: bytes.byteLength,
+      contentType,
+    });
+    const response = await (deps.fetchImpl ?? fetch)(prepared.uploadUrl, {
+      method: "PUT",
+      headers: { "Content-Type": prepared.contentType },
+      body: bytes,
+    });
+    if (!response.ok) {
+      throw new Error(`Drive upload failed (${response.status}).`);
+    }
+    return await client.call("drive.finalizeUpload", {
+      path: prepared.path,
+      uploadId: prepared.uploadId,
+      contentType: prepared.contentType,
+      source: "agent",
+    });
+  };
+
+  const publishThumbnail = async (
+    client: BackendClient,
+    copyPath: string,
+    bytes: Uint8Array,
+  ): Promise<void> => {
+    const thumbnailPath = evidenceThumbnailDrivePath(copyPath);
+    if (!thumbnailPath) return;
+    try {
+      const thumbnail = await renderEvidenceThumbnail(bytes);
+      if (!thumbnail) return;
+      await uploadToDrive(
+        client,
+        thumbnailPath,
+        thumbnail,
+        EVIDENCE_THUMBNAIL_CONTENT_TYPE,
+      );
+    } catch (error) {
+      deps.onLog?.("device_file_thumbnail_failed", {
+        file: path.basename(copyPath),
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
+
   const copyToDrive = async (
     client: BackendClient,
     sourcePath: string,
@@ -133,31 +189,19 @@ export const createLinkedFilePublisher = (deps: {
         sizeBytes: DEVICE_FILE_COPY_LIMITS.maxFileBytes + 1,
       };
     }
-    const prepared = await client.call("drive.prepareUpload", {
-      path: deviceFileCopyDrivePath({
+    const record = await uploadToDrive(
+      client,
+      deviceFileCopyDrivePath({
         deviceName: deps.deviceName,
         sourceDigest: createHash("sha256")
           .update(`${deps.deviceId}\0${sourcePath}`)
           .digest("hex"),
         fileName: path.basename(sourcePath),
       }),
-      sizeBytes: bytes.byteLength,
+      bytes,
       contentType,
-    });
-    const response = await (deps.fetchImpl ?? fetch)(prepared.uploadUrl, {
-      method: "PUT",
-      headers: { "Content-Type": prepared.contentType },
-      body: bytes,
-    });
-    if (!response.ok) {
-      throw new Error(`Drive upload failed (${response.status}).`);
-    }
-    const record = await client.call("drive.finalizeUpload", {
-      path: prepared.path,
-      uploadId: prepared.uploadId,
-      contentType: prepared.contentType,
-      source: "agent",
-    });
+    );
+    await publishThumbnail(client, record.path, bytes);
     return { kind: "copied", drivePath: record.path, sizeBytes: record.sizeBytes };
   };
 

@@ -31,6 +31,11 @@ import type {
   DriveFileUrl,
 } from "@stella/contracts/backend/drive";
 import { DEVICE_FILE_COPY_LIMITS } from "@stella/contracts/device-files";
+import {
+  EVIDENCE_THUMBNAIL_DRIVE_ROOT,
+  evidenceThumbnailDrivePath,
+  isEvidenceThumbnailDrivePath,
+} from "@stella/contracts/chat-evidence-thumbnails";
 import { copyR2Object, presignR2Url, r2Signer, type R2Signer } from "../../r2-presign.js";
 import { sha256Hex } from "../../hash.js";
 import { array, number, object, optional, string } from "../args.js";
@@ -354,6 +359,8 @@ const signGet = async (
 const getFile = (db: OwnerDbReader, path: string): FileRow | null =>
   db.one<FileRow>("SELECT * FROM drive_files WHERE path = ?", path);
 
+const NOT_THUMBNAIL = `path NOT LIKE '${EVIDENCE_THUMBNAIL_DRIVE_ROOT}/%'`;
+
 const isKeyReferenced = (db: OwnerDbReader, r2Key: string): boolean =>
   db.one("SELECT 1 AS present FROM drive_files WHERE r2_key = ? LIMIT 1", r2Key) !== null;
 
@@ -452,6 +459,8 @@ const deleteFileRow = (
   ctx.db.run("DELETE FROM drive_files WHERE path = ?", path);
   recordTombstone(ctx, path, now);
   queueCleanup(ctx, { path, r2Key: row.r2_key, notBefore: now + REPLACEMENT_GRACE_MS });
+  const thumbnail = evidenceThumbnailDrivePath(path);
+  if (thumbnail) deleteFileRow(ctx, thumbnail, now);
   return true;
 };
 
@@ -710,14 +719,18 @@ const listFiles = (
 ): DriveFile[] => {
   const prefix = normalizeDrivePrefix(args.prefix);
   const limit = Math.min(MAX_LIST_LIMIT, Math.max(1, Math.floor(args.limit ?? DEFAULT_LIST_LIMIT)));
+  const hidden = isEvidenceThumbnailDrivePath(prefix) ? "" : ` AND ${NOT_THUMBNAIL}`;
   const rows = prefix
     ? db.all<FileRow>(
-        "SELECT * FROM drive_files WHERE path >= ? AND path < ? ORDER BY path LIMIT ?",
+        `SELECT * FROM drive_files WHERE path >= ? AND path < ?${hidden} ORDER BY path LIMIT ?`,
         prefix,
         `${prefix}￿`,
         limit,
       )
-    : db.all<FileRow>("SELECT * FROM drive_files ORDER BY updated_at DESC, path LIMIT ?", limit);
+    : db.all<FileRow>(
+        `SELECT * FROM drive_files WHERE ${NOT_THUMBNAIL} ORDER BY updated_at DESC, path LIMIT ?`,
+        limit,
+      );
   // The key namespace stays server-side; a signed URL is how bytes are read.
   return rows.map((row) => ({
     path: row.path,
@@ -1422,14 +1435,14 @@ const turnList = (
   );
   const rows = prefix
     ? db.all<FileRow>(
-        "SELECT * FROM drive_files WHERE path > ? AND path >= ? AND path < ? ORDER BY path LIMIT ?",
+        `SELECT * FROM drive_files WHERE path > ? AND path >= ? AND path < ? AND ${NOT_THUMBNAIL} ORDER BY path LIMIT ?`,
         after,
         prefix,
         `${prefix}￿`,
         limit + 1,
       )
     : db.all<FileRow>(
-        "SELECT * FROM drive_files WHERE path > ? ORDER BY path LIMIT ?",
+        `SELECT * FROM drive_files WHERE path > ? AND ${NOT_THUMBNAIL} ORDER BY path LIMIT ?`,
         after,
         limit + 1,
       );
@@ -1534,7 +1547,7 @@ const turnSync = async (ctx: OwnerContext, raw: unknown): Promise<DriveSyncManif
   }
   const byPath = new Map<string, FileRow>();
   for (const row of ctx.db.all<FileRow>(
-    "SELECT * FROM drive_files ORDER BY updated_at DESC LIMIT ?",
+    `SELECT * FROM drive_files WHERE ${NOT_THUMBNAIL} ORDER BY updated_at DESC LIMIT ?`,
     MAX_LIST_LIMIT,
   )) {
     byPath.set(row.path, row);
@@ -1546,7 +1559,9 @@ const turnSync = async (ctx: OwnerContext, raw: unknown): Promise<DriveSyncManif
     const row = getFile(ctx.db, path);
     if (row) byPath.set(path, row);
   }
-  const rows = [...byPath.values()].filter((row) => row.path.startsWith(prefix));
+  const rows = [...byPath.values()].filter(
+    (row) => row.path.startsWith(prefix) && !isEvidenceThumbnailDrivePath(row.path),
+  );
   const files: DriveSyncManifest["files"] = [];
   const skipped: DriveSyncManifest["skipped"] = [];
   const ordered = rows.sort(

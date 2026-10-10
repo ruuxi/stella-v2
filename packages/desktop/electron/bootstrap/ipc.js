@@ -600,6 +600,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     // handlers above apply to a remote caller.
     state.deviceRequestHandlers = {
         readFile: display.readFileForRequest,
+        readThumbnail: display.readThumbnailForRequest,
         renderOfficePreview: officePreview.renderForRequest,
         voiceConfig: voice.configForRequest,
         voiceExecuteTool: voice.executeToolForRequest,

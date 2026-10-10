@@ -683,16 +683,41 @@ const settleAgainstWipe = async (
 // `memory_doc_versions` and `memory_write_intents`) over R2 copies in
 // `AGENT_HOME`. An owner whose home was created then still has those tables.
 // `importLegacyMemory` copies each document the world layout keeps into the
-// world, never over a file already there, then erases the rows and their R2
-// copies, so it happens once. A wipe erases them too.
+// world, never over a file already there, and records that it ran in
+// `memory_legacy_import`, so it happens once. It changes nothing in the
+// legacy rows or their R2 copies; only a wipe or an owner purge erases them.
 
 const LEGACY_MEMORY_TABLES = ["memory_docs", "memory_doc_versions", "memory_write_intents"] as const;
 const LEGACY_DISPLAY_PREFIX = "~/.stella/";
 
 type LegacyDocRow = { display_path: string; memory_epoch: string; r2_key: string; sha256: string };
 
-const hasLegacyMemory = (db: OwnerDbReader): boolean =>
-  db.one("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'memory_docs'") !== null;
+const LEGACY_IMPORT_TABLE = "memory_legacy_import";
+
+const tableExists = (db: OwnerDbReader, name: string): boolean =>
+  db.one("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?", name) !== null;
+
+const hasLegacyMemory = (db: OwnerDbReader): boolean => tableExists(db, "memory_docs");
+
+const legacyImportDone = (db: OwnerDbReader): boolean =>
+  tableExists(db, LEGACY_IMPORT_TABLE) &&
+  db.one(`SELECT 1 AS done FROM ${LEGACY_IMPORT_TABLE} WHERE id = 1`) !== null;
+
+const markLegacyImportDone = (db: OwnerDb, now: number, imported: number): void => {
+  db.run(
+    `CREATE TABLE IF NOT EXISTS ${LEGACY_IMPORT_TABLE} (
+       id INTEGER PRIMARY KEY CHECK (id = 1),
+       imported INTEGER NOT NULL,
+       completed_at INTEGER NOT NULL
+     )`,
+  );
+  db.run(
+    `INSERT INTO ${LEGACY_IMPORT_TABLE} (id, imported, completed_at) VALUES (1, ?, ?)
+     ON CONFLICT (id) DO NOTHING`,
+    imported,
+    now,
+  );
+};
 
 /** Delete every legacy memory row's R2 copy, then the legacy tables. */
 const eraseLegacyMemory = async (ctx: OwnerContext): Promise<void> => {
@@ -721,9 +746,9 @@ const legacyWorldPath = (displayPath: string): string | null => {
   return isSyncedMemoryPath(path) ? path : null;
 };
 
-/** Copy legacy memory into the world, then erase it; the files written. */
+/** Copy legacy memory into the world, once; the files written. Never deletes legacy data. */
 const importLegacyMemory = async (ctx: OwnerContext): Promise<number> => {
-  if (!hasLegacyMemory(ctx.db)) return 0;
+  if (!hasLegacyMemory(ctx.db) || legacyImportDone(ctx.db)) return 0;
   const state = readState(ctx.db);
   // The wipe erases legacy memory itself.
   if (state.memory_state === "wiping") return 0;
@@ -733,7 +758,8 @@ const importLegacyMemory = async (ctx: OwnerContext): Promise<number> => {
   const world = () => ownerMemoryWorld(ctx.env.WORLDS, ctx.ownerId);
   const written: { path: string; sha: string }[] = [];
   for (const row of rows) {
-    // Imported and user Markdown copies have had no reader since the move.
+    // Imported and user Markdown copies have no place in the world layout;
+    // they stay where they are.
     const path = legacyWorldPath(row.display_path);
     if (!path || row.memory_epoch !== state.memory_epoch || !bucket) continue;
     const object = await bucket.get(row.r2_key);
@@ -753,7 +779,7 @@ const importLegacyMemory = async (ctx: OwnerContext): Promise<number> => {
     }
     return 0;
   }
-  await eraseLegacyMemory(ctx);
+  markLegacyImportDone(ctx.db, Date.now(), written.length);
   return written.length;
 };
 
@@ -1444,7 +1470,7 @@ export const homeDomain = {
     if (wipe) ctx.jobs.cancel(wipeJobId(wipe.operation_id));
     ctx.jobs.cancel(INTENT_SWEEP_JOB_ID);
     for (const table of HOME_TABLES) ctx.db.run(`DELETE FROM ${table}`);
-    for (const table of LEGACY_MEMORY_TABLES) ctx.db.run(`DROP TABLE IF EXISTS ${table}`);
+    for (const table of [...LEGACY_MEMORY_TABLES, LEGACY_IMPORT_TABLE]) ctx.db.run(`DROP TABLE IF EXISTS ${table}`);
     return { pending: false };
   },
 } satisfies OwnerDomain;

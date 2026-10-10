@@ -11,8 +11,11 @@
  * and the app refreshes it as it always has.
  */
 import type { Api, AuthContext, Credential, CredentialStore, Model } from "@earendil-works/pi-ai";
+import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
+import { googleGenerativeAIApi } from "@earendil-works/pi-ai/api/google-generative-ai.lazy";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
-import { createProvider, type MutableModels } from "@earendil-works/pi-ai/models";
+import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
+import { createProvider, type MutableModels, type Provider } from "@earendil-works/pi-ai/models";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ModelRef } from "@earendil-works/pi-durable";
 import { CHATGPT_PROVIDER_ID, chatGptModel, chatGptProvider } from "./chatgpt.ts";
@@ -29,6 +32,24 @@ const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:11434/v1";
 const NO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 /** A local server often takes no key, but the OpenAI client always sends one. */
 const LOCAL_PLACEHOLDER_KEY = "stella-local";
+/** The same for a models.json proxy whose auth travels in its configured headers. */
+const CREDENTIALLESS_PLACEHOLDER_KEY = "stella-credentialless";
+
+/**
+ * A model on the user's own key as the app's model registry resolves it (the
+ * registry the model picker lists): models.json and extension providers, and
+ * builtin providers with models.json's endpoint, header and metadata
+ * overrides applied.
+ */
+export type DirectModelRoute = {
+  model: Model<Api>;
+  /** The key for a request (stored, OAuth, or models.json's); reading it applies the configured headers to `model`. */
+  getApiKey(): Promise<string | undefined> | string | undefined;
+  /** Known safe to call with no key: its auth travels in its configured headers. */
+  credentialless?: boolean;
+};
+/** Resolves `<provider>/<model>` through the app's model registry, or says why it can't run. */
+export type DirectModelResolver = (reference: string) => DirectModelRoute | { error: string };
 
 /** Providers the user's picker names that run on another provider here. */
 const PROVIDER_ALIASES: Record<string, string> = {
@@ -110,7 +131,7 @@ export const storeOnlyAuthContext: AuthContext = {
  * and the `local` provider, which gains each local model as it is picked.
  * `ensure` answers the model a pick runs on, or why it can't run.
  */
-export function byokModels(models: MutableModels) {
+export function byokModels(models: MutableModels, resolveDirect?: DirectModelResolver) {
   let upstream: ReturnType<typeof builtinProviders> | undefined;
   const upstreamProviders = () => (upstream ??= builtinProviders());
   let registered = false;
@@ -222,11 +243,105 @@ export function byokModels(models: MutableModels) {
     return { provider: provider.id, modelId: pick.modelId };
   };
 
+  /** Picks the app's model registry resolved, by provider and then model id. */
+  const routed = new Map<string, Map<string, DirectModelRoute>>();
+  let generic: Provider | undefined;
+  /** Streams by a model's API: for a provider pi-ai doesn't ship, or a model models.json moved. */
+  const genericProvider = () =>
+    (generic ??= createProvider({
+      id: "stella-direct",
+      auth: { apiKey: { name: "Key", resolve: async () => undefined } },
+      models: [],
+      api: {
+        "anthropic-messages": anthropicMessagesApi(),
+        "openai-completions": openAICompletionsApi(),
+        "openai-responses": openAIResponsesApi(),
+        "google-generative-ai": googleGenerativeAIApi(),
+      },
+    }));
+  /**
+   * A provider over the routes resolved for it: their models in place of the
+   * builtin entries they override, their keys and configured headers, and
+   * pi-ai's own implementation while a model keeps its builtin endpoint and API.
+   */
+  const routedProvider = (id: string): Provider => {
+    const base = upstreamProviders().find((entry) => entry.id === id);
+    const own = () => routed.get(id) ?? new Map<string, DirectModelRoute>();
+    const target = (model: Model<Api>): { provider: Provider; model: Model<Api> } => {
+      const route = own().get(model.id);
+      // Reading the route's key (on auth) applied its configured headers to its model.
+      const headers = route?.model.headers ? { ...model.headers, ...route.model.headers } : model.headers;
+      const request = headers ? { ...model, headers } : model;
+      const known = base?.getModels().find((entry) => entry.id === model.id);
+      const native = base && (!route || (known && known.baseUrl === model.baseUrl && known.api === model.api));
+      return { provider: native ? base : genericProvider(), model: request };
+    };
+    const chatModels = (): Model<Api>[] => {
+      const overrides = own();
+      return [
+        ...(base?.getModels() ?? []).filter((model) => !overrides.has(model.id)),
+        ...[...overrides.values()].map((route) => route.model),
+      ];
+    };
+    return {
+      id,
+      name: base?.name ?? id,
+      ...(base?.baseUrl ? { baseUrl: base.baseUrl } : {}),
+      ...(base?.headers ? { headers: base.headers } : {}),
+      auth: {
+        apiKey: {
+          name: `${id} key`,
+          resolve: async ({ credential }) => {
+            // A provider's routes read the same key; reading each applies its configured headers.
+            let key: string | undefined;
+            let credentialless = false;
+            for (const route of own().values()) {
+              key ||= (await route.getApiKey())?.trim() || undefined;
+              credentialless ||= route.credentialless === true;
+            }
+            key ||= credential?.key?.trim() || (credentialless ? CREDENTIALLESS_PLACEHOLDER_KEY : undefined);
+            return key ? { auth: { apiKey: key }, source: "Stella" } : undefined;
+          },
+        },
+      },
+      getModels: chatModels,
+      getAllModels: () => [
+        ...chatModels(),
+        // The builtin provider's other model types (images, classifiers) stay as they were.
+        ...(base?.getAllModels?.() ?? []).filter((model) => "type" in model && model.type !== undefined && model.type !== "chat"),
+      ],
+      stream: (model, context, options) => {
+        const { provider, model: request } = target(model);
+        return provider.stream(request, context, options);
+      },
+      streamSimple: (model, context, options) => {
+        const { provider, model: request } = target(model);
+        return provider.streamSimple(request, context, options);
+      },
+    } as Provider;
+  };
+  /** A pick on the user's own key as the model picker resolves it; resolved again each time, so models.json edits apply. */
+  const ensureRouted = (resolve: DirectModelResolver, pick: { provider: string; modelId: string }): ModelRef | { error: string } => {
+    const route = resolve(`${pick.provider}/${pick.modelId}`);
+    if ("error" in route) return route;
+    const { provider, id } = route.model;
+    let own = routed.get(provider);
+    if (!own) {
+      own = new Map();
+      routed.set(provider, own);
+      registerUpstream();
+      models.setProvider(routedProvider(provider));
+    }
+    own.set(id, route);
+    return { provider, modelId: id };
+  };
+
   return {
     /** The model a BYOK pick runs on, registered; or why it can't run. */
     ensure(pick: Exclude<ModelPick, { kind: "stella" }>): ModelRef | { error: string } {
       if (pick.kind === "local") return ensureLocal(pick);
-      return pick.provider === CHATGPT_PROVIDER_ID ? ensureChatGpt(pick.modelId) : ensureDirect(pick);
+      if (pick.provider === CHATGPT_PROVIDER_ID) return ensureChatGpt(pick.modelId);
+      return resolveDirect ? ensureRouted(resolveDirect, pick) : ensureDirect(pick);
     },
     /** A model a conversation was left on (after a restart), registered again. */
     restore(ref: ModelRef): void {
@@ -235,6 +350,8 @@ export function byokModels(models: MutableModels) {
         if (pick?.kind === "local") ensureLocal(pick);
       } else if (ref.provider === CHATGPT_PROVIDER_ID) {
         ensureChatGpt(ref.modelId);
+      } else if (ref.provider !== STELLA_PROVIDER_ID && resolveDirect) {
+        ensureRouted(resolveDirect, ref);
       } else if (ref.provider !== STELLA_PROVIDER_ID) {
         registerUpstream();
         if (!models.getModel(ref.provider, ref.modelId)) ensureDirect({ kind: "direct", ...ref });

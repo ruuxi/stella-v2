@@ -75,6 +75,7 @@ import {
   parseModelPick,
   stellaCredentialStore,
   storeOnlyAuthContext,
+  type DirectModelResolver,
   type StellaCredentialAccess,
 } from "../provider/byok.ts";
 import { openBunSqliteStorage } from "../storage/bun-sqlite.ts";
@@ -135,6 +136,12 @@ export type DesktopChatsOptions = {
   stellaModel?(): string | undefined;
   /** The keys the user brought for other providers' models (BYOK), as the app keeps them. */
   credentials?: StellaCredentialAccess;
+  /**
+   * A pick on the user's own key resolved through the app's model registry,
+   * the one the model picker lists (models.json and extension providers,
+   * builtin overrides). Absent, such picks run on pi-ai's builtin providers only.
+   */
+  resolveDirectModel?: DirectModelResolver;
   /** The orchestrator's thinking level, from the user's reasoning effort. */
   thinkingLevel?(): ModelThinkingLevel;
   /** Stella's own tools (web, html, image_gen, ask_user, …) for one conversation. */
@@ -389,7 +396,7 @@ export function desktopChats(options: DesktopChatsOptions) {
       ? { credentials: stellaCredentialStore(options.credentials), authContext: storeOnlyAuthContext }
       : {},
   );
-  const byok = byokModels(models);
+  const byok = byokModels(models, options.resolveDirectModel);
   let gateway: Promise<{ access: StellaGatewayAccess; gatewayOrigin: string }> | undefined;
   /** Each Stella model alias in use, resolved for the orchestrator and agents. */
   const specsByAlias = new Map<string, Promise<StellaModelSpec[]>>();
@@ -622,6 +629,7 @@ export function desktopChats(options: DesktopChatsOptions) {
                 ...(cloud ? { cloud } : {}),
                 directory: directoryFor(conversationId),
                 execution: execution.host,
+                ensureModel: (model) => ensureModel(model),
                 beginAgentRun: async (run) => {
                   // Stella's own agents, not their subagents.
                   if (!opened || run.parentConversationId !== opened.root.id) return;
@@ -698,17 +706,21 @@ export function desktopChats(options: DesktopChatsOptions) {
         // Recovered work needs its models: a Stella alias waits for sign-in; a
         // model on the user's own key is ready at once.
         const rootModel = (await root.agent(context)).model;
+        /** The Stella aliases the orchestrator and its unfinished agents run on. */
+        const aliases = new Set<string>();
         for (const agent of Object.values((await harness.snapshot(StellaAgentsDoc, root.id, context))?.agents ?? {})) {
           if (agent.remote) continue;
           const model = (await (await harness.conversation(agent.conversationId as ConversationId, context))?.agent(context))?.model;
           if (model && model.provider !== STELLA_PROVIDER_ID) byok.restore(model);
+          // A finished agent's alias is registered when it is next messaged.
+          else if (model && (await harness.snapshot(LiveDoc, agent.conversationId as ConversationId, context))?.run) {
+            aliases.add(aliasOf(model));
+          }
         }
-        if (rootModel && rootModel.provider !== STELLA_PROVIDER_ID) {
-          byok.restore(rootModel);
-          void harness.resume();
-        } else {
-          void waitForProvider(aliasOf(rootModel)).then(() => harness.resume());
-        }
+        if (rootModel && rootModel.provider !== STELLA_PROVIDER_ID) byok.restore(rootModel);
+        else aliases.add(aliasOf(rootModel));
+        if (aliases.size === 0) void harness.resume();
+        else void Promise.all([...aliases].map((alias) => waitForProvider(alias))).then(() => harness.resume());
         const journal = options.journal?.(conversationId);
         const mirror = journal
           ? await journalMirror({

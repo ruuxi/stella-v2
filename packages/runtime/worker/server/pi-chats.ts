@@ -132,7 +132,10 @@ export const piChatsFor = (
   let chats = chatsBySession.get(session);
   if (chats) return chats;
   let signer: ReturnType<typeof createRemoteDeviceSigner> | undefined;
-  chats = import("@stella/agent/host/desktop-chats").then(({ desktopChats }) =>
+  chats = Promise.all([
+    import("@stella/agent/host/desktop-chats"),
+    import("../../kernel/model-routing.js"),
+  ]).then(([{ desktopChats }, { resolveDirectLlmRoute }]) =>
     desktopChats({
       dataDir: session.config.get().stellaDataDirPath,
       deviceId: session.config.deviceId,
@@ -144,6 +147,9 @@ export const piChatsFor = (
         apiKey: (provider) => getAccessibleLocalLlmApiKey(session.config.get().stellaDataDirPath, provider),
         oauthToken: (provider) => getAccessibleLocalLlmOAuthApiKey(session.config.get().stellaDataDirPath, provider),
       },
+      // The models the picker lists: models.json and extension providers, builtin overrides.
+      resolveDirectModel: (reference) =>
+        resolveDirectLlmRoute({ stellaAppDir: session.config.get().stellaDataDirPath, modelName: reference }),
       thinkingLevel: () => {
         const effort = getReasoningEffort(session.config.get().stellaDataDirPath, "orchestrator");
         return effort === "default" ? "off" : effort;

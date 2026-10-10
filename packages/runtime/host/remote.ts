@@ -125,12 +125,17 @@ export class RemoteRuntimeHost {
 
   /**
    * Detach from the runtime. The runtime keeps running for the next app,
-   * unless `shutdownRuntime` asks it to exit (a reset that deletes its
-   * files); then this returns once it has released everything.
+   * unless `shutdownRuntime` asks it to exit (quit, or a reset that deletes
+   * its files); then this returns once it has released everything, or after
+   * `exitTimeoutMs` with the runtime still finishing its own bounded exit.
    */
-  async stop(options: { shutdownRuntime?: boolean } = {}): Promise<void> {
+  async stop(
+    options: { shutdownRuntime?: boolean; exitTimeoutMs?: number } = {},
+  ): Promise<void> {
     this.started = false;
-    if (options.shutdownRuntime) await this.shutdownRuntime();
+    if (options.shutdownRuntime) {
+      await this.shutdownRuntime(options.exitTimeoutMs ?? RUNTIME_EXIT_TIMEOUT_MS);
+    }
     this.reconnectTimer?.cancel();
     this.reconnectTimer = null;
     const connection = this.connection;
@@ -150,7 +155,7 @@ export class RemoteRuntimeHost {
     this.events.emit("runtime-disconnected", { reason: "stopped" });
   }
 
-  private async shutdownRuntime(): Promise<void> {
+  private async shutdownRuntime(exitTimeoutMs: number): Promise<void> {
     const connection = this.connection;
     if (!connection || connection.peer.isClosed()) return;
     await connection.peer
@@ -158,7 +163,7 @@ export class RemoteRuntimeHost {
       .catch(() => undefined);
     // The runtime drops its pidfile last, after its databases are closed.
     const stellaAppDir = this.options.initializeParams.stellaAppDir;
-    const deadline = Date.now() + RUNTIME_EXIT_TIMEOUT_MS;
+    const deadline = Date.now() + exitTimeoutMs;
     while (Date.now() < deadline && (await probeRunningWorker(stellaAppDir)) != null) {
       await runHostEffect(Effect.sleep(50));
     }

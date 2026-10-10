@@ -88,6 +88,9 @@ const parseEntryArgs = (argv: string[]): ParsedArgs => {
   return { listenUrl, stellaAppDir, idleShutdownMs };
 };
 
+/** How long a shutdown may spend closing before the process exits regardless. */
+const SHUTDOWN_DEADLINE_MS = 5_000;
+
 const main = async () => {
   await loadModelRegistry();
   const cliArgs = parseEntryArgs(process.argv.slice(2));
@@ -176,7 +179,20 @@ const main = async () => {
         : {}),
       shouldKeepAlive: () => runtimeServer.hasActiveWork(),
       onShutdown: async (reason) => {
-        await closeRootScope();
+        // Closing interrupts in-flight turns and ends their commands; pi
+        // keeps the interrupted work pending for the next launch. A teardown
+        // that still wedges must not keep the process alive past the bound.
+        const startedAt = Date.now();
+        const closed = await workerRuntime.runPromise(
+          Effect.raceFirst(
+            Effect.promise(() => closeRootScope()).pipe(Effect.as(true)),
+            Effect.sleep(SHUTDOWN_DEADLINE_MS).pipe(Effect.as(false)),
+          ),
+        );
+        logger.process(closed ? "worker.shutdown-closed" : "worker.shutdown-deadline", {
+          reason,
+          elapsedMs: Date.now() - startedAt,
+        });
         if (reason === "idle" || reason === "restart") {
           setImmediate(() => process.exit(0));
         }

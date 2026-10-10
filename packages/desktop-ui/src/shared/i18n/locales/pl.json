@@ -2597,11 +2597,19 @@
       },
       "canvasShare": {
         "copyLink": "Kopiuj link",
-        "empty": "Brak aktywnych udostępnień. Opublikuj kanwę, aby uzyskać publiczny link.",
+        "empty": "Brak publicznych płócien. Upublicznij płótno, aby udostępnić jego link.",
         "expires": "Wygasa {date}",
         "links": "Linki",
         "live": "Kanwa jest dostępna",
         "loadFailed": "Nie udało się wczytać Twoich udostępnień.",
+        "makePrivate": "Ustaw jako prywatne",
+        "makePublic": "Upublicznij",
+        "noLink": "To płótno nie ma jeszcze linku. Upublicznij je, aby otrzymać link, który każdy może otworzyć.",
+        "openInBrowser": "Otwórz w przeglądarce",
+        "privateHint": "Tylko Ty możesz otworzyć ten link.",
+        "privateLink": "Prywatny link",
+        "public": "Publiczne",
+        "publicHint": "Każdy, kto ma link, może go wyświetlić.",
         "publicLink": "Publiczny link do kanwy",
         "publishFailed": "Nie udało się opublikować tej kanwy. Spróbuj ponownie.",
         "publishing": "Publikowanie kanwy…",
@@ -2613,8 +2621,12 @@
         "toasts": {
           "copyFailed": "Nie udało się skopiować linku",
           "linkCopied": "Link do udostępnienia skopiowany",
+          "madePrivate": "Link jest teraz prywatny",
+          "madePublic": "Link jest teraz publiczny",
+          "openFailed": "Nie udało się otworzyć linku",
           "revokeFailed": "Nie udało się cofnąć tego udostępnienia",
-          "revoked": "Udostępnienie cofnięte"
+          "revoked": "Udostępnienie cofnięte",
+          "visibilityFailed": "Nie udało się zmienić, kto może otworzyć ten link"
         },
         "untitled": "Kanwa bez tytułu"
       },

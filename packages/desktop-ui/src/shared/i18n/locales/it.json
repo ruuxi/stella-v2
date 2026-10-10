@@ -2583,11 +2583,19 @@
       },
       "canvasShare": {
         "copyLink": "Copia link",
-        "empty": "Ancora nessuna condivisione attiva. Pubblica un canvas per ottenere un link pubblico.",
+        "empty": "Nessuna tela pubblica per ora. Rendi pubblica una tela per condividerne il link.",
         "expires": "Scade il {date}",
         "links": "Link",
         "live": "Il canvas è online",
         "loadFailed": "Impossibile caricare le tue condivisioni.",
+        "makePrivate": "Rendi privato",
+        "makePublic": "Rendi pubblico",
+        "noLink": "Questa tela non ha ancora un link. Rendila pubblica per ottenere un link che chiunque può aprire.",
+        "openInBrowser": "Apri nel browser",
+        "privateHint": "Solo tu puoi aprire questo link.",
+        "privateLink": "Link privato",
+        "public": "Pubblico",
+        "publicHint": "Chiunque abbia il link può visualizzarlo.",
         "publicLink": "Link pubblico del canvas",
         "publishFailed": "Impossibile pubblicare questo canvas. Riprova.",
         "publishing": "Pubblicazione del canvas…",
@@ -2599,8 +2607,12 @@
         "toasts": {
           "copyFailed": "Impossibile copiare il link",
           "linkCopied": "Link di condivisione copiato",
+          "madePrivate": "Il link ora è privato",
+          "madePublic": "Il link ora è pubblico",
+          "openFailed": "Impossibile aprire il link",
           "revokeFailed": "Impossibile revocare questa condivisione",
-          "revoked": "Condivisione revocata"
+          "revoked": "Condivisione revocata",
+          "visibilityFailed": "Impossibile cambiare chi può aprire questo link"
         },
         "untitled": "Canvas senza titolo"
       },

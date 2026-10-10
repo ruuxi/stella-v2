@@ -2569,11 +2569,19 @@
       },
       "canvasShare": {
         "copyLink": "Hivatkozás másolása",
-        "empty": "Még nincs aktív megosztás. Tegyél közzé egy vásznat a nyilvános hivatkozáshoz.",
+        "empty": "Még nincsenek nyilvános vásznak. Tegyél nyilvánossá egy vásznat a linkje megosztásához.",
         "expires": "Lejár: {date}",
         "links": "Hivatkozások",
         "live": "A vászon él",
         "loadFailed": "Nem sikerült betölteni a megosztásaidat.",
+        "makePrivate": "Priváttá tétel",
+        "makePublic": "Nyilvánossá tétel",
+        "noLink": "Ennek a vászonnak még nincs linkje. Tedd nyilvánossá, hogy bárki által megnyitható linket kapj.",
+        "openInBrowser": "Megnyitás böngészőben",
+        "privateHint": "Ezt a linket csak te nyithatod meg.",
+        "privateLink": "Privát link",
+        "public": "Nyilvános",
+        "publicHint": "A linkkel bárki megtekintheti.",
         "publicLink": "Nyilvános vászonhivatkozás",
         "publishFailed": "Nem sikerült közzétenni ezt a vásznat. Próbáld újra.",
         "publishing": "Vászon közzététele…",
@@ -2585,8 +2593,12 @@
         "toasts": {
           "copyFailed": "Nem sikerült másolni a hivatkozást",
           "linkCopied": "Megosztási hivatkozás másolva",
+          "madePrivate": "A link most már privát",
+          "madePublic": "A link most már nyilvános",
+          "openFailed": "Nem sikerült megnyitni a linket",
           "revokeFailed": "Nem sikerült visszavonni ezt a megosztást",
-          "revoked": "Megosztás visszavonva"
+          "revoked": "Megosztás visszavonva",
+          "visibilityFailed": "Nem sikerült módosítani, ki nyithatja meg ezt a linket"
         },
         "untitled": "Névtelen vászon"
       },

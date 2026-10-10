@@ -2583,11 +2583,19 @@
       },
       "canvasShare": {
         "copyLink": "Copiază linkul",
-        "empty": "Încă nicio partajare activă. Publică un canvas pentru a obține un link public.",
+        "empty": "Încă nu există pânze publice. Fă o pânză publică pentru a-i distribui linkul.",
         "expires": "Expiră {date}",
         "links": "Linkuri",
         "live": "Canvasul este live",
         "loadFailed": "Partajările tale nu au putut fi încărcate.",
+        "makePrivate": "Fă privat",
+        "makePublic": "Fă public",
+        "noLink": "Această pânză nu are încă un link. Fă-o publică pentru a obține un link pe care îl poate deschide oricine.",
+        "openInBrowser": "Deschide în browser",
+        "privateHint": "Doar tu poți deschide acest link.",
+        "privateLink": "Link privat",
+        "public": "Public",
+        "publicHint": "Oricine are linkul îl poate vedea.",
         "publicLink": "Link public către canvas",
         "publishFailed": "Acest canvas nu a putut fi publicat. Încearcă din nou.",
         "publishing": "Se publică canvasul…",
@@ -2599,8 +2607,12 @@
         "toasts": {
           "copyFailed": "Linkul nu a putut fi copiat",
           "linkCopied": "Link de partajare copiat",
+          "madePrivate": "Linkul este acum privat",
+          "madePublic": "Linkul este acum public",
+          "openFailed": "Nu s-a putut deschide linkul",
           "revokeFailed": "Această partajare nu a putut fi revocată",
-          "revoked": "Partajare revocată"
+          "revoked": "Partajare revocată",
+          "visibilityFailed": "Nu s-a putut schimba cine poate deschide acest link"
         },
         "untitled": "Canvas fără titlu"
       },

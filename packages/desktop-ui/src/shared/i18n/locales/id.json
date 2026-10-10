@@ -2553,11 +2553,19 @@
       },
       "canvasShare": {
         "copyLink": "Salin tautan",
-        "empty": "Belum ada berbagi aktif. Terbitkan sebuah kanvas untuk mendapatkan tautan publik.",
+        "empty": "Belum ada kanvas publik. Jadikan kanvas publik untuk membagikan tautannya.",
         "expires": "Kedaluwarsa {date}",
         "links": "Tautan",
         "live": "Kanvas sudah tayang",
         "loadFailed": "Tidak dapat memuat item yang Anda bagikan.",
+        "makePrivate": "Jadikan privat",
+        "makePublic": "Jadikan publik",
+        "noLink": "Kanvas ini belum punya tautan. Jadikan publik untuk mendapatkan tautan yang bisa dibuka siapa saja.",
+        "openInBrowser": "Buka di browser",
+        "privateHint": "Hanya kamu yang bisa membuka tautan ini.",
+        "privateLink": "Tautan privat",
+        "public": "Publik",
+        "publicHint": "Siapa pun yang punya tautan dapat melihatnya.",
         "publicLink": "Tautan kanvas publik",
         "publishFailed": "Tidak dapat menerbitkan kanvas ini. Silakan coba lagi.",
         "publishing": "Menerbitkan kanvas…",
@@ -2569,8 +2577,12 @@
         "toasts": {
           "copyFailed": "Tidak dapat menyalin tautan",
           "linkCopied": "Tautan berbagi disalin",
+          "madePrivate": "Tautan sekarang privat",
+          "madePublic": "Tautan sekarang publik",
+          "openFailed": "Tidak dapat membuka tautan",
           "revokeFailed": "Tidak dapat mencabut berbagi ini",
-          "revoked": "Berbagi dicabut"
+          "revoked": "Berbagi dicabut",
+          "visibilityFailed": "Tidak dapat mengubah siapa yang bisa membuka tautan ini"
         },
         "untitled": "Kanvas tanpa judul"
       },

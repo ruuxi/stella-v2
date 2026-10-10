@@ -2583,11 +2583,19 @@
       },
       "canvasShare": {
         "copyLink": "Copiar enlace",
-        "empty": "Aún no hay nada compartido. Publica un lienzo para obtener un enlace público.",
+        "empty": "Aún no hay lienzos públicos. Haz público un lienzo para compartir su enlace.",
         "expires": "Caduca el {date}",
         "links": "Enlaces",
         "live": "El lienzo está publicado",
         "loadFailed": "No se pudieron cargar tus elementos compartidos.",
+        "makePrivate": "Hacer privado",
+        "makePublic": "Hacer público",
+        "noLink": "Este lienzo aún no tiene enlace. Hazlo público para obtener un enlace que cualquiera pueda abrir.",
+        "openInBrowser": "Abrir en el navegador",
+        "privateHint": "Solo tú puedes abrir este enlace.",
+        "privateLink": "Enlace privado",
+        "public": "Público",
+        "publicHint": "Cualquiera con el enlace puede verlo.",
         "publicLink": "Enlace público del lienzo",
         "publishFailed": "No se pudo publicar este lienzo. Inténtalo de nuevo.",
         "publishing": "Publicando el lienzo…",
@@ -2599,8 +2607,12 @@
         "toasts": {
           "copyFailed": "No se pudo copiar el enlace",
           "linkCopied": "Enlace compartido copiado",
+          "madePrivate": "El enlace ahora es privado",
+          "madePublic": "El enlace ahora es público",
+          "openFailed": "No se pudo abrir el enlace",
           "revokeFailed": "No se pudo revocar este uso compartido",
-          "revoked": "Uso compartido revocado"
+          "revoked": "Uso compartido revocado",
+          "visibilityFailed": "No se pudo cambiar quién puede abrir este enlace"
         },
         "untitled": "Lienzo sin título"
       },

@@ -1,23 +1,36 @@
 /**
  * Share controls for the active canvas, overlaid on the canvas hero.
  *
- *  - Share button: publishes the selected canvas HTML to a public URL via
- *    the backend's `shares.publish`, then shows the returned link with a
- *    copy-to-clipboard affordance and a lightweight confirmation.
- *  - Shared links: a small panel listing the account's active shares
- *    (the live `shares.list` view) with copy + revoke.
+ *  - Share button: every canvas the agent writes already has a private link
+ *    (only its owner can open it, the live `shares.canvas` view). The
+ *    popover shows that link with copy and "Open in browser", and sharing is
+ *    "Make public" (`shares.setVisibility`); "Make private" takes it back. A
+ *    canvas with no link yet gets one, public, from its HTML (`shares.save`).
+ *  - Shared links: a small panel listing the account's public links (the
+ *    live `shares.list` view) with copy and make-private (or revoke, for an
+ *    older one-off share).
  *
  * The whole bar renders nothing when the canvas-share context is absent, so
  * the sandboxed canvas renderer never reaches for the backend outside a provider.
  */
 import { useCallback, useState } from "react";
-import { Check, Copy, Globe, LoaderCircle, Trash2 } from "@/ui/icons";
+import {
+  Check,
+  Copy,
+  ExternalLink,
+  Globe,
+  LoaderCircle,
+  Lock,
+  Trash2,
+} from "@/ui/icons";
 import { Popover, PopoverContent, PopoverTrigger } from "@/ui/popover";
 import { showToast } from "@/ui/toast";
 import {
+  canvasLinkKey,
+  useCanvasLink,
   useCanvasShare,
   useSharedCanvasLinks,
-  type PublishedCanvasShare,
+  type CanvasLinkVisibility,
   type SharedCanvasLink,
 } from "@/features/canvas-share/canvas-share-context";
 import type { CanvasHtmlItem } from "./canvas-items";
@@ -26,8 +39,6 @@ import { deviceFileMissingMessage } from "@stella/contracts/device-files";
 import "./canvas-share.css";
 
 const decoder = new TextDecoder("utf-8");
-
-type PublishStatus = "idle" | "publishing" | "done" | "error";
 
 const readCanvasHtml = async (filePath: string): Promise<string> => {
   const readFile = window.electronAPI?.display?.readFile;
@@ -45,6 +56,15 @@ const copyToClipboard = async (value: string): Promise<void> => {
   await navigator.clipboard.writeText(value);
 };
 
+/** Straight to the system browser: a share link opened in-app renders here. */
+const openInSystemBrowser = (url: string): void => {
+  if (window.electronAPI?.system.openExternal) {
+    window.electronAPI.system.openExternal(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+};
+
 const formatDate = (ms: number): string => {
   try {
     return new Date(ms).toLocaleDateString(undefined, {
@@ -56,75 +76,246 @@ const formatDate = (ms: number): string => {
   }
 };
 
-const ShareResultView = ({
-  status,
-  result,
-}: {
-  status: PublishStatus;
-  result: PublishedCanvasShare | null;
-}) => {
+/** Links written before visibility existed are public. */
+const isPublicLink = (link: SharedCanvasLink): boolean =>
+  link.visibility !== "private";
+
+/** The canvas slug behind an item: its own, else its file's name. */
+const canvasKeyOf = (item: CanvasHtmlItem): string | null =>
+  canvasLinkKey(
+    item.slug ??
+      item.filePath
+        .split(/[\\/]/)
+        .pop()
+        ?.replace(/\.html?$/i, ""),
+  );
+
+const useCopyLink = () => {
   const t = useT();
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = useCallback(
+    async (url: string) => {
+      try {
+        await copyToClipboard(url);
+        setCopied(url);
+        showToast(t("shell.display.canvasShare.toasts.linkCopied"));
+        window.setTimeout(() => setCopied(null), 1600);
+      } catch {
+        showToast(t("shell.display.canvasShare.toasts.copyFailed"));
+      }
+    },
+    [t],
+  );
+  return { copied, copy };
+};
 
-  const onCopy = useCallback(async () => {
-    if (!result) return;
+type Pending = CanvasLinkVisibility | "open" | null;
+
+const CanvasLinkPanel = ({ item }: { item: CanvasHtmlItem }) => {
+  const t = useT();
+  const share = useCanvasShare();
+  const canvas = canvasKeyOf(item);
+  const linkView = useCanvasLink(share ? canvas : null);
+  // A canvas-less item's one-off public copy has no view to watch.
+  const [published, setPublished] = useState<SharedCanvasLink | null>(null);
+  const link = canvas ? linkView.value : published;
+  const [pending, setPending] = useState<Pending>(null);
+  const [failed, setFailed] = useState(false);
+  const { copied, copy } = useCopyLink();
+
+  const setVisibility = useCallback(
+    async (visibility: CanvasLinkVisibility) => {
+      if (!share) return;
+      setPending(visibility);
+      setFailed(false);
+      try {
+        if (link) {
+          const saved = await share.setVisibility({ slug: link.slug, visibility });
+          if (!canvas) setPublished({ ...link, visibility: saved.visibility });
+        } else if (canvas) {
+          await share.save({
+            canvas,
+            html: await readCanvasHtml(item.filePath),
+            title: item.title,
+            visibility,
+          });
+        } else {
+          // Not a canvas the agent named (a shared link opened here): a
+          // one-off public copy is the only link it can have.
+          const result = await share.publish({
+            html: await readCanvasHtml(item.filePath),
+            title: item.title,
+          });
+          setPublished({
+            ...result,
+            title: item.title,
+            createdAt: Date.now(),
+            visibility: "public",
+            canvas: null,
+          });
+        }
+        showToast(
+          t(
+            visibility === "public"
+              ? "shell.display.canvasShare.toasts.madePublic"
+              : "shell.display.canvasShare.toasts.madePrivate",
+          ),
+        );
+      } catch {
+        setFailed(true);
+        showToast(t("shell.display.canvasShare.toasts.visibilityFailed"));
+      } finally {
+        setPending(null);
+      }
+    },
+    [share, link, canvas, item.filePath, item.title, t],
+  );
+
+  const onOpen = useCallback(async () => {
+    if (!share || !link) return;
+    setPending("open");
     try {
-      await copyToClipboard(result.url);
-      setCopied(true);
-      showToast(t("shell.display.canvasShare.toasts.linkCopied"));
-      window.setTimeout(() => setCopied(false), 1600);
+      openInSystemBrowser(await share.viewLink({ slug: link.slug }));
     } catch {
-      showToast(t("shell.display.canvasShare.toasts.copyFailed"));
+      showToast(t("shell.display.canvasShare.toasts.openFailed"));
+    } finally {
+      setPending(null);
     }
-  }, [result, t]);
+  }, [share, link, t]);
 
-  if (status === "publishing") {
+  if (canvas && link === undefined && linkView.status !== "error") {
     return (
       <div className="canvas-share__state">
         <LoaderCircle size={15} className="canvas-share__spin" aria-hidden />
-        <span>{t("shell.display.canvasShare.publishing")}</span>
+        <span>{t("common.loading")}</span>
       </div>
     );
   }
-  if (status === "error" || !result) {
+
+  if (!link) {
     return (
-      <div className="canvas-share__state canvas-share__state--error">
-        {t("shell.display.canvasShare.publishFailed")}
+      <div className="canvas-share__result">
+        <div className="canvas-share__hint">
+          {t("shell.display.canvasShare.noLink")}
+        </div>
+        {failed ? (
+          <div className="canvas-share__state canvas-share__state--error">
+            {t("shell.display.canvasShare.publishFailed")}
+          </div>
+        ) : null}
+        <div className="canvas-share__actions">
+          <button
+            type="button"
+            className="canvas-share__btn canvas-share__btn--primary"
+            disabled={pending !== null}
+            onClick={() => void setVisibility("public")}
+          >
+            {pending === "public" ? (
+              <LoaderCircle size={14} className="canvas-share__spin" aria-hidden />
+            ) : (
+              <Globe size={14} strokeWidth={1.6} aria-hidden />
+            )}
+            <span>{t("shell.display.canvasShare.makePublic")}</span>
+          </button>
+        </div>
       </div>
     );
   }
+
+  const isPublic = isPublicLink(link);
   return (
     <div className="canvas-share__result">
       <div className="canvas-share__result-head">
-        <Check size={14} strokeWidth={2} aria-hidden />
-        <span>{t("shell.display.canvasShare.live")}</span>
+        {isPublic ? (
+          <Globe size={14} strokeWidth={1.6} aria-hidden />
+        ) : (
+          <Lock size={14} strokeWidth={1.6} aria-hidden />
+        )}
+        <span>
+          {t(
+            isPublic
+              ? "shell.display.canvasShare.live"
+              : "shell.display.canvasShare.privateLink",
+          )}
+        </span>
+      </div>
+      <div className="canvas-share__hint">
+        {t(
+          isPublic
+            ? "shell.display.canvasShare.publicHint"
+            : "shell.display.canvasShare.privateHint",
+        )}
       </div>
       <div className="canvas-share__url-row">
         <input
           className="canvas-share__url"
-          value={result.url}
+          value={link.url}
           readOnly
           spellCheck={false}
           onFocus={(event) => event.currentTarget.select()}
-          aria-label={t("shell.display.canvasShare.publicLink")}
+          aria-label={t(
+            isPublic
+              ? "shell.display.canvasShare.publicLink"
+              : "shell.display.canvasShare.privateLink",
+          )}
         />
         <button
           type="button"
           className="canvas-share__copy"
-          onClick={() => void onCopy()}
+          onClick={() => void copy(link.url)}
           aria-label={t("shell.display.canvasShare.copyLink")}
         >
-          {copied ? (
+          {copied === link.url ? (
             <Check size={14} strokeWidth={2} aria-hidden />
           ) : (
             <Copy size={14} strokeWidth={1.6} aria-hidden />
           )}
         </button>
       </div>
-      {result.expiresAt ? (
+      <div className="canvas-share__actions">
+        <button
+          type="button"
+          className={
+            isPublic
+              ? "canvas-share__btn"
+              : "canvas-share__btn canvas-share__btn--primary"
+          }
+          disabled={pending !== null}
+          onClick={() => void setVisibility(isPublic ? "private" : "public")}
+        >
+          {pending === "public" || pending === "private" ? (
+            <LoaderCircle size={14} className="canvas-share__spin" aria-hidden />
+          ) : isPublic ? (
+            <Lock size={14} strokeWidth={1.6} aria-hidden />
+          ) : (
+            <Globe size={14} strokeWidth={1.6} aria-hidden />
+          )}
+          <span>
+            {t(
+              isPublic
+                ? "shell.display.canvasShare.makePrivate"
+                : "shell.display.canvasShare.makePublic",
+            )}
+          </span>
+        </button>
+        <button
+          type="button"
+          className="canvas-share__btn"
+          disabled={pending !== null}
+          onClick={() => void onOpen()}
+        >
+          {pending === "open" ? (
+            <LoaderCircle size={14} className="canvas-share__spin" aria-hidden />
+          ) : (
+            <ExternalLink size={14} strokeWidth={1.6} aria-hidden />
+          )}
+          <span>{t("shell.display.canvasShare.openInBrowser")}</span>
+        </button>
+      </div>
+      {link.expiresAt ? (
         <div className="canvas-share__meta">
           {t("shell.display.canvasShare.expires", {
-            date: formatDate(result.expiresAt),
+            date: formatDate(link.expiresAt),
           })}
         </div>
       ) : null}
@@ -136,33 +327,35 @@ const SharedLinksPanel = () => {
   const t = useT();
   const share = useCanvasShare();
   const live = useSharedCanvasLinks();
-  const links = live.value ?? null;
+  const links = live.value ? live.value.filter(isPublicLink) : null;
   const error = live.status === "error" && links === null;
-  const [revoking, setRevoking] = useState<string | null>(null);
-  const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const { copied, copy } = useCopyLink();
 
-  const onCopy = useCallback(async (link: SharedCanvasLink) => {
-    try {
-      await copyToClipboard(link.url);
-      setCopiedSlug(link.slug);
-      showToast(t("shell.display.canvasShare.toasts.linkCopied"));
-      window.setTimeout(() => setCopiedSlug(null), 1600);
-    } catch {
-      showToast(t("shell.display.canvasShare.toasts.copyFailed"));
-    }
-  }, [t]);
-
-  const onRevoke = useCallback(
-    async (slug: string) => {
+  // A canvas's link goes back to private; an older one-off share has no
+  // canvas behind it, so it is taken down.
+  const onTakeDown = useCallback(
+    async (link: SharedCanvasLink) => {
       if (!share) return;
-      setRevoking(slug);
+      setBusy(link.slug);
       try {
-        await share.revoke({ slug });
-        showToast(t("shell.display.canvasShare.toasts.revoked"));
+        if (link.canvas) {
+          await share.setVisibility({ slug: link.slug, visibility: "private" });
+          showToast(t("shell.display.canvasShare.toasts.madePrivate"));
+        } else {
+          await share.revoke({ slug: link.slug });
+          showToast(t("shell.display.canvasShare.toasts.revoked"));
+        }
       } catch {
-        showToast(t("shell.display.canvasShare.toasts.revokeFailed"));
+        showToast(
+          t(
+            link.canvas
+              ? "shell.display.canvasShare.toasts.visibilityFailed"
+              : "shell.display.canvasShare.toasts.revokeFailed",
+          ),
+        );
       } finally {
-        setRevoking(null);
+        setBusy(null);
       }
     },
     [share, t],
@@ -211,9 +404,9 @@ const SharedLinksPanel = () => {
                   type="button"
                   className="canvas-share__icon-btn"
                   aria-label={t("shell.display.canvasShare.copyLink")}
-                  onClick={() => void onCopy(link)}
+                  onClick={() => void copy(link.url)}
                 >
-                  {copiedSlug === link.slug ? (
+                  {copied === link.url ? (
                     <Check size={13} strokeWidth={2} aria-hidden />
                   ) : (
                     <Copy size={13} strokeWidth={1.6} aria-hidden />
@@ -222,16 +415,27 @@ const SharedLinksPanel = () => {
                 <button
                   type="button"
                   className="canvas-share__icon-btn canvas-share__icon-btn--danger"
-                  aria-label={t("shell.display.canvasShare.revoke")}
-                  disabled={revoking === link.slug}
-                  onClick={() => void onRevoke(link.slug)}
+                  aria-label={t(
+                    link.canvas
+                      ? "shell.display.canvasShare.makePrivate"
+                      : "shell.display.canvasShare.revoke",
+                  )}
+                  title={t(
+                    link.canvas
+                      ? "shell.display.canvasShare.makePrivate"
+                      : "shell.display.canvasShare.revoke",
+                  )}
+                  disabled={busy === link.slug}
+                  onClick={() => void onTakeDown(link)}
                 >
-                  {revoking === link.slug ? (
+                  {busy === link.slug ? (
                     <LoaderCircle
                       size={13}
                       className="canvas-share__spin"
                       aria-hidden
                     />
+                  ) : link.canvas ? (
+                    <Lock size={13} strokeWidth={1.6} aria-hidden />
                   ) : (
                     <Trash2 size={13} strokeWidth={1.6} aria-hidden />
                   )}
@@ -248,31 +452,15 @@ const SharedLinksPanel = () => {
 export const CanvasShareBar = ({ item }: { item: CanvasHtmlItem }) => {
   const t = useT();
   const share = useCanvasShare();
+  const canvas = canvasKeyOf(item);
+  const link = useCanvasLink(share ? canvas : null).value;
   const [shareOpen, setShareOpen] = useState(false);
   const [linksOpen, setLinksOpen] = useState(false);
-  const [status, setStatus] = useState<PublishStatus>("idle");
-  const [result, setResult] = useState<PublishedCanvasShare | null>(null);
-
-  const onPublish = useCallback(async () => {
-    if (!share) return;
-    setStatus("publishing");
-    setResult(null);
-    setShareOpen(true);
-    try {
-      const html = await readCanvasHtml(item.filePath);
-      const published = await share.publish({
-        html,
-        title: item.title,
-      });
-      setResult(published);
-      setStatus("done");
-    } catch {
-      setStatus("error");
-    }
-  }, [share, item.filePath, item.title]);
 
   // No canvas-share context means there is no share UI.
   if (!share) return null;
+
+  const isPublic = link ? isPublicLink(link) : false;
 
   return (
     <div className="canvas-share">
@@ -281,13 +469,15 @@ export const CanvasShareBar = ({ item }: { item: CanvasHtmlItem }) => {
           <button
             type="button"
             className="canvas-share__btn canvas-share__btn--primary"
-            onClick={() => {
-              if (status !== "publishing") void onPublish();
-            }}
-            disabled={status === "publishing"}
           >
             <Globe size={14} strokeWidth={1.6} aria-hidden />
-            <span>{t("shell.display.canvasShare.share")}</span>
+            <span>
+              {t(
+                isPublic
+                  ? "shell.display.canvasShare.public"
+                  : "shell.display.canvasShare.share",
+              )}
+            </span>
           </button>
         </PopoverTrigger>
         <PopoverContent
@@ -296,7 +486,7 @@ export const CanvasShareBar = ({ item }: { item: CanvasHtmlItem }) => {
           side="bottom"
           sideOffset={8}
         >
-          <ShareResultView status={status} result={result} />
+          {shareOpen ? <CanvasLinkPanel item={item} /> : null}
         </PopoverContent>
       </Popover>
 

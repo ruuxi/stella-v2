@@ -2569,11 +2569,19 @@
       },
       "canvasShare": {
         "copyLink": "Copy link",
-        "empty": "No active shares yet. Publish a canvas to get a public link.",
+        "empty": "No public canvases yet. Make a canvas public to share its link.",
         "expires": "Expires {date}",
         "links": "Links",
         "live": "Canvas is live",
         "loadFailed": "Couldn't load your shares.",
+        "makePrivate": "Make private",
+        "makePublic": "Make public",
+        "noLink": "This canvas has no link yet. Make it public to get one anyone can open.",
+        "openInBrowser": "Open in browser",
+        "privateHint": "Only you can open this link.",
+        "privateLink": "Private link",
+        "public": "Public",
+        "publicHint": "Anyone with the link can view.",
         "publicLink": "Public canvas link",
         "publishFailed": "Couldn't publish this canvas. Please try again.",
         "publishing": "Publishing canvas…",
@@ -2585,8 +2593,12 @@
         "toasts": {
           "copyFailed": "Couldn't copy the link",
           "linkCopied": "Share link copied",
+          "madePrivate": "Link is private now",
+          "madePublic": "Link is public now",
+          "openFailed": "Couldn't open the link",
           "revokeFailed": "Couldn't revoke this share",
-          "revoked": "Share revoked"
+          "revoked": "Share revoked",
+          "visibilityFailed": "Couldn't change who can open this link"
         },
         "untitled": "Untitled canvas"
       },

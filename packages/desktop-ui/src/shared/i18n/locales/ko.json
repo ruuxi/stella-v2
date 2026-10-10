@@ -2553,11 +2553,19 @@
       },
       "canvasShare": {
         "copyLink": "링크 복사",
-        "empty": "아직 활성 공유가 없습니다. 캔버스를 게시하면 공개 링크가 생깁니다.",
+        "empty": "아직 공개된 캔버스가 없습니다. 캔버스를 공개로 전환하면 링크를 공유할 수 있습니다.",
         "expires": "{date} 만료",
         "links": "링크",
         "live": "캔버스가 공개되었습니다",
         "loadFailed": "공유 목록을 불러오지 못했습니다.",
+        "makePrivate": "비공개로 전환",
+        "makePublic": "공개로 전환",
+        "noLink": "이 캔버스에는 아직 링크가 없습니다. 공개로 전환하면 누구나 열 수 있는 링크가 생깁니다.",
+        "openInBrowser": "브라우저에서 열기",
+        "privateHint": "이 링크는 나만 열 수 있습니다.",
+        "privateLink": "비공개 링크",
+        "public": "공개",
+        "publicHint": "링크가 있는 누구나 볼 수 있습니다.",
         "publicLink": "공개 캔버스 링크",
         "publishFailed": "이 캔버스를 게시하지 못했습니다. 다시 시도해 주세요.",
         "publishing": "캔버스 게시 중…",
@@ -2569,8 +2577,12 @@
         "toasts": {
           "copyFailed": "링크를 복사하지 못했습니다",
           "linkCopied": "공유 링크가 복사됨",
+          "madePrivate": "링크가 비공개로 전환되었습니다",
+          "madePublic": "링크가 공개로 전환되었습니다",
+          "openFailed": "링크를 열 수 없습니다",
           "revokeFailed": "이 공유를 취소하지 못했습니다",
-          "revoked": "공유가 취소됨"
+          "revoked": "공유가 취소됨",
+          "visibilityFailed": "이 링크를 열 수 있는 사람을 변경할 수 없습니다"
         },
         "untitled": "제목 없는 캔버스"
       },

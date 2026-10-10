@@ -2597,11 +2597,19 @@
       },
       "canvasShare": {
         "copyLink": "Kopírovat odkaz",
-        "empty": "Zatím žádná aktivní sdílení. Publikujte plátno a získáte veřejný odkaz.",
+        "empty": "Zatím žádná veřejná plátna. Zveřejněte plátno a sdílejte jeho odkaz.",
         "expires": "Vyprší {date}",
         "links": "Odkazy",
         "live": "Plátno je veřejné",
         "loadFailed": "Vaše sdílení se nepodařilo načíst.",
+        "makePrivate": "Nastavit jako soukromé",
+        "makePublic": "Zveřejnit",
+        "noLink": "Toto plátno zatím nemá odkaz. Zveřejněte ho a získáte odkaz, který otevře kdokoli.",
+        "openInBrowser": "Otevřít v prohlížeči",
+        "privateHint": "Tento odkaz můžete otevřít jen vy.",
+        "privateLink": "Soukromý odkaz",
+        "public": "Veřejné",
+        "publicHint": "Kdokoli s odkazem si ho může zobrazit.",
         "publicLink": "Veřejný odkaz na plátno",
         "publishFailed": "Toto plátno se nepodařilo publikovat. Zkuste to prosím znovu.",
         "publishing": "Publikování plátna…",
@@ -2613,8 +2621,12 @@
         "toasts": {
           "copyFailed": "Odkaz se nepodařilo zkopírovat",
           "linkCopied": "Odkaz ke sdílení zkopírován",
+          "madePrivate": "Odkaz je teď soukromý",
+          "madePublic": "Odkaz je teď veřejný",
+          "openFailed": "Odkaz se nepodařilo otevřít",
           "revokeFailed": "Toto sdílení se nepodařilo zrušit",
-          "revoked": "Sdílení zrušeno"
+          "revoked": "Sdílení zrušeno",
+          "visibilityFailed": "Nepodařilo se změnit, kdo může tento odkaz otevřít"
         },
         "untitled": "Plátno bez názvu"
       },

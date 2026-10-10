@@ -2553,11 +2553,19 @@
       },
       "canvasShare": {
         "copyLink": "复制链接",
-        "empty": "暂无有效的分享。发布一个画布即可获得公开链接。",
+        "empty": "还没有公开的画布。将画布设为公开即可分享其链接。",
         "expires": "{date}到期",
         "links": "链接",
         "live": "画布已上线",
         "loadFailed": "无法加载你的分享。",
+        "makePrivate": "设为私密",
+        "makePublic": "设为公开",
+        "noLink": "此画布还没有链接。设为公开即可获得任何人都能打开的链接。",
+        "openInBrowser": "在浏览器中打开",
+        "privateHint": "只有你能打开此链接。",
+        "privateLink": "私密链接",
+        "public": "公开",
+        "publicHint": "任何拥有链接的人都可以查看。",
         "publicLink": "画布公开链接",
         "publishFailed": "无法发布此画布。请重试。",
         "publishing": "正在发布画布…",
@@ -2569,8 +2577,12 @@
         "toasts": {
           "copyFailed": "无法复制链接",
           "linkCopied": "分享链接已复制",
+          "madePrivate": "链接已设为私密",
+          "madePublic": "链接已设为公开",
+          "openFailed": "无法打开链接",
           "revokeFailed": "无法撤销此分享",
-          "revoked": "分享已撤销"
+          "revoked": "分享已撤销",
+          "visibilityFailed": "无法更改谁可以打开此链接"
         },
         "untitled": "未命名画布"
       },

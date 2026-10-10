@@ -2553,11 +2553,19 @@
       },
       "canvasShare": {
         "copyLink": "リンクをコピー",
-        "empty": "有効な共有はまだありません。キャンバスを公開すると公開リンクを取得できます。",
+        "empty": "公開中のキャンバスはまだありません。キャンバスを公開するとリンクを共有できます。",
         "expires": "有効期限 {date}",
         "links": "リンク",
         "live": "キャンバスを公開しました",
         "loadFailed": "共有を読み込めませんでした。",
+        "makePrivate": "非公開にする",
+        "makePublic": "公開する",
+        "noLink": "このキャンバスにはまだリンクがありません。公開すると、誰でも開けるリンクが作成されます。",
+        "openInBrowser": "ブラウザで開く",
+        "privateHint": "このリンクを開けるのはあなただけです。",
+        "privateLink": "非公開リンク",
+        "public": "公開中",
+        "publicHint": "リンクを知っている人は誰でも閲覧できます。",
         "publicLink": "キャンバスの公開リンク",
         "publishFailed": "このキャンバスを公開できませんでした。もう一度お試しください。",
         "publishing": "キャンバスを公開中…",
@@ -2569,8 +2577,12 @@
         "toasts": {
           "copyFailed": "リンクをコピーできませんでした",
           "linkCopied": "共有リンクをコピーしました",
+          "madePrivate": "リンクを非公開にしました",
+          "madePublic": "リンクを公開しました",
+          "openFailed": "リンクを開けませんでした",
           "revokeFailed": "この共有を取り消せませんでした",
-          "revoked": "共有を取り消しました"
+          "revoked": "共有を取り消しました",
+          "visibilityFailed": "このリンクを開ける人を変更できませんでした"
         },
         "untitled": "無題のキャンバス"
       },

@@ -2569,11 +2569,19 @@
       },
       "canvasShare": {
         "copyLink": "Link kopieren",
-        "empty": "Noch keine aktiven Freigaben. Veröffentliche ein Canvas, um einen öffentlichen Link zu erhalten.",
+        "empty": "Noch keine öffentlichen Canvases. Mach einen Canvas öffentlich, um seinen Link zu teilen.",
         "expires": "Läuft ab {date}",
         "links": "Links",
         "live": "Canvas ist live",
         "loadFailed": "Deine Freigaben konnten nicht geladen werden.",
+        "makePrivate": "Privat machen",
+        "makePublic": "Öffentlich machen",
+        "noLink": "Dieser Canvas hat noch keinen Link. Mach ihn öffentlich, um einen Link zu erhalten, den jeder öffnen kann.",
+        "openInBrowser": "Im Browser öffnen",
+        "privateHint": "Nur du kannst diesen Link öffnen.",
+        "privateLink": "Privater Link",
+        "public": "Öffentlich",
+        "publicHint": "Jeder mit dem Link kann ihn ansehen.",
         "publicLink": "Öffentlicher Canvas-Link",
         "publishFailed": "Dieses Canvas konnte nicht veröffentlicht werden. Bitte versuch es erneut.",
         "publishing": "Canvas wird veröffentlicht…",
@@ -2585,8 +2593,12 @@
         "toasts": {
           "copyFailed": "Der Link konnte nicht kopiert werden",
           "linkCopied": "Freigabelink kopiert",
+          "madePrivate": "Link ist jetzt privat",
+          "madePublic": "Link ist jetzt öffentlich",
+          "openFailed": "Link konnte nicht geöffnet werden",
           "revokeFailed": "Diese Freigabe konnte nicht widerrufen werden",
-          "revoked": "Freigabe widerrufen"
+          "revoked": "Freigabe widerrufen",
+          "visibilityFailed": "Konnte nicht ändern, wer diesen Link öffnen kann"
         },
         "untitled": "Unbenanntes Canvas"
       },

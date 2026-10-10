@@ -2569,11 +2569,19 @@
       },
       "canvasShare": {
         "copyLink": "Link kopiëren",
-        "empty": "Nog niets actief gedeeld. Publiceer een canvas voor een openbare link.",
+        "empty": "Nog geen openbare canvassen. Maak een canvas openbaar om de link te delen.",
         "expires": "Verloopt {date}",
         "links": "Links",
         "live": "Canvas is live",
         "loadFailed": "Kon je gedeelde items niet laden.",
+        "makePrivate": "Privé maken",
+        "makePublic": "Openbaar maken",
+        "noLink": "Dit canvas heeft nog geen link. Maak het openbaar om een link te krijgen die iedereen kan openen.",
+        "openInBrowser": "Openen in browser",
+        "privateHint": "Alleen jij kunt deze link openen.",
+        "privateLink": "Privélink",
+        "public": "Openbaar",
+        "publicHint": "Iedereen met de link kan het bekijken.",
         "publicLink": "Openbare canvaslink",
         "publishFailed": "Kon dit canvas niet publiceren. Probeer het opnieuw.",
         "publishing": "Canvas publiceren…",
@@ -2585,8 +2593,12 @@
         "toasts": {
           "copyFailed": "Kon de link niet kopiëren",
           "linkCopied": "Deellink gekopieerd",
+          "madePrivate": "Link is nu privé",
+          "madePublic": "Link is nu openbaar",
+          "openFailed": "Kan de link niet openen",
           "revokeFailed": "Kon dit delen niet intrekken",
-          "revoked": "Delen ingetrokken"
+          "revoked": "Delen ingetrokken",
+          "visibilityFailed": "Kan niet wijzigen wie deze link kan openen"
         },
         "untitled": "Canvas zonder titel"
       },

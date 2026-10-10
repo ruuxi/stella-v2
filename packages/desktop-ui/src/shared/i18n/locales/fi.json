@@ -2569,11 +2569,19 @@
       },
       "canvasShare": {
         "copyLink": "Kopioi linkki",
-        "empty": "Ei vielä aktiivisia jakoja. Julkaise kanvas saadaksesi julkisen linkin.",
+        "empty": "Ei vielä julkisia kankaita. Tee kankaasta julkinen jakaaksesi sen linkin.",
         "expires": "Vanhenee {date}",
         "links": "Linkit",
         "live": "Kanvas on julkaistu",
         "loadFailed": "Jakojasi ei voitu ladata.",
+        "makePrivate": "Tee yksityiseksi",
+        "makePublic": "Tee julkiseksi",
+        "noLink": "Tällä kankaalla ei ole vielä linkkiä. Tee siitä julkinen, niin saat linkin, jonka kuka tahansa voi avata.",
+        "openInBrowser": "Avaa selaimessa",
+        "privateHint": "Vain sinä voit avata tämän linkin.",
+        "privateLink": "Yksityinen linkki",
+        "public": "Julkinen",
+        "publicHint": "Kuka tahansa, jolla on linkki, voi katsoa sitä.",
         "publicLink": "Julkinen kanvaslinkki",
         "publishFailed": "Tätä kanvasta ei voitu julkaista. Yritä uudelleen.",
         "publishing": "Julkaistaan kanvasta…",
@@ -2585,8 +2593,12 @@
         "toasts": {
           "copyFailed": "Linkkiä ei voitu kopioida",
           "linkCopied": "Jakolinkki kopioitu",
+          "madePrivate": "Linkki on nyt yksityinen",
+          "madePublic": "Linkki on nyt julkinen",
+          "openFailed": "Linkkiä ei voitu avata",
           "revokeFailed": "Tätä jakoa ei voitu peruuttaa",
-          "revoked": "Jako peruutettu"
+          "revoked": "Jako peruutettu",
+          "visibilityFailed": "Linkin avausoikeutta ei voitu muuttaa"
         },
         "untitled": "Nimetön kanvas"
       },

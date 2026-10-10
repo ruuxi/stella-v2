@@ -5,9 +5,8 @@ import { DevicesAct } from "./devices-act";
 import { landingFontVars } from "./fonts";
 import { LandingHeader } from "./landing-header";
 import { MakesAct } from "./makes-act";
-import { Hero } from "./hero";
-import { Metamorphosis } from "./metamorphosis";
 import { ModelsAct } from "./models-act";
+import { Opening } from "./opening";
 import { ParallelAct } from "./parallel-act";
 import l from "./landing.module.css";
 
@@ -17,8 +16,7 @@ export function Landing() {
       <Backdrop />
       <LandingHeader />
       <main>
-        <Hero />
-        <Metamorphosis />
+        <Opening />
         <ComputerAct />
         <ParallelAct />
         <DevicesAct />

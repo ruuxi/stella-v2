@@ -20,7 +20,7 @@ import {
   getThemesSnapshot,
   type Theme,
   type ThemeColors,
-  type ThemeTokens,
+  THEME_CSS_VARS,
 } from "@stella/theme";
 import { uiState } from "../platform/ui-state";
 
@@ -106,66 +106,6 @@ function readLegacyForcedAppearance(): "light" | "dark" | null {
   return null;
 }
 
-/**
- * Every derived token, keyed by the CSS custom property it lands on. The
- * derivation itself lives in `@stella/theme` so mobile reads the identical
- * values; this table is only the CSS naming.
- */
-const TOKEN_VARS: ReadonlyArray<readonly [string, keyof ThemeTokens]> = [
-  ["--background", "background"],
-  ["--background-strong", "backgroundStrong"],
-  ["--foreground", "foreground"],
-  ["--card", "card"],
-  ["--card-foreground", "cardForeground"],
-  ["--popover", "card"],
-  ["--popover-foreground", "cardForeground"],
-  ["--surface-raised-stronger-non-alpha", "card"],
-  ["--primary", "primary"],
-  ["--primary-foreground", "primaryForeground"],
-  ["--secondary", "muted"],
-  ["--secondary-foreground", "foreground"],
-  ["--muted", "muted"],
-  ["--muted-foreground", "mutedForeground"],
-  ["--accent", "accent"],
-  ["--accent-foreground", "accentForeground"],
-  ["--destructive", "destructive"],
-  ["--border", "border"],
-  ["--input", "border"],
-  ["--ring", "interactive"],
-  ["--stella-animation-color-1", "interactive"],
-  ["--stella-animation-color-2", "success"],
-  ["--stella-animation-color-3", "warning"],
-  ["--text-interactive-base", "textInteractive"],
-
-  ["--text-strong", "textStrong"],
-  ["--text-base", "textBase"],
-  ["--text-weak", "textWeak"],
-  ["--text-weaker", "textWeaker"],
-  ["--border-strong", "borderStrong"],
-  ["--border-base", "borderBase"],
-  ["--border-weak", "borderWeak"],
-  ["--surface-inset", "surfaceInset"],
-  ["--surface-raised", "surfaceRaised"],
-  ["--surface-raised-hover", "surfaceRaisedHover"],
-  ["--button-secondary-base", "buttonSecondaryBase"],
-  ["--button-secondary-hover", "buttonSecondaryHover"],
-  ["--overlay-surface", "overlaySurface"],
-  ["--overlay-border", "overlayBorder"],
-  ["--overlay-border-strong", "overlayBorderStrong"],
-  ["--panel-surface-bg", "panelSurfaceBg"],
-  ["--panel-surface-bg-top", "panelSurfaceBgTop"],
-  ["--panel-surface-bg-bottom", "panelSurfaceBgBottom"],
-  ["--panel-surface-border", "panelSurfaceBorder"],
-  ["--panel-surface-border-hover", "panelSurfaceBorderHover"],
-  ["--panel-surface-highlight-color", "panelSurfaceHighlight"],
-  ["--select-fill", "selectFill"],
-  ["--select-border", "selectBorder"],
-  ["--chat-user-bubble-fill", "chatUserBubbleFill"],
-  ["--chat-user-bubble-text", "chatUserBubbleText"],
-  ["--chat-assistant-bubble-fill-top", "chatAssistantBubbleFillTop"],
-  ["--chat-assistant-bubble-fill-bottom", "chatAssistantBubbleFillBottom"],
-  ["--chat-assistant-bubble-text", "chatAssistantBubbleText"],
-];
 
 function applyThemeToDocument(
   colors: ThemeColors,
@@ -189,7 +129,7 @@ function applyThemeToDocument(
   root.style.setProperty("color-scheme", isDark ? "dark" : "light");
 
   const tokens = deriveTokens(colors, isDark, { flat });
-  for (const [cssVar, key] of TOKEN_VARS) {
+  for (const [cssVar, key] of THEME_CSS_VARS) {
     root.style.setProperty(cssVar, tokens[key]);
   }
 }

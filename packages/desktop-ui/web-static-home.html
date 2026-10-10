@@ -81,14 +81,22 @@
       shell.remove();
       return;
     }
+    var root = document.documentElement;
+    var restored = false;
     try {
       var snapshot = JSON.parse(window.localStorage.getItem("stella:static-home:root") || "null");
       if (snapshot && typeof snapshot === "object") {
         for (var name in snapshot) {
-          if (typeof snapshot[name] === "string") document.documentElement.setAttribute(name, snapshot[name]);
+          if (typeof snapshot[name] === "string") root.setAttribute(name, snapshot[name]);
         }
+        restored = true;
       }
     } catch (error) {}
+    if (!restored) {
+      var firstVisit = __STELLA_FIRST_VISIT_ROOTS__[root.getAttribute("data-stella-boot-theme") === "light" ? "light" : "dark"];
+      for (var attribute in firstVisit.attributes) root.setAttribute(attribute, firstVisit.attributes[attribute]);
+      for (var i = 0; i < firstVisit.properties.length; i++) root.style.setProperty(firstVisit.properties[i][0], firstVisit.properties[i][1]);
+    }
     var funGreetings = __STELLA_FUN_GREETINGS__;
     var hour = new Date().getHours();
     var greeting = { kind: "time" };

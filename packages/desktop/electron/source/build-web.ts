@@ -66,8 +66,10 @@ export type WebBuildOptions = {
   env: RendererEnv;
   cacheDir: string;
   log?: (message: string) => void;
-  staticHome?: boolean;
+  staticHome?: { firstVisit: Record<"dark" | "light", StaticHomeRoot> };
 };
+
+export type StaticHomeRoot = { attributes: Record<string, string>; properties: Array<[string, string]> };
 
 const NEW_URL = /new\s+URL\(\s*(["'])([^"'\n]+)\1\s*,\s*import\.meta\.url\s*\)/g;
 const CSS_URL = /url\(\s*(['"]?)([^'")]+)\1\s*\)/g;
@@ -77,7 +79,11 @@ const LAUNCH_RESCUE =
 const FUN_GREETINGS = /const FUN_GREETINGS = (\[[\s\S]*?\]);/;
 const FUN_GREETING_CHANCE = /const FUN_GREETING_CHANCE = ([0-9.]+);/;
 
-const staticHomeMarkup = (uiRoot: string, log: (message: string) => void): string => {
+const staticHomeMarkup = (
+  uiRoot: string,
+  log: (message: string) => void,
+  firstVisit: Record<"dark" | "light", StaticHomeRoot>,
+): string => {
   const partial = fs.readFileSync(path.join(uiRoot, "web-static-home.html"), "utf8");
   const home = fs.readFileSync(path.join(uiRoot, "src", "app", "home", "HomeContent.jsx"), "utf8");
   let greetings: string[] = [];
@@ -89,7 +95,8 @@ const staticHomeMarkup = (uiRoot: string, log: (message: string) => void): strin
   const chance = Number(FUN_GREETING_CHANCE.exec(home)?.[1] ?? 0);
   return partial
     .replace("__STELLA_FUN_GREETINGS__", () => JSON.stringify(greetings))
-    .replace("__STELLA_FUN_GREETING_CHANCE__", () => String(Number.isFinite(chance) ? chance : 0));
+    .replace("__STELLA_FUN_GREETING_CHANCE__", () => String(Number.isFinite(chance) ? chance : 0))
+    .replace("__STELLA_FIRST_VISIT_ROOTS__", () => JSON.stringify(firstVisit));
 };
 
 const isExternalUrl = (value: string) =>
@@ -350,7 +357,7 @@ export const buildWebRenderer = async (options: WebBuildOptions): Promise<{ file
     ? emitFile("app.css", Buffer.from((await Promise.all(criticalCss.map((id) => stylesheet(id, "../")))).join("\n")))
     : null;
   if (options.staticHome) {
-    const markup = staticHomeMarkup(uiRoot, log);
+    const markup = staticHomeMarkup(uiRoot, log, options.staticHome.firstVisit);
     html = html.replace(/(\s*)<div id="root">/, (match, indent: string) => `${indent}${markup.trim().split("\n").join(indent)}${match}`);
   }
   const entryTags = [

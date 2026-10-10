@@ -11,6 +11,7 @@ export {
   subscribeThemes,
   type ResolvedTheme,
 } from "./catalog";
+export { THEME_CSS_VARS } from "./css-vars";
 export {
   deriveTokens,
   type DeriveTokensOptions,

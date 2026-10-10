@@ -588,7 +588,11 @@ export type RuntimeAutomationTurnRequest = {
    * hidden journal row it has always written.
    */
   userAuthoredPrompt?: boolean;
-
+  /**
+   * A schedule's prompt the cloud placed here: journaled hidden, and marked
+   * so every reader shows Stella's answer to it.
+   */
+  scheduled?: boolean;
 };
 
 export type RuntimeAutomationTurnResult =

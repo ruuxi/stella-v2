@@ -32,6 +32,8 @@ export type PiPartMarks = {
    * pending message binds to the row instead of showing twice.
    */
   clientMsgId?: string;
+  /** A prompt a schedule fired: read by Stella, not shown, and answered in the chat. */
+  source?: "schedule";
 };
 
 export type PiUserDisplay = {
@@ -60,7 +62,13 @@ export type PiUserPart = Extract<PiContentBlock, { type: "text" } | { type: "ima
 /** What a voice session wrote: what was said, or the session's summary (`voiceSession`). */
 export type PiVoiceMarks = { source?: "voice"; voiceSession?: { durationMs: number } };
 
-export type PiUserMessage = { role: "user"; content: string | PiContentBlock[]; timestamp: number } & PiVoiceMarks;
+export type PiUserMessage = {
+  role: "user";
+  content: string | PiContentBlock[];
+  timestamp: number;
+  /** `schedule`: a schedule's prompt, as the journal and the cloud mark it. */
+  source?: "voice" | "schedule";
+} & Omit<PiVoiceMarks, "source">;
 export type PiAssistantMessage = {
   role: "assistant";
   content: PiContentBlock[];
@@ -482,12 +490,26 @@ export const isPiAgentInput = (message: PiUserMessage): boolean =>
     : message.content.some((part) => part.type === "text" && isPiAgentText(part.text));
 
 /**
+ * A prompt a schedule fired (a task, a reminder): runtime input the user never
+ * wrote. Readers hide it, and show Stella's answer to it, which is the delivery.
+ */
+export const isPiScheduledInput = (message: PiUserMessage): boolean =>
+  message.source === "schedule" ||
+  (typeof message.content !== "string" &&
+    message.content.some((part) => (part.type === "text" || part.type === "image") && part.stella?.source === "schedule"));
+
+/**
  * Whether readers hide a user message: one the user never wrote (an agent's
  * report or note, a prompt the app sent), or one with nothing to show.
  */
 export const piUserHidden = (message: PiUserMessage): boolean => {
   const { text, display } = piUserView(message);
-  return isPiAgentText(piMessageText(message)) || isPiAgentText(text) || (!text.trim() && !display);
+  return (
+    isPiScheduledInput(message) ||
+    isPiAgentText(piMessageText(message)) ||
+    isPiAgentText(text) ||
+    (!text.trim() && !display)
+  );
 };
 
 /**
@@ -523,7 +545,11 @@ export const piJournalUserMessage = (
       role: "user",
       content: [{ type: "text", text: hidden ? piMessageText(message) : text }, ...images],
       timestamp: message.timestamp,
-      ...(message.source ? { source: message.source } : {}),
+      ...(message.source
+        ? { source: message.source }
+        : isPiScheduledInput(message)
+          ? { source: "schedule" }
+          : {}),
       ...(message.voiceSession ? { voiceSession: message.voiceSession } : {}),
       ...(files.length > 0 ? { attachments: files } : {}),
       ...(display?.context ? { metadata: { context: display.context } } : {}),

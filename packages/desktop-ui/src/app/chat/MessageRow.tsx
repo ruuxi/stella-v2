@@ -614,12 +614,17 @@ type AssistantRowProps = {
   row: AssistantRowViewModel;
   conversationId?: string | null;
   agentModelConfigByThread?: AgentModelConfigsByThread;
+  hideAgentChip?: boolean;
 };
 
 export const AssistantMessageRow = memo(
   // `agentModelConfigByThread` stays on the props (the memo comparator keys
   // on it) but the row no longer renders anything per-thread that needs it.
-  function AssistantMessageRow({ row, conversationId }: AssistantRowProps) {
+  function AssistantMessageRow({
+    row,
+    conversationId,
+    hideAgentChip = false,
+  }: AssistantRowProps) {
     const reply = useMessageReply();
     const text = row.text;
     const hasText = text.trim().length > 0;
@@ -710,6 +715,7 @@ export const AssistantMessageRow = memo(
             <VoiceSessionCard durationMs={row.voiceSession.durationMs} />
           )}
           {conversationId &&
+          !hideAgentChip &&
           ((row.replyRefs && row.replyRefs.length > 0) || hasAgentCompletion) ? (
             <ReplyPreview
               refs={row.replyRefs ?? []}
@@ -831,5 +837,6 @@ export const AssistantMessageRow = memo(
   (prev, next) =>
     prev.conversationId === next.conversationId &&
     prev.agentModelConfigByThread === next.agentModelConfigByThread &&
+    prev.hideAgentChip === next.hideAgentChip &&
     eventRowEqual(prev.row, next.row),
 );

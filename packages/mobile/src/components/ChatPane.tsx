@@ -1576,6 +1576,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   receiptLabel,
   carriedQuotes,
   quotesForwarded = false,
+  hideAgentChips = false,
 }: {
   item: ChatMessage;
   /** Scopes this row's file reads, the way a tapped file link is scoped. */
@@ -1620,6 +1621,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
   carriedQuotes?: CompletionQuote[];
   /** This row's tasks are carried by the reply below it. */
   quotesForwarded?: boolean;
+  /** The previous assistant message already shows this row's task chip. */
+  hideAgentChips?: boolean;
 }) {
   // iOS press feedback: the held bubble eases down while the long-press
   // builds, then the menu lifts a copy of it (see MessageContextMenu).
@@ -2079,7 +2082,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   if (menuClone) return assistantBubble;
   return (
     <View style={styles.assistantRow}>
-      {onOpenReply
+      {onOpenReply && !hideAgentChips
         ? completionQuotes.map((quote) => (
             <ReplyPreview
               key={quote.key}
@@ -2096,6 +2099,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
         : null}
       {contextRef &&
       onOpenReply &&
+      !(contextRef.kind === "agent" && hideAgentChips) &&
       !(contextRef.kind === "agent" && quotedThreadIds.has(contextRef.threadId)) ? (
         <ReplyPreview
           reference={contextRef}
@@ -3454,6 +3458,30 @@ export function ChatPane({
       withInlineAskRecords(visibleMessages, sessionAskRecords),
     [sessionAskRecords, visibleMessages],
   );
+  const hiddenAgentChipIds = useMemo(() => {
+    const hidden = new Set<string>();
+    let previousKey: string | null = null;
+    for (const message of listMessages) {
+      if (message.role !== "assistant") {
+        previousKey = null;
+        continue;
+      }
+      const context = replyContexts.contexts.get(message.id);
+      const ids = new Set<string>();
+      if (context?.kind === "agent") ids.add(context.threadId);
+      for (const quote of rowCompletionQuotes(
+        consolidateRowArtifacts(message.artifacts ?? [], message.tasks ?? []).agentWork,
+      )) {
+        ids.add(quote.ref.threadId);
+      }
+      const key = ids.size > 0 ? [...ids].sort().join("\u0000") : null;
+      if (key && key === previousKey && context?.kind !== "message") {
+        hidden.add(message.id);
+      }
+      previousKey = key;
+    }
+    return hidden;
+  }, [listMessages, replyContexts]);
   const questionActive = openQuestionAsks.length > 0;
   const composerReveal = useSharedValue(questionActive ? 0 : 1);
   useEffect(() => {
@@ -4398,12 +4426,14 @@ export function ChatPane({
             receiptLabel={receipt?.id === item.id ? receipt.label : null}
             carriedQuotes={quoteCarry.carried.get(item.id)}
             quotesForwarded={quoteCarry.forwarded.has(item.id)}
+            hideAgentChips={hiddenAgentChipIds.has(item.id)}
           />
         </MessageEntry>
       );
     },
     [
       timeHeaders,
+      hiddenAgentChipIds,
       receipt,
       replyContexts,
       quoteCarry,

@@ -310,8 +310,7 @@
   background: transparent;
   color: var(--text-weak);
   font: inherit;
-  font-size: 0.88em;
-  text-transform: lowercase;
+  font-weight: var(--weight-medium);
   cursor: pointer;
   transition: color 120ms ease;
 }

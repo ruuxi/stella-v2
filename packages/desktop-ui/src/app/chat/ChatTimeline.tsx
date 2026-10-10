@@ -234,6 +234,8 @@ const gapAfterRow = (
 type TimelineListItem = ChatTimelineItem & {
   /** Pre-computed spacing rendered below this row by the separator. */
   gapAfter: number;
+  /** The previous assistant message already shows this row's agent chip. */
+  hideAgentChip?: boolean;
   /**
    * Created time of this row when it opens a new time group, i.e. when it
    * gets the centered iMessage-style divider above it. Undefined on every
@@ -293,6 +295,7 @@ const renderRow = (
   row: EventRowViewModel,
   conversationId?: string | null,
   agentModelConfigByThread?: AgentModelConfigsByThread,
+  hideAgentChip?: boolean,
 ) => {
   if (row.kind === "user") {
     return <UserMessageRow key={row.id} row={row} />;
@@ -303,9 +306,26 @@ const renderRow = (
       row={row}
       conversationId={conversationId}
       agentModelConfigByThread={agentModelConfigByThread}
+      hideAgentChip={hideAgentChip}
     />
   );
 };
+
+const agentChipKey = (row: EventRowViewModel): string => {
+  if (row.kind !== "assistant") return "";
+  const ids = new Set<string>();
+  for (const ref of row.replyRefs ?? []) {
+    if (ref.kind === "agent") ids.add(ref.threadId);
+  }
+  for (const section of row.agentCompletion?.sections ?? []) {
+    ids.add(section.agentId);
+  }
+  return [...ids].sort().join("\u0000");
+};
+
+const hasMessageReplyRef = (row: EventRowViewModel): boolean =>
+  row.kind === "assistant" &&
+  Boolean(row.replyRefs?.some((ref) => ref.kind !== "agent"));
 
 const TimelineUserItem = ({
   item,
@@ -365,17 +385,35 @@ export const ChatTimeline = memo(function ChatTimeline({
     );
     return items.map((item, index) => {
       const next = items[index + 1];
+      const previous = items[index - 1];
+      const chipKey = item.type === "message" ? agentChipKey(item.row) : "";
+      const hideAgentChip =
+        chipKey !== "" &&
+        item.type === "message" &&
+        !hasMessageReplyRef(item.row) &&
+        previous?.type === "message" &&
+        previous.row.kind === "assistant" &&
+        agentChipKey(previous.row) === chipKey;
+
       const timeHeaderMs =
         item.type === "message" ? timeHeaders.get(item.id) : undefined;
       // Legend renders the separator after the final item too; the list's
       // bottom padding is the only gap between the tail and the composer.
-      if (!next) return { ...item, gapAfter: 0, timeHeaderMs };
+      if (!next) {
+        return {
+          ...item,
+          gapAfter: 0,
+          timeHeaderMs,
+          ...(hideAgentChip ? { hideAgentChip: true } : {}),
+        };
+      }
       if (item.type === "message") {
         const nextRow = next?.type === "message" ? next.row : undefined;
         return {
           ...item,
           gapAfter: gapAfterRow(item.row, nextRow),
           timeHeaderMs,
+          ...(hideAgentChip ? { hideAgentChip: true } : {}),
         };
       }
       if (item.type === "working-indicator") {
@@ -429,7 +467,12 @@ export const ChatTimeline = memo(function ChatTimeline({
         item.type === "queued-users" || item.row.kind === "user" ? (
           <TimelineUserItem item={item} onCancelQueued={onCancelQueued} />
         ) : (
-          renderRow(item.row, conversationId, agentModelConfigByThread)
+          renderRow(
+            item.row,
+            conversationId,
+            agentModelConfigByThread,
+            item.hideAgentChip,
+          )
         );
       // The divider rides inside the row's own virtualized item, so it is
       // measured and recycled with it (mobile nests it the same way).

@@ -146,7 +146,10 @@ export function TaskReportButton({
               inline ? `${t("app.chat.replyPreview.showReport")}: ${title}` : undefined
             }
           >
-            {children ?? t("app.chat.replyPreview.showReport")}
+            {children ??
+              (inline
+                ? t("app.chat.userMessage.showMore")
+                : t("app.chat.replyPreview.showReport"))}
           </button>
         </Popover.Trigger>
         <Popover.Content

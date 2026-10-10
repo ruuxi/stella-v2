@@ -363,6 +363,10 @@ export const createStellaHostRunner = (
       Boolean(context.backend.client()),
     hasDurableLifecycleEvent:
       taskOrchestration.hasDurableExternalLifecycleEvent,
+    reportsLocally: (row) =>
+      row.placement === "computer" &&
+      row.executorDeviceId === null &&
+      !context.runtimeStore.getAgentRecord?.(row.threadId),
     onLifecycleEvent: taskOrchestration.handleExternalAgentLifecycleEvent,
     onControlReceipt: (row) => {
       context.runtimeStore.putCloudAgentThreadControl({

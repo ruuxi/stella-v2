@@ -19,7 +19,15 @@ export class SlackApiError extends Error {
 
 export type SlackResponse = { ok: boolean; error?: string; [key: string]: unknown };
 
-const FORM_METHODS = new Set(["oauth.v2.access", "files.getUploadURLExternal"]);
+/** Methods that read their arguments only from a form body or query, not JSON. */
+const FORM_METHODS = new Set([
+  "oauth.v2.access",
+  "files.getUploadURLExternal",
+  "users.info",
+  "conversations.info",
+  "conversations.replies",
+  "conversations.history",
+]);
 
 export const slackCall = async <T extends SlackResponse = SlackResponse>(
   token: string | null,

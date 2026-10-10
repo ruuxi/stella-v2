@@ -13,6 +13,7 @@ import {
   toDisplayAttachments,
 } from "../streaming/message-context";
 import { toPastedTextDescriptor } from "../lib/paste-context";
+import { rememberSentAttachmentPreviews } from "@/features/cloud/drive-attachment-previews";
 import { getComposerAppSelections } from "../composer-context";
 import { useLocalAgentStream } from "../streaming/use-local-agent-stream";
 import {
@@ -380,6 +381,10 @@ export function useStreamingChatCore({
       optimisticEventTemplate,
       dequeuedAtMs,
     );
+    rememberSentAttachmentPreviews(
+      combined.id,
+      toDisplayAttachments(combined.attachments),
+    );
     setOptimisticEvents((current) =>
       current.some((event) => event._id === combined.id)
         ? current
@@ -564,6 +569,10 @@ export function useStreamingChatCore({
         attachments: toDisplayAttachments(attachments),
       });
 
+      rememberSentAttachmentPreviews(
+        optimisticUserMessageId,
+        toDisplayAttachments(attachments),
+      );
       setOptimisticEvents((current) => [...current, optimisticEvent]);
       setPendingUserMessageId(optimisticUserMessageId);
       options.onClear();

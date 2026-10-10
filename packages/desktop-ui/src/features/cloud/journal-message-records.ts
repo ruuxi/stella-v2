@@ -9,6 +9,8 @@ import { journalAgentTitles } from "@stella/contracts/agent-titles";
 import { groupEventsIntoMessages } from "@/features/chat/lib/group-events-into-messages";
 import type { JournalRecord } from "./conversation-protocol";
 import { messageText } from "./conversation-protocol";
+import { withAttachmentPreamble } from "./cloud-composer-store";
+import { driveAttachmentRef } from "./drive-attachment-previews";
 import {
   splitReplyRefs,
   toReplyPreview,
@@ -313,7 +315,38 @@ const userAttachments = (
       ];
     },
   );
-  return [...images, ...files];
+  return [
+    ...images,
+    ...files,
+    ...providerAttachmentPaths(payload).map(driveAttachmentRef),
+  ];
+};
+
+const providerAttachmentPaths = (payload: AgentMessagePayload): string[] => {
+  const raw = asRecord(payload.providerContext)?.attachments;
+  return Array.isArray(raw)
+    ? [
+        ...new Set(
+          raw.filter(
+            (path): path is string =>
+              typeof path === "string" && path.length > 0 && path.length <= 400,
+          ),
+        ),
+      ]
+    : [];
+};
+
+const withoutDrivePreamble = (
+  text: string,
+  payload: AgentMessagePayload,
+): string => {
+  const paths = providerAttachmentPaths(payload);
+  if (paths.length === 0) return text;
+  const suffix = withAttachmentPreamble(
+    "",
+    paths.map((path) => ({ path, name: path, sizeBytes: 0 })),
+  );
+  return text.endsWith(suffix) ? text.slice(0, -suffix.length) : text;
 };
 
 const nonEmptyStrings = (value: unknown): string[] =>
@@ -553,7 +586,8 @@ export const journalRecordsToMessageRecords = (
         userMessageId =
           record.clientMsgId ?? `cloud:${turnId}:message:${record.seq}`;
         const userText =
-          userDisplayText(record.payload) ?? messageText(record.payload);
+          userDisplayText(record.payload) ??
+          withoutDrivePreamble(messageText(record.payload), record.payload);
         const attachments = userAttachments(record.payload);
         // A prompt with nothing to show (older desktop turns mirrored their
         // lifecycle wake as an empty, unflagged user record) renders like a

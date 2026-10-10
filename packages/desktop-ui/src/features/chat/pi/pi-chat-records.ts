@@ -75,10 +75,15 @@ export const projectPiChat = (state: Pick<PiChatState, "entries" | "requestIds">
       const clientMsgId = state.requestIds[entry.id] ?? journaled.clientMsgId;
       const { hidden } = journaled;
       const origin = (message as { originUserMessageId?: unknown }).originUserMessageId;
-      const payload =
-        typeof origin === "string" && origin
-          ? { ...journaled.message, originUserMessageId: origin }
-          : journaled.message;
+      const providerAttachments = (message as { providerContext?: { attachments?: unknown } })
+        .providerContext?.attachments;
+      const payload = {
+        ...journaled.message,
+        ...(typeof origin === "string" && origin ? { originUserMessageId: origin } : {}),
+        ...(Array.isArray(providerAttachments) && providerAttachments.length > 0
+          ? { providerContext: { attachments: providerAttachments } }
+          : {}),
+      };
       // A reply to an agent's report or note shows; a turn the app started stays out whole.
       const automation = hidden && !isPiAgentInput(message);
       turn = {

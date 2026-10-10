@@ -902,9 +902,16 @@
         "title": "Dit gesprek"
       },
       "files": {
-        "empty": "Nog geen bestanden. Alles wat Stella maakt verschijnt hier.",
+        "empty": "Bestanden die Stella maakt of deelt, verschijnen hier.",
         "emptyFiltered": "Geen bestanden gevonden.",
-        "searchPlaceholder": "Bestanden zoeken"
+        "filterAll": "Alle bestanden",
+        "filterLabel": "Bestanden filteren en sorteren",
+        "searchPlaceholder": "Bestanden zoeken",
+        "sortName": "Naam",
+        "sortNewest": "Nieuwste eerst",
+        "sortOldest": "Oudste eerst",
+        "sourceCloud": "Cloud",
+        "sourceUpload": "Door jou verstuurd"
       },
       "schedule": {
         "actionFailed": "Dat is niet gelukt.",
@@ -912,7 +919,9 @@
         "customCadence": "Aangepast schema",
         "deleteConfirm": "‘{title}’ wordt niet meer uitgevoerd.",
         "deleteSchedule": "Schema verwijderen",
-        "empty": "Nog geen planningen. Vraag Stella op je computer om iets regelmatig uit te voeren en het verschijnt hier.",
+        "empty": "Nog niets gepland.",
+        "emptyAction": "Iets plannen",
+        "emptyActionPrompt": "Herinner me eraan om ",
         "lastRunFailed": "Laatste run mislukt: {error}",
         "loadFailed": "Kon planningen niet laden.",
         "next": "Volgende {when}",
@@ -937,6 +946,11 @@
         "stopped": "Gestopt",
         "working": "Werkt op de achtergrond"
       }
+    },
+    "apps": {
+      "empty": "Apps die Stella voor je bouwt, verschijnen hier.",
+      "emptyAction": "Een app bouwen",
+      "emptyActionPrompt": "Bouw een app voor me die "
     },
     "authCallback": {
       "backToSignIn": "Terug naar inloggen",

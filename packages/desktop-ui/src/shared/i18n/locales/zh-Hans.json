@@ -893,9 +893,16 @@
         "title": "此对话"
       },
       "files": {
-        "empty": "还没有文件。Stella 生成的所有内容都会显示在这里。",
+        "empty": "Stella 创建或分享的文件会显示在这里。",
         "emptyFiltered": "没有匹配的文件。",
-        "searchPlaceholder": "搜索文件"
+        "filterAll": "所有文件",
+        "filterLabel": "筛选和排序文件",
+        "searchPlaceholder": "搜索文件",
+        "sortName": "名称",
+        "sortNewest": "最新优先",
+        "sortOldest": "最早优先",
+        "sourceCloud": "云端",
+        "sourceUpload": "你发送的"
       },
       "schedule": {
         "actionFailed": "操作未成功。",
@@ -903,7 +910,9 @@
         "customCadence": "自定义日程",
         "deleteConfirm": "“{title}”将停止运行。",
         "deleteSchedule": "删除日程",
-        "empty": "还没有日程。让电脑上的 Stella 定期运行一些任务，就会显示在这里。",
+        "empty": "还没有任何日程。",
+        "emptyAction": "安排一件事",
+        "emptyActionPrompt": "提醒我",
         "lastRunFailed": "上次运行失败：{error}",
         "loadFailed": "无法加载日程。",
         "next": "下次运行 {when}",
@@ -928,6 +937,11 @@
         "stopped": "已停止",
         "working": "正在后台工作"
       }
+    },
+    "apps": {
+      "empty": "Stella 为你构建的应用会显示在这里。",
+      "emptyAction": "构建应用",
+      "emptyActionPrompt": "帮我做一个应用，"
     },
     "authCallback": {
       "backToSignIn": "返回登录",

@@ -893,9 +893,16 @@
         "title": "이 대화"
       },
       "files": {
-        "empty": "아직 파일이 없습니다. Stella가 만든 모든 것이 여기에 표시됩니다.",
+        "empty": "Stella가 만들거나 공유한 파일이 여기에 표시됩니다.",
         "emptyFiltered": "일치하는 파일이 없습니다.",
-        "searchPlaceholder": "파일 검색"
+        "filterAll": "모든 파일",
+        "filterLabel": "파일 필터 및 정렬",
+        "searchPlaceholder": "파일 검색",
+        "sortName": "이름",
+        "sortNewest": "최신순",
+        "sortOldest": "오래된 순",
+        "sourceCloud": "클라우드",
+        "sourceUpload": "내가 보낸 파일"
       },
       "schedule": {
         "actionFailed": "처리하지 못했습니다.",
@@ -903,7 +910,9 @@
         "customCadence": "사용자 지정 일정",
         "deleteConfirm": "“{title}”이(가) 더 이상 실행되지 않습니다.",
         "deleteSchedule": "일정 삭제",
-        "empty": "아직 일정이 없습니다. 컴퓨터의 Stella에게 무언가를 정기적으로 실행해 달라고 요청하면 여기에 표시됩니다.",
+        "empty": "아직 예약된 항목이 없습니다.",
+        "emptyAction": "예약 만들기",
+        "emptyActionPrompt": "리마인드해 줘: ",
         "lastRunFailed": "마지막 실행 실패: {error}",
         "loadFailed": "일정을 불러오지 못했습니다.",
         "next": "다음 실행 {when}",
@@ -928,6 +937,11 @@
         "stopped": "중지됨",
         "working": "백그라운드에서 작업 중"
       }
+    },
+    "apps": {
+      "empty": "Stella가 만들어 준 앱이 여기에 표시됩니다.",
+      "emptyAction": "앱 만들기",
+      "emptyActionPrompt": "이런 앱을 만들어 줘: "
     },
     "authCallback": {
       "backToSignIn": "로그인으로 돌아가기",

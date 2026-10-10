@@ -902,9 +902,16 @@
         "title": "This conversation"
       },
       "files": {
-        "empty": "No files yet. Anything Stella produces shows up here.",
+        "empty": "Files from Stella show up here.",
         "emptyFiltered": "No files match.",
-        "searchPlaceholder": "Search files"
+        "filterAll": "All files",
+        "filterLabel": "Filter and sort files",
+        "searchPlaceholder": "Search files",
+        "sortName": "Name",
+        "sortNewest": "Newest first",
+        "sortOldest": "Oldest first",
+        "sourceCloud": "Cloud",
+        "sourceUpload": "Sent by you"
       },
       "schedule": {
         "actionFailed": "That didn’t go through.",
@@ -912,7 +919,9 @@
         "customCadence": "Custom schedule",
         "deleteConfirm": "“{title}” will stop running.",
         "deleteSchedule": "Delete schedule",
-        "empty": "No schedules yet. Ask Stella on your computer to run something regularly and it shows up here.",
+        "empty": "Nothing scheduled yet.",
+        "emptyAction": "Schedule something",
+        "emptyActionPrompt": "Remind me to ",
         "lastRunFailed": "Last run failed: {error}",
         "loadFailed": "Couldn’t load schedules.",
         "next": "Next {when}",
@@ -937,6 +946,11 @@
         "stopped": "Stopped",
         "working": "Working in background"
       }
+    },
+    "apps": {
+      "empty": "Apps Stella builds for you live here.",
+      "emptyAction": "Build an app",
+      "emptyActionPrompt": "Build me an app that "
     },
     "authCallback": {
       "backToSignIn": "Back to sign in",

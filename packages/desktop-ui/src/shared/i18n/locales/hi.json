@@ -902,9 +902,16 @@
         "title": "यह बातचीत"
       },
       "files": {
-        "empty": "अभी कोई फ़ाइल नहीं है। Stella जो भी बनाएगी वह यहाँ दिखेगा।",
+        "empty": "Stella जो फ़ाइलें बनाती या साझा करती है, वे यहाँ दिखेंगी।",
         "emptyFiltered": "कोई फ़ाइल मेल नहीं खाती।",
-        "searchPlaceholder": "फ़ाइलें खोजें"
+        "filterAll": "सभी फ़ाइलें",
+        "filterLabel": "फ़ाइलें फ़िल्टर और क्रमबद्ध करें",
+        "searchPlaceholder": "फ़ाइलें खोजें",
+        "sortName": "नाम",
+        "sortNewest": "नई पहले",
+        "sortOldest": "पुरानी पहले",
+        "sourceCloud": "क्लाउड",
+        "sourceUpload": "आपके द्वारा भेजी गई"
       },
       "schedule": {
         "actionFailed": "यह पूरा नहीं हो सका।",
@@ -912,7 +919,9 @@
         "customCadence": "कस्टम शेड्यूल",
         "deleteConfirm": "“{title}” अब नहीं चलेगा।",
         "deleteSchedule": "शेड्यूल हटाएँ",
-        "empty": "अभी कोई शेड्यूल नहीं है। अपने कंप्यूटर पर Stella से कुछ नियमित रूप से चलाने के लिए कहें, वह यहाँ दिखेगा।",
+        "empty": "अभी तक कुछ शेड्यूल नहीं है।",
+        "emptyAction": "कुछ शेड्यूल करें",
+        "emptyActionPrompt": "मुझे याद दिलाना कि ",
         "lastRunFailed": "पिछला रन विफल रहा: {error}",
         "loadFailed": "शेड्यूल लोड नहीं हो सके।",
         "next": "अगली बार {when}",
@@ -937,6 +946,11 @@
         "stopped": "रोका गया",
         "working": "बैकग्राउंड में काम कर रहा है"
       }
+    },
+    "apps": {
+      "empty": "Stella आपके लिए जो ऐप बनाती है, वे यहाँ रहेंगे।",
+      "emptyAction": "ऐप बनाएँ",
+      "emptyActionPrompt": "मेरे लिए एक ऐप बनाओ जो "
     },
     "authCallback": {
       "backToSignIn": "साइन इन पर वापस जाएँ",

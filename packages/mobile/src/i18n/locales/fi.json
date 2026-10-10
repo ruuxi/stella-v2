@@ -902,9 +902,16 @@
         "title": "Tämä keskustelu"
       },
       "files": {
-        "empty": "Ei vielä tiedostoja. Kaikki Stellan tuottama näkyy täällä.",
+        "empty": "Stellan tekemät tai jakamat tiedostot näkyvät täällä.",
         "emptyFiltered": "Mikään tiedosto ei vastaa hakua.",
-        "searchPlaceholder": "Hae tiedostoja"
+        "filterAll": "Kaikki tiedostot",
+        "filterLabel": "Suodata ja lajittele tiedostot",
+        "searchPlaceholder": "Hae tiedostoja",
+        "sortName": "Nimi",
+        "sortNewest": "Uusin ensin",
+        "sortOldest": "Vanhin ensin",
+        "sourceCloud": "Pilvi",
+        "sourceUpload": "Sinun lähettämäsi"
       },
       "schedule": {
         "actionFailed": "Se ei onnistunut.",
@@ -912,7 +919,9 @@
         "customCadence": "Mukautettu aikataulu",
         "deleteConfirm": "”{title}” ei enää suoriteta.",
         "deleteSchedule": "Poista aikataulu",
-        "empty": "Ei vielä aikatauluja. Pyydä Stellaa tietokoneellasi ajamaan jotain säännöllisesti, niin se näkyy täällä.",
+        "empty": "Mitään ei ole vielä ajastettu.",
+        "emptyAction": "Ajasta jotain",
+        "emptyActionPrompt": "Muistuta minua ",
         "lastRunFailed": "Viimeisin ajo epäonnistui: {error}",
         "loadFailed": "Aikatauluja ei voitu ladata.",
         "next": "Seuraava {when}",
@@ -937,6 +946,11 @@
         "stopped": "Pysäytetty",
         "working": "Työskentelee taustalla"
       }
+    },
+    "apps": {
+      "empty": "Stellan sinulle rakentamat sovellukset näkyvät täällä.",
+      "emptyAction": "Rakenna sovellus",
+      "emptyActionPrompt": "Rakenna minulle sovellus, joka "
     },
     "authCallback": {
       "backToSignIn": "Takaisin kirjautumiseen",

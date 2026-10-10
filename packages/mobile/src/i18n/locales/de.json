@@ -902,9 +902,16 @@
         "title": "Diese Unterhaltung"
       },
       "files": {
-        "empty": "Noch keine Dateien. Alles, was Stella erstellt, erscheint hier.",
+        "empty": "Dateien, die Stella erstellt oder teilt, erscheinen hier.",
         "emptyFiltered": "Keine passenden Dateien.",
-        "searchPlaceholder": "Dateien durchsuchen"
+        "filterAll": "Alle Dateien",
+        "filterLabel": "Dateien filtern und sortieren",
+        "searchPlaceholder": "Dateien durchsuchen",
+        "sortName": "Name",
+        "sortNewest": "Neueste zuerst",
+        "sortOldest": "Älteste zuerst",
+        "sourceCloud": "Cloud",
+        "sourceUpload": "Von dir gesendet"
       },
       "schedule": {
         "actionFailed": "Das hat nicht geklappt.",
@@ -912,7 +919,9 @@
         "customCadence": "Eigener Zeitplan",
         "deleteConfirm": "„{title}“ wird nicht mehr ausgeführt.",
         "deleteSchedule": "Zeitplan löschen",
-        "empty": "Noch keine Zeitpläne. Bitte Stella auf deinem Computer, etwas regelmäßig auszuführen – es erscheint dann hier.",
+        "empty": "Noch nichts geplant.",
+        "emptyAction": "Etwas planen",
+        "emptyActionPrompt": "Erinnere mich daran, ",
         "lastRunFailed": "Letzter Lauf fehlgeschlagen: {error}",
         "loadFailed": "Zeitpläne konnten nicht geladen werden.",
         "next": "Nächster Lauf {when}",
@@ -937,6 +946,11 @@
         "stopped": "Gestoppt",
         "working": "Arbeitet im Hintergrund"
       }
+    },
+    "apps": {
+      "empty": "Apps, die Stella für dich baut, erscheinen hier.",
+      "emptyAction": "App bauen",
+      "emptyActionPrompt": "Bau mir eine App, die "
     },
     "authCallback": {
       "backToSignIn": "Zurück zur Anmeldung",

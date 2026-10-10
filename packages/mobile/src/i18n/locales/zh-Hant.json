@@ -893,9 +893,16 @@
         "title": "此對話"
       },
       "files": {
-        "empty": "還沒有檔案。Stella 產生的所有內容都會顯示在這裡。",
+        "empty": "Stella 建立或分享的檔案會顯示在這裡。",
         "emptyFiltered": "沒有相符的檔案。",
-        "searchPlaceholder": "搜尋檔案"
+        "filterAll": "所有檔案",
+        "filterLabel": "篩選與排序檔案",
+        "searchPlaceholder": "搜尋檔案",
+        "sortName": "名稱",
+        "sortNewest": "最新優先",
+        "sortOldest": "最舊優先",
+        "sourceCloud": "雲端",
+        "sourceUpload": "你傳送的"
       },
       "schedule": {
         "actionFailed": "操作未成功。",
@@ -903,7 +910,9 @@
         "customCadence": "自訂排程",
         "deleteConfirm": "「{title}」將停止執行。",
         "deleteSchedule": "刪除排程",
-        "empty": "還沒有排程。請電腦上的 Stella 定期執行一些工作，就會顯示在這裡。",
+        "empty": "還沒有任何排程。",
+        "emptyAction": "排程一件事",
+        "emptyActionPrompt": "提醒我",
         "lastRunFailed": "上次執行失敗：{error}",
         "loadFailed": "無法載入排程。",
         "next": "下次執行 {when}",
@@ -928,6 +937,11 @@
         "stopped": "已停止",
         "working": "正在背景工作"
       }
+    },
+    "apps": {
+      "empty": "Stella 為你打造的 App 會顯示在這裡。",
+      "emptyAction": "打造 App",
+      "emptyActionPrompt": "幫我做一個 App，"
     },
     "authCallback": {
       "backToSignIn": "返回登入",

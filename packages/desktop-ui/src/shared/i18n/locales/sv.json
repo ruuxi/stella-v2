@@ -902,9 +902,16 @@
         "title": "Den här konversationen"
       },
       "files": {
-        "empty": "Inga filer ännu. Allt Stella skapar visas här.",
+        "empty": "Filer som Stella skapar eller delar visas här.",
         "emptyFiltered": "Inga filer matchar.",
-        "searchPlaceholder": "Sök filer"
+        "filterAll": "Alla filer",
+        "filterLabel": "Filtrera och sortera filer",
+        "searchPlaceholder": "Sök filer",
+        "sortName": "Namn",
+        "sortNewest": "Nyast först",
+        "sortOldest": "Äldst först",
+        "sourceCloud": "Moln",
+        "sourceUpload": "Skickade av dig"
       },
       "schedule": {
         "actionFailed": "Det gick inte.",
@@ -912,7 +919,9 @@
         "customCadence": "Anpassat schema",
         "deleteConfirm": "”{title}” slutar att köras.",
         "deleteSchedule": "Ta bort schemat",
-        "empty": "Inga scheman ännu. Be Stella på din dator att köra något regelbundet så visas det här.",
+        "empty": "Inget schemalagt än.",
+        "emptyAction": "Schemalägg något",
+        "emptyActionPrompt": "Påminn mig om att ",
         "lastRunFailed": "Senaste körningen misslyckades: {error}",
         "loadFailed": "Kunde inte läsa in scheman.",
         "next": "Nästa {when}",
@@ -937,6 +946,11 @@
         "stopped": "Stoppad",
         "working": "Arbetar i bakgrunden"
       }
+    },
+    "apps": {
+      "empty": "Appar som Stella bygger åt dig visas här.",
+      "emptyAction": "Bygg en app",
+      "emptyActionPrompt": "Bygg en app åt mig som "
     },
     "authCallback": {
       "backToSignIn": "Tillbaka till inloggningen",

@@ -902,9 +902,16 @@
         "title": "Ez a beszélgetés"
       },
       "files": {
-        "empty": "Még nincsenek fájlok. Minden, amit Stella készít, itt jelenik meg.",
+        "empty": "Itt jelennek meg a fájlok, amelyeket Stella készít vagy megoszt.",
         "emptyFiltered": "Nincs egyező fájl.",
-        "searchPlaceholder": "Fájlok keresése"
+        "filterAll": "Minden fájl",
+        "filterLabel": "Fájlok szűrése és rendezése",
+        "searchPlaceholder": "Fájlok keresése",
+        "sortName": "Név",
+        "sortNewest": "Legújabb elöl",
+        "sortOldest": "Legrégebbi elöl",
+        "sourceCloud": "Felhő",
+        "sourceUpload": "Általad küldött"
       },
       "schedule": {
         "actionFailed": "Nem sikerült.",
@@ -912,7 +919,9 @@
         "customCadence": "Egyéni ütemezés",
         "deleteConfirm": "A(z) „{title}” többé nem fut.",
         "deleteSchedule": "Ütemezés törlése",
-        "empty": "Még nincs ütemezés. Kérd meg Stellát a számítógépeden, hogy futtasson valamit rendszeresen, és itt megjelenik.",
+        "empty": "Még nincs semmi ütemezve.",
+        "emptyAction": "Ütemezz valamit",
+        "emptyActionPrompt": "Emlékeztess, hogy ",
         "lastRunFailed": "Az utolsó futás nem sikerült: {error}",
         "loadFailed": "Az ütemezéseket nem sikerült betölteni.",
         "next": "Következő futás {when}",
@@ -937,6 +946,11 @@
         "stopped": "Leállítva",
         "working": "A háttérben dolgozik"
       }
+    },
+    "apps": {
+      "empty": "Itt lesznek az alkalmazások, amelyeket Stella neked készít.",
+      "emptyAction": "Alkalmazás készítése",
+      "emptyActionPrompt": "Készíts nekem egy alkalmazást, amely "
     },
     "authCallback": {
       "backToSignIn": "Vissza a bejelentkezéshez",

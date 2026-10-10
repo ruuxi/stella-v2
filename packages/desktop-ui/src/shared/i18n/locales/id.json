@@ -893,9 +893,16 @@
         "title": "Percakapan ini"
       },
       "files": {
-        "empty": "Belum ada file. Semua yang dibuat Stella muncul di sini.",
+        "empty": "File yang dibuat atau dibagikan Stella akan muncul di sini.",
         "emptyFiltered": "Tidak ada file yang cocok.",
-        "searchPlaceholder": "Cari file"
+        "filterAll": "Semua file",
+        "filterLabel": "Filter dan urutkan file",
+        "searchPlaceholder": "Cari file",
+        "sortName": "Nama",
+        "sortNewest": "Terbaru dulu",
+        "sortOldest": "Terlama dulu",
+        "sourceCloud": "Cloud",
+        "sourceUpload": "Dikirim olehmu"
       },
       "schedule": {
         "actionFailed": "Tidak berhasil.",
@@ -903,7 +910,9 @@
         "customCadence": "Jadwal kustom",
         "deleteConfirm": "“{title}” akan berhenti berjalan.",
         "deleteSchedule": "Hapus jadwal",
-        "empty": "Belum ada jadwal. Minta Stella di komputermu menjalankan sesuatu secara rutin, nanti muncul di sini.",
+        "empty": "Belum ada yang dijadwalkan.",
+        "emptyAction": "Jadwalkan sesuatu",
+        "emptyActionPrompt": "Ingatkan aku untuk ",
         "lastRunFailed": "Eksekusi terakhir gagal: {error}",
         "loadFailed": "Tidak dapat memuat jadwal.",
         "next": "Berikutnya {when}",
@@ -928,6 +937,11 @@
         "stopped": "Dihentikan",
         "working": "Bekerja di latar belakang"
       }
+    },
+    "apps": {
+      "empty": "Aplikasi yang dibuat Stella untukmu akan ada di sini.",
+      "emptyAction": "Buat aplikasi",
+      "emptyActionPrompt": "Buatkan aku aplikasi yang "
     },
     "authCallback": {
       "backToSignIn": "Kembali ke halaman masuk",

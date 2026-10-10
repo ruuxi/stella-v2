@@ -911,9 +911,16 @@
         "title": "Această conversație"
       },
       "files": {
-        "empty": "Încă nu există fișiere. Tot ce produce Stella apare aici.",
+        "empty": "Fișierele pe care Stella le creează sau le partajează vor apărea aici.",
         "emptyFiltered": "Niciun fișier nu se potrivește.",
-        "searchPlaceholder": "Caută fișiere"
+        "filterAll": "Toate fișierele",
+        "filterLabel": "Filtrează și sortează fișierele",
+        "searchPlaceholder": "Caută fișiere",
+        "sortName": "Nume",
+        "sortNewest": "Cele mai noi întâi",
+        "sortOldest": "Cele mai vechi întâi",
+        "sourceCloud": "Cloud",
+        "sourceUpload": "Trimise de tine"
       },
       "schedule": {
         "actionFailed": "Nu a reușit.",
@@ -921,7 +928,9 @@
         "customCadence": "Program personalizat",
         "deleteConfirm": "„{title}” nu va mai rula.",
         "deleteSchedule": "Șterge programul",
-        "empty": "Încă nu există programe. Cere-i Stellei de pe computer să ruleze ceva regulat și va apărea aici.",
+        "empty": "Nimic programat încă.",
+        "emptyAction": "Programează ceva",
+        "emptyActionPrompt": "Amintește-mi să ",
         "lastRunFailed": "Ultima rulare a eșuat: {error}",
         "loadFailed": "Programele nu au putut fi încărcate.",
         "next": "Următoarea rulare {when}",
@@ -946,6 +955,11 @@
         "stopped": "Oprit",
         "working": "Lucrează în fundal"
       }
+    },
+    "apps": {
+      "empty": "Aplicațiile pe care Stella le creează pentru tine vor apărea aici.",
+      "emptyAction": "Creează o aplicație",
+      "emptyActionPrompt": "Creează-mi o aplicație care "
     },
     "authCallback": {
       "backToSignIn": "Înapoi la conectare",

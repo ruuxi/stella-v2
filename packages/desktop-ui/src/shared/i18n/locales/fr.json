@@ -911,9 +911,16 @@
         "title": "Cette conversation"
       },
       "files": {
-        "empty": "Aucun fichier pour l’instant. Tout ce que Stella produit apparaît ici.",
+        "empty": "Les fichiers que Stella crée ou partage apparaîtront ici.",
         "emptyFiltered": "Aucun fichier ne correspond.",
-        "searchPlaceholder": "Rechercher des fichiers"
+        "filterAll": "Tous les fichiers",
+        "filterLabel": "Filtrer et trier les fichiers",
+        "searchPlaceholder": "Rechercher des fichiers",
+        "sortName": "Nom",
+        "sortNewest": "Plus récents d’abord",
+        "sortOldest": "Plus anciens d’abord",
+        "sourceCloud": "Cloud",
+        "sourceUpload": "Envoyés par vous"
       },
       "schedule": {
         "actionFailed": "Ça n’a pas fonctionné.",
@@ -921,7 +928,9 @@
         "customCadence": "Planification personnalisée",
         "deleteConfirm": "« {title} » ne s’exécutera plus.",
         "deleteSchedule": "Supprimer la planification",
-        "empty": "Aucune planification pour l’instant. Demandez à Stella sur votre ordinateur d’exécuter quelque chose régulièrement et elle apparaîtra ici.",
+        "empty": "Rien de programmé pour l’instant.",
+        "emptyAction": "Programmer quelque chose",
+        "emptyActionPrompt": "Rappelle-moi de ",
         "lastRunFailed": "Échec de la dernière exécution : {error}",
         "loadFailed": "Impossible de charger les planifications.",
         "next": "Prochaine exécution {when}",
@@ -946,6 +955,11 @@
         "stopped": "Arrêté",
         "working": "Travaille en arrière-plan"
       }
+    },
+    "apps": {
+      "empty": "Les apps que Stella crée pour vous apparaîtront ici.",
+      "emptyAction": "Créer une app",
+      "emptyActionPrompt": "Crée-moi une app qui "
     },
     "authCallback": {
       "backToSignIn": "Retour à la connexion",

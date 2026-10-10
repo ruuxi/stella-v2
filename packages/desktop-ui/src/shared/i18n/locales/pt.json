@@ -911,9 +911,16 @@
         "title": "Esta conversa"
       },
       "files": {
-        "empty": "Ainda não há arquivos. Tudo o que a Stella produzir aparece aqui.",
+        "empty": "Os arquivos que a Stella cria ou compartilha aparecerão aqui.",
         "emptyFiltered": "Nenhum arquivo corresponde.",
-        "searchPlaceholder": "Pesquisar arquivos"
+        "filterAll": "Todos os arquivos",
+        "filterLabel": "Filtrar e ordenar arquivos",
+        "searchPlaceholder": "Pesquisar arquivos",
+        "sortName": "Nome",
+        "sortNewest": "Mais recentes primeiro",
+        "sortOldest": "Mais antigos primeiro",
+        "sourceCloud": "Nuvem",
+        "sourceUpload": "Enviados por você"
       },
       "schedule": {
         "actionFailed": "Não foi possível concluir.",
@@ -921,7 +928,9 @@
         "customCadence": "Agenda personalizada",
         "deleteConfirm": "“{title}” deixará de ser executado.",
         "deleteSchedule": "Excluir agendamento",
-        "empty": "Ainda não há agendamentos. Peça à Stella no seu computador para executar algo com regularidade e ele aparecerá aqui.",
+        "empty": "Nada agendado ainda.",
+        "emptyAction": "Agendar algo",
+        "emptyActionPrompt": "Me lembre de ",
         "lastRunFailed": "A última execução falhou: {error}",
         "loadFailed": "Não foi possível carregar os agendamentos.",
         "next": "Próxima execução {when}",
@@ -946,6 +955,11 @@
         "stopped": "Interrompido",
         "working": "Trabalhando em segundo plano"
       }
+    },
+    "apps": {
+      "empty": "Os apps que a Stella criar para você ficarão aqui.",
+      "emptyAction": "Criar um app",
+      "emptyActionPrompt": "Crie um app para mim que "
     },
     "authCallback": {
       "backToSignIn": "Voltar para o acesso",

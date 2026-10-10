@@ -911,9 +911,16 @@
         "title": "Questa conversazione"
       },
       "files": {
-        "empty": "Ancora nessun file. Tutto ciò che Stella produce compare qui.",
+        "empty": "Qui compariranno i file che Stella crea o condivide.",
         "emptyFiltered": "Nessun file corrisponde.",
-        "searchPlaceholder": "Cerca file"
+        "filterAll": "Tutti i file",
+        "filterLabel": "Filtra e ordina i file",
+        "searchPlaceholder": "Cerca file",
+        "sortName": "Nome",
+        "sortNewest": "Più recenti prima",
+        "sortOldest": "Meno recenti prima",
+        "sourceCloud": "Cloud",
+        "sourceUpload": "Inviati da te"
       },
       "schedule": {
         "actionFailed": "Non è andata a buon fine.",
@@ -921,7 +928,9 @@
         "customCadence": "Pianificazione personalizzata",
         "deleteConfirm": "«{title}» non verrà più eseguita.",
         "deleteSchedule": "Elimina la pianificazione",
-        "empty": "Ancora nessuna pianificazione. Chiedi a Stella sul tuo computer di eseguire qualcosa regolarmente e comparirà qui.",
+        "empty": "Ancora niente in programma.",
+        "emptyAction": "Programma qualcosa",
+        "emptyActionPrompt": "Ricordami di ",
         "lastRunFailed": "Ultima esecuzione non riuscita: {error}",
         "loadFailed": "Impossibile caricare le pianificazioni.",
         "next": "Prossima esecuzione {when}",
@@ -946,6 +955,11 @@
         "stopped": "Interrotto",
         "working": "Lavora in background"
       }
+    },
+    "apps": {
+      "empty": "Qui troverai le app che Stella crea per te.",
+      "emptyAction": "Crea un’app",
+      "emptyActionPrompt": "Creami un’app che "
     },
     "authCallback": {
       "backToSignIn": "Torna all'accesso",

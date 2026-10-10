@@ -911,9 +911,16 @@
         "title": "השיחה הזו"
       },
       "files": {
-        "empty": "אין עדיין קבצים. כל מה ש־ Stella מייצרת יופיע כאן.",
+        "empty": "קבצים ש-Stella יוצרת או משתפת יופיעו כאן.",
         "emptyFiltered": "אין קבצים תואמים.",
-        "searchPlaceholder": "חיפוש קבצים"
+        "filterAll": "כל הקבצים",
+        "filterLabel": "סינון ומיון קבצים",
+        "searchPlaceholder": "חיפוש קבצים",
+        "sortName": "שם",
+        "sortNewest": "החדשים ביותר קודם",
+        "sortOldest": "הישנים ביותר קודם",
+        "sourceCloud": "ענן",
+        "sourceUpload": "נשלחו על ידך"
       },
       "schedule": {
         "actionFailed": "זה לא הצליח.",
@@ -921,7 +928,9 @@
         "customCadence": "תזמון מותאם אישית",
         "deleteConfirm": "”{title}“ יפסיק לפעול.",
         "deleteSchedule": "מחיקת התזמון",
-        "empty": "אין עדיין תזמונים. בקשו מ־ Stella במחשב להריץ משהו באופן קבוע והוא יופיע כאן.",
+        "empty": "עדיין לא תוזמן דבר.",
+        "emptyAction": "לתזמן משהו",
+        "emptyActionPrompt": "תזכירי לי ",
         "lastRunFailed": "ההרצה האחרונה נכשלה: {error}",
         "loadFailed": "לא ניתן היה לטעון את התזמונים.",
         "next": "ההרצה הבאה {when}",
@@ -946,6 +955,11 @@
         "stopped": "הופסק",
         "working": "עובד ברקע"
       }
+    },
+    "apps": {
+      "empty": "אפליקציות ש-Stella בונה בשבילך יופיעו כאן.",
+      "emptyAction": "לבנות אפליקציה",
+      "emptyActionPrompt": "תבני לי אפליקציה ש"
     },
     "authCallback": {
       "backToSignIn": "חזרה להתחברות",

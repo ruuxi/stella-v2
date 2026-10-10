@@ -893,9 +893,16 @@
         "title": "การสนทนานี้"
       },
       "files": {
-        "empty": "ยังไม่มีไฟล์ ทุกอย่างที่ Stella สร้างจะแสดงที่นี่",
+        "empty": "ไฟล์ที่ Stella สร้างหรือแชร์จะแสดงที่นี่",
         "emptyFiltered": "ไม่มีไฟล์ที่ตรงกัน",
-        "searchPlaceholder": "ค้นหาไฟล์"
+        "filterAll": "ไฟล์ทั้งหมด",
+        "filterLabel": "กรองและจัดเรียงไฟล์",
+        "searchPlaceholder": "ค้นหาไฟล์",
+        "sortName": "ชื่อ",
+        "sortNewest": "ใหม่สุดก่อน",
+        "sortOldest": "เก่าสุดก่อน",
+        "sourceCloud": "คลาวด์",
+        "sourceUpload": "ส่งโดยคุณ"
       },
       "schedule": {
         "actionFailed": "ดำเนินการไม่สำเร็จ",
@@ -903,7 +910,9 @@
         "customCadence": "กำหนดการที่กำหนดเอง",
         "deleteConfirm": "“{title}” จะหยุดทำงาน",
         "deleteSchedule": "ลบกำหนดการ",
-        "empty": "ยังไม่มีกำหนดการ ลองบอก Stella บนคอมพิวเตอร์ให้ทำอะไรเป็นประจำ แล้วจะแสดงที่นี่",
+        "empty": "ยังไม่มีอะไรที่ตั้งเวลาไว้",
+        "emptyAction": "ตั้งเวลาบางอย่าง",
+        "emptyActionPrompt": "เตือนฉันให้",
         "lastRunFailed": "การทำงานล่าสุดล้มเหลว: {error}",
         "loadFailed": "โหลดกำหนดการไม่สำเร็จ",
         "next": "ครั้งถัดไป {when}",
@@ -928,6 +937,11 @@
         "stopped": "หยุดแล้ว",
         "working": "กำลังทำงานอยู่เบื้องหลัง"
       }
+    },
+    "apps": {
+      "empty": "แอปที่ Stella สร้างให้คุณจะแสดงที่นี่",
+      "emptyAction": "สร้างแอป",
+      "emptyActionPrompt": "สร้างแอปที่"
     },
     "authCallback": {
       "backToSignIn": "กลับไปที่การเข้าสู่ระบบ",

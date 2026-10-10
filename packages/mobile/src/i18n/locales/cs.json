@@ -920,9 +920,16 @@
         "title": "Tato konverzace"
       },
       "files": {
-        "empty": "Zatím žádné soubory. Vše, co Stella vytvoří, se objeví tady.",
+        "empty": "Zde se zobrazí soubory, které Stella vytvoří nebo sdílí.",
         "emptyFiltered": "Žádné soubory neodpovídají.",
-        "searchPlaceholder": "Hledat soubory"
+        "filterAll": "Všechny soubory",
+        "filterLabel": "Filtrovat a řadit soubory",
+        "searchPlaceholder": "Hledat soubory",
+        "sortName": "Název",
+        "sortNewest": "Od nejnovějších",
+        "sortOldest": "Od nejstarších",
+        "sourceCloud": "Cloud",
+        "sourceUpload": "Odeslané vámi"
       },
       "schedule": {
         "actionFailed": "Nepovedlo se to.",
@@ -930,7 +937,9 @@
         "customCadence": "Vlastní plán",
         "deleteConfirm": "„{title}“ se přestane spouštět.",
         "deleteSchedule": "Smazat plán",
-        "empty": "Zatím žádné plány. Požádejte Stellu na svém počítači, ať něco spouští pravidelně, a objeví se to tady.",
+        "empty": "Zatím nic naplánováno.",
+        "emptyAction": "Něco naplánovat",
+        "emptyActionPrompt": "Připomeň mi, abych ",
         "lastRunFailed": "Poslední běh selhal: {error}",
         "loadFailed": "Plány se nepodařilo načíst.",
         "next": "Příště {when}",
@@ -955,6 +964,11 @@
         "stopped": "Zastaveno",
         "working": "Pracuje na pozadí"
       }
+    },
+    "apps": {
+      "empty": "Zde budou aplikace, které pro vás Stella vytvoří.",
+      "emptyAction": "Vytvořit aplikaci",
+      "emptyActionPrompt": "Vytvoř mi aplikaci, která "
     },
     "authCallback": {
       "backToSignIn": "Zpět na přihlášení",

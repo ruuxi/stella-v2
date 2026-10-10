@@ -902,9 +902,16 @@
         "title": "Denne samtalen"
       },
       "files": {
-        "empty": "Ingen filer ennå. Alt Stella lager dukker opp her.",
+        "empty": "Filer som Stella lager eller deler, vises her.",
         "emptyFiltered": "Ingen filer samsvarer.",
-        "searchPlaceholder": "Søk i filer"
+        "filterAll": "Alle filer",
+        "filterLabel": "Filtrer og sorter filer",
+        "searchPlaceholder": "Søk i filer",
+        "sortName": "Navn",
+        "sortNewest": "Nyeste først",
+        "sortOldest": "Eldste først",
+        "sourceCloud": "Sky",
+        "sourceUpload": "Sendt av deg"
       },
       "schedule": {
         "actionFailed": "Det gikk ikke.",
@@ -912,7 +919,9 @@
         "customCadence": "Tilpasset tidsplan",
         "deleteConfirm": "«{title}» slutter å kjøre.",
         "deleteSchedule": "Slett tidsplan",
-        "empty": "Ingen tidsplaner ennå. Be Stella på datamaskinen din om å kjøre noe regelmessig, så dukker det opp her.",
+        "empty": "Ingenting planlagt ennå.",
+        "emptyAction": "Planlegg noe",
+        "emptyActionPrompt": "Minn meg på å ",
         "lastRunFailed": "Siste kjøring mislyktes: {error}",
         "loadFailed": "Kunne ikke laste tidsplaner.",
         "next": "Neste {when}",
@@ -937,6 +946,11 @@
         "stopped": "Stoppet",
         "working": "Jobber i bakgrunnen"
       }
+    },
+    "apps": {
+      "empty": "Apper som Stella bygger for deg, vises her.",
+      "emptyAction": "Bygg en app",
+      "emptyActionPrompt": "Bygg en app til meg som "
     },
     "authCallback": {
       "backToSignIn": "Tilbake til innlogging",

@@ -70,7 +70,8 @@ export type IconName =
   | "chat"
   | "apps"
   | "artifacts"
-  | "mail";
+  | "mail"
+  | "filter";
 
 const FEATHER_NAMES: Record<
   IconName,
@@ -138,6 +139,7 @@ const FEATHER_NAMES: Record<
   circle: "circle",
   // Feather has no "circle with a filled centre"; `disc` is that exact shape.
   "circle-dot": "disc",
+  filter: "filter",
   "check-circle": "check-circle",
   chat: "message-circle",
   // Feather has no round dot grid; its square grid is the nearest glyph.
@@ -209,6 +211,7 @@ const SYMBOL_NAMES: Record<IconName, SymbolViewProps["name"]> = {
   apps: "circle.grid.2x2",
   artifacts: "photo.on.rectangle.angled",
   mail: "envelope",
+  filter: "line.3.horizontal.decrease",
 };
 
 type IconProps = {

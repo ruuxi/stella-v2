@@ -76,6 +76,7 @@ import {
 import {
   subscribeSidebarOpenRequests,
   useBackOverride,
+  useTopBarAccessory,
 } from "../../src/lib/main-shell-store";
 import { useT } from "../../src/i18n";
 
@@ -92,8 +93,16 @@ const SIDEBAR_WIDTH = 320;
 /** Diameter of the top bar's circular glass controls. */
 const TOP_BAR_BUTTON = DRAWER_CHEVRON_SIZE;
 const TOP_BAR_INSET = 10;
+const TITLE_MAX_FONT_SCALE = 1.3;
 
 const EMPTY_RUNNING_AGENTS: readonly ActivityIndicatorEntry[] = [];
+
+/** Pages whose name the top bar carries, centred between its controls. */
+const PAGE_TITLE_KEYS: Partial<Record<MainTabId, string>> = {
+  schedule: "mobile.activityHub.tabs.schedule",
+  apps: "mobile.nav.apps",
+  files: "mobile.activityHub.tabs.files",
+};
 
 export default function MainLayout() {
   const insets = useSafeAreaInsets();
@@ -150,6 +159,13 @@ export default function MainLayout() {
     (href) => href === pathname,
   );
   const backOverride = useBackOverride();
+  const pageTitleKey =
+    onTabRoot && !backOverride && activeTab
+      ? PAGE_TITLE_KEYS[activeTab]
+      : undefined;
+  const pageTitle = pageTitleKey ? t(pageTitleKey) : null;
+  const topBarAccessory = useTopBarAccessory();
+  const accessoryVisible = Boolean(pageTitle) && topBarAccessory != null;
 
   const search = useChatSearch();
   // Collapse + clear search whenever the route changes (e.g. switching tabs) so
@@ -287,6 +303,18 @@ export default function MainLayout() {
                 pointerEvents="box-none"
                 style={[styles.topBar, { height: topBarHeight }]}
               >
+                {pageTitle ? (
+                  <View pointerEvents="none" style={styles.titleLane}>
+                    <Text
+                      accessibilityRole="header"
+                      style={styles.pageTitle}
+                      numberOfLines={1}
+                      maxFontSizeMultiplier={TITLE_MAX_FONT_SCALE}
+                    >
+                      {pageTitle}
+                    </Text>
+                  </View>
+                ) : null}
                 {backVisible ? (
                   <View style={styles.topBarSide}>
                     <GlassIconButton
@@ -298,6 +326,11 @@ export default function MainLayout() {
                       }
                       onPress={onPressTopLeft}
                     />
+                  </View>
+                ) : null}
+                {accessoryVisible ? (
+                  <View style={[styles.topBarSide, styles.topBarEnd]}>
+                    {topBarAccessory}
                   </View>
                 ) : null}
               </View>
@@ -375,6 +408,18 @@ export default function MainLayout() {
                 </Pressable>
               </View>
             ) : null}
+            {!search.isOpen && pageTitle ? (
+              <View pointerEvents="none" style={styles.titleLane}>
+                <Text
+                  accessibilityRole="header"
+                  style={styles.pageTitle}
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={TITLE_MAX_FONT_SCALE}
+                >
+                  {pageTitle}
+                </Text>
+              </View>
+            ) : null}
             {!search.isOpen && onChatSurface ? (
               <View pointerEvents="box-none" style={styles.statusLane}>
                 <StellaStatusHeader onPress={setActivityMenuRunning} />
@@ -402,6 +447,11 @@ export default function MainLayout() {
                 />
               </View>
             )}
+            {!search.isOpen && accessoryVisible ? (
+              <View style={[styles.topBarSide, styles.topBarEnd]}>
+                {topBarAccessory}
+              </View>
+            ) : null}
             {!search.isOpen && onChatSurface ? (
               <View style={[styles.topBarSide, styles.topBarEnd]}>
                 <GlassIconButton
@@ -522,6 +572,23 @@ const makeStyles = (colors: Colors) =>
       left: 0,
       position: "absolute",
       right: 0,
+    },
+    // A page's name, centred on the bar whatever sits at either side of it,
+    // in the sidebar's place-label face.
+    titleLane: {
+      alignItems: "center",
+      bottom: 0,
+      height: TOP_BAR_BUTTON,
+      justifyContent: "center",
+      left: TOP_BAR_INSET + TOP_BAR_BUTTON + 8,
+      position: "absolute",
+      right: TOP_BAR_INSET + TOP_BAR_BUTTON + 8,
+    },
+    pageTitle: {
+      color: colors.text,
+      fontFamily: fonts.sans.bold,
+      fontSize: 20,
+      letterSpacing: -0.6,
     },
     topBarEnd: { marginLeft: "auto" },
     topBarSide: {

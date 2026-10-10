@@ -893,9 +893,16 @@
         "title": "この会話"
       },
       "files": {
-        "empty": "ファイルはまだありません。Stellaが作成したものがここに表示されます。",
+        "empty": "Stella が作成・共有したファイルはここに表示されます。",
         "emptyFiltered": "一致するファイルはありません。",
-        "searchPlaceholder": "ファイルを検索"
+        "filterAll": "すべてのファイル",
+        "filterLabel": "ファイルの絞り込みと並べ替え",
+        "searchPlaceholder": "ファイルを検索",
+        "sortName": "名前",
+        "sortNewest": "新しい順",
+        "sortOldest": "古い順",
+        "sourceCloud": "クラウド",
+        "sourceUpload": "あなたが送信"
       },
       "schedule": {
         "actionFailed": "実行できませんでした。",
@@ -903,7 +910,9 @@
         "customCadence": "カスタムスケジュール",
         "deleteConfirm": "「{title}」は実行されなくなります。",
         "deleteSchedule": "スケジュールを削除",
-        "empty": "スケジュールはまだありません。パソコンのStellaに何かを定期実行するよう頼むと、ここに表示されます。",
+        "empty": "まだ予定はありません。",
+        "emptyAction": "予定を作成",
+        "emptyActionPrompt": "リマインドして: ",
         "lastRunFailed": "前回の実行が失敗しました: {error}",
         "loadFailed": "スケジュールを読み込めませんでした。",
         "next": "次回 {when}",
@@ -928,6 +937,11 @@
         "stopped": "停止",
         "working": "バックグラウンドで作業中"
       }
+    },
+    "apps": {
+      "empty": "Stella があなたのために作ったアプリはここに表示されます。",
+      "emptyAction": "アプリを作成",
+      "emptyActionPrompt": "こんなアプリを作って: "
     },
     "authCallback": {
       "backToSignIn": "サインインに戻る",

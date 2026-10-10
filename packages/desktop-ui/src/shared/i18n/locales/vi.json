@@ -893,9 +893,16 @@
         "title": "Cuộc trò chuyện này"
       },
       "files": {
-        "empty": "Chưa có tệp nào. Mọi thứ Stella tạo ra sẽ hiện ở đây.",
+        "empty": "Các tệp Stella tạo hoặc chia sẻ sẽ hiển thị ở đây.",
         "emptyFiltered": "Không có tệp nào khớp.",
-        "searchPlaceholder": "Tìm tệp"
+        "filterAll": "Tất cả tệp",
+        "filterLabel": "Lọc và sắp xếp tệp",
+        "searchPlaceholder": "Tìm tệp",
+        "sortName": "Tên",
+        "sortNewest": "Mới nhất trước",
+        "sortOldest": "Cũ nhất trước",
+        "sourceCloud": "Đám mây",
+        "sourceUpload": "Do bạn gửi"
       },
       "schedule": {
         "actionFailed": "Không thực hiện được.",
@@ -903,7 +910,9 @@
         "customCadence": "Lịch trình tùy chỉnh",
         "deleteConfirm": "“{title}” sẽ ngừng chạy.",
         "deleteSchedule": "Xóa lịch trình",
-        "empty": "Chưa có lịch trình nào. Hãy nhờ Stella trên máy tính chạy việc gì đó định kỳ, nó sẽ hiện ở đây.",
+        "empty": "Chưa có lịch nào.",
+        "emptyAction": "Lên lịch",
+        "emptyActionPrompt": "Nhắc tôi ",
         "lastRunFailed": "Lần chạy gần nhất thất bại: {error}",
         "loadFailed": "Không tải được lịch trình.",
         "next": "Lần chạy tiếp theo {when}",
@@ -928,6 +937,11 @@
         "stopped": "Đã dừng",
         "working": "Đang làm việc trong nền"
       }
+    },
+    "apps": {
+      "empty": "Các ứng dụng Stella tạo cho bạn sẽ hiển thị ở đây.",
+      "emptyAction": "Tạo ứng dụng",
+      "emptyActionPrompt": "Tạo cho tôi một ứng dụng "
     },
     "authCallback": {
       "backToSignIn": "Quay lại đăng nhập",

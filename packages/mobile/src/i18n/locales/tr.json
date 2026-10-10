@@ -902,9 +902,16 @@
         "title": "Bu konuşma"
       },
       "files": {
-        "empty": "Henüz dosya yok. Stella'nın ürettiği her şey burada görünür.",
+        "empty": "Stella’nın oluşturduğu veya paylaştığı dosyalar burada görünecek.",
         "emptyFiltered": "Eşleşen dosya yok.",
-        "searchPlaceholder": "Dosyalarda ara"
+        "filterAll": "Tüm dosyalar",
+        "filterLabel": "Dosyaları filtrele ve sırala",
+        "searchPlaceholder": "Dosyalarda ara",
+        "sortName": "Ad",
+        "sortNewest": "Önce en yeni",
+        "sortOldest": "Önce en eski",
+        "sourceCloud": "Bulut",
+        "sourceUpload": "Senin gönderdiklerin"
       },
       "schedule": {
         "actionFailed": "Bu işlem gerçekleşemedi.",
@@ -912,7 +919,9 @@
         "customCadence": "Özel zamanlama",
         "deleteConfirm": "“{title}” artık çalışmayacak.",
         "deleteSchedule": "Zamanlamayı sil",
-        "empty": "Henüz zamanlama yok. Bilgisayarındaki Stella'dan düzenli olarak bir şey çalıştırmasını iste, burada görünecek.",
+        "empty": "Henüz planlanmış bir şey yok.",
+        "emptyAction": "Bir şey planla",
+        "emptyActionPrompt": "Bana şunu hatırlat: ",
         "lastRunFailed": "Son çalışma başarısız oldu: {error}",
         "loadFailed": "Zamanlamalar yüklenemedi.",
         "next": "Sonraki çalışma {when}",
@@ -937,6 +946,11 @@
         "stopped": "Durduruldu",
         "working": "Arka planda çalışıyor"
       }
+    },
+    "apps": {
+      "empty": "Stella’nın senin için oluşturduğu uygulamalar burada olacak.",
+      "emptyAction": "Uygulama oluştur",
+      "emptyActionPrompt": "Bana şunu yapan bir uygulama oluştur: "
     },
     "authCallback": {
       "backToSignIn": "Girişe dön",

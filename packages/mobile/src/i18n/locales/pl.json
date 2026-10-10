@@ -920,9 +920,16 @@
         "title": "Ta rozmowa"
       },
       "files": {
-        "empty": "Nie ma jeszcze plików. Wszystko, co utworzy Stella, pojawi się tutaj.",
+        "empty": "Tutaj pojawią się pliki, które Stella tworzy lub udostępnia.",
         "emptyFiltered": "Żaden plik nie pasuje.",
-        "searchPlaceholder": "Szukaj plików"
+        "filterAll": "Wszystkie pliki",
+        "filterLabel": "Filtruj i sortuj pliki",
+        "searchPlaceholder": "Szukaj plików",
+        "sortName": "Nazwa",
+        "sortNewest": "Od najnowszych",
+        "sortOldest": "Od najstarszych",
+        "sourceCloud": "Chmura",
+        "sourceUpload": "Wysłane przez Ciebie"
       },
       "schedule": {
         "actionFailed": "Nie udało się.",
@@ -930,7 +937,9 @@
         "customCadence": "Własny harmonogram",
         "deleteConfirm": "„{title}” przestanie się uruchamiać.",
         "deleteSchedule": "Usuń harmonogram",
-        "empty": "Nie ma jeszcze harmonogramów. Poproś Stellę na swoim komputerze o regularne uruchamianie czegoś, a pojawi się to tutaj.",
+        "empty": "Na razie nic nie zaplanowano.",
+        "emptyAction": "Zaplanuj coś",
+        "emptyActionPrompt": "Przypomnij mi, żeby ",
         "lastRunFailed": "Ostatnie uruchomienie nie powiodło się: {error}",
         "loadFailed": "Nie udało się wczytać harmonogramów.",
         "next": "Następne uruchomienie {when}",
@@ -955,6 +964,11 @@
         "stopped": "Zatrzymano",
         "working": "Pracuje w tle"
       }
+    },
+    "apps": {
+      "empty": "Tutaj znajdą się aplikacje, które Stella dla Ciebie zbuduje.",
+      "emptyAction": "Zbuduj aplikację",
+      "emptyActionPrompt": "Zbuduj mi aplikację, która "
     },
     "authCallback": {
       "backToSignIn": "Wróć do logowania",

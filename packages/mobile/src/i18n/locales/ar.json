@@ -938,9 +938,16 @@
         "title": "هذه المحادثة"
       },
       "files": {
-        "empty": "لا توجد ملفات بعد. كل ما تنتجه Stella يظهر هنا.",
+        "empty": "ستظهر هنا الملفات التي تنشئها Stella أو تشاركها.",
         "emptyFiltered": "لا توجد ملفات مطابقة.",
-        "searchPlaceholder": "البحث في الملفات"
+        "filterAll": "كل الملفات",
+        "filterLabel": "تصفية الملفات وترتيبها",
+        "searchPlaceholder": "البحث في الملفات",
+        "sortName": "الاسم",
+        "sortNewest": "الأحدث أولًا",
+        "sortOldest": "الأقدم أولًا",
+        "sourceCloud": "السحابة",
+        "sourceUpload": "أرسلتها أنت"
       },
       "schedule": {
         "actionFailed": "لم تنجح العملية.",
@@ -948,7 +955,9 @@
         "customCadence": "جدولة مخصّصة",
         "deleteConfirm": "سيتوقف تشغيل “{title}”.",
         "deleteSchedule": "حذف الجدولة",
-        "empty": "لا توجد جداول بعد. اطلب من Stella على حاسوبك تشغيل شيء بانتظام وسيظهر هنا.",
+        "empty": "لا يوجد شيء مجدول بعد.",
+        "emptyAction": "جدولة شيء ما",
+        "emptyActionPrompt": "ذكّرني بأن ",
         "lastRunFailed": "فشل آخر تشغيل: {error}",
         "loadFailed": "تعذّر تحميل الجداول.",
         "next": "التشغيل التالي {when}",
@@ -973,6 +982,11 @@
         "stopped": "أُوقف",
         "working": "يعمل في الخلفية"
       }
+    },
+    "apps": {
+      "empty": "ستظهر هنا التطبيقات التي تبنيها Stella لك.",
+      "emptyAction": "إنشاء تطبيق",
+      "emptyActionPrompt": "أنشئ لي تطبيقًا "
     },
     "authCallback": {
       "backToSignIn": "العودة إلى تسجيل الدخول",

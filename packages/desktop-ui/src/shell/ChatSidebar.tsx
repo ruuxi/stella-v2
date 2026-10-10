@@ -30,6 +30,7 @@ import {
   ComposerTextarea,
 } from "@/features/chat/ComposerPrimitives";
 import { useDictation } from "@/features/dictation/hooks/use-dictation";
+import { useDictationPaste } from "@/features/dictation/hooks/use-dictation-paste";
 import {
   DictationCancelButton,
   DictationRecordingBar,
@@ -623,7 +624,6 @@ const SidebarComposerForm = memo(function SidebarComposerForm({
   const submitFromDictationRef = useRef<() => void>(() => {});
 
   const dictation = useDictation({
-    message: inputText,
     setMessage: setInputText,
     // Dictation stays available even while the orchestrator is busy
     // (mid-turn / streaming) — the mic is intentionally NOT gated on
@@ -668,6 +668,11 @@ const SidebarComposerForm = memo(function SidebarComposerForm({
   // swallowed and the message is never sent/queued.
   const dictationInFlight = dictation.isRecording || dictation.isTranscribing;
   const canSubmitWithDictation = composerState.canSubmit || dictationInFlight;
+  useDictationPaste({
+    active: dictationInFlight,
+    setMessage: setInputText,
+    setChatContext,
+  });
   const hasText = inputText.trim().length > 0;
   const dictationBelow = dictation.isRecordingVisible && hasText;
   const dictationInline = dictation.isRecordingVisible && !hasText;

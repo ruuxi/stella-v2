@@ -79,6 +79,7 @@ import {
 } from "../provider/byok.ts";
 import { openBunSqliteStorage } from "../storage/bun-sqlite.ts";
 import { isDeviceToolName } from "@stella/contracts/turn-plane/device-tools";
+import { deviceRefusal } from "../stella/execution.ts";
 import { placementOf, StellaPlacementDoc } from "../stella/placement.ts";
 import { desktopAgentsHost, desktopEnvironments } from "./desktop-agents.ts";
 import {
@@ -150,7 +151,7 @@ export type DesktopChatsOptions = {
   /**
    * For a conversation stored in the cloud: where its brain runs, as its
    * object records it. Once that names another host, this computer takes
-   * none of its turns.
+   * none of its turns while that host can take them.
    */
   brain?(conversationId: string): DesktopBrain | undefined;
   /** The chats on this computer, newest first, which agents list and message as sessions. */
@@ -314,46 +315,66 @@ export function desktopChats(options: DesktopChatsOptions) {
     await saving;
   };
   const environments = desktopEnvironments(options.workspace);
-  /** Where each conversation stored in the cloud has its brain, as last read. */
-  const brains = new Map<string, { record: PiBrainRecord | null; at: number }>();
-  const brainRecord = async (conversationId: string): Promise<PiBrainRecord | null> => {
+  /**
+   * Where each conversation stored in the cloud has its brain, as last read,
+   * and the host that takes this computer's turns for it now (null: here).
+   */
+  const brains = new Map<string, { record: PiBrainRecord | null; host: PiBrainRecord | null; at: number }>();
+  /** The record's host, unless that is this computer. */
+  const otherHost = (record: PiBrainRecord | null) =>
+    record && !(record.host === "device" && record.deviceId === options.deviceId) ? record : null;
+  /**
+   * The host this computer's turns for the conversation go to: the one its
+   * record names, while that host can take them. With no record, or one
+   * naming a host that can't now (a computer offline or not ready, the cloud
+   * out of reach), null: the sender's host answers, as with no record, and
+   * the record stays for once that host is back.
+   */
+  const brainHost = async (conversationId: string): Promise<PiBrainRecord | null> => {
     const known = brains.get(conversationId);
-    if (known && Date.now() - known.at < BRAIN_TTL_MS) return known.record;
+    if (known && Date.now() - known.at < BRAIN_TTL_MS) return known.host;
     const brain = options.brain?.(conversationId);
     if (!brain) return null;
+    let record: PiBrainRecord | null;
     try {
-      const record = await brain.read();
-      brains.set(conversationId, { record, at: Date.now() });
-      return record;
+      record = await brain.read();
     } catch {
-      // Unreachable (offline, signed out), the record stays as last read: with none, this computer answers.
-      const record = known?.record ?? null;
-      brains.set(conversationId, { record, at: Date.now() });
-      return record;
+      // The cloud is out of reach (offline, signed out), and so is every host it would pass a turn to.
+      brains.set(conversationId, { record: known?.record ?? null, host: null, at: Date.now() });
+      return null;
     }
+    let host = otherHost(record);
+    if (host?.host === "device") {
+      const { deviceId, label } = host;
+      const listed = await options.execution?.(conversationId)?.devices().catch(() => undefined);
+      const device = listed?.find((entry) => entry.deviceId === deviceId);
+      if (!device || deviceRefusal(device, label ?? deviceId)) host = null;
+    }
+    brains.set(conversationId, { record, host, at: Date.now() });
+    return host;
   };
   /** Whether this computer takes the conversation's turns, or where a send goes instead. */
   const brainPlacement = async (conversationId: string): Promise<PiChatBrainResult> => {
-    const record = await brainRecord(conversationId);
-    if (!record || (record.host === "device" && record.deviceId === options.deviceId)) return { here: true };
-    return record.host === "cloud"
+    const host = await brainHost(conversationId);
+    if (!host) return { here: true };
+    return host.host === "cloud"
       ? { here: false, target: { mode: "cloud" } }
-      : { here: false, target: { mode: "device", deviceId: record.deviceId }, ...(record.label ? { label: record.label } : {}) };
+      : { here: false, target: { mode: "device", deviceId: host.deviceId }, ...(host.label ? { label: host.label } : {}) };
   };
   /**
    * What Stella reads hidden and the user did not write (an agent's report
    * or note) for a conversation whose brain runs elsewhere: placed there as
    * this computer's sends are, once per `requestId`. False when she runs
-   * here, for the conversation here to take.
+   * here, or where she runs can't take it now, for the conversation here to take.
    */
   const noteOnBrain = async (conversationId: string, requestId: string, text: string): Promise<boolean> => {
-    const record = await brainRecord(conversationId);
-    if (!record || (record.host === "device" && record.deviceId === options.deviceId)) return false;
+    const host = await brainHost(conversationId);
+    if (!host) return false;
     const brain = options.brain?.(conversationId);
     if (!brain) return false;
     // Another computer's harness counts its own request ids.
     const id = createHash("sha256").update(`${options.deviceId ?? ""}\0${conversationId}\0${requestId}`).digest("hex").slice(0, 48);
-    await brain.note(record, { id: `pi-note:${id}`, text });
+    if (!(await brain.note(host, { id: `pi-note:${id}`, text }))) return false;
     // Her answer comes back through the journal.
     const chat = await chats.get(conversationId)?.catch(() => undefined);
     if (chat) chat.followUntil = Date.now() + FOLLOW_WINDOW_MS;
@@ -565,7 +586,7 @@ export function desktopChats(options: DesktopChatsOptions) {
               if (opened && (await opened.harness.snapshot(LiveDoc, opened.root.id, context))?.run === undefined) return;
             }
           },
-          brainMoved: (record) => brains.set(conversationId, { record, at: Date.now() }),
+          brainMoved: (record) => brains.set(conversationId, { record, host: otherHost(record), at: Date.now() }),
           report: options.report,
         });
         const destination: ExecutionDestination = {
@@ -898,11 +919,14 @@ export function desktopChats(options: DesktopChatsOptions) {
     conversationId: string,
     requestId: string,
     content: UserInput,
-    sent: { locale?: string } = {},
+    sent: { locale?: string; followSender?: boolean } = {},
   ) => {
-    // Stella answers where her brain is; the app places a send there instead.
-    const placement = await brainPlacement(conversationId);
-    if (!placement.here) throw new Error(elsewhere(placement));
+    // Stella answers where her brain is; the app places a send there instead,
+    // and sends it here when that host could not take it.
+    if (!sent.followSender) {
+      const placement = await brainPlacement(conversationId);
+      if (!placement.here) throw new Error(elsewhere(placement));
+    }
     // The model the user picked: one of Stella's, or one on their own key.
     const model = await pickedModel();
     const chat = await open(conversationId);
@@ -977,7 +1001,8 @@ export function desktopChats(options: DesktopChatsOptions) {
     },
   ): Promise<{ status: "ok"; finalText: string } | { status: "busy" | "error"; finalText: ""; error: string }> => {
     const { observe, placementRunId } = turn;
-    // A chat placed here is for this computer; anything else waits for where Stella is.
+    // A chat placed here is for this computer; anything else waits for where
+    // Stella is, unless that host can't take turns now (then it runs here).
     if (!placementRunId) {
       const where = await brainPlacement(conversationId);
       if (!where.here) return { status: "error", finalText: "", error: elsewhere(where) };

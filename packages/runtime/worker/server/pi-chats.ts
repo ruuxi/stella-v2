@@ -471,5 +471,6 @@ export const piChatRequest = async (
   });
   return await chats.submit(request.conversationId, request.requestId, piUserContent(payload, prepared), {
     ...(payload.locale ? { locale: payload.locale } : {}),
+    ...(request.send.followSender ? { followSender: true } : {}),
   });
 };

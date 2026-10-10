@@ -4,7 +4,8 @@
  * on the conversation's object (`@stella/contracts/turn-plane/pi-brain`).
  * Stella's brief continues on the new host through the host's placement, the
  * same hand-off `switch_destination` always made, and so does what her
- * agents here tell her once she runs elsewhere.
+ * agents here tell her once she runs elsewhere, unless that host can't take
+ * it now: then this computer does.
  */
 import type { DesktopBrain } from "@stella/agent/host/desktop-execution";
 import { METHOD_NAMES } from "@stella/contracts/protocol";
@@ -64,8 +65,10 @@ export const brainFor = (
           id: note.id,
         },
         { retryOnDisconnect: true },
-      )) as { ok?: boolean; error?: string } | null;
-      if (!result?.ok) throw new Error(result?.error ?? "The note could not reach where Stella runs.");
+      )) as { ok?: boolean; unavailable?: boolean; error?: string } | null;
+      if (result?.ok) return true;
+      if (result?.unavailable) return false;
+      throw new Error(result?.error ?? "The note could not reach where Stella runs.");
     },
   };
 };

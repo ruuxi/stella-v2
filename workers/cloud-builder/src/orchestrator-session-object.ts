@@ -3664,11 +3664,17 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       }
       // Stella runs on one of the owner's computers: a message the user
       // sent from elsewhere is placed there, and this object answers none.
+      // While that computer can't take it (offline, not ready, gone), this
+      // object answers it as with no record, which stays for once it's back.
       const brain =
         authKind === "user" && lane === "chat" && !start.piAgent
           ? await this.ctx.storage.get<PiBrainRecord>(PI_BRAIN_KEY)
           : undefined;
-      if (brain?.host === "device") {
+      const refusal =
+        brain?.host === "device" ? await this.piBrainDeviceRefusal(ownerId, brain.deviceId) : undefined;
+      if (brain?.host === "device" && refusal) {
+        log("info", "pi_brain_unavailable", { deviceId: brain.deviceId, reason: refusal });
+      } else if (brain?.host === "device") {
         try {
           const dispatchId = await this.placeOnPiBrain({
             ownerId,
@@ -3691,11 +3697,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             202,
           );
         } catch (error) {
-          return turnStartErrorResponse(
-            "execution_unavailable",
-            `Stella for this chat runs on ${brain.label ?? brain.deviceId}, which could not take the message: ${errorMessage(error)}`,
-            true,
-          );
+          // It went away meanwhile: this object answers instead.
+          log("info", "pi_brain_turn_unplaced", { deviceId: brain.deviceId, message: errorMessage(error) });
         }
       }
       const receiptKey = chatTurnAdmissionKey(start.clientMsgId);
@@ -8529,7 +8532,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   /**
    * Where this conversation's Stella runs: `GET` reads the record, `POST`
    * moves her (a computer's user flipping it, or her own `switch_destination`
-   * there). From then on exactly that host takes the conversation's turns.
+   * there). From then on that host takes the conversation's turns, while
+   * it can.
    */
   private async handlePiBrain(request: Request): Promise<Response> {
     const owner = await this.localTurnOwner(request);
@@ -8553,6 +8557,20 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       epoch: record.epoch,
     });
     return record;
+  }
+
+  /**
+   * Why the computer this conversation's Stella runs on can't take a turn
+   * now, as pi's `switch_destination` would refuse a move there; undefined
+   * when it can.
+   */
+  private async piBrainDeviceRefusal(ownerId: string, deviceId: string): Promise<string | undefined> {
+    const listed = await this.ownerGate(ownerId).devices().catch(() => undefined);
+    if (!listed) return "the devices list could not be read";
+    const device = listed.devices.find((entry) => entry.deviceId === deviceId);
+    if (!device) return "not connected";
+    const { deviceRefusal } = await import("@stella/agent/stella/execution");
+    return deviceRefusal(device, device.label?.trim() || deviceId);
   }
 
   /**

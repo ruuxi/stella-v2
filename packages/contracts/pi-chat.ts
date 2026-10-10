@@ -178,6 +178,8 @@ export type PiChatSend = {
   storageMode?: "cloud" | "local";
   /** Where the user asked this message to run (the composer's destination). */
   executionTarget?: { mode: "automatic" } | { mode: "cloud" } | { mode: "device"; deviceId: string };
+  /** Where the conversation's Stella runs could not take this send, so this computer answers it, as with no record. */
+  followSender?: boolean;
 };
 
 /** A send that went to run elsewhere: its turn comes back through the journal. */

@@ -8,10 +8,10 @@
  * `switch_destination` moved.
  */
 import { mkdir } from "node:fs/promises";
-import path from "node:path";
 import type { Context } from "@earendil-works/chord";
 import type { EnvTarget } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+import { defaultAgentDirectory } from "@stella/runtime/kernel/agents/agent-directory";
 import type { RemoteAgentHost, StellaAgentsHost } from "../stella/agents.ts";
 
 export function desktopAgentsHost(
@@ -40,7 +40,7 @@ export function desktopAgentsHost(
     ...(options.deliverReport ? { deliverReport: options.deliverReport } : {}),
     ...(options.deliverNote ? { deliverNote: options.deliverNote } : {}),
     ...(options.directory ? { directory: options.directory } : {}),
-    ...(options.dataDir ? { agentDirectory: (threadId: string) => agentDirectory(options.dataDir!, threadId) } : {}),
+    ...(options.dataDir ? { agentDirectory: (threadId: string) => defaultAgentDirectory(options.dataDir!, threadId) } : {}),
     ...(options.execution ? { execution: options.execution } : {}),
     rootPlacement: { kind: "local" },
     place: (destination, caller) => {
@@ -63,12 +63,6 @@ export function desktopAgentsHost(
     },
     remote: (placement) => (placement.kind === "cloud" ? options.cloud : undefined),
   };
-}
-
-/** `<dataDir>/agents/<YYYY-MM-DD>/<threadId>`, dated by the day the agent started, in local time. */
-export function agentDirectory(dataDir: string, threadId: string, now = new Date()): string {
-  const day = [now.getFullYear(), now.getMonth() + 1, now.getDate()].map((part) => String(part).padStart(2, "0")).join("-");
-  return path.join(dataDir, "agents", day, threadId.replace(/[^A-Za-z0-9._-]/g, "_"));
 }
 
 /** One environment per working directory; agents on this computer share it. */

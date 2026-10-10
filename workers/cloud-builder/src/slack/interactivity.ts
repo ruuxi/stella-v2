@@ -20,7 +20,10 @@ export const STOP_ACTION = "stella_stop";
 export const stopValue = (conversationId: string, turnId: string): string =>
   JSON.stringify({ c: conversationId, t: turnId });
 
-export const handleSlackInteraction = async (env: Cloudflare.Env, payload: InteractionPayload): Promise<void> => {
+export const handleSlackInteraction = async (
+  env: Cloudflare.Env,
+  payload: InteractionPayload,
+): Promise<void> => {
   if (payload.type !== "block_actions") return;
   const action = payload.actions?.[0];
   if (action?.action_id !== STOP_ACTION || !action.value) return;
@@ -43,17 +46,28 @@ export const handleSlackInteraction = async (env: Cloudflare.Env, payload: Inter
       await slackTry(installation.botToken, "chat.postEphemeral", {
         channel: payload.channel.id,
         user: userId,
-        ...(payload.message?.thread_ts ? { thread_ts: payload.message.thread_ts } : {}),
+        ...(payload.message?.thread_ts
+          ? { thread_ts: payload.message.thread_ts }
+          : {}),
         text: "Only the person who asked can stop this.",
       });
     }
     return;
   }
-  const response = await env.ORCHESTRATOR_SESSIONS.getByName(target.c).fetch(`${ORCHESTRATOR_INTERNAL_ORIGIN}/slack/stop`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ownerId, hostTurnId: target.t, slackUserId: userId }),
-  });
-  console.log(JSON.stringify({ event: "slack_stop_pressed", status: response.status }));
+  const response = await env.ORCHESTRATOR_SESSIONS.getByName(target.c).fetch(
+    `${ORCHESTRATOR_INTERNAL_ORIGIN}/slack/stop`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ownerId,
+        hostTurnId: target.t,
+        slackUserId: userId,
+      }),
+    },
+  );
+  console.log(
+    JSON.stringify({ event: "slack_stop_pressed", status: response.status }),
+  );
   await response.body?.cancel().catch(() => undefined);
 };

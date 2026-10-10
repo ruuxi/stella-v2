@@ -12,7 +12,11 @@ const unescapeSlack = (text: string): string =>
  * `#general`, `<https://x|label>` to `label (https://x)`, entities decoded.
  * The bot's own mention is dropped.
  */
-export const slackToPlain = async (text: string, botUserId: string, names: NameResolver): Promise<string> => {
+export const slackToPlain = async (
+  text: string,
+  botUserId: string,
+  names: NameResolver,
+): Promise<string> => {
   const ids = new Set<string>();
   for (const match of text.matchAll(/<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/gu)) {
     if (match[1] !== botUserId) ids.add(match[1]!);
@@ -21,27 +25,44 @@ export const slackToPlain = async (text: string, botUserId: string, names: NameR
   for (const id of ids) resolved.set(id, await names(id));
   const replaced = text
     .replace(new RegExp(`<@${botUserId}(?:\\|[^>]*)?>`, "gu"), "")
-    .replace(/<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/gu, (_all, id: string) => `@${resolved.get(id) ?? id}`)
+    .replace(
+      /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/gu,
+      (_all, id: string) => `@${resolved.get(id) ?? id}`,
+    )
     .replace(/<#[CG][A-Z0-9]+\|([^>]*)>/gu, (_all, name: string) => `#${name}`)
     .replace(/<#([CG][A-Z0-9]+)>/gu, (_all, id: string) => `#${id}`)
-    .replace(/<!(here|channel|everyone)(?:\|[^>]*)?>/gu, (_all, name: string) => `@${name}`)
+    .replace(
+      /<!(here|channel|everyone)(?:\|[^>]*)?>/gu,
+      (_all, name: string) => `@${name}`,
+    )
     .replace(/<!subteam\^[A-Z0-9]+\|([^>]*)>/gu, (_all, name: string) => name)
-    .replace(/<(https?:\/\/[^|>]+)\|([^>]+)>/gu, (_all, url: string, label: string) =>
-      label === url ? url : `${label} (${url})`,
+    .replace(
+      /<(https?:\/\/[^|>]+)\|([^>]+)>/gu,
+      (_all, url: string, label: string) =>
+        label === url ? url : `${label} (${url})`,
     )
     .replace(/<(https?:\/\/[^>]+)>/gu, (_all, url: string) => url)
     .replace(/<mailto:([^|>]+)(?:\|[^>]*)?>/gu, (_all, email: string) => email);
-  return unescapeSlack(replaced).replace(/[ \t]+\n/gu, "\n").trim();
+  return unescapeSlack(replaced)
+    .replace(/[ \t]+\n/gu, "\n")
+    .trim();
 };
 
 export type SlackPlace =
   | { kind: "dm" }
-  | { kind: "channel"; name: string; isPrivate: boolean; memberCount: number | null }
+  | {
+      kind: "channel";
+      name: string;
+      isPrivate: boolean;
+      memberCount: number | null;
+    }
   | { kind: "group-dm" };
 
 const describePlace = (place: SlackPlace, teamName: string): string => {
-  if (place.kind === "dm") return `a private direct message with you in the ${teamName} Slack workspace`;
-  if (place.kind === "group-dm") return `a group direct message in the ${teamName} Slack workspace`;
+  if (place.kind === "dm")
+    return `a private direct message with you in the ${teamName} Slack workspace`;
+  if (place.kind === "group-dm")
+    return `a group direct message in the ${teamName} Slack workspace`;
   const members = place.memberCount ? `, ${place.memberCount} members` : "";
   return `${place.isPrivate ? "the private" : "the"} channel #${place.name} in the ${teamName} Slack workspace${members}`;
 };
@@ -49,13 +70,21 @@ const describePlace = (place: SlackPlace, teamName: string): string => {
 const formatTime = (ts: string, tz: string | null): string => {
   const date = new Date(Number(ts) * 1000);
   try {
-    return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: tz ?? "UTC" });
+    return date.toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      timeZone: tz ?? "UTC",
+    });
   } catch {
     return date.toISOString().slice(11, 16);
   }
 };
 
-export type ContextLine = { message: CachedSlackMessage; author: string; text: string };
+export type ContextLine = {
+  message: CachedSlackMessage;
+  author: string;
+  text: string;
+};
 
 const PROMPT_BUDGET = 7_600;
 
@@ -76,11 +105,14 @@ export const composePrompt = (args: {
   skippedFiles: string[];
 }): string => {
   const shared = args.place.kind !== "dm";
-  const request = args.requestText.trim() || "(no text, see the attached files)";
+  const request =
+    args.requestText.trim() || "(no text, see the attached files)";
   const rules = [
     `This message came from Slack: @${args.requesterName} wrote it in ${describePlace(args.place, args.teamName)}.`,
     "Everything you reply in this conversation, including later replies when agents finish, is posted into that Slack " +
-      (args.place.kind === "dm" ? "conversation." : "thread, where everyone in it can read it."),
+      (args.place.kind === "dm"
+        ? "conversation."
+        : "thread, where everyone in it can read it."),
     "Write for Slack: short, standard Markdown, no tables. Files your agents save to the drive and link are uploaded into the thread automatically, so don't link drive or workspace paths; just name the file.",
     "Don't use ask_user here; if you need something, ask in your reply and the answer arrives as the next message.",
   ];
@@ -95,22 +127,35 @@ export const composePrompt = (args: {
     );
   }
   if (args.skippedFiles.length) {
-    rules.push(`These Slack files were too large to bring in: ${args.skippedFiles.join(", ")}.`);
+    rules.push(
+      `These Slack files were too large to bring in: ${args.skippedFiles.join(", ")}.`,
+    );
   }
   const head = `${request}\n\n<slack>\n${rules.join("\n")}`;
   const tail = "\n</slack>";
-  let budget = PROMPT_BUDGET - head.length - tail.length - args.contextLabel.length - 4;
+  let budget =
+    PROMPT_BUDGET - head.length - tail.length - args.contextLabel.length - 4;
   const lines: string[] = [];
-  for (let index = args.context.length - 1; index >= 0 && budget > 0; index -= 1) {
+  for (
+    let index = args.context.length - 1;
+    index >= 0 && budget > 0;
+    index -= 1
+  ) {
     const entry = args.context[index]!;
-    const files = entry.message.files.length ? ` [files: ${entry.message.files.map((file) => file.name).join(", ")}]` : "";
-    const body = (entry.text || "(no text)").replace(/\s+/gu, " ").slice(0, 1_200);
+    const files = entry.message.files.length
+      ? ` [files: ${entry.message.files.map((file) => file.name).join(", ")}]`
+      : "";
+    const body = (entry.text || "(no text)")
+      .replace(/\s+/gu, " ")
+      .slice(0, 1_200);
     const line = `- ${formatTime(entry.message.ts, args.tz)} @${entry.author}: ${body}${files}`;
     if (line.length > budget) break;
     lines.unshift(line);
     budget -= line.length + 1;
   }
-  const contextBlock = lines.length ? `\n\n${args.contextLabel}\n${lines.join("\n")}` : "";
+  const contextBlock = lines.length
+    ? `\n\n${args.contextLabel}\n${lines.join("\n")}`
+    : "";
   return `${head}${contextBlock}${tail}`.slice(0, 7_990);
 };
 

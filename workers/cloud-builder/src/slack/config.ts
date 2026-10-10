@@ -8,9 +8,15 @@
  * Missing settings turn the Slack routes off rather than failing readiness.
  */
 
-export type SlackSecret = "SLACK_CLIENT_ID" | "SLACK_CLIENT_SECRET" | "SLACK_SIGNING_SECRET";
+export type SlackSecret =
+  | "SLACK_CLIENT_ID"
+  | "SLACK_CLIENT_SECRET"
+  | "SLACK_SIGNING_SECRET";
 
-export const slackSecret = (env: Cloudflare.Env, name: SlackSecret): string | null => {
+export const slackSecret = (
+  env: Cloudflare.Env,
+  name: SlackSecret,
+): string | null => {
   const value = (env as unknown as Record<string, unknown>)[name];
   return typeof value === "string" && value.trim() ? value.trim() : null;
 };
@@ -23,9 +29,14 @@ export const slackConfigured = (env: Cloudflare.Env): boolean =>
   );
 
 /** The branded origin Slack calls and links point at (`STELLA_AUTH_URL`). */
-export const slackPublicOrigin = (env: Cloudflare.Env, request?: Request): string => {
-  const configured = (env as unknown as Record<string, unknown>).STELLA_AUTH_URL;
-  if (typeof configured === "string" && configured.trim()) return configured.trim().replace(/\/+$/u, "");
+export const slackPublicOrigin = (
+  env: Cloudflare.Env,
+  request?: Request,
+): string => {
+  const configured = (env as unknown as Record<string, unknown>)
+    .STELLA_AUTH_URL;
+  if (typeof configured === "string" && configured.trim())
+    return configured.trim().replace(/\/+$/u, "");
   return request ? new URL(request.url).origin : "";
 };
 

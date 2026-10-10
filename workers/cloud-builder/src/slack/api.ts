@@ -17,7 +17,11 @@ export class SlackApiError extends Error {
   }
 }
 
-export type SlackResponse = { ok: boolean; error?: string; [key: string]: unknown };
+export type SlackResponse = {
+  ok: boolean;
+  error?: string;
+  [key: string]: unknown;
+};
 
 /** Methods that read their arguments only from a form body or query, not JSON. */
 const FORM_METHODS = new Set([
@@ -37,7 +41,9 @@ export const slackCall = async <T extends SlackResponse = SlackResponse>(
 ): Promise<T> => {
   const form = FORM_METHODS.has(method);
   const headers: Record<string, string> = {
-    "content-type": form ? "application/x-www-form-urlencoded" : "application/json; charset=utf-8",
+    "content-type": form
+      ? "application/x-www-form-urlencoded"
+      : "application/json; charset=utf-8",
   };
   if (token) headers.authorization = `Bearer ${token}`;
   const body = form
@@ -47,11 +53,17 @@ export const slackCall = async <T extends SlackResponse = SlackResponse>(
         ),
       ).toString()
     : JSON.stringify(args);
-  const response = await fetch(`${SLACK_API}/${method}`, { method: "POST", headers, body });
+  const response = await fetch(`${SLACK_API}/${method}`, {
+    method: "POST",
+    headers,
+    body,
+  });
   if (response.status === 429 && attempt === 0) {
     const retryAfter = Number(response.headers.get("retry-after") ?? "1");
     await response.body?.cancel().catch(() => undefined);
-    await scheduler.wait(Math.min(MAX_RETRY_WAIT_MS, Math.max(500, retryAfter * 1000)));
+    await scheduler.wait(
+      Math.min(MAX_RETRY_WAIT_MS, Math.max(500, retryAfter * 1000)),
+    );
     return await slackCall<T>(token, method, args, attempt + 1);
   }
   if (!response.ok) {
@@ -59,7 +71,8 @@ export const slackCall = async <T extends SlackResponse = SlackResponse>(
     throw new SlackApiError(method, `http_${response.status}`, response.status);
   }
   const parsed = (await response.json()) as T;
-  if (!parsed.ok) throw new SlackApiError(method, parsed.error ?? "unknown_error");
+  if (!parsed.ok)
+    throw new SlackApiError(method, parsed.error ?? "unknown_error");
   return parsed;
 };
 
@@ -76,7 +89,12 @@ export const slackTry = async <T extends SlackResponse = SlackResponse>(
       JSON.stringify({
         event: "slack_call_failed",
         method,
-        code: error instanceof SlackApiError ? error.code : error instanceof Error ? error.message : String(error),
+        code:
+          error instanceof SlackApiError
+            ? error.code
+            : error instanceof Error
+              ? error.message
+              : String(error),
       }),
     );
     return null;
@@ -86,7 +104,10 @@ export const slackTry = async <T extends SlackResponse = SlackResponse>(
 const SLACK_TEXT_LIMIT = 11_500;
 
 /** Split long Markdown on paragraph, then line, boundaries. */
-export const splitForSlack = (text: string, limit = SLACK_TEXT_LIMIT): string[] => {
+export const splitForSlack = (
+  text: string,
+  limit = SLACK_TEXT_LIMIT,
+): string[] => {
   const parts: string[] = [];
   let rest = text.trim();
   while (rest.length > limit) {
@@ -107,7 +128,10 @@ export const downloadSlackFile = async (
   maxBytes: number,
 ): Promise<Uint8Array | null> => {
   if (!/^https:\/\/([a-z0-9-]+\.)*slack(-edge)?\.com\//u.test(url)) return null;
-  const response = await fetch(url, { headers: { authorization: `Bearer ${token}` }, redirect: "follow" });
+  const response = await fetch(url, {
+    headers: { authorization: `Bearer ${token}` },
+    redirect: "follow",
+  });
   if (!response.ok || !response.body) {
     await response.body?.cancel().catch(() => undefined);
     return null;
@@ -151,18 +175,24 @@ export const uploadSlackFile = async (
     contentType?: string;
   },
 ): Promise<boolean> => {
-  const ticket = await slackCall<SlackResponse & { upload_url: string; file_id: string }>(
-    token,
-    "files.getUploadURLExternal",
-    { filename: args.filename, length: args.bytes.byteLength },
-  );
+  const ticket = await slackCall<
+    SlackResponse & { upload_url: string; file_id: string }
+  >(token, "files.getUploadURLExternal", {
+    filename: args.filename,
+    length: args.bytes.byteLength,
+  });
   const uploaded = await fetch(ticket.upload_url, {
     method: "POST",
     headers: { "content-type": args.contentType || "application/octet-stream" },
     body: args.bytes,
   });
   await uploaded.body?.cancel().catch(() => undefined);
-  if (!uploaded.ok) throw new SlackApiError("upload_url", `http_${uploaded.status}`, uploaded.status);
+  if (!uploaded.ok)
+    throw new SlackApiError(
+      "upload_url",
+      `http_${uploaded.status}`,
+      uploaded.status,
+    );
   await slackCall(token, "files.completeUploadExternal", {
     files: [{ id: ticket.file_id, title: args.title ?? args.filename }],
     channel_id: args.channelId,

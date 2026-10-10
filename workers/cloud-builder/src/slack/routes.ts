@@ -17,9 +17,19 @@
 
 import { createAuth } from "../auth/auth.js";
 import { slackCall, slackTry, type SlackResponse } from "./api.js";
-import { SLACK_BOT_SCOPES, SLACK_PATHS, slackConfigured, slackPublicOrigin, slackSecret } from "./config.js";
+import {
+  SLACK_BOT_SCOPES,
+  SLACK_PATHS,
+  slackConfigured,
+  slackPublicOrigin,
+  slackSecret,
+} from "./config.js";
 import { verifySlackSignature } from "./crypto.js";
-import { handleSlackEvent, slackUser, type SlackEventEnvelope } from "./events.js";
+import {
+  handleSlackEvent,
+  slackUser,
+  type SlackEventEnvelope,
+} from "./events.js";
 import { handleSlackInteraction } from "./interactivity.js";
 import {
   signConfirmToken,
@@ -43,7 +53,10 @@ const MAX_BODY_BYTES = 1_000_000;
 const escapeHtml = (value: string): string =>
   value.replace(
     /[&<>"']/gu,
-    (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!,
+    (char) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        char
+      ]!,
   );
 
 const page = (title: string, bodyHtml: string, status = 200): Response =>
@@ -56,7 +69,13 @@ const page = (title: string, bodyHtml: string, status = 200): Response =>
       `.primary{background:#1d1d24;color:#fff;border-color:#1d1d24}input{font:inherit;width:100%;box-sizing:border-box;padding:.75rem;border-radius:.6rem;border:1px solid #d5d5de}` +
       `.muted{font-size:.9rem;color:#777}hr{border:0;border-top:1px solid #eee;margin:1.2rem 0}</style>` +
       `<h1>${escapeHtml(title)}</h1>${bodyHtml}`,
-    { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
+    {
+      status,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+      },
+    },
   );
 
 const readBody = async (request: Request): Promise<string | null> => {
@@ -66,7 +85,11 @@ const readBody = async (request: Request): Promise<string | null> => {
   return text.length > MAX_BODY_BYTES ? null : text;
 };
 
-const verified = async (env: Cloudflare.Env, request: Request, body: string): Promise<boolean> => {
+const verified = async (
+  env: Cloudflare.Env,
+  request: Request,
+  body: string,
+): Promise<boolean> => {
   const secret = slackSecret(env, "SLACK_SIGNING_SECRET");
   if (!secret) return false;
   return await verifySlackSignature(
@@ -78,18 +101,34 @@ const verified = async (env: Cloudflare.Env, request: Request, body: string): Pr
 };
 
 const logError = (event: string, error: unknown): void => {
-  console.error(JSON.stringify({ event, message: error instanceof Error ? error.message : String(error) }));
+  console.error(
+    JSON.stringify({
+      event,
+      message: error instanceof Error ? error.message : String(error),
+    }),
+  );
 };
 
 // ── Install ────────────────────────────────────────────────────────────────
 
-const install = async (request: Request, env: Cloudflare.Env): Promise<Response> => {
+const install = async (
+  request: Request,
+  env: Cloudflare.Env,
+): Promise<Response> => {
   const clientId = slackSecret(env, "SLACK_CLIENT_ID");
-  if (!clientId || !slackConfigured(env)) return page("Slack isn't set up", "<p>Stella's Slack app isn't configured here yet.</p>", 503);
+  if (!clientId || !slackConfigured(env))
+    return page(
+      "Slack isn't set up",
+      "<p>Stella's Slack app isn't configured here yet.</p>",
+      503,
+    );
   const url = new URL("https://slack.com/oauth/v2/authorize");
   url.searchParams.set("client_id", clientId);
   url.searchParams.set("scope", SLACK_BOT_SCOPES.join(","));
-  url.searchParams.set("redirect_uri", `${slackPublicOrigin(env, request)}${SLACK_PATHS.oauthCallback}`);
+  url.searchParams.set(
+    "redirect_uri",
+    `${slackPublicOrigin(env, request)}${SLACK_PATHS.oauthCallback}`,
+  );
   url.searchParams.set("state", await signInstallState(env));
   return Response.redirect(url.toString(), 302);
 };
@@ -104,15 +143,25 @@ type OAuthAccess = SlackResponse & {
   authed_user?: { id?: string };
 };
 
-const oauthCallback = async (request: Request, env: Cloudflare.Env): Promise<Response> => {
+const oauthCallback = async (
+  request: Request,
+  env: Cloudflare.Env,
+): Promise<Response> => {
   const url = new URL(request.url);
   if (url.searchParams.get("error")) {
-    return page("Installation canceled", "<p>Nothing was installed. You can close this tab.</p>");
+    return page(
+      "Installation canceled",
+      "<p>Nothing was installed. You can close this tab.</p>",
+    );
   }
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state") ?? "";
   if (!code || !(await verifyInstallState(env, state))) {
-    return page("Couldn't install Stella", "<p>That install link expired. Start the install again.</p>", 400);
+    return page(
+      "Couldn't install Stella",
+      "<p>That install link expired. Start the install again.</p>",
+      400,
+    );
   }
   let access: OAuthAccess;
   try {
@@ -124,11 +173,24 @@ const oauthCallback = async (request: Request, env: Cloudflare.Env): Promise<Res
     });
   } catch (error) {
     logError("slack_oauth_exchange_failed", error);
-    return page("Couldn't install Stella", "<p>Slack didn't accept the install. Try again.</p>", 502);
+    return page(
+      "Couldn't install Stella",
+      "<p>Slack didn't accept the install. Try again.</p>",
+      502,
+    );
   }
   const teamId = access.team?.id;
-  if (!access.access_token || !teamId || !access.bot_user_id || !access.app_id) {
-    return page("Couldn't install Stella", "<p>Slack's answer was missing the bot token. Try again.</p>", 502);
+  if (
+    !access.access_token ||
+    !teamId ||
+    !access.bot_user_id ||
+    !access.app_id
+  ) {
+    return page(
+      "Couldn't install Stella",
+      "<p>Slack's answer was missing the bot token. Try again.</p>",
+      502,
+    );
   }
   await saveInstallation(env, {
     teamId,
@@ -151,7 +213,11 @@ const oauthCallback = async (request: Request, env: Cloudflare.Env): Promise<Res
 
 // ── Events, interactivity, commands ────────────────────────────────────────
 
-const events = async (request: Request, env: Cloudflare.Env, ctx: ExecutionContext): Promise<Response> => {
+const events = async (
+  request: Request,
+  env: Cloudflare.Env,
+  ctx: ExecutionContext,
+): Promise<Response> => {
   const body = await readBody(request);
   if (body === null) return new Response("Too large", { status: 413 });
   let envelope: SlackEventEnvelope & { challenge?: string };
@@ -162,22 +228,35 @@ const events = async (request: Request, env: Cloudflare.Env, ctx: ExecutionConte
   }
   const signed = await verified(env, request, body);
   if (envelope.type === "url_verification") {
-    if (!signed && slackSecret(env, "SLACK_SIGNING_SECRET")) return new Response("Unauthorized", { status: 401 });
-    return new Response(envelope.challenge ?? "", { headers: { "content-type": "text/plain" } });
+    if (!signed && slackSecret(env, "SLACK_SIGNING_SECRET"))
+      return new Response("Unauthorized", { status: 401 });
+    return new Response(envelope.challenge ?? "", {
+      headers: { "content-type": "text/plain" },
+    });
   }
   if (!signed) return new Response("Unauthorized", { status: 401 });
-  if (envelope.type !== "event_callback") return new Response("", { status: 200 });
+  if (envelope.type !== "event_callback")
+    return new Response("", { status: 200 });
   if (envelope.event_id && !(await claimEvent(env, envelope.event_id))) {
     return new Response("", { status: 200 });
   }
-  ctx.waitUntil(handleSlackEvent(env, envelope).catch((error: unknown) => logError("slack_event_failed", error)));
+  ctx.waitUntil(
+    handleSlackEvent(env, envelope).catch((error: unknown) =>
+      logError("slack_event_failed", error),
+    ),
+  );
   return new Response("", { status: 200 });
 };
 
-const interactivity = async (request: Request, env: Cloudflare.Env, ctx: ExecutionContext): Promise<Response> => {
+const interactivity = async (
+  request: Request,
+  env: Cloudflare.Env,
+  ctx: ExecutionContext,
+): Promise<Response> => {
   const body = await readBody(request);
   if (body === null) return new Response("Too large", { status: 413 });
-  if (!(await verified(env, request, body))) return new Response("Unauthorized", { status: 401 });
+  if (!(await verified(env, request, body)))
+    return new Response("Unauthorized", { status: 401 });
   const payload = new URLSearchParams(body).get("payload");
   if (!payload) return new Response("", { status: 200 });
   ctx.waitUntil(
@@ -189,23 +268,36 @@ const interactivity = async (request: Request, env: Cloudflare.Env, ctx: Executi
 };
 
 const ephemeral = (text: string, blocks?: unknown[]): Response =>
-  Response.json({ response_type: "ephemeral", text, ...(blocks ? { blocks } : {}) });
+  Response.json({
+    response_type: "ephemeral",
+    text,
+    ...(blocks ? { blocks } : {}),
+  });
 
-const commands = async (request: Request, env: Cloudflare.Env): Promise<Response> => {
+const commands = async (
+  request: Request,
+  env: Cloudflare.Env,
+): Promise<Response> => {
   const body = await readBody(request);
   if (body === null) return new Response("Too large", { status: 413 });
-  if (!(await verified(env, request, body))) return new Response("Unauthorized", { status: 401 });
+  if (!(await verified(env, request, body)))
+    return new Response("Unauthorized", { status: 401 });
   const form = new URLSearchParams(body);
   const teamId = form.get("team_id") ?? "";
   const userId = form.get("user_id") ?? "";
   const action = (form.get("text") ?? "").trim().toLowerCase();
   const installation = await loadInstallation(env, teamId);
-  if (!installation) return ephemeral("Stella isn't installed in this workspace anymore.");
+  if (!installation)
+    return ephemeral("Stella isn't installed in this workspace anymore.");
   const owner = await linkedOwner(env, teamId, userId);
   if (action === "disconnect" || action === "unlink") {
     const removed = await unlinkIdentity(env, teamId, userId);
     await publishHome(env, installation, userId, false);
-    return ephemeral(removed ? "Disconnected. Stella won't act for you in this workspace until you connect again." : "Your Stella account wasn't connected here.");
+    return ephemeral(
+      removed
+        ? "Disconnected. Stella won't act for you in this workspace until you connect again."
+        : "Your Stella account wasn't connected here.",
+    );
   }
   if (action === "status") {
     return ephemeral(
@@ -215,25 +307,44 @@ const commands = async (request: Request, env: Cloudflare.Env): Promise<Response
     );
   }
   if (owner && action !== "connect") {
-    return ephemeral("Your Stella account is connected. Mention @Stella in a channel or DM her. `/stella disconnect` to disconnect.");
+    return ephemeral(
+      "Your Stella account is connected. Mention @Stella in a channel or DM her. `/stella disconnect` to disconnect.",
+    );
   }
   const url = await connectUrl(env, teamId, userId);
   return ephemeral(
     "Connect your Stella account",
-    connectBlocks(url, owner ? "*Connect a different Stella account?* This replaces the current one." : "*Connect your Stella account to use Stella here.*"),
+    connectBlocks(
+      url,
+      owner
+        ? "*Connect a different Stella account?* This replaces the current one."
+        : "*Connect your Stella account to use Stella here.*",
+    ),
   );
 };
 
 // ── Linking ────────────────────────────────────────────────────────────────
 
-const linkPage = async (request: Request, env: Cloudflare.Env): Promise<Response> => {
+const linkPage = async (
+  request: Request,
+  env: Cloudflare.Env,
+): Promise<Response> => {
   const token = new URL(request.url).searchParams.get("s") ?? "";
   const subject = await verifyLinkToken(env, token);
   if (!subject) {
-    return page("This link expired", "<p>Go back to Slack and run <code>/stella connect</code> for a fresh one.</p>", 400);
+    return page(
+      "This link expired",
+      "<p>Go back to Slack and run <code>/stella connect</code> for a fresh one.</p>",
+      400,
+    );
   }
   const installation = await loadInstallation(env, subject.teamId);
-  if (!installation) return page("Stella isn't installed", "<p>Stella was removed from that workspace.</p>", 410);
+  if (!installation)
+    return page(
+      "Stella isn't installed",
+      "<p>Stella was removed from that workspace.</p>",
+      410,
+    );
   const who = await slackUser(env, installation, subject.slackUserId);
   const hidden = `<input type="hidden" name="s" value="${escapeHtml(token)}">`;
   const google = slackGoogleEnabled(env)
@@ -251,7 +362,8 @@ const linkPage = async (request: Request, env: Cloudflare.Env): Promise<Response
 };
 
 const slackGoogleEnabled = (env: Cloudflare.Env): boolean => {
-  const secret = (env as unknown as Record<string, unknown>).GOOGLE_CLIENT_SECRET;
+  const secret = (env as unknown as Record<string, unknown>)
+    .GOOGLE_CLIENT_SECRET;
   return typeof secret === "string" && secret.trim().length > 0;
 };
 
@@ -260,23 +372,37 @@ type AuthApi = {
     body: { provider: "google"; callbackURL: string; disableRedirect: true };
     headers: Headers;
   }): Promise<{ url?: string }>;
-  signInMagicLink(input: { body: { email: string; callbackURL: string }; headers: Headers }): Promise<unknown>;
+  signInMagicLink(input: {
+    body: { email: string; callbackURL: string };
+    headers: Headers;
+  }): Promise<unknown>;
   verifyOneTimeToken(input: {
     body: { token: string };
     headers: Headers;
     returnHeaders: true;
-  }): Promise<{ headers: Headers; response: { user?: { id?: unknown; email?: unknown; name?: unknown } } }>;
+  }): Promise<{
+    headers: Headers;
+    response: { user?: { id?: unknown; email?: unknown; name?: unknown } };
+  }>;
 };
 
-const authApi = (env: Cloudflare.Env): AuthApi => (createAuth(env as never) as unknown as { api: AuthApi }).api;
+const authApi = (env: Cloudflare.Env): AuthApi =>
+  (createAuth(env as never) as unknown as { api: AuthApi }).api;
 
-const linkStart = async (request: Request, env: Cloudflare.Env): Promise<Response> => {
+const linkStart = async (
+  request: Request,
+  env: Cloudflare.Env,
+): Promise<Response> => {
   const body = await readBody(request);
   if (body === null) return new Response("Too large", { status: 413 });
   const form = new URLSearchParams(body);
   const token = form.get("s") ?? "";
   if (!(await verifyLinkToken(env, token))) {
-    return page("This link expired", "<p>Go back to Slack and run <code>/stella connect</code> for a fresh one.</p>", 400);
+    return page(
+      "This link expired",
+      "<p>Go back to Slack and run <code>/stella connect</code> for a fresh one.</p>",
+      400,
+    );
   }
   const origin = slackPublicOrigin(env, request);
   const callbackURL = `${origin}${SLACK_PATHS.linkFinish}?s=${encodeURIComponent(token)}`;
@@ -286,18 +412,34 @@ const linkStart = async (request: Request, env: Cloudflare.Env): Promise<Respons
       body: { provider: "google", callbackURL, disableRedirect: true },
       headers,
     });
-    if (!started.url) return page("Couldn't start Google sign-in", "<p>Try the email option instead.</p>", 502);
+    if (!started.url)
+      return page(
+        "Couldn't start Google sign-in",
+        "<p>Try the email option instead.</p>",
+        502,
+      );
     return Response.redirect(started.url, 302);
   }
   const email = (form.get("email") ?? "").trim();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email)) {
-    return page("Check that email", "<p>That doesn't look like an email address. Go back and try again.</p>", 400);
+    return page(
+      "Check that email",
+      "<p>That doesn't look like an email address. Go back and try again.</p>",
+      400,
+    );
   }
   try {
-    await authApi(env).signInMagicLink({ body: { email, callbackURL }, headers });
+    await authApi(env).signInMagicLink({
+      body: { email, callbackURL },
+      headers,
+    });
   } catch (error) {
     logError("slack_link_magic_failed", error);
-    return page("Couldn't send the email", "<p>Try again in a minute.</p>", 502);
+    return page(
+      "Couldn't send the email",
+      "<p>Try again in a minute.</p>",
+      502,
+    );
   }
   return page(
     "Check your email",
@@ -305,13 +447,20 @@ const linkStart = async (request: Request, env: Cloudflare.Env): Promise<Respons
   );
 };
 
-const linkFinish = async (request: Request, env: Cloudflare.Env): Promise<Response> => {
+const linkFinish = async (
+  request: Request,
+  env: Cloudflare.Env,
+): Promise<Response> => {
   const url = new URL(request.url);
   const token = url.searchParams.get("s") ?? "";
   const ott = url.searchParams.get("ott") ?? "";
   const subject = await verifyLinkToken(env, token);
   if (!subject || !ott) {
-    return page("This link expired", "<p>Go back to Slack and run <code>/stella connect</code> for a fresh one.</p>", 400);
+    return page(
+      "This link expired",
+      "<p>Go back to Slack and run <code>/stella connect</code> for a fresh one.</p>",
+      400,
+    );
   }
   let user: { id?: unknown; email?: unknown } | undefined;
   try {
@@ -326,13 +475,23 @@ const linkFinish = async (request: Request, env: Cloudflare.Env): Promise<Respon
     console.error(JSON.stringify({ event: "slack_link_ott_failed" }));
   }
   if (typeof user?.id !== "string" || !user.id) {
-    return page("Sign-in didn't finish", "<p>Go back to Slack and run <code>/stella connect</code> to try again.</p>", 400);
+    return page(
+      "Sign-in didn't finish",
+      "<p>Go back to Slack and run <code>/stella connect</code> to try again.</p>",
+      400,
+    );
   }
   const installation = await loadInstallation(env, subject.teamId);
-  if (!installation) return page("Stella isn't installed", "<p>Stella was removed from that workspace.</p>", 410);
+  if (!installation)
+    return page(
+      "Stella isn't installed",
+      "<p>Stella was removed from that workspace.</p>",
+      410,
+    );
   const who = await slackUser(env, installation, subject.slackUserId);
   const confirm = await signConfirmToken(env, subject, user.id);
-  const email = typeof user.email === "string" ? user.email : "this Stella account";
+  const email =
+    typeof user.email === "string" ? user.email : "this Stella account";
   return page(
     "Connect this account?",
     `<p>Slack user <b>@${escapeHtml(who.name)}</b> in <b>${escapeHtml(installation.teamName)}</b> will use the Stella account <b>${escapeHtml(email)}</b>. Stella will act for them with this account when they mention her or message her in Slack.</p>` +
@@ -341,17 +500,42 @@ const linkFinish = async (request: Request, env: Cloudflare.Env): Promise<Respon
   );
 };
 
-const linkConfirm = async (request: Request, env: Cloudflare.Env): Promise<Response> => {
+const linkConfirm = async (
+  request: Request,
+  env: Cloudflare.Env,
+): Promise<Response> => {
   const body = await readBody(request);
   if (body === null) return new Response("Too large", { status: 413 });
-  const confirmed = await verifyConfirmToken(env, new URLSearchParams(body).get("c") ?? "");
+  const confirmed = await verifyConfirmToken(
+    env,
+    new URLSearchParams(body).get("c") ?? "",
+  );
   if (!confirmed) {
-    return page("This link expired", "<p>Go back to Slack and run <code>/stella connect</code> for a fresh one.</p>", 400);
+    return page(
+      "This link expired",
+      "<p>Go back to Slack and run <code>/stella connect</code> for a fresh one.</p>",
+      400,
+    );
   }
   const installation = await loadInstallation(env, confirmed.teamId);
-  if (!installation) return page("Stella isn't installed", "<p>Stella was removed from that workspace.</p>", 410);
-  await linkIdentity(env, confirmed.teamId, confirmed.slackUserId, confirmed.ownerId);
-  console.log(JSON.stringify({ event: "slack_identity_linked", teamId: confirmed.teamId }));
+  if (!installation)
+    return page(
+      "Stella isn't installed",
+      "<p>Stella was removed from that workspace.</p>",
+      410,
+    );
+  await linkIdentity(
+    env,
+    confirmed.teamId,
+    confirmed.slackUserId,
+    confirmed.ownerId,
+  );
+  console.log(
+    JSON.stringify({
+      event: "slack_identity_linked",
+      teamId: confirmed.teamId,
+    }),
+  );
   await slackTry(installation.botToken, "chat.postMessage", {
     channel: confirmed.slackUserId,
     text: "Your Stella account is connected. Mention @Stella in a channel or message me here to hand me something.",
@@ -375,15 +559,24 @@ export const handleSlackRoute = async (
   if (!pathname.startsWith("/api/slack/")) return null;
   const method = request.method;
   try {
-    if (pathname === SLACK_PATHS.events && method === "POST") return await events(request, env, ctx);
-    if (pathname === SLACK_PATHS.interactivity && method === "POST") return await interactivity(request, env, ctx);
-    if (pathname === SLACK_PATHS.commands && method === "POST") return await commands(request, env);
-    if (pathname === SLACK_PATHS.install && method === "GET") return await install(request, env);
-    if (pathname === SLACK_PATHS.oauthCallback && method === "GET") return await oauthCallback(request, env);
-    if (pathname === SLACK_PATHS.link && method === "GET") return await linkPage(request, env);
-    if (pathname === SLACK_PATHS.linkStart && method === "POST") return await linkStart(request, env);
-    if (pathname === SLACK_PATHS.linkFinish && method === "GET") return await linkFinish(request, env);
-    if (pathname === SLACK_PATHS.linkConfirm && method === "POST") return await linkConfirm(request, env);
+    if (pathname === SLACK_PATHS.events && method === "POST")
+      return await events(request, env, ctx);
+    if (pathname === SLACK_PATHS.interactivity && method === "POST")
+      return await interactivity(request, env, ctx);
+    if (pathname === SLACK_PATHS.commands && method === "POST")
+      return await commands(request, env);
+    if (pathname === SLACK_PATHS.install && method === "GET")
+      return await install(request, env);
+    if (pathname === SLACK_PATHS.oauthCallback && method === "GET")
+      return await oauthCallback(request, env);
+    if (pathname === SLACK_PATHS.link && method === "GET")
+      return await linkPage(request, env);
+    if (pathname === SLACK_PATHS.linkStart && method === "POST")
+      return await linkStart(request, env);
+    if (pathname === SLACK_PATHS.linkFinish && method === "GET")
+      return await linkFinish(request, env);
+    if (pathname === SLACK_PATHS.linkConfirm && method === "POST")
+      return await linkConfirm(request, env);
   } catch (error) {
     logError("slack_route_failed", error);
     return new Response("Something went wrong.", { status: 500 });

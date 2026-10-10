@@ -17,7 +17,10 @@ const INSTALL_TTL_MS = 15 * 60_000;
 
 export type SlackSubject = { teamId: string; slackUserId: string };
 
-export const signLinkToken = async (env: Cloudflare.Env, subject: SlackSubject): Promise<string> =>
+export const signLinkToken = async (
+  env: Cloudflare.Env,
+  subject: SlackSubject,
+): Promise<string> =>
   await signOAuthState(env, {
     ownerId: `slack:${subject.teamId}:${subject.slackUserId}`,
     kind: LINK_KIND,
@@ -26,12 +29,20 @@ export const signLinkToken = async (env: Cloudflare.Env, subject: SlackSubject):
     extra: { team: subject.teamId, user: subject.slackUserId },
   });
 
-export const verifyLinkToken = async (env: Cloudflare.Env, token: string): Promise<SlackSubject | null> => {
+export const verifyLinkToken = async (
+  env: Cloudflare.Env,
+  token: string,
+): Promise<SlackSubject | null> => {
   const state = await verifyOAuthState(env, token);
   if (!state || state.kind !== LINK_KIND) return null;
   const teamId = state.extra?.team;
   const slackUserId = state.extra?.user;
-  if (!teamId || !slackUserId || state.ownerId !== `slack:${teamId}:${slackUserId}`) return null;
+  if (
+    !teamId ||
+    !slackUserId ||
+    state.ownerId !== `slack:${teamId}:${slackUserId}`
+  )
+    return null;
   return { teamId, slackUserId };
 };
 
@@ -68,7 +79,10 @@ export const signInstallState = async (env: Cloudflare.Env): Promise<string> =>
     exp: Date.now() + INSTALL_TTL_MS,
   });
 
-export const verifyInstallState = async (env: Cloudflare.Env, token: string): Promise<boolean> => {
+export const verifyInstallState = async (
+  env: Cloudflare.Env,
+  token: string,
+): Promise<boolean> => {
   const state = await verifyOAuthState(env, token);
   return Boolean(state && state.kind === INSTALL_KIND);
 };

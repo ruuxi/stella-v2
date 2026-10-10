@@ -208,9 +208,7 @@ export type PiChatRequest =
    * Where the conversation's brain runs (`PiChatBrainResult`): a send for a
    * conversation whose Stella runs elsewhere is placed there.
    */
-  | { op: "brain"; conversationId: string }
-  /** The user moves Stella herself: to the cloud, or to this computer (`PiChatBrainResult`). */
-  | { op: "moveBrain"; conversationId: string; to: "cloud" | "here" };
+  | { op: "brain"; conversationId: string };
 
 /**
  * Where a conversation's Stella runs (`@stella/contracts/turn-plane/pi-brain`):

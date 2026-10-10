@@ -1,6 +1,6 @@
 import type { AgentToolResult } from "@stella/runtime/kernel/agent-core/types.js";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import type { CloudBrowserResumeReceipt } from "@stella/contracts/cloud-browser";
+import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 import {
   OWNER_EVENT_VERSION,
   type ThreadSpawnedEvent,
@@ -8,7 +8,6 @@ import {
 import {
   TURN_PLANE_PROTOCOL,
   TURN_PROMPT_MAX_CHARS,
-  type CloudAgentSteerMessage,
   type CloudAgentTurnSource,
   type CloudAgentTurnStartRequest,
   type CloudAgentTurnStartResponse,
@@ -334,8 +333,6 @@ export type CloudAgentDispatchAttempt = Readonly<{
   /** The desktop and local conversation that receive a desktop dispatch's result. */
   originDeviceId?: string;
   originConversationId?: string;
-  /** Hosted-browser resume receipt carried into this attempt. */
-  browserResume?: CloudBrowserResumeReceipt;
 }>;
 
 /** A refusal that trying again cannot fix (admission said no, or the request was bad). */
@@ -346,11 +343,19 @@ export class CloudAgentDispatchRefused extends Error {
   }
 }
 
-type CloudAgentDispatchEnv = Pick<Cloudflare.Env, "BUILD_SESSIONS"> &
+type CloudAgentDispatchEnv = Pick<
+  Cloudflare.Env,
+  "BUILD_SESSIONS" | "ORCHESTRATOR_SESSIONS"
+> &
   Partial<Pick<Cloudflare.Env, "CLOUD_BUILDER_PUBLIC_URL">>;
 
 export type CloudAgentDispatchDependencies = Readonly<{
   env: CloudAgentDispatchEnv;
+  /**
+   * Start an attempt that runs as its conversation's pi agent. Defaults to
+   * the conversation's object; the conversation itself starts it in place.
+   */
+  startPiThread?: (input: PiThreadStart) => Promise<void>;
   ownerGateAdmit: (input: {
     ownerId: string;
     turnId: string;
@@ -432,6 +437,41 @@ export const dispatchCloudAgentTurn = async (args: {
         : "Connect ChatGPT before using that cloud execution route.",
     );
   }
+  if (runsAsPiAgent(attempt.execution)) {
+    // Admitted above only so a refusal (the plan, the owner's limits)
+    // reaches the caller now: pi admits each of its runs on the agent lane.
+    await release();
+    const start: PiThreadStart = {
+      ownerId: caller.ownerId,
+      ownerGeneration: caller.ownerGeneration,
+      conversationId: caller.conversationId,
+      audience: ownerSnapshot.allowance.audience,
+      budgetMicroCents: ownerSnapshot.allowance.budgetMicroCents,
+      execution: attempt.execution,
+      prompt: attempt.prompt,
+      attempt: {
+        threadId: attempt.threadId,
+        description: attempt.description,
+        turnId: attempt.turnId,
+        attemptGeneration: attempt.attemptGeneration,
+        ...(attempt.originDeviceId
+          ? { originDeviceId: attempt.originDeviceId }
+          : {}),
+      },
+    };
+    try {
+      await (dependencies.startPiThread
+        ? dependencies.startPiThread(start)
+        : dependencies.env.ORCHESTRATOR_SESSIONS.getByName(
+            caller.conversationId,
+          ).startPiThread(start));
+    } catch (error) {
+      throw new Error(
+        `Starting the agent failed: ${errorMessage(error)}`.slice(0, 400),
+      );
+    }
+    return await projectSpawnedAttempt(dependencies, caller, attempt, agentDepth);
+  }
   const publicOrigin = (dependencies.env.CLOUD_BUILDER_PUBLIC_URL ?? "")
     .trim()
     .replace(/\/+$/, "");
@@ -441,7 +481,6 @@ export const dispatchCloudAgentTurn = async (args: {
       "Cloud agents are unavailable: the builder's public origin is not configured.",
     );
   }
-  const now = (dependencies.now ?? Date.now)();
   const payload: CloudAgentTurnStartRequest = {
     protocol: TURN_PLANE_PROTOCOL,
     kind: "agent",
@@ -465,7 +504,6 @@ export const dispatchCloudAgentTurn = async (args: {
     ...(attempt.originConversationId
       ? { originConversationId: attempt.originConversationId }
       : {}),
-    ...(attempt.browserResume ? { browserResume: attempt.browserResume } : {}),
   };
   let response: Response;
   try {
@@ -519,6 +557,17 @@ export const dispatchCloudAgentTurn = async (args: {
       `${attempt.threadId} was continued while this request was in flight. Refresh its status and try again.`,
     );
   }
+  return await projectSpawnedAttempt(dependencies, caller, attempt, agentDepth);
+};
+
+/** The owner's agent threads learn of a started attempt; the receipt its starter keeps. */
+const projectSpawnedAttempt = async (
+  dependencies: CloudAgentDispatchDependencies,
+  caller: CloudAgentDispatchCaller,
+  attempt: CloudAgentDispatchAttempt,
+  agentDepth: number,
+): Promise<CloudAgentControlReceipt> => {
+  const now = (dependencies.now ?? Date.now)();
   await dependencies.deliverOwnerEvents([
     {
       v: OWNER_EVENT_VERSION,
@@ -557,55 +606,237 @@ export const dispatchCloudAgentTurn = async (args: {
   };
 };
 
-export type SteerAgentResult =
-  | Readonly<{
-      accepted: true;
-      turnId: string;
-      attemptGeneration: number;
-    }>
-  | Readonly<{ accepted: false; reason: "not_running" | "too_large" }>;
+/** An execution pi runs: Stella's models, or the owner's ChatGPT plan. */
+export type PiAgentExecution = Extract<
+  CloudExecutionSelection,
+  { engine: "stella" | "chatgpt" }
+>;
 
-export const steerCloudAgent = async (args: {
-  env: Pick<Cloudflare.Env, "BUILD_SESSIONS">;
+/**
+ * Whether an attempt on this execution runs as its conversation's pi agent
+ * rather than in a container: all but Claude, which runs on its own CLI.
+ */
+export const runsAsPiAgent = (
+  execution: CloudExecutionSelection,
+): execution is PiAgentExecution =>
+  execution.engine === "stella" || execution.engine === "chatgpt";
+
+/**
+ * One attempt of an agent thread the owner's agent threads track (a Claude
+ * Code orchestrator's spawn, a computer's cloud dispatch, a placed agent)
+ * that runs on pi, as its conversation's pi agent.
+ */
+export type PiThreadAttempt = Readonly<{
   threadId: string;
-  message: CloudAgentSteerMessage;
-  signal?: AbortSignal;
-}): Promise<SteerAgentResult> => {
+  description: string;
+  /** The attempt's turn id in the agent threads (a placed agent's dispatch id). */
+  turnId: string;
+  attemptGeneration: number;
+  /** A computer's dispatch: its report reaches that computer through the agent threads, not a wake here. */
+  originDeviceId?: string;
+}>;
+
+/**
+ * Start one attempt in its conversation (`OrchestratorSession.startPiThread`)
+ * on the authority its dispatcher admitted: the owner's plan audience and
+ * budget, and the attempt's execution.
+ */
+export type PiThreadStart = Readonly<{
+  ownerId: string;
+  ownerGeneration: string;
+  conversationId: string;
+  audience: ManagedModelAudience;
+  budgetMicroCents: number;
+  execution: PiAgentExecution;
+  prompt: string;
+  attempt: PiThreadAttempt;
+}>;
+
+/** New input for a running pi agent of an agent thread (`OrchestratorSession.steerPiThread`). */
+export type PiThreadSteer = Readonly<{
+  ownerId: string;
+  ownerGeneration: string;
+  threadId: string;
+  messageId: string;
+  text: string;
+}>;
+
+/** `unknown`: no agent of that thread runs in the conversation. */
+export type PiThreadSteerResult =
+  | Readonly<{ accepted: true; turnId: string; attemptGeneration: number }>
+  | Readonly<{ accepted: false; reason: "not_running" | "unknown" }>;
+
+/** Pause one exact attempt of an agent thread's pi agent (`OrchestratorSession.pausePiThread`). */
+export type PiThreadPause = Readonly<{
+  ownerId: string;
+  ownerGeneration: string;
+  threadId: string;
+  turnId: string;
+  attemptGeneration: number;
+}>;
+
+/**
+ * `paused`: it is stopping, and its attempt settles as canceled.
+ * `terminal`: that attempt already settled. `changed`: another attempt is
+ * the thread's now. `unknown`: no agent of that thread runs there.
+ */
+export type PiThreadPauseResult = "paused" | "terminal" | "changed" | "unknown";
+
+/**
+ * `busy`: the thread's container agent is starting up or finishing and takes
+ * no input this moment; sent again shortly, it either reaches the agent or
+ * finds it finished.
+ */
+export type CloudAgentSteerResult =
+  | Readonly<{ accepted: true; turnId: string; attemptGeneration: number }>
+  | Readonly<{ accepted: false; reason: "not_running" | "busy" }>;
+
+/**
+ * New input for the running attempt of an agent in its own container (Claude
+ * Code, Codex), through its BuildSession; it takes it at its next step.
+ */
+export const steerContainerAgent = async (
+  args: PiThreadSteer & { env: Pick<Cloudflare.Env, "BUILD_SESSIONS"> },
+): Promise<CloudAgentSteerResult> => {
   const response = await args.env.BUILD_SESSIONS.getByName(args.threadId).fetch(
     "https://build-session/steer",
     {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(args.message),
-      ...(args.signal ? { signal: args.signal } : {}),
+      body: JSON.stringify({
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        messageId: args.messageId,
+        text: args.text,
+      }),
     },
   );
-  const body = (await response.json().catch(() => null)) as {
-    accepted?: unknown;
-    reason?: unknown;
-    turnId?: unknown;
-    attemptGeneration?: unknown;
-  } | null;
-  if (
-    response.status === 409 &&
-    body?.accepted === false &&
-    (body.reason === "not_running" || body.reason === "too_large")
-  ) {
-    return { accepted: false, reason: body.reason };
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error(`Messaging the agent failed (${response.status}).`);
   }
-  if (
-    !response.ok ||
-    body?.accepted !== true ||
-    typeof body.turnId !== "string" ||
-    !Number.isSafeInteger(body.attemptGeneration)
-  ) {
-    throw new Error(`Could not steer ${args.threadId} (${response.status}).`);
+  const result = (await response.json()) as CloudAgentSteerResult;
+  return result.accepted
+    ? result
+    : {
+        accepted: false,
+        reason: result.reason === "busy" ? "busy" : "not_running",
+      };
+};
+
+/**
+ * New input for a cloud agent's running attempt, which it takes at its next
+ * step: its conversation's pi agent, or else its container agent.
+ */
+export const steerCloudAgent = async (
+  args: PiThreadSteer & {
+    env: Pick<Cloudflare.Env, "BUILD_SESSIONS" | "ORCHESTRATOR_SESSIONS">;
+    conversationId: string;
+  },
+): Promise<CloudAgentSteerResult> => {
+  const steered = await args.env.ORCHESTRATOR_SESSIONS.getByName(
+    args.conversationId,
+  ).steerPiThread({
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+    threadId: args.threadId,
+    messageId: args.messageId,
+    text: args.text,
+  });
+  if (steered.accepted) return steered;
+  if (steered.reason === "not_running") {
+    return { accepted: false, reason: "not_running" };
   }
-  return {
-    accepted: true,
-    turnId: body.turnId,
-    attemptGeneration: body.attemptGeneration as number,
-  };
+  return await steerContainerAgent(args);
+};
+
+/**
+ * Stop one exact attempt of a cloud agent: its conversation's pi agent, or
+ * else its BuildSession. `changed` means it is no longer that attempt.
+ */
+export const cancelCloudAgentAttempt = async (args: {
+  env: Pick<Cloudflare.Env, "BUILD_SESSIONS" | "ORCHESTRATOR_SESSIONS">;
+  conversationId: string;
+  threadId: string;
+  ownerId: string;
+  ownerGeneration: string;
+  turnId: string;
+  attemptGeneration: number;
+  cancelRequestId: string;
+  reason: string;
+}): Promise<"canceled" | "changed"> => {
+  const paused = await args.env.ORCHESTRATOR_SESSIONS.getByName(
+    args.conversationId,
+  ).pausePiThread({
+    ownerId: args.ownerId,
+    ownerGeneration: args.ownerGeneration,
+    threadId: args.threadId,
+    turnId: args.turnId,
+    attemptGeneration: args.attemptGeneration,
+  });
+  if (paused === "changed") return "changed";
+  if (paused !== "unknown") return "canceled";
+  const response = await args.env.BUILD_SESSIONS.getByName(args.threadId).fetch(
+    "https://build-session/cancel",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ownerId: args.ownerId,
+        ownerGeneration: args.ownerGeneration,
+        turnId: args.turnId,
+        attemptGeneration: args.attemptGeneration,
+        cancelRequestId: args.cancelRequestId,
+        ...(args.reason ? { reason: args.reason } : {}),
+      }),
+    },
+  );
+  await response.body?.cancel().catch(() => undefined);
+  if (response.status === 409) return "changed";
+  if (!response.ok) {
+    throw new Error(`Stopping the agent failed (${response.status}).`);
+  }
+  return "canceled";
+};
+
+export const agentLifecycleReport = (completion: {
+  resultJson?: string;
+  errorMessage?: string;
+}): string => {
+  let resultText = completion.errorMessage ?? "";
+  if (completion.resultJson) {
+    try {
+      const parsed = JSON.parse(completion.resultJson) as {
+        finalText?: unknown;
+      };
+      resultText =
+        typeof parsed.finalText === "string" && parsed.finalText.trim()
+          ? parsed.finalText
+          : completion.resultJson;
+    } catch {
+      resultText = completion.resultJson;
+    }
+  }
+  return resultText || "No result was reported.";
+};
+
+/** The hidden prompt that hands one finished thread to its requester. */
+export const agentCompletionPromptText = (args: {
+  threadId: string;
+  description?: string;
+  status: "completed" | "failed" | "canceled";
+  resultJson?: string;
+  errorMessage?: string;
+}): string => {
+  const resultText = agentLifecycleReport(args);
+  const label =
+    args.status === "completed"
+      ? "[Agent completed]"
+      : args.status === "canceled"
+        ? "[Agent canceled]"
+        : "[Agent failed]";
+  const description = args.description?.trim() || args.threadId;
+  return `${label} ${description} (thread ${args.threadId})\n\n${resultText}`;
 };
 
 export const agentStatusResult = (

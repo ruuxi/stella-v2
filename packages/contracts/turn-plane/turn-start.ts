@@ -61,6 +61,33 @@ export type CloudAgentThreadControl = {
     | "canceled";
 };
 
+/**
+ * The agent runtime a conversation runs on. `pi` is Stella's runtime on
+ * pi-durable; absent is the established loop. Chosen by the turn that
+ * creates the conversation and kept for its life.
+ */
+export type CloudAgentRuntime = "pi";
+
+/**
+ * A cloud agent a computer's pi-durable orchestrator runs in this
+ * conversation, so it keeps working while the computer sleeps. The turn
+ * starts it, messages it or pauses it instead of answering; the agent runs
+ * on pi-durable in the conversation's object, and its report goes back to
+ * that computer's orchestrator through the journal (an `agent-report`
+ * card addressed to it).
+ */
+export type CloudPiAgentRequest = {
+  op: "start" | "message" | "pause";
+  /** The agent's thread id, chosen by the computer that started it. */
+  threadId: string;
+  /** For `start`: the agent's name. */
+  description?: string;
+  /** The computer whose orchestrator gets the agent's reports. */
+  originDeviceId: string;
+};
+
+export const PI_AGENT_THREAD_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+
 export type CloudTurnStartRequest = {
   protocol: typeof TURN_PLANE_PROTOCOL;
   clientMsgId: string;
@@ -80,6 +107,10 @@ export type CloudTurnStartRequest = {
   hiddenMessage?: boolean;
   /** Service-only: lifecycle control for `wake` turns. */
   agentThreadControl?: CloudAgentThreadControl;
+  /** Honored only on the turn that creates the conversation. */
+  agentRuntime?: CloudAgentRuntime;
+  /** The turn controls a computer's cloud agent instead of asking Stella (prompt: its brief or message). */
+  piAgent?: CloudPiAgentRequest;
 };
 
 export type CloudTurnStartResponse = {
@@ -120,50 +151,15 @@ export type CloudTurnStartError = {
 // ---------------------------------------------------------------------------
 // Agent turns (BuildSession)
 //
-//   POST {socketOrigin}/sessions/{threadId}/turns
-//
-// Service-authenticated only (`Authorization: Bearer <BUILDER_SERVICE_SECRET>`):
-// service callers start these for desktop-dispatched cloud agents, execution
-// placement's agent branch, and hosted-browser resumes. The orchestrator's
-// own spawns never pass through this route (OrchestratorSession -> BuildSession).
+// An agent attempt in a container: the owner's own engines (Claude, Codex)
+// and Claude Code's orchestrator turns. Dispatched object to object by the
+// conversation and the owner's agent threads; an agent on Stella's models
+// runs in its conversation instead, as a pi agent.
 // ---------------------------------------------------------------------------
-
-export const AGENT_TURN_START_PATH_PREFIX = "/sessions" as const;
-export const agentTurnStartPath = (threadId: string): string =>
-  `${AGENT_TURN_START_PATH_PREFIX}/${encodeURIComponent(threadId)}/turns`;
-
-export const agentSteerPath = (threadId: string): string =>
-  `${AGENT_TURN_START_PATH_PREFIX}/${encodeURIComponent(threadId)}/steer`;
-
-export type CloudAgentSteerKind =
-  | "input"
-  /** A note from another agent or Stella, already framed by `formatAgentMessage`. */
-  | "message"
-  | "child_completed"
-  | "child_canceled"
-  | "child_failed";
-
-export type CloudAgentSteerMessage = {
-  id: string;
-  kind: CloudAgentSteerKind;
-  text: string;
-  threadId?: string;
-  attemptGeneration?: number;
-  createdAt: number;
-};
-
-export type CloudAgentSteerResponse =
-  | {
-      accepted: true;
-      turnId: string;
-      attemptGeneration: number;
-    }
-  | { accepted: false; reason: "not_running" };
 
 export type CloudAgentTurnSource =
   | "desktop"
   | "placement"
-  | "browser-resume"
   | "agent-thread"
   /** The OrchestratorSession's own chat turn on the Claude Code CLI. */
   | "orchestrator";
@@ -202,8 +198,6 @@ export type CloudAgentTurnStartRequest = {
   parentTurnId?: string;
   originDeviceId?: string;
   originConversationId?: string;
-  /** Hosted-browser resume receipt carried into the resumed attempt. */
-  browserResume?: unknown;
   /**
    * Present only on the OrchestratorSession's own chat turn for an
    * `anthropic` execution (see cloud-orchestrator-cli.ts). That dispatch has

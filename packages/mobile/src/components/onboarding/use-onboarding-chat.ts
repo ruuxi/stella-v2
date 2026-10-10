@@ -50,6 +50,10 @@ const REPLY_KEYS: Record<
     done: "mobile.onboarding.replies.accountDone",
     skipped: "mobile.onboarding.replies.accountSkipped",
   },
+  gmail: {
+    done: "mobile.onboarding.replies.gmailDone",
+    skipped: "mobile.onboarding.replies.gmailSkipped",
+  },
   theme: {
     done: "mobile.onboarding.replies.themeDone",
     skipped: "mobile.onboarding.replies.themeSkipped",
@@ -100,14 +104,17 @@ const buildEntries = (
 
 export function useOnboardingChat({
   started,
-  skipPairing,
+  skipComputer,
+  skipGmail,
 }: {
   started: boolean;
   /**
-   * Pairing is already handled for this owner, so the computer message is left
-   * out of the script entirely (see `usePairingStepNeeded`).
+   * This owner already has a computer on the account, so the computer message
+   * is left out of the script entirely (see `useComputerStepNeeded`).
    */
-  skipPairing: boolean;
+  skipComputer: boolean;
+  /** Gmail connects through a Stella account, so guests never see it. */
+  skipGmail: boolean;
 }) {
   const t = useT();
   const reducedMotion = useReducedMotion();
@@ -135,11 +142,16 @@ export function useOnboardingChat({
   // Dropping a step the user is already on, or already answered, would strand
   // the transcript, so the decision only applies ahead of the message.
   const steps = useMemo(() => {
-    if (!skipPairing) return ONBOARDING_STEPS;
-    if (progress.step === "computer") return ONBOARDING_STEPS;
-    if (progress.answers.computer !== undefined) return ONBOARDING_STEPS;
-    return ONBOARDING_STEPS.filter((step) => step !== "computer");
-  }, [progress.answers.computer, progress.step, skipPairing]);
+    const keep = (step: OnboardingStep, skip: boolean) =>
+      !skip ||
+      progress.step === step ||
+      progress.answers[step] !== undefined;
+    return ONBOARDING_STEPS.filter(
+      (step) =>
+        (step !== "computer" || keep(step, skipComputer)) &&
+        (step !== "gmail" || keep(step, skipGmail)),
+    );
+  }, [progress.answers, progress.step, skipComputer, skipGmail]);
   const stepsRef = useRef(steps);
   stepsRef.current = steps;
 

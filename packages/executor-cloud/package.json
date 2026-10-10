@@ -4,17 +4,13 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./relay-model": "./src/relay-model.ts",
     "./prune-history": "./src/prune-history.ts",
     "./agent-history": "./src/agent-history.ts",
     "./general-agent-prompt": "./src/general-agent-prompt.ts",
     "./cloud-general-tools": "./src/cloud-general-tools.ts",
-    "./attached-tool-protocol": "./src/attached-tool-protocol.ts",
-    "./cloud-browser-resume": "./src/cloud-browser-resume.ts"
+    "./attached-tool-protocol": "./src/attached-tool-protocol.ts"
   },
   "scripts": {
-    "stub": "bun src/cli.ts --stub",
     "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit",
     "test": "bun test src"
   },

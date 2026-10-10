@@ -4,10 +4,9 @@ import type {
   AppSourceCommit,
   AppSourceDraft,
   AppSourceState,
+  AppSourceWaiting,
 } from "@stella/contracts/desktop/app-source";
 import { isStellaDraft } from "@stella/contracts/desktop/app-source";
-import { sidebarSections } from "@/features/workspace-display/sidebar-sections";
-import { displayTabs } from "@/features/workspace-display/tab-store";
 
 /**
  * The app's own source state (drafts to apply, recent changes, the user's
@@ -104,8 +103,8 @@ export type AgentChange =
 /**
  * The newest thing an agent's change is on this computer: a draft to apply, a
  * draft whose base moved, or a commit already in the version (applied, or
- * undone again). A change made on another computer is offered by the Updates
- * list, never by the chat.
+ * undone again). A change made on another computer is offered by a
+ * card above the composer and by the Updates tab.
  */
 export const agentChange = (
   state: AppSourceState,
@@ -122,14 +121,15 @@ export const agentChange = (
   return commit ? { kind: "applied", commit } : null;
 };
 
-/** Offers still waiting for a click: one already being added is not. */
-export const waitingCount = (state: AppSourceState) =>
-  state.waiting.filter((offer) => !offer.adding).length;
-
-export const openUpdates = () => {
-  sidebarSections.selectSection("updates");
-  displayTabs.setPanelOpen(true);
-};
+/**
+ * The new version of Stella the top bar offers, when one is waiting (or
+ * already being added). Skipped in the Updates tab, it leaves the top bar.
+ */
+export const versionOffer = (state: AppSourceState) =>
+  state.waiting.find(
+    (offer): offer is Extract<AppSourceWaiting, { kind: "version" }> =>
+      offer.kind === "version",
+  ) ?? null;
 
 /**
  * An update Stella is taking by itself, as the state reports it. Whether it

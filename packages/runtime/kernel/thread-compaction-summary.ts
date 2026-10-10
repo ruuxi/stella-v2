@@ -1,7 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { completeSimple, readAssistantText } from "../ai/stream.js";
-import { sleepMs } from "../ai/effect-runtime.js";
 import { ORCHESTRATOR_ROSTER_CUSTOM_TYPE } from "./storage/shared.js";
 import type { ResolvedLlmRoute } from "./model-routing.js";
 import { createRuntimeLogger } from "./debug.js";
@@ -183,8 +181,11 @@ export const setThreadSummaryRetryDelaysForTest = (
   summaryRetryDelaysMs = delays ?? SUMMARY_RETRY_DELAYS_MS;
 };
 
-const sleep = (ms: number): Promise<void> =>
-  ms > 0 ? sleepMs(ms) : Promise.resolve();
+/** Retry backoff for the summary call and the compaction store write. */
+export const sleep = (ms: number): Promise<void> =>
+  ms > 0
+    ? new Promise((resolve) => setTimeout(resolve, ms))
+    : Promise.resolve();
 
 const GENERAL_SUMMARIZATION_SYSTEM_PROMPT = `You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.
 
@@ -400,8 +401,11 @@ export const generateThreadSummary = async (args: {
         });
         continue;
       }
-      const message = await completeSimple(
-        args.resolvedLlm.model,
+      const { completeOnRoute, readAssistantText } = await import(
+        "./llm-completion.js"
+      );
+      const message = await completeOnRoute(
+        args.resolvedLlm,
         {
           systemPrompt,
           messages: [

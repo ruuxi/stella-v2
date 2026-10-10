@@ -16,6 +16,7 @@ import { useT, useTPlural } from "@/shared/i18n";
 import { useOfficePreview } from "@/features/chat/office-preview-store";
 import { useFilePreviewActions } from "@/features/chat/hooks/use-file-preview-actions";
 import { Select } from "@/ui/select";
+import { PreviewProblem } from "./preview-states";
 
 const ZOOM_OPTIONS = [75, 100, 125, 150] as const;
 
@@ -103,18 +104,17 @@ const StatusPanel = ({
   loading?: boolean;
 }) => {
   const t = useT();
+  if (!loading) {
+    return (
+      <PreviewProblem
+        error={error?.trim() || t("shell.display.office.loadFailed")}
+      />
+    );
+  }
   return (
     <div className="display-artifact-status">
-      <div
-        className={
-          loading
-            ? "display-artifact-status__text loading-shimmer-pure-text"
-            : "display-artifact-status__text"
-        }
-      >
-        {loading
-          ? t("shell.display.office.preparing")
-          : error?.trim() || t("shell.display.office.loadFailed")}
+      <div className="display-artifact-status__text loading-shimmer-pure-text">
+        {t("shell.display.office.preparing")}
       </div>
     </div>
   );

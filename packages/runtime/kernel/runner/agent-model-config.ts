@@ -5,7 +5,6 @@ import type {
   AgentModelReasoningEffort,
   AgentRuntimeEngine,
   CloudExecutionSelection,
-  CodexServiceTier,
   SpawnEngineSelection,
 } from "@stella/contracts/agent-engine";
 import { getCodexSubscriptionPreferences } from "../integrations/codex-subscription.js";
@@ -68,7 +67,6 @@ export const captureEffectiveModelConfig = (args: {
   subscriptionHarnessEnabled?: boolean;
   configuredModel?: string;
   engineModelOverride?: string;
-  serviceTierOverride?: CodexServiceTier;
   /** Engine preferences, including an intentional absent effort, were frozen. */
   engineConfigSampled?: boolean;
   spawnEngine?: SpawnEngineSelection;
@@ -98,7 +96,7 @@ export const captureEffectiveModelConfig = (args: {
       routeModel,
       engineModel: codexModel,
       ...(effort ? { reasoningEffort: effort } : {}),
-      serviceTier: args.serviceTierOverride ?? codex.serviceTier,
+      serviceTier: codex.serviceTier,
       ...(args.spawnEngine ? { executionProfile: "spawn_override" } : {}),
     };
   }

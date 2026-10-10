@@ -191,7 +191,7 @@ describe("CloudMemoryWipeSettings", () => {
     expect(container.textContent).toContain(
       "12 cloud objects and 5 metadata rows erased",
     );
-    expect(container.textContent).toContain("retry automatically");
+    expect(container.textContent).toContain("Retrying soon");
     expect(container.textContent).not.toContain("Memory wipe completed");
     expect(
       container.querySelector<HTMLButtonElement>(
@@ -223,8 +223,7 @@ describe("CloudMemoryWipeSettings", () => {
     await render();
 
     expect(container.textContent).toContain("Memory wipe completed");
-    expect(container.textContent).toContain("new empty epoch is open");
-    expect(container.textContent).toContain("it cannot be undone");
+    expect(container.textContent).toContain("Can't be undone");
   });
 
   it("closes an armed confirmation when the account identity changes", async () => {

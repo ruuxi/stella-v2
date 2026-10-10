@@ -1,137 +1,148 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedStyle,
+  useReducedMotion,
+} from "react-native-reanimated";
 import { useT } from "../../i18n";
+import { drawerProgress } from "../../lib/drawer";
 import type { MainTabId } from "../../lib/last-main-tab";
 import { CONTENT_MAX_FONT_SCALE } from "../../lib/setup-text-defaults";
 import type { Colors } from "../../theme/colors";
 import { fonts } from "../../theme/fonts";
-import { fadeHex } from "../../theme/oklch";
 import { useColors } from "../../theme/theme-context";
-import { Icon, type IconName } from "../Icon";
 
-/** The shell's destinations, top to bottom. Settings stays last. */
-const NAV_ORDER: readonly MainTabId[] = [
+export type SidebarPlace = Exclude<MainTabId, "settings">;
+
+export const SIDEBAR_PLACES: readonly SidebarPlace[] = [
   "chat",
   "schedule",
   "apps",
   "files",
-  "settings",
 ];
 
-const NAV_ICONS = {
-  chat: "chat",
-  schedule: "clock",
-  apps: "apps",
-  files: "artifacts",
-  settings: "user",
-} as const satisfies Record<MainTabId, IconName>;
-
-const NAV_LABEL_KEYS: Record<MainTabId, string> = {
+const PLACE_LABEL_KEYS: Record<SidebarPlace, string> = {
   chat: "mobile.nav.chat",
   schedule: "mobile.activityHub.tabs.schedule",
   apps: "mobile.nav.apps",
   files: "mobile.activityHub.tabs.files",
-  // The destination is the account, not an app-settings catch-all, and
-  // `nav.account` is already translated everywhere.
-  settings: "mobile.nav.account",
 };
 
-const ROW_HEIGHT = 44;
+export function Rise({
+  i,
+  animated,
+  children,
+}: {
+  i: number;
+  animated: boolean;
+  children: ReactNode;
+}) {
+  const reduce = useReducedMotion();
+  const style = useAnimatedStyle(() => {
+    if (!animated) return { opacity: 1, transform: [{ translateX: 0 }] };
+    const v = Math.min(drawerProgress.value, 1);
+    const from = Math.min(0.08 * i, 0.5);
+    return {
+      opacity: interpolate(v, [from, from + 0.5], [0, 1], Extrapolation.CLAMP),
+      transform: [
+        {
+          translateX: reduce
+            ? 0
+            : interpolate(v, [0, 1], [-14 - i * 7, 0], Extrapolation.CLAMP),
+        },
+      ],
+    };
+  });
+  return <Animated.View style={style}>{children}</Animated.View>;
+}
 
-/**
- * The sidebar's navigation: every shell destination as an icon-and-name row
- * sitting directly on the panel, the current one on a soft lozenge. It shares
- * the Activity list's inset so both read as one list rather than two.
- */
-export function SidebarNav({
-  value,
+export function SidebarPlaceRow({
+  place,
+  active,
+  meta,
   onSelect,
 }: {
-  /** The destination on screen; `null` when none of them is. */
-  value: MainTabId | null;
-  /** Fires for every tap, including a tap on the current destination. */
+  place: SidebarPlace;
+  active: boolean;
+  meta?: string;
   onSelect: (next: MainTabId) => void;
 }) {
   const colors = useColors();
   const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const label = t(PLACE_LABEL_KEYS[place]);
   return (
-    <View style={styles.list}>
-      {NAV_ORDER.map((key) => {
-        const active = key === value;
-        return (
-          <Pressable
-            key={key}
-            accessibilityRole="button"
-            accessibilityState={{ selected: active }}
-            onPress={() => onSelect(key)}
-            style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-            testID={`mobile-sidebar-nav-${key}`}
-          >
-            {active ? (
-              <View pointerEvents="none" style={styles.activeLozenge} />
-            ) : null}
-            <View style={styles.glyph}>
-              <Icon
-                name={NAV_ICONS[key]}
-                size={19}
-                color={active ? colors.text : colors.textMuted}
-                weight={active ? "semibold" : "regular"}
-              />
-            </View>
-            <Text
-              style={[styles.label, active && styles.labelActive]}
-              numberOfLines={1}
-              maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-            >
-              {t(NAV_LABEL_KEYS[key])}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={meta ? `${label}, ${meta}` : label}
+      onPress={() => onSelect(place)}
+      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+      testID={`mobile-sidebar-nav-${place}`}
+    >
+      <View style={styles.labelLine}>
+        <Text
+          style={styles.label}
+          numberOfLines={1}
+          maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+        >
+          {label}
+        </Text>
+        {active ? <View style={styles.current} /> : null}
+      </View>
+      {meta ? (
+        <Text
+          style={styles.meta}
+          numberOfLines={1}
+          maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+        >
+          {meta}
+        </Text>
+      ) : null}
+    </Pressable>
   );
 }
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    list: {
-      alignSelf: "stretch",
-    },
     row: {
       alignItems: "center",
       flexDirection: "row",
-      gap: 10,
-      height: ROW_HEIGHT,
-      paddingHorizontal: 10,
+      height: 54,
     },
     pressed: {
-      opacity: 0.7,
+      opacity: 0.55,
+      transform: [{ scale: 0.98 }],
     },
-    activeLozenge: {
-      backgroundColor: fadeHex(colors.text, 0.08),
-      borderRadius: ROW_HEIGHT / 2,
-      bottom: 0,
-      left: 0,
-      position: "absolute",
-      right: 0,
-      top: 0,
-    },
-    glyph: {
+    labelLine: {
       alignItems: "center",
-      height: 22,
-      justifyContent: "center",
-      width: 22,
+      flex: 1,
+      flexDirection: "row",
+      gap: 10,
+      minWidth: 0,
     },
     label: {
-      color: colors.textMuted,
-      flexShrink: 1,
-      fontFamily: fonts.sans.medium,
-      fontSize: 15,
-      letterSpacing: -0.2,
-    },
-    labelActive: {
       color: colors.text,
+      flexShrink: 1,
+      fontFamily: fonts.sans.bold,
+      fontSize: 30,
+      letterSpacing: -1,
+      lineHeight: 38,
+    },
+    current: {
+      backgroundColor: colors.accent,
+      borderRadius: 4,
+      height: 8,
+      marginTop: 4,
+      width: 8,
+    },
+    meta: {
+      color: colors.textMuted,
       fontFamily: fonts.sans.semiBold,
+      fontSize: 16,
+      fontVariant: ["tabular-nums"],
+      marginLeft: 12,
     },
   });

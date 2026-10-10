@@ -369,11 +369,12 @@ export class OwnerStore {
     });
   }
 
-  async onLiveMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
+  /** False when the frame cannot have moved a deadline (a keepalive). */
+  async onLiveMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<boolean> {
     const attachment = this.liveAttachment(socket);
     if (!attachment) {
       this.closeLive(socket, LIVE_CLOSE.unauthenticated, "unauthenticated");
-      return;
+      return true;
     }
     const text =
       typeof message === "string"
@@ -381,25 +382,25 @@ export class OwnerStore {
         : new TextDecoder().decode(new Uint8Array(message));
     if (text.length > LIVE_MAX_FRAME_BYTES) {
       this.closeLive(socket, LIVE_CLOSE.protocol, "frame_too_large");
-      return;
+      return true;
     }
     let frame: LiveClientFrame;
     try {
       frame = JSON.parse(text) as LiveClientFrame;
     } catch {
       this.closeLive(socket, LIVE_CLOSE.protocol, "bad_frame");
-      return;
+      return true;
     }
     const now = Date.now();
     if (attachment.caller.expiresAtMs <= now && frame.t !== "auth") {
       this.closeLive(socket, LIVE_CLOSE.unauthenticated, "token_expired");
-      return;
+      return true;
     }
     this.ensureSchema();
     switch (frame.t) {
       case "ping":
         this.send(socket, { t: "pong" });
-        return;
+        return false;
       case "auth": {
         const caller =
           typeof frame.token === "string" && frame.token.length > 0
@@ -411,7 +412,7 @@ export class OwnerStore {
           caller.subject !== attachment.caller.subject
         ) {
           this.closeLive(socket, LIVE_CLOSE.unauthenticated, "token_rejected");
-          return;
+          return true;
         }
         if (caller.expiresAtMs <= attachment.caller.expiresAtMs) {
           // The same expiry is not a completed reauthentication: keeping the
@@ -429,19 +430,19 @@ export class OwnerStore {
               now,
             ),
           } satisfies LiveAttachment);
-          return;
+          return true;
         }
         socket.serializeAttachment({
           kind: "live",
           connId: attachment.connId,
           caller,
         } satisfies LiveAttachment);
-        return;
+        return true;
       }
       case "sub": {
         if (typeof frame.id !== "string" || frame.id.length > 64 || typeof frame.view !== "string") {
           this.closeLive(socket, LIVE_CLOSE.protocol, "bad_frame");
-          return;
+          return true;
         }
         const count =
           this.sql
@@ -458,7 +459,7 @@ export class OwnerStore {
               new RpcError("RATE_LIMITED", "Too many live subscriptions."),
             ),
           });
-          return;
+          return true;
         }
         this.sql.exec(
           `INSERT INTO owner_live_subs (conn_id, sub_id, view, args, hash)
@@ -477,7 +478,7 @@ export class OwnerStore {
           args: encodeJson(frame.args),
           hash: null,
         });
-        return;
+        return true;
       }
       case "unsub":
         this.sql.exec(
@@ -485,9 +486,10 @@ export class OwnerStore {
           attachment.connId,
           String(frame.id),
         );
-        return;
+        return true;
       default:
         this.closeLive(socket, LIVE_CLOSE.protocol, "bad_frame");
+        return true;
     }
   }
 

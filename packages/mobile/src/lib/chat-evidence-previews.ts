@@ -7,7 +7,7 @@
  *
  * - An image is handed to `expo-image` as a `file://` URI and downsampled
  *   natively to the card's size. Only its pixel dimensions come back to JS,
- *   through one native load that is released immediately — pairing needs them.
+ *   through one native load that is released immediately.
  * - A video's poster frame comes from `expo-video-thumbnails`, which reads the
  *   frame with AVFoundation. For a drive file it reads the signed URL directly,
  *   so a ten-minute recording costs a range request, not a download. At rest a
@@ -200,8 +200,8 @@ const imagePreviewFor = async (
   }
   const cached = readManifest(local.identity);
   if (cached?.kind === "image") return cached;
-  // One native load, read for its size and released at once: the pair rule
-  // needs real pixel dimensions, and nothing else here wants the bitmap.
+  // One native load, read for its size and released at once; nothing else
+  // here wants the bitmap.
   const reference = await Image.loadAsync({ uri: local.uri });
   const preview: EvidencePreview = {
     kind: "image",
@@ -329,4 +329,16 @@ export const evidenceAudioFileUri = async (
 ): Promise<string> => {
   const remote = await remoteSourceFor(request.filePath);
   return (await localSourceFor(request, remote)).uri;
+};
+
+/**
+ * The copy of a paired-computer file a preview already pulled onto this
+ * device, if there is one, so the viewer can play it without a second read.
+ */
+export const cachedEvidenceSourceUri = (filePath: string): string | null => {
+  const file = new File(
+    directoryFor("source"),
+    `${stableKey(filePath)}${extensionOf(filePath)}`,
+  );
+  return file.exists && (file.size ?? 0) > 0 ? file.uri : null;
 };

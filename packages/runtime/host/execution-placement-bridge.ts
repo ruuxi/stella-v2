@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
 import type { BackendClient } from "@stella/contracts/backend/client";
+import {
+  SOCKET_KEEPALIVE_PING,
+  SOCKET_KEEPALIVE_PONG,
+} from "@stella/contracts/backend/protocol";
 import WebSocket from "ws";
 import {
   DEVICE_PRESENCE_PING_INTERVAL_MS,
@@ -32,6 +36,7 @@ import {
   DeviceRequestServer,
   type ServeDeviceRequest,
 } from "./device-request-server.js";
+import { DeviceToolServer, type RunDeviceTool } from "./device-tool-server.js";
 import type { SqliteDatabase } from "../kernel/storage/shared.js";
 import {
   ExecutionPlacementInbox,
@@ -181,6 +186,13 @@ type PlacementBridgeOptions = {
    * own access policy; absent, every request is refused.
    */
   serveDeviceRequest?: ServeDeviceRequest;
+  /**
+   * Run a cloud agent's tool call (or describe this computer) that the owner
+   * gate relayed over the presence socket, with this computer's own tool
+   * host. The gate only relays to a computer enabled for remote work;
+   * absent, every call is refused.
+   */
+  runDeviceTool?: RunDeviceTool;
   log?: (level: "warn" | "error", message: string, error?: unknown) => void;
   now?: () => number;
   /** Test seam; production uses the accepted execution lease duration. */
@@ -394,6 +406,7 @@ export class ExecutionPlacementBridge {
   >();
 
   private readonly deviceRequests: DeviceRequestServer;
+  private readonly deviceTools: DeviceToolServer;
 
   constructor(private readonly options: PlacementBridgeOptions) {
     this.client = options.client;
@@ -406,6 +419,11 @@ export class ExecutionPlacementBridge {
     });
     this.deviceRequests = new DeviceRequestServer({
       serve: options.serveDeviceRequest,
+      send: (frame) => this.send(frame),
+      log: (message, error) => this.log("warn", message, error),
+    });
+    this.deviceTools = new DeviceToolServer({
+      run: options.runDeviceTool,
       send: (frame) => this.send(frame),
       log: (message, error) => this.log("warn", message, error),
     });
@@ -658,6 +676,21 @@ export class ExecutionPlacementBridge {
   // Presence socket
   // -------------------------------------------------------------------------
 
+  /**
+   * The platform answers this without waking the owner's object, which is
+   * what lets it hibernate between heartbeats. The gate reads the time of the
+   * last answer as this device's last-seen time.
+   */
+  private sendKeepalive(): void {
+    const socket = this.socket;
+    if (!socket || socket.readyState !== 1 || !this.socketProven) return;
+    try {
+      socket.send(SOCKET_KEEPALIVE_PING);
+    } catch (error) {
+      this.log("warn", "A device presence keepalive could not be sent.", error);
+    }
+  }
+
   private send(frame: DevicePresenceDeviceFrame): boolean {
     const socket = this.socket;
     if (!socket || socket.readyState !== 1) return false;
@@ -764,6 +797,7 @@ export class ExecutionPlacementBridge {
           typeof data === "string"
             ? data
             : Buffer.from(data as ArrayBufferLike).toString("utf8");
+        if (text === SOCKET_KEEPALIVE_PONG) return;
         const value = JSON.parse(text) as unknown;
         if (!value || typeof value !== "object" || Array.isArray(value)) return;
         frame = value as DevicePresenceServerFrame;
@@ -859,7 +893,7 @@ export class ExecutionPlacementBridge {
       this.socketPingTimer = forkInterval(
         DEVICE_PRESENCE_PING_INTERVAL_MS,
         () => {
-          this.send({ type: "ping" });
+          this.sendKeepalive();
         },
       );
       await this.resumeAfterConnect();
@@ -910,6 +944,12 @@ export class ExecutionPlacementBridge {
     },
     "request.cancel": (frame) => {
       this.deviceRequests.cancel(frame.requestId);
+    },
+    "tool.call": (frame) => {
+      this.deviceTools.handle(frame);
+    },
+    "tool.cancel": (frame) => {
+      this.deviceTools.cancel(frame.requestId);
     },
     error: (frame, socket) => {
       this.log(
@@ -1200,6 +1240,8 @@ export class ExecutionPlacementBridge {
 
   async stop(): Promise<void> {
     if (this.stopTask) return await this.stopTask;
+    // A call nobody can answer any more stops here too.
+    this.deviceTools.stopAll();
     const task = this.stopAndQuiesce();
     this.stopTask = task;
     try {

@@ -1,6 +1,6 @@
 import { cloudWorldDrivePath } from "@stella/contracts/cloud-world-paths";
 import type { Plugin } from "unified";
-import type { Link, Parent, Root, RootContent, Text } from "mdast";
+import type { Image, Link, Parent, Root, RootContent, Text } from "mdast";
 import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import { parseLocalFileLinkTarget } from "@stella/contracts/local-file-links";
 import { parseStellaAppUrl } from "@stella/contracts/workspace-apps";
@@ -62,6 +62,7 @@ const buildStellaFileNode = (path: string, label: string): StellaFileNode => {
 
 const isText = (node: RootContent): node is Text => node.type === "text";
 const isLink = (node: RootContent): node is Link => node.type === "link";
+const isImage = (node: RootContent): node is Image => node.type === "image";
 
 const textOfChildren = (parent: Parent): string => {
   let out = "";
@@ -97,12 +98,25 @@ const transformChildren = (parent: Parent, hiddenPaths: ReadonlySet<string>): vo
       const path = parseLocalFileLinkTarget((child as Link).url ?? "");
       if (path) {
         const identity = cloudWorldDrivePath(path) ? `cloud:${cloudWorldDrivePath(path)}` : `local:${path}`;
+        const label = textOfChildren(child as Parent);
         if (hiddenPaths.has(identity)) {
-          parent.children.splice(index, 1);
+          parent.children.splice(index, 1, {
+            type: "text",
+            value: label.trim() && label.trim() !== path ? label : basenameOf(path),
+          } as Text);
           continue;
         }
-        const label = textOfChildren(child as Parent);
         parent.children.splice(index, 1, buildStellaFileNode(path, label));
+        continue;
+      }
+    }
+    if (isImage(child as RootContent)) {
+      const path = parseLocalFileLinkTarget((child as Image).url ?? "");
+      const identity = path
+        ? cloudWorldDrivePath(path) ? `cloud:${cloudWorldDrivePath(path)}` : `local:${path}`
+        : null;
+      if (identity && hiddenPaths.has(identity)) {
+        parent.children.splice(index, 1);
         continue;
       }
     }

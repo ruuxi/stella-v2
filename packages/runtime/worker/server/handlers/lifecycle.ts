@@ -56,9 +56,6 @@ export const lifecycleHandlers: WorkerRpcHandlers = {
         runner?.getActiveOrchestratorRun() ??
         runner?.listActiveAgentRuns()[0] ??
         null;
-      // Restart at durable boundaries: a restart is invisible unless an
-      // unsafe tool call is in flight or an active run would not resume.
-      const restartBlockers = runner?.getRestartBlockers() ?? null;
       return {
         health,
         activeRun,
@@ -68,16 +65,6 @@ export const lifecycleHandlers: WorkerRpcHandlers = {
         deviceId: session?.config.deviceId ?? null,
         voiceBusy: session?.voice.isBusy() ?? false,
         pendingVoiceRequestCount: session?.voice.getPendingRequestCount() ?? 0,
-        ...(restartBlockers
-          ? {
-              durableRestart: {
-                ...restartBlockers,
-                blocked:
-                  restartBlockers.unsafeToolCalls > 0 ||
-                  restartBlockers.nonDurableRuns > 0,
-              },
-            }
-          : {}),
       };
     }),
 

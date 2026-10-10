@@ -5,7 +5,6 @@ import {
   type RuntimeAgentEventPayload,
   type RuntimeAttachmentRef,
   type RuntimeChatPayload,
-  type RuntimePromptMessage,
   type RuntimeOneShotCompletionRequest,
   type RuntimeOneShotCompletionResult,
 } from "@stella/contracts/protocol";
@@ -14,7 +13,7 @@ import {
   AGENT_RUN_FINISH_OUTCOMES,
   AGENT_STREAM_EVENT_TYPES,
 } from "@stella/contracts/agent-runtime";
-import type { ImageCapTarget } from "../../../ai/utils/image-caps.js";
+import type { ImageCapTarget } from "../../../kernel/shared/image-caps.js";
 import type { RawReplyRef, ReplyRef } from "@stella/contracts/reply-refs";
 import { prepareStoredLocalChatPayload } from "../../../kernel/storage/local-chat-payload.js";
 import { RunAdmissionStore } from "../../../kernel/storage/run-admission.js";
@@ -25,20 +24,11 @@ import {
 } from "../../../kernel/runner/conversation-storage-mode.js";
 import { createRuntimeLogger } from "../../../kernel/debug.js";
 import {
-  approximateDataUrlBytes,
-  attachPersistedImagePaths,
-  buildSpilledAttachmentNotice,
-  dataUrlBase64Length,
-  INLINE_IMAGE_ATTACHMENT_BUDGET_BYTES,
-  MAX_INLINE_IMAGE_BASE64_BYTES,
-  spillImageAttachmentsToDisk,
-  type SpilledImageAttachment,
-} from "../../chat-attachment-spill.js";
-import {
   asTrimmedString,
   materializeImageAttachments,
   materializeFileAttachments,
 } from "../attachments.js";
+import { prepareChatInput } from "../chat-input.js";
 import * as HostBus from "../host-bus.js";
 import * as SessionConfig from "./config.js";
 import * as SessionStorage from "./storage.js";
@@ -107,12 +97,6 @@ export interface Interface {
   readonly oneShotCompletion: (
     request: RuntimeOneShotCompletionRequest,
   ) => Promise<RuntimeOneShotCompletionResult>;
-  /**
-   * Relaunch the chat runs a previous worker process left running, with
-   * client callbacks rebuilt from each run's launch record. Runs post-ready,
-   * once the runner is initialized.
-   */
-  readonly resumeInterruptedRuns: () => Promise<void>;
 }
 
 export class Service extends Context.Service<Service, Interface>()(
@@ -167,12 +151,6 @@ export const layer = Layer.effect(
     const loadOneShotCompletion = () =>
       (oneShotCompletionModule ??=
         import("../../../kernel/agent-runtime/one-shot-completion.js"));
-    let chatPromptContextModule: Promise<
-      typeof import("../../../kernel/chat-prompt-context.js")
-    > | null = null;
-    const loadChatPromptContext = () =>
-      (chatPromptContextModule ??=
-        import("../../../kernel/chat-prompt-context.js"));
 
     /**
      * Append a fresh persisted assistant row for one completed assistant
@@ -287,9 +265,7 @@ export const layer = Layer.effect(
     /**
      * The client callbacks of one chat run: persist assistant/tool rows for
      * local transcripts, settle the run's admissions, and emit run events.
-     * Built per `startChat`, and again from the run's stored launch record
-     * when a durable run resumes in a new worker process
-     * (`resumeInterruptedRuns`).
+     * Built per `startChat`.
      */
     const createChatRunCallbacks = (ctx: {
       conversationId: string;
@@ -360,11 +336,6 @@ export const layer = Layer.effect(
       let lastAssistantMessageEvent: LocalChatEventRecord | null = null;
       const emitRunEvent = (event: AgentEventPayload) => runEvents.emit(event);
       return {
-        durableClient: {
-          ...(requestId ? { requestId } : {}),
-          ...(timezone ? { timezone } : {}),
-          persistLocalTranscript,
-        },
         onAssistantMessage: (ev) => {
           if (
             (ev.agentType ?? AGENT_IDS.ORCHESTRATOR) !==
@@ -525,15 +496,6 @@ export const layer = Layer.effect(
           emitRunEvent({
             ...ev,
             type: AGENT_STREAM_EVENT_TYPES.STATUS,
-            conversationId,
-            ...(requestId ? { requestId } : {}),
-          });
-        },
-        onProviderLifecycle: (ev) => {
-          if (hiddenSystemRunIds.has(ev.runId)) return;
-          emitRunEvent({
-            ...ev,
-            type: AGENT_STREAM_EVENT_TYPES.PROVIDER_LIFECYCLE,
             conversationId,
             ...(requestId ? { requestId } : {}),
           });
@@ -819,113 +781,30 @@ export const layer = Layer.effect(
         asTrimmedString(
           (payload as RuntimeChatPayload & { requestId?: string }).requestId,
         ) || undefined;
-      // Resolve the provider/model this turn will run on so composer images
-      // are sized to that provider's real limits (best-effort; falls back to
-      // the safe conservative profile when no route resolves).
-      let composerImageTarget: ImageCapTarget | undefined;
-      try {
-        composerImageTarget =
-          (await (
-            await runnerHandle.ensureInitialized()
-          ).resolveImageTarget(payload.agentType)) ?? undefined;
-      } catch {
-        composerImageTarget = undefined;
-      }
-      const materializedImageAttachments = await materializeImageAttachments(
-        payload.attachments,
-        composerImageTarget,
-      );
-      const modelFileAttachments = await materializeFileAttachments({
-        attachments: payload.attachments,
-        stellaDataDirPath: config.get().stellaDataDirPath,
-        conversationId: payload.conversationId,
-      });
-      let modelImageAttachments = materializedImageAttachments.map(
-        ({ attachment }) => attachment,
-      );
-      let persistedImageAttachments: SpilledImageAttachment[] = [];
-      if (modelImageAttachments.length > 0) {
-        persistedImageAttachments = await spillImageAttachmentsToDisk({
-          stellaDataDirPath: config.get().stellaDataDirPath,
-          conversationId: payload.conversationId,
-          attachments: modelImageAttachments,
-        });
-        modelImageAttachments = attachPersistedImagePaths(
-          modelImageAttachments,
-          persistedImageAttachments,
-        );
-      }
-      const totalInlineImageBytes = modelImageAttachments.reduce(
-        (total, attachment) => total + approximateDataUrlBytes(attachment.url),
-        0,
-      );
-      let spilledImageAttachments: SpilledImageAttachment[] = [];
-      const hasOverCapInlineImage = modelImageAttachments.some(
-        (attachment) =>
-          dataUrlBase64Length(attachment.url) > MAX_INLINE_IMAGE_BASE64_BYTES,
-      );
-      if (
-        totalInlineImageBytes > INLINE_IMAGE_ATTACHMENT_BUDGET_BYTES ||
-        hasOverCapInlineImage
-      ) {
-        spilledImageAttachments = persistedImageAttachments;
-        modelImageAttachments = [];
-      }
-      const { buildChatPromptMessages } = await loadChatPromptContext();
       const {
         visibleUserPrompt,
         windowContextLabel,
         browserUrl,
         appSelectionLabel,
-        appSelectionLabels,
         activityLabel,
-        quotedText,
-        pastedTexts,
-        promptMessages,
+        journalDisplayContext,
+        userMessageMetadata,
         windowScreenshotAttachment,
-      } = buildChatPromptMessages({
-        userPrompt: payload.userPrompt,
-        selectedText:
-          payload.selectedText ?? payload.chatContext?.selectedText ?? null,
-        chatContext: payload.chatContext ?? null,
-        explicitImageAttachmentCount: modelImageAttachments.length,
+        modelImageAttachments,
+        spilledImageAttachments,
+        totalInlineImageBytes,
+        runPromptMessages,
+        mergedAttachments,
+      } = await prepareChatInput(payload, {
+        stellaDataDirPath: config.get().stellaDataDirPath,
+        // Resolve the provider/model this turn will run on so composer images
+        // are sized to that provider's real limits (best-effort; falls back to
+        // the safe conservative profile when no route resolves).
+        resolveImageTarget: async () =>
+          (await (
+            await runnerHandle.ensureInitialized()
+          ).resolveImageTarget(payload.agentType)) ?? undefined,
       });
-      const journalDisplayContext = {
-        ...(appSelectionLabel ? { appSelectionLabel } : {}),
-        ...(appSelectionLabels?.length ? { appSelectionLabels } : {}),
-        ...(activityLabel ? { activityLabel } : {}),
-        ...(quotedText ? { quotedText } : {}),
-        ...(pastedTexts?.length ? { pastedTexts } : {}),
-      };
-      const userMessageMetadata =
-        Object.keys(journalDisplayContext).length > 0
-          ? { context: journalDisplayContext }
-          : undefined;
-      let modelWindowScreenshotAttachment = windowScreenshotAttachment;
-      if (modelWindowScreenshotAttachment) {
-        const persistedWindowScreenshot = await spillImageAttachmentsToDisk({
-          stellaDataDirPath: config.get().stellaDataDirPath,
-          conversationId: payload.conversationId,
-          attachments: [modelWindowScreenshotAttachment],
-        });
-        [modelWindowScreenshotAttachment] = attachPersistedImagePaths(
-          [modelWindowScreenshotAttachment],
-          persistedWindowScreenshot,
-        );
-      }
-      const runPromptMessages: RuntimePromptMessage[] = [
-        ...(promptMessages ?? []),
-        ...(spilledImageAttachments.length > 0
-          ? [
-              {
-                text: buildSpilledAttachmentNotice(spilledImageAttachments),
-                uiVisibility: "hidden" as const,
-                messageType: "message" as const,
-                customType: "runtime.chat_context",
-              },
-            ]
-          : []),
-      ];
       const userMessageTimestamp =
         typeof payload.userMessageTimestamp === "number" &&
         Number.isFinite(payload.userMessageTimestamp)
@@ -1028,13 +907,6 @@ export const layer = Layer.effect(
         appendUserMessageEvent();
       }
 
-      const mergedAttachments = [
-        ...modelImageAttachments,
-        ...modelFileAttachments,
-        ...(modelWindowScreenshotAttachment
-          ? [modelWindowScreenshotAttachment]
-          : []),
-      ];
       logger.info("startChat.prompt-shape", {
         conversationId: payload.conversationId,
         visibleUserPrompt,
@@ -1291,47 +1163,12 @@ export const layer = Layer.effect(
       });
     };
 
-    const resumeInterruptedRuns: Interface["resumeInterruptedRuns"] =
-      async () => {
-        const runner = await runnerHandle.ensureInitialized();
-        const { resumed, failed } =
-          await runner.resumeInterruptedOrchestratorRuns({
-            createCallbacks: (launch) => {
-              const client = launch.client ?? {};
-              return createChatRunCallbacks({
-                conversationId: launch.conversationId,
-                userMessageId: launch.userMessageId,
-                requestId:
-                  typeof client.requestId === "string"
-                    ? client.requestId
-                    : undefined,
-                timezone:
-                  typeof client.timezone === "string"
-                    ? client.timezone
-                    : undefined,
-                persistLocalTranscript:
-                  typeof client.persistLocalTranscript === "boolean"
-                    ? client.persistLocalTranscript
-                    : shouldPersistLocalChatTranscript(launch.storageMode),
-                // The dead process appended the user row and placed the
-                // admission; a resume only continues the run.
-                appendUserMessageEvent: () => {},
-                markAdmissionPlaced: () => {},
-              });
-            },
-          });
-        if (resumed.length > 0 || failed.length > 0) {
-          logger.info("durable-runs.resume-pass", { resumed, failed });
-        }
-      };
-
     return {
       startChat,
       sendAgentInput,
       runAutomation,
       materializeAgentAttachments,
       oneShotCompletion,
-      resumeInterruptedRuns,
     };
   }),
 );

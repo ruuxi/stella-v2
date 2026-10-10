@@ -26,7 +26,7 @@ const ensureWindow = async (): Promise<BrowserWindow> => {
     releaseLater();
     return probeWindow;
   }
-  serveMediaProtocol(MEDIA_PROBE_PARTITION);
+  serveMediaProtocol(MEDIA_PROBE_PARTITION, { devices: false });
   const window = new BrowserWindow({
     width: 16,
     height: 16,

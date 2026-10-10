@@ -7,11 +7,7 @@
 
 import fs from "fs";
 import path from "path";
-import {
-  getOAuthApiKey,
-  getOAuthProvider,
-} from "../../ai/utils/oauth/index.js";
-import type { OAuthCredentials } from "../../ai/utils/oauth/types.js";
+import type { OAuthCredentials } from "./llm-oauth-providers.js";
 import {
   deleteProtectedValue,
   protectValue,
@@ -207,13 +203,14 @@ export const saveLocalLlmOAuthCredential = (
     credentials: OAuthCredentials;
   },
 ): LocalLlmOAuthCredentialSummary => {
+  // Callers save what a provider sign-in or refresh returned, so the
+  // provider is one the sign-in registry knows.
   const provider = normalizeProvider(payload.provider);
-  const oauthProvider = getOAuthProvider(provider);
-  if (!provider || !oauthProvider) {
+  if (!provider) {
     throw new Error("Unsupported OAuth provider.");
   }
 
-  const label = payload.label.trim() || oauthProvider.name;
+  const label = payload.label.trim() || provider;
   const file = readCredentialFile(stellaAppDir);
   const now = Date.now();
   const existing = file.credentials[provider];
@@ -287,13 +284,20 @@ export const getLocalLlmOAuthApiKey = async (
   );
   if (!credentials) return null;
 
-  let result: Awaited<ReturnType<typeof getOAuthApiKey>>;
+  // The sign-in flows load pi-ai's providers; only a request for a stored
+  // key pays for them (the cloud tool host reaches this module too).
+  const { getLlmOAuthApiKey, getLlmOAuthProvider } = await import(
+    "./llm-oauth-providers.js"
+  );
+  const oauthProvider = getLlmOAuthProvider(normalizedProvider);
+  if (!oauthProvider) {
+    throw new Error(`Unknown OAuth provider: ${normalizedProvider}`);
+  }
+  let result: Awaited<ReturnType<typeof getLlmOAuthApiKey>>;
   try {
-    result = await getOAuthApiKey(
-      normalizedProvider,
-      { [normalizedProvider]: credentials },
-      { forceRefresh: options.forceRefresh === true },
-    );
+    result = await getLlmOAuthApiKey(oauthProvider, credentials, {
+      forceRefresh: options.forceRefresh === true,
+    });
   } catch (error) {
     if (options.forceRefresh && credentials.expires > 0) {
       saveLocalLlmOAuthCredential(stellaAppDir, {
@@ -304,13 +308,11 @@ export const getLocalLlmOAuthApiKey = async (
     }
     throw error;
   }
-  if (!result) return null;
-
-  if (result.newCredentials !== credentials) {
+  if (result.credentials !== credentials) {
     saveLocalLlmOAuthCredential(stellaAppDir, {
       provider: normalizedProvider,
       label: record.label,
-      credentials: result.newCredentials,
+      credentials: result.credentials,
     });
   }
   return result.apiKey;

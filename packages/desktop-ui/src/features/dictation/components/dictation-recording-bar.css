@@ -9,6 +9,7 @@
 
 .composer-dictation-recording-row {
   min-width: 0;
+  min-height: 36px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -47,7 +48,7 @@
 .composer-dictation-waveform {
   flex: 1 1 auto;
   min-width: 0;
-  height: 28px;
+  height: 32px;
   display: block;
   /* Canvas inherits this `color` to draw the bars. */
   color: color-mix(in oklch, var(--text-base) 70%, transparent);
@@ -64,8 +65,8 @@
 
 .composer-dictation-control {
   flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   background: color-mix(in oklch, var(--text-base) 7%, transparent);
   border: none;

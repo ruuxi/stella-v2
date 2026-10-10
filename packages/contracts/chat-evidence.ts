@@ -1,6 +1,5 @@
 export type EvidenceCardKind =
   | "image"
-  | "image-pair"
   | "video"
   | "audio"
   | "page"
@@ -12,7 +11,6 @@ export type EvidenceCardKind =
 
 export const EVIDENCE_MEDIA_KINDS: readonly EvidenceCardKind[] = [
   "image",
-  "image-pair",
   "video",
   "audio",
   "stack",
@@ -25,7 +23,6 @@ export const EVIDENCE_TILE_HEIGHT = 132;
 
 export const EVIDENCE_TILE_WIDTH: Record<EvidenceCardKind, number> = {
   image: 176,
-  "image-pair": 232,
   video: 176,
   stack: 176,
   audio: 248,
@@ -65,7 +62,6 @@ export type EvidenceCard = {
   subtitle?: string;
   sourcePaths: string[];
   thumbnail?: string;
-  thumbnailAfter?: string;
   peaks?: number[];
   durationMs?: number;
   playbackMimeType?: string;

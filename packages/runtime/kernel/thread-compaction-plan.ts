@@ -1,4 +1,7 @@
-import type { RuntimeThreadMessage } from "./storage/shared.js";
+import type {
+  RuntimeThreadMessage,
+  StoredImageContent,
+} from "./storage/shared.js";
 import {
   decodedBase64ByteLength,
   estimateModelVisibleImageTokens,
@@ -100,14 +103,20 @@ export type ThreadCompactionSplitPolicy = "orchestrator" | "general";
 const estimateMessageTokens = (message: ThreadMessage): number =>
   Math.max(1, Math.ceil((message.content ?? "").length / 4));
 
-export const storedMessageImageBlocks = (message: StoredThreadMessage) => {
+export const storedMessageImageBlocks = (
+  message: StoredThreadMessage,
+): StoredImageContent[] => {
   const payload = message.payload;
   if (payload && typeof payload.content !== "string") {
-    return payload.content.filter((block) => block.type === "image");
+    return payload.content.filter(
+      (block): block is StoredImageContent => block.type === "image",
+    );
   }
   const customContent = message.customMessage?.content;
   if (Array.isArray(customContent)) {
-    return customContent.filter((block) => block.type === "image");
+    return customContent.filter(
+      (block): block is StoredImageContent => block.type === "image",
+    );
   }
   return [];
 };

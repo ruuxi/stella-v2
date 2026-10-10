@@ -5,12 +5,6 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { createRuntimeLogger } from "./debug.js";
-import {
-  clearProviderUsage,
-  getBilledContextTokens,
-  getLastProviderPayloadTokens,
-  isThreadCompactionForced,
-} from "./agent-runtime/context-budget.js";
 import { buildResidentFold } from "./agent-runtime/resident-context.js";
 import {
   QUARANTINE_CUSTOM_TYPE,
@@ -52,6 +46,7 @@ import {
   formatFileOperationsForSummary,
   generateThreadSummary,
   generateThreadSummaryWithoutElision,
+  sleep,
 } from "./thread-compaction-summary.js";
 
 // The thread-runtime surface other runtime modules read these through.
@@ -346,16 +341,8 @@ export const formatThreadCheckpointMessage = (
  * to the store; every short-circuit path (empty thread, below trigger,
  * no valid cut point, summary generation produced an empty string)
  * returns `compacted: false` so the caller can avoid downstream
- * side-effects (e.g. flagging a long-lived `OrchestratorSession`'s
- * in-memory mirror as stale, which forces a full rebuild of
- * `agent.state.messages` from the store and defeats the prompt-cache
- * stability the long-lived session was meant to provide).
+ * side-effects that only a real compaction warrants.
  */
-const sleep = (ms: number): Promise<void> =>
-  ms > 0
-    ? new Promise((resolve) => setTimeout(resolve, ms))
-    : Promise.resolve();
-
 export type ThreadCompactionResult = {
   compacted: boolean;
 };
@@ -457,7 +444,6 @@ export const maybeCompactRuntimeThread = async (args: {
   readAgentRoster?: () => Promise<string | undefined>;
 }): Promise<ThreadCompactionResult> => {
   const compactionStartedAt = Date.now();
-  const forcedBeforeProbe = isThreadCompactionForced(args.threadKey);
   const narrowProbe =
     typeof args.store.getThreadContextPressureStats === "function"
       ? args.store.getThreadContextPressureStats(args.threadKey)
@@ -465,16 +451,12 @@ export const maybeCompactRuntimeThread = async (args: {
   const initialRelevantQuarantineCount =
     narrowProbe?.complete === true ? narrowProbe.quarantineCount : null;
   if (
-    !forcedBeforeProbe &&
     narrowProbe?.complete === true &&
     narrowProbe.quarantineCount === 0 &&
     narrowProbe.imageCount <= MAX_ACTIVE_THREAD_IMAGES &&
     narrowProbe.imageDecodedBytes <= ACTIVE_THREAD_IMAGE_DECODED_BYTE_BUDGET &&
-    (getBilledContextTokens(args.threadKey) ??
-      Math.max(
-        narrowProbe.estimatedTokens,
-        getLastProviderPayloadTokens(args.threadKey) ?? 0,
-      )) < getCompactionTriggerTokens(args.resolvedLlm, args.agentType)
+    narrowProbe.estimatedTokens <
+      getCompactionTriggerTokens(args.resolvedLlm, args.agentType)
   ) {
     return { compacted: false };
   }
@@ -537,22 +519,11 @@ export const maybeCompactRuntimeThread = async (args: {
 
   const policy = resolveCompactionSplitPolicy(args.agentType);
   const totalTokens = getThreadTokenEstimate(storedMessages);
-  const forced = forcedBeforeProbe;
   const imageHistory = getThreadImageHistoryStats(storedMessages);
-  // The trigger measures what the provider actually received: its billed
-  // usage for the last response since the last compaction (as Pi does).
-  // Without one, the last preflight estimate of the full outbound payload
-  // (system prompt + tool schemas + resident context + history), floored by
-  // the history-only estimate (e.g. the first turn after a worker restart).
-  const measuredTokens =
-    getBilledContextTokens(args.threadKey) ??
-    Math.max(totalTokens, getLastProviderPayloadTokens(args.threadKey) ?? 0);
   if (
-    !forced &&
     !imageHistory.overBudget &&
     !rebuildUnsafeCheckpoint &&
-    measuredTokens <
-      getCompactionTriggerTokens(args.resolvedLlm, args.agentType)
+    totalTokens < getCompactionTriggerTokens(args.resolvedLlm, args.agentType)
   ) {
     return { compacted: false };
   }
@@ -582,11 +553,7 @@ export const maybeCompactRuntimeThread = async (args: {
             ? Math.max(0, Math.floor(args.preserveLastN))
             : MIN_TAIL_MESSAGES,
         );
-  if (
-    !splitMessages &&
-    (forced || rebuildUnsafeCheckpoint) &&
-    !imageHistory.overBudget
-  ) {
+  if (!splitMessages && rebuildUnsafeCheckpoint && !imageHistory.overBudget) {
     // Emergency split for an overflow that the standard cut points cannot
     // relieve (e.g. a few enormous messages inside the protected head or
     // tail). Only the orchestrator's bootstrap docs stay pinned; everything
@@ -623,9 +590,7 @@ export const maybeCompactRuntimeThread = async (args: {
     ? "image-pressure"
     : rebuildUnsafeCheckpoint
       ? "quarantine-rebuild"
-      : forced
-        ? "forced"
-        : "token-pressure";
+      : "token-pressure";
   logger.info("thread.compaction.started", {
     threadKey: args.threadKey,
     model: args.resolvedLlm.model.id,
@@ -633,7 +598,6 @@ export const maybeCompactRuntimeThread = async (args: {
     policy,
     cacheBoundary: "checkpoint-overlay",
     tokensBefore: totalTokens,
-    measuredTokens,
     imageCountBefore: imageHistory.count,
     imageDecodedBytesBefore: imageHistory.decodedBytes,
     compactedMessageCount:
@@ -885,7 +849,6 @@ export const maybeCompactRuntimeThread = async (args: {
         ...(Object.keys(details).length > 0 ? { details } : {}),
       });
       args.store.updateThreadSummary(args.threadKey, summary);
-      clearProviderUsage(args.threadKey);
       const effectiveAfter = args.store.loadThreadMessages(args.threadKey);
       const imageHistoryAfter = getThreadImageHistoryStats(effectiveAfter);
       logger.info("thread.compaction.completed", {

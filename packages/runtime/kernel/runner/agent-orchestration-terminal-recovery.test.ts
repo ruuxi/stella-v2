@@ -66,7 +66,6 @@ const buildContext = (
   ({
     state: {
       localAgentManager: null,
-      orchestratorSessions: new Map(),
       runCallbacksByRunId: new Map(),
       supervisor: { adoptChild: () => {} },
       ...state,

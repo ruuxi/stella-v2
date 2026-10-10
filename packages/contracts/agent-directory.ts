@@ -245,7 +245,8 @@ const escapeAttribute = (value: string) =>
 /**
  * A message from another agent, as the receiver reads it. It is a peer's
  * note, never the user's instruction; the receiver answers with send_message
- * to `thread_id`.
+ * to `thread_id`. Chat readers know a note by this framing (`isPiAgentText`
+ * in `pi-chat`) and never show one sent to Stella.
  */
 export const formatAgentMessage = (from: AgentMessageSender, text: string): string =>
   `<agent-message from="${escapeAttribute(from.label)}" thread_id="${escapeAttribute(

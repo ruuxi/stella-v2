@@ -6,7 +6,7 @@ import * as HostBus from "./host-bus.js";
 import type { RuntimeRunner } from "./types.js";
 
 /**
- * Owns the lazy `ai/model-runtime` module: the catalog-changed subscription
+ * Owns the lazy `kernel/model-runtime` module: the catalog-changed subscription
  * (forwarded to the host as MODEL_CATALOG_UPDATED) and the debounced
  * background catalog warm.
  *
@@ -20,7 +20,7 @@ export interface Interface {
    * after dispose so a shutting-down worker doesn't re-subscribe.
    */
   readonly ensureSubscription: () => Promise<
-    (typeof import("../../ai/model-runtime.js"))["modelRuntime"]
+    (typeof import("../../kernel/model-runtime.js"))["modelRuntime"]
   >;
   /**
    * Warm the Stella model catalog in the background whenever an input to its
@@ -45,13 +45,13 @@ export const layer = Layer.effect(
     let disposed = false;
     let unsubscribe: (() => void) | undefined;
     let modulePromise:
-      | Promise<typeof import("../../ai/model-runtime.js")>
+      | Promise<typeof import("../../kernel/model-runtime.js")>
       | undefined;
     let warmTimer: WorkerTimerHandle | null = null;
 
     const ensureSubscription = async () => {
       const loaded = await (modulePromise ??= import(
-        "../../ai/model-runtime.js"
+        "../../kernel/model-runtime.js"
       ));
       if (!disposed) {
         unsubscribe ??= loaded.modelRuntime.onCatalogChanged((snapshot) => {

@@ -4,12 +4,12 @@
  * For each reply reference the row carries, a small muted bubble quotes
  * what Stella is replying to — the cited message, or the task (title and
  * live status) for an agent — joined to the reply by a thin connector.
- * Clicking a preview opens focus on that target; an agent preview also
- * offers the task's full report.
+ * Clicking a preview opens focus on that target. A task's full report is
+ * offered by the reply itself, as a quiet "more" link after its text.
  *
- * A task whose result this reply relays is quoted the same way, and that
- * bubble also holds the files the task produced as pills. It is the only
- * completion presentation: no separate row under the reply.
+ * A task whose result this reply relays is quoted the same way. Its
+ * produced files ride inside the reply bubble itself (see MessageRow), so
+ * the quote stays a single line.
  *
  * Whether a reference is worth quoting at all is decided upstream by the
  * shared reply-context rule (`@stella/contracts/reply-context`): a row only
@@ -21,17 +21,15 @@ import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecy
 import { useT } from "@/shared/i18n";
 import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
 import { useThreadActivityRecords } from "@/features/chat/hooks/use-thread-activity-records";
+import { useAgentCard } from "@/features/cloud/use-agent-title";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
-import type { ConversationFileEntry } from "@/features/workspace-display/derive-conversation-files";
-import { FilePills } from "./FilePills";
-import { TaskReportButton } from "./TaskReportButton";
 import "./reply-preview.css";
 
 const MAX_STACKED_PREVIEWS = 3;
 
 type ReplyPreviewProps = {
   refs: readonly ReplyRef[];
-  /** Tasks whose results this reply relays: quoted with their files. */
+  /** Tasks whose results this reply relays. */
   completions?: readonly AgentCompletionSection[];
   conversationId: string;
 };
@@ -47,7 +45,7 @@ export const ReplyPreview = memo(function ReplyPreview({
 }: ReplyPreviewProps) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
-  // A completed task is quoted once: its completion (with files) wins over
+  // A completed task is quoted once: its completion wins over
   // a bare citation of the same thread.
   const completedThreadIds = new Set(completions.map((section) => section.agentId));
   const entries: PreviewEntry[] = [
@@ -78,9 +76,8 @@ export const ReplyPreview = memo(function ReplyPreview({
               key={`c:${section.completionEventId ?? section.agentId}`}
               reference={{ kind: "agent", threadId: section.agentId, title: section.title }}
               conversationId={conversationId}
-              status={activity.get(section.agentId)?.status ?? "completed"}
+              status={activity.get(section.agentId)?.status}
               liveTitle={activity.get(section.agentId)?.description ?? section.title}
-              files={section.files}
               completionEventId={section.completionEventId}
             />
           );
@@ -156,23 +153,24 @@ function AgentReplyPreview({
   conversationId,
   status,
   liveTitle,
-  files,
   completionEventId,
 }: {
   reference: Extract<ReplyRef, { kind: "agent" }>;
   conversationId: string;
   status?: "running" | "completed" | "error" | "canceled";
   liveTitle?: string;
-  /** The task's produced files, shown as pills inside the bubble. */
-  files?: readonly ConversationFileEntry[];
   /** Replay diagnostics identity of the completion this bubble quotes. */
   completionEventId?: string;
 }) {
   const t = useT();
-  const title =
-    liveTitle?.trim() ||
-    (reference.title !== reference.threadId ? reference.title.trim() : "") ||
-    t("app.chat.focus.agentFallback");
+  const card = useAgentCard(
+    conversationId,
+    reference.threadId,
+    [liveTitle, reference.title],
+    status,
+  );
+  const title = card.title || t("app.chat.focus.agentFallback");
+  const shownStatus = card.status ?? "completed";
   const open = useCallback(() => {
     openConversationFocus({
       conversationId,
@@ -183,11 +181,11 @@ function AgentReplyPreview({
   // The glyph alone carries the task's state; a word beside it said the
   // same thing twice. Its meaning stays available to assistive tech.
   const statusLabel =
-    status === "running"
+    shownStatus === "running"
       ? t("app.chat.replyPreview.statusRunning")
-      : status === "error"
+      : shownStatus === "error"
         ? t("app.chat.replyPreview.statusFailed")
-        : status === "canceled"
+        : shownStatus === "canceled"
           ? t("app.chat.replyPreview.statusPaused")
           : t("app.chat.replyPreview.statusDone");
   return (
@@ -195,42 +193,26 @@ function AgentReplyPreview({
       className="reply-preview__bubble reply-preview__bubble--agent"
       data-reply-ref-thread-id={reference.threadId}
       data-completion-event-id={completionEventId}
-      data-artifact-ids={
-        files && files.length > 0
-          ? files.map((entry) => entry.path).join(",")
-          : undefined
-      }
     >
       <div className="reply-preview__agent-main">
-        <TaskReportButton
-          reference={reference}
-          conversationId={conversationId}
-          status={status}
-          liveTitle={title}
+        <button
+          type="button"
+          className="reply-preview__agent-head"
+          onClick={open}
+          title={t("app.chat.replyPreview.openTask")}
         >
           <span
             className="reply-preview__agent-icon"
             role="img"
             aria-label={statusLabel}
             title={statusLabel}
-            data-status={status ?? "completed"}
+            data-status={shownStatus}
           >
-            <AgentLifecycleStatusIcon status={status ?? "completed"} />
+            <AgentLifecycleStatusIcon status={shownStatus} />
           </span>
           <span className="reply-preview__agent-title">{title}</span>
-        </TaskReportButton>
-        <button
-          type="button"
-          className="reply-preview__report-toggle"
-          onClick={open}
-          title={t("app.chat.replyPreview.openTask")}
-        >
-          Replies
         </button>
       </div>
-      {files && files.length > 0 ? (
-        <FilePills files={[...files]} variant="inline" />
-      ) : null}
     </div>
   );
 }

@@ -64,14 +64,8 @@ describe("Sandbox image preparation", () => {
       const parsedLock = Bun.JSONC.parse(lock.toString()) as {
         workspaces: Record<string, unknown>;
       };
-      expect(Object.keys(parsedLock.workspaces)).toEqual([
-        "",
-        "packages/contracts",
-        "packages/executor-cloud",
-        "packages/model-catalog",
-        "packages/runtime",
-        "packages/stella-office",
-      ]);
+      // Stella's own packages ship as the code bundle, not image workspaces.
+      expect(Object.keys(parsedLock.workspaces)).toEqual([""]);
       expect(metadata).toEqual({
         schemaVersion: 1,
         sandboxSdkVersion: "1.0.0",

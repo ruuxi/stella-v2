@@ -3,33 +3,31 @@ import {
   type AdmittedCloudChat,
   type CloudChatPreparation,
 } from "./cloud-chat-admission.js";
-import type { DevicesResponse } from "@stella/contracts/turn-plane/placement";
-import type { WebSearchResult } from "@stella/contracts/backend/search";
+import { PLACEMENT_PROTOCOL, type DevicesResponse } from "@stella/contracts/turn-plane/placement";
+import {
+  parsePiBrainHost,
+  piBrainHandoffPrompt,
+  type PiBrainHost,
+  type PiBrainRecord,
+  type PiBrainResponse,
+} from "@stella/contracts/turn-plane/pi-brain";
 import type { OwnerHomeContext } from "./owner-home-context.js";
 import {
-  CONTEXT_CHECKPOINT_KEY,
-  compactCloudHistory,
-  type ContextCheckpoint,
-} from "./context-compaction.js";
-import {
   PROMPT_CONTEXT_KEY,
-  materializeProviderContext,
-  preparePromptContext,
-  promptContextBoundary,
-  promptContextCheckpointChanged,
-  promptContextHistoryStartAfterSeq,
-  providerHistory,
-  resumePromptContext,
   reusablePromptContext,
-  sentResidentPrompts,
   sessionResidentPrompts,
+  attachedFilesText,
   type PromptContext,
   type ResidentPrompt,
 } from "./prompt-context.js";
+import { resolveManagedModelDescriptor } from "@stella/model-catalog/gateway-resolution";
+import { formatMessageRefTag } from "@stella/contracts/reply-refs";
+import { buildCloudSkillsBlock } from "./cloud-skills.js";
 import {
   cloudAgentActivationCard,
   cloudAgentTerminalCard,
 } from "./cloud-agent-lifecycle.js";
+import { parseCloudAgentLifecycleCard } from "@stella/contracts/cloud-agent-lifecycle";
 import {
   createExecutionContextSnapshot,
   mediaAccessForAudience,
@@ -81,20 +79,12 @@ import { LIFE_USER_PROFILE_DISPLAY_PATH } from "@stella/runtime/kernel/agent-run
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import { DurableObject } from "cloudflare:workers";
-import "./cloud-api-providers.js";
-import type { ExplicitModelAgent as RuntimeAgent } from "@stella/runtime/kernel/agent-core/explicit-model-agent.js";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import type {
-  AgentEvent,
   AgentMessage,
   AgentTool,
   AgentToolResult,
 } from "@stella/runtime/kernel/agent-core/types.js";
-import type { ImageContent } from "@stella/runtime/ai/types.js";
-import {
-  AGENT_RUN_MAX_ATTEMPTS,
-  executeAgentRunWithRetry,
-  prepareTransientResumeTail,
-} from "@stella/runtime/kernel/agent-runtime/run-retry.js";
 import {
   assertTurnExecutionActive,
   startTurnExecution,
@@ -103,21 +93,7 @@ import {
 } from "./turn-cancellation.js";
 import {
   assistantMessageHasUsableOutput,
-  buildDefaultTransformContext,
-  getAgentCompletion,
 } from "@stella/runtime/kernel/agent-runtime/run-shared.js";
-import { normalizeSafePublicUrl } from "@stella/runtime/kernel/tools/url-guard.js";
-import { fetchReadableText } from "@stella/runtime/kernel/tools/web-fetch-core.js";
-import {
-  containsSecretLikeToken,
-  sanitizeToolVisibleText,
-} from "@stella/runtime/kernel/tools/safety.js";
-import {
-  WEB_TOOL_DESCRIPTION,
-  WEB_TOOL_NAME,
-  WEB_TOOL_PARAMETERS,
-  WEB_TOOL_REPLAY,
-} from "@stella/runtime/kernel/tools/defs/web-def.js";
 import {
   AGENT_STATUS_TOOL_DESCRIPTOR,
   AGENT_STATUS_TOOL_REPLAY,
@@ -130,6 +106,7 @@ import {
 } from "@stella/runtime/kernel/tools/defs/agent-orchestration-def.js";
 import type { TSchema } from "@sinclair/typebox";
 import { guardedModelFetch } from "./guarded-model-fetch.js";
+import { AGENT_MESSAGE_FRAMED_MAX_CHARS } from "./agent-messaging.js";
 import {
   fetchWithManagedCancellation,
   type ModelGatewayControl,
@@ -145,15 +122,10 @@ import {
   GATEWAY_SUBSCRIPTION_LIMIT_HEADER,
   nativeSubscriptionLimitNotice,
 } from "@stella/contracts/gateway/api";
-import { createCloudRelaySession } from "@stella/executor-cloud/relay-model";
-import {
-  withOrchestratorCacheRetention,
-  withoutPromptCache,
-} from "./orchestrator-cache-retention.js";
+import type { AgentActivityEntry } from "@stella/contracts/conversation-agent-activity";
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 
-import { loadRuntimeAgent } from "./runtime-agent.js";
 import { verifyUserToken } from "./auth-jwt.js";
 import type {
   OwnerModelGrant,
@@ -223,12 +195,15 @@ import {
   readAgentDirectory,
   sendAgentMessage,
   sessionStatus,
+  type AgentMessagingCaller,
 } from "./agent-messaging.js";
 import {
   renderAgentRoster,
   STELLA_MESSAGE_TARGET,
 } from "@stella/contracts/agent-directory";
 import {
+  agentCompletionPromptText,
+  agentLifecycleReport,
   agentStatusResult as sharedAgentStatusResult,
   commitCloudAgentToolOutcome as commitSharedCloudAgentToolOutcome,
   dispatchCloudAgentTurn,
@@ -237,12 +212,17 @@ import {
   readCloudAgentToolOutcome as readSharedCloudAgentToolOutcome,
   rememberCloudAgentControlReceipt as rememberSharedCloudAgentControlReceipt,
   requireCloudAgentControlReceipt as requireSharedCloudAgentControlReceipt,
-  steerCloudAgent,
+  steerContainerAgent,
   toolFingerprint as sharedToolFingerprint,
   toolScopedId as sharedToolScopedId,
   type CloudAgentControlReceipt,
   type CloudAgentToolKind,
   type CloudAgentToolOutcome,
+  type PiThreadPause,
+  type PiThreadPauseResult,
+  type PiThreadStart,
+  type PiThreadSteer,
+  type PiThreadSteerResult,
 } from "./cloud-agent-dispatch.js";
 import {
   authorizeDevAcceptanceProbe,
@@ -265,10 +245,13 @@ import {
   createCloudCodeAgentTool,
   type CloudCodeSourceAgentTool,
 } from "./cloud-code-tool.js";
+import type { CloudBrowserClient } from "./cloud-browser.js";
 import { createCloudImageGenTool } from "./cloud-image-gen-tool.js";
+import { createCloudWebTool } from "./cloud-web-tool.js";
 import { createCloudHtmlTool } from "./cloud-html-tool.js";
 import { unwrapRpc } from "./owner-store/errors.js";
 import { createCloudDriveTool } from "./cloud-drive-tool.js";
+import { createCloudSwitchDestinationTool } from "./cloud-switch-destination-tool.js";
 import { createCloudReadTool } from "./cloud-read-tool.js";
 import {
   createDriveFileSession,
@@ -332,8 +315,6 @@ import {
   ConversationDeletedError,
   Journal,
   JournalContextIntegrityError,
-  JournalHeadConflictError,
-  type JournalRow,
   stampUserMessageSequences,
 } from "./journal.js";
 import { ConversationArchive } from "./archive.js";
@@ -356,24 +337,6 @@ import {
 } from "./local-turn-protocol.js";
 import { normalizeOwnerGeneration } from "./owner-generation.js";
 import { parseVoiceJournalRecords } from "./journal-append-protocol.js";
-import {
-  CONVERSATION_EDIT_LEASE_MS,
-  CONVERSATION_EDIT_LOCK_KEY,
-  CONVERSATION_EDIT_PAGE_BYTES,
-  CONVERSATION_EDIT_PAGE_ROWS,
-  conversationRewindHeadMatches,
-  CONVERSATION_FORK_TARGET_KEY,
-  parseConversationEditRequest,
-  rewindRuntimeAdmission,
-  sameConversationEditLock,
-  type ConversationEditLock,
-  type ConversationEditRequest,
-  type ForkConversationEditRequest,
-  type ForkConversationEditResult,
-  type ForkTargetState,
-  type RewindConversationEditRequest,
-  type RewindConversationEditResult,
-} from "./conversation-edit-protocol.js";
 import {
   CLOUD_CLI_TURN_DO_PATHS,
   orchestratorCliThreadId,
@@ -425,37 +388,17 @@ import {
 /** Desktop keeps a connect card up about this long before giving up. */
 const CONNECT_CARD_WAIT_MS = 5 * 60_000;
 const CONNECT_CARD_POLL_MS = 2_000;
+/** How often a waiting agent checks whether its browser handoff ended, and how long past its deadline it waits. */
+const BROWSER_HANDOFF_POLL_MS = 2_000;
+const BROWSER_HANDOFF_GRACE_MS = 60_000;
 const WAKE_REPORT_INLINE_MAX_BYTES = 512 * 1024;
 
 type WakeReport = { prompt: string; lifecycleReport?: string };
 
-/** A hidden agent wake admitted while a resident loop runs, to join it. */
-type SteeredWake = {
-  turn: ChatTurnRequest;
-  report: WakeReport;
-  message: AgentMessage;
-};
-
-/**
- * The resident loop running in this isolate that hidden agent wakes join
- * before its next model call. Each wake stays durable under `queued:` until
- * the loop consumes it, so one the loop never takes runs as its own turn.
- */
-type SteerableTurn = {
-  turn: ChatTurnRequest;
-  watchdogAt: number;
-  /** Admitted, not yet handed to the loop. */
-  waiting: SteeredWake[];
-  /** Handed to the loop, keyed by the exact message its `message_end` carries. */
-  injected: Map<AgentMessage, SteeredWake>;
-};
-
-/** A wake joins a running turn only while this much of its watchdog is left. */
-const WAKE_STEER_DEADLINE_MARGIN_MS = 60_000;
-
 type Env = Pick<
   Cloudflare.Env,
   | "BUILD_SESSIONS"
+  | "ORCHESTRATOR_SESSIONS"
   | "OWNER_GATES"
   | "WORLDS"
   | "LOADER"
@@ -473,6 +416,8 @@ type Env = Pick<
       | "MODEL_GATEWAY_CONTROL"
       | "MODEL_GATEWAY_OWNERS"
       | "MODEL_GATEWAY_URL"
+      | "Sandbox"
+      | "SANDBOX_IDLE_TIMEOUT_MS"
       | "CLOUD_BUILDER_PUBLIC_URL"
       | "CAPABILITY_SIGNING_KEY"
       | "CAPABILITY_SIGNING_KID"
@@ -525,6 +470,8 @@ export type ChatTurnRequest = {
    * rebound to whichever mutable attempt happens to be current.
    */
   agentThreadControl?: CloudAgentControlReceipt;
+  /** A computer's orchestrator controlling its cloud agent; the turn does that instead of answering. */
+  piAgent?: import("@stella/contracts/turn-plane/turn-start").CloudPiAgentRequest;
   wakeReportSpillKey?: string;
   watchdogMs?: number;
   /** Worker-issued owner purge lease generation. */
@@ -641,6 +588,126 @@ class OwnerFenceLeaseConflictError extends Error {}
 class OwnerFenceRegistrationUncertainError extends Error {}
 
 const CHAT_WATCHDOG_MS = 5 * 60_000;
+/** Durable key: this conversation runs on pi-durable (`pi-runtime.ts`). */
+const AGENT_RUNTIME_KEY = "agentRuntime";
+/**
+ * How a pi agent's report (`[Agent completed]` / `[Task failed]`) ended, and
+ * its result or error, for the agent's lifecycle card.
+ */
+const piReportOutcome = (
+  text: string,
+): { kind: "completed" | "failed" | "canceled"; body: string } => {
+  const field = (name: string) => {
+    const match = new RegExp(`(?:^|\\n)${name}: ([\\s\\S]*?)(?=\\n(?:agent_state|routing|presentation):|$)`).exec(text);
+    return match?.[1]?.trim() ?? "";
+  };
+  if (text.startsWith("[Agent completed]")) return { kind: "completed", body: field("result") };
+  if (text.startsWith("[Task canceled]") || text.startsWith("[Subagent paused]")) {
+    return { kind: "canceled", body: field("error") };
+  }
+  return { kind: "failed", body: field("error") };
+};
+
+/** Durable key prefix: a cloud pi agent on a device's control receipt, by thread id. */
+const PI_DEVICE_AGENT_PREFIX = "pi:device-agent:";
+
+/** How an agent thread's attempt ended, as its terminal events carry it. */
+type PiThreadOutcome = {
+  status: "completed" | "failed" | "canceled";
+  resultJson?: string;
+  errorMessage?: string;
+  /** What its run saved to the owner's drive and linked in its answer. */
+  files?: import("./pi-runtime.js").PiDeliveredFile[];
+};
+
+/** One attempt of an agent thread whose agent runs here, until it settles. */
+type PiThreadAttemptRecord = {
+  turnId: string;
+  attemptGeneration: number;
+  /** pi has it: its agent was started or messaged under its call key. */
+  handedOff?: true;
+  /** A pause was asked for: a report without text settles it as canceled. */
+  pausing?: true;
+  /** The decided outcome, kept while it is delivered. */
+  terminal?: PiThreadOutcome & { completedAt: number };
+};
+
+/** An agent thread whose attempts run as a pi agent here (`startPiThread`). */
+type PiThreadRecord = {
+  ownerId: string;
+  ownerGeneration: string;
+  threadId: string;
+  description: string;
+  /** A computer's dispatch: the agent threads deliver its reports there, so nothing wakes here. */
+  originDeviceId?: string;
+  /** Attempts not settled yet, oldest first. */
+  attempts: PiThreadAttemptRecord[];
+  /** Every attempt through this generation has settled. */
+  settledThrough: number;
+};
+
+/** Durable key: an agent thread whose agent runs here, by thread id. */
+const piThreadKey = (threadId: string): string => `pi:thread:${threadId}`;
+
+/** Journal records read per batch when importing other writers' turns into pi. */
+const PI_JOURNAL_IMPORT_BATCH = 200;
+/** The newest pi entry this conversation's journal has mirrored. */
+const PI_MIRRORED_KEY = "piMirroredEntry";
+/** Set while pi has work in flight here, so a wake after eviction resumes it. */
+const PI_LIVE_KEY = "piLive";
+/** Where this pi conversation's brain runs (`@stella/contracts/turn-plane/pi-brain`). */
+const PI_BRAIN_KEY = "piBrain";
+/**
+ * Durable key: the brief a turn's `switch_destination` left for the computer
+ * Stella moved to (pi's or Claude Code's), placed there once that turn ends.
+ */
+const BRAIN_HANDOFF_KEY = "brainHandoff";
+type BrainHandoff = {
+  turnId: string;
+  ownerId: string;
+  ownerGeneration: string;
+  deviceId: string;
+  clientMsgId: string;
+  prompt: string;
+};
+/** A connect checks the running agents against their owners at most this often. */
+const AGENT_RECONCILE_INTERVAL_MS = 60_000;
+/**
+ * Durable key: the running agents of a conversation pi has run in, as their
+ * owners record them (`refreshAgents`). Absent where pi never ran: there
+ * they are folded from the journal's agent cards.
+ */
+const AGENTS_VIEW_KEY = "runningAgentsView";
+
+/** The running agents pi has here, and those the owner's agent threads have. */
+type AgentsView = { pi: AgentActivityEntry[]; owner: AgentActivityEntry[] };
+
+/** One list, pi's own first where both name an agent, oldest start first. */
+const listedAgents = (view: AgentsView, limit: number): AgentActivityEntry[] => {
+  const pi = new Set(view.pi.map((agent) => agent.agentId));
+  return [...view.pi, ...view.owner.filter((agent) => !pi.has(agent.agentId))]
+    .sort((a, b) => a.createdAtMs - b.createdAtMs)
+    .slice(0, limit);
+};
+/**
+ * Durable key: when this conversation first settled the running agents no
+ * owner keeps a record of (`reconcileRunningAgents`).
+ */
+const AGENTS_UNOWNED_SETTLED_KEY = "agentsUnownedSettledAt";
+/**
+ * An agent started this recently may not have reached its owner's records
+ * yet (a computer's start is queued like its turn), so that first pass
+ * leaves it alone.
+ */
+const AGENT_OWNER_RECORD_LAG_MS = 10 * 60_000;
+const PI_HEARTBEAT_MS = 30_000;
+/** The agent tools a pi-durable conversation's harness has itself. */
+const PI_HARNESS_AGENT_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "spawn_agent",
+  "send_message",
+  "agent_status",
+  "pause_agent",
+]);
 /**
  * While a chat turn runs, its alarm fires at least this often. The alarm is
  * what wakes a replaced object (a deploy, an eviction) so the wake can resume
@@ -737,6 +804,32 @@ const cloudExecutionContext = (
     destination: { kind: "cloud" },
     media: { stella: mediaAccessForAudience(turn.audience) },
   });
+
+/** A Stella model as pi's `stella` provider serves it, for one agent type and audience. */
+const piModelSpec = (
+  agentType: "orchestrator" | "general",
+  execution: Extract<CloudExecutionSelection, { engine: "stella" }>,
+  audience: ManagedModelAudience,
+): import("@stella/agent/provider/stella").StellaModelSpec => {
+  const descriptor = resolveManagedModelDescriptor({
+    agentType,
+    requestedModel: execution.model,
+    audience,
+  });
+  return {
+    agentType,
+    alias: execution.model,
+    protocol: descriptor.protocol,
+    reasoning: descriptor.reasoning,
+    supportsImages: descriptor.supportsImages,
+    ...(descriptor.contextWindow !== undefined
+      ? { contextWindow: descriptor.contextWindow }
+      : {}),
+    ...(descriptor.maxOutputTokens !== undefined
+      ? { maxOutputTokens: descriptor.maxOutputTokens }
+      : {}),
+  };
+};
 
 const CLI_TURN_POLL_MS = 20_000;
 /** A tool forward waits this long for a resumed turn to rebuild its tools. */
@@ -1153,10 +1246,26 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       cancelTurn: (turnId) => this.cancelTurn(turnId),
       onConnect: () => {
         this.flushIndexIfLagging();
+        this.reconcileRunningAgentsSoon();
       },
       conversationId: () => this.conversationId(),
       log,
       verifyToken: (token) => verifyUserToken(token, this.env as unknown as Cloudflare.Env),
+      pi: {
+        enabled: async () =>
+          (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi",
+        attach: () => this.attachPiClients(),
+        older: async (beforeEntryId) => {
+          const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+          const { contextFor } = await import("./pi-runtime.js");
+          return await runtime.olderForClients(beforeEntryId, contextFor());
+        },
+        detach: () => {
+          void this.piRuntime
+            ?.then((runtime) => runtime.stopWatchingForClients())
+            .catch(() => undefined);
+        },
+      },
     });
     // Set in the constructor rather than at accept time: whether an
     // auto-response survives DO eviction is not something the docs settle, and
@@ -1182,6 +1291,13 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       if (this.journal.meta().conversation_id === "" && this.ctx.id.name) {
         this.journal.setConversationId(this.ctx.id.name);
       }
+      // A conversation on pi lists its running agents from their owners from
+      // the first connect on, even before it has read them.
+      const agentsView = await this.ctx.storage.get<AgentsView>(AGENTS_VIEW_KEY);
+      this.agentsViewStored = agentsView !== undefined;
+      this.agentsView =
+        agentsView ??
+        ((await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) === "pi" ? { pi: [], owner: [] } : null);
       const localLease =
         await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
       if (localLease) {
@@ -2023,7 +2139,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       newest: (limit): JournalRecord[] =>
         this.journal.newest(Math.min(limit, INITIAL_WINDOW_RECORDS)),
       liveTurn: () => this.live,
-      runningAgents: (limit) => this.journal.runningAgents(limit),
+      runningAgents: (limit) =>
+        this.agentsView ? listedAgents(this.agentsView, limit) : this.journal.runningAgents(limit),
     };
   }
 
@@ -2113,10 +2230,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           ),
         ),
       onInterrupt: () => {
-        // Agent.abort() is idempotent. Once prompt() has synchronously entered
-        // its loop this reaches the provider/tool AbortController; before that
-        // point the turn latch and the admission checks below are authoritative.
-        if (this.activeTurnId === turn.turnId) this.currentAgent?.abort();
+        // Before the run starts, the turn latch and the admission checks below
+        // are authoritative.
+        if (this.activeTurnId === turn.turnId) this.currentPiRun?.abort();
       },
     });
     this.turnExecutions.set(turn.turnId, execution);
@@ -2388,7 +2504,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
 
   /**
    * On wake, the turn a replaced isolate was running (a deploy, an eviction)
-   * and whether to resume it. Bounded like the resident agent: at most
+   * and whether to resume it. Bounded: at most
    * {@link CHAT_RESUME_MAX} resumes per turn, counted durably here before the
    * resumed loop runs; only turns younger than {@link CHAT_RESUME_MAX_AGE_MS};
    * and only while the original watchdog, which a resume never extends,
@@ -2890,6 +3006,16 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
+    try {
+      await this.conversationAlarm();
+    } finally {
+      await this.piHeartbeat().catch((error: unknown) => {
+        log("error", "pi_heartbeat_failed", { message: errorMessage(error) });
+      });
+    }
+  }
+
+  private async conversationAlarm(): Promise<void> {
     // A turn can finish after its remote lease was removed but before the
     // unregister response arrived. Reconcile that durable debt before using
     // this wake-up for the conversation lifecycle. Same for projections the
@@ -2959,7 +3085,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     } catch (error) {
       if (error instanceof OwnerPurgeFenceError) {
         this.currentTurnCancellation?.abort();
-        this.currentAgent?.abort();
+        this.currentPiRun?.abort();
         return;
       }
       throw error;
@@ -2996,7 +3122,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // Marking the turn terminal is not enough — the loop would keep burning
       // metered relay calls for output runTurn will discard.
       this.currentTurnCancellation?.abort();
-      this.currentAgent?.abort();
+      this.currentPiRun?.abort();
+      if (!this.currentPiRun) {
+        await this.abortPiConversation().catch((error: unknown) => {
+          log("error", "pi_conversation_abort_failed", {
+            turnId: turn.turnId,
+            message: errorMessage(error),
+          });
+        });
+      }
       log("error", "chat_turn_timed_out", {
         turnId: turn.turnId,
         conversationId: turn.conversationId,
@@ -3061,29 +3195,42 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    if (
-      request.method === "POST" &&
-      url.pathname.startsWith("/internal/edit/")
-    ) {
-      return this.handleConversationEditRoute(url.pathname, request);
-    }
     if (url.pathname === "/socket") return this.handleSocket(request);
     if (request.method === "GET") {
       if (url.pathname === "/history") {
         return this.handleCanonicalHistory(request);
       }
       if (url.pathname === "/journal") return this.handleJournalProbe(url);
+      if (url.pathname === "/pi-brain") return this.handlePiBrain(request);
       return json({ error: "Not found." }, 404);
     }
     if (request.method !== "POST") {
       return json({ error: "Method not allowed." }, 405);
     }
-    // Read-only, so an in-progress edit does not block it.
     if (url.pathname === "/history/query") {
       return this.handleHistoryQuery(request);
     }
-    // Frames of the running Claude Code turn, from its BuildSession. Ahead
-    // of the edit lock: an edit cannot start while a turn runs, and these
+    if (url.pathname === "/pi-workspace") {
+      return this.handlePiWorkspace(request);
+    }
+    if (url.pathname === "/pi-brain") {
+      return this.handlePiBrain(request);
+    }
+    // A pi agent's container daemon (its drive and its delivered files),
+    // under its lease's own credential.
+    if (url.pathname === "/pi-turn-broker") {
+      // Only where pi runs agents: a pi conversation, or one hosting a computer's cloud agent.
+      if (
+        !this.piRuntime &&
+        (await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) !== "pi" &&
+        !(await this.ctx.storage.get<boolean>(PI_LIVE_KEY))
+      ) {
+        return json({ error: "Turn broker request failed." }, 401);
+      }
+      const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+      return await runtime.handleBroker(request);
+    }
+    // Frames of the running Claude Code turn, from its BuildSession. These
     // only ever touch the exact active turn.
     if (url.pathname === CLOUD_CLI_TURN_DO_PATHS.tool) {
       return this.handleCliTurnTool(request);
@@ -3093,25 +3240,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     }
     if (url.pathname === CLOUD_CLI_TURN_DO_PATHS.terminal) {
       return this.handleCliTurnTerminal(request);
-    }
-    const conversationEdit = await this.activeConversationEditLock();
-    // `/turn` re-checks the lock inside its own admission critical section
-    // and answers with the turn-start contract's `conversation_locked`.
-    if (
-      conversationEdit &&
-      url.pathname !== "/cancel" &&
-      url.pathname !== "/purge" &&
-      url.pathname !== "/owner-purge-cancel" &&
-      url.pathname !== "/turn"
-    ) {
-      return json(
-        {
-          code: "conversation_edit_in_progress",
-          message: "This conversation is being edited. Try again shortly.",
-          retryAfterMs: 1_000,
-        },
-        409,
-      );
     }
     if (url.pathname === "/internal/dev-acceptance/probe") {
       return this.handleDevAcceptanceProbe(request);
@@ -3330,7 +3458,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       if (currentMatches) {
         await this.ctx.storage.put("terminal", true);
         this.currentTurnCancellation?.abort();
-        this.currentAgent?.abort();
+        this.currentPiRun?.abort();
       }
       const execution = currentMatches
         ? this.turnExecutions.get(turnId)
@@ -3533,6 +3661,45 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           "That conversation belongs to another account.",
           false,
         );
+      }
+      // Stella runs on one of the owner's computers: a message the user
+      // sent from elsewhere is placed there, and this object answers none.
+      // While that computer can't take it (offline, not ready, gone), this
+      // object answers it as with no record, which stays for once it's back.
+      const brain =
+        authKind === "user" && lane === "chat" && !start.piAgent
+          ? await this.ctx.storage.get<PiBrainRecord>(PI_BRAIN_KEY)
+          : undefined;
+      const refusal =
+        brain?.host === "device" ? await this.piBrainDeviceRefusal(ownerId, brain.deviceId) : undefined;
+      if (brain?.host === "device" && refusal) {
+        log("info", "pi_brain_unavailable", { deviceId: brain.deviceId, reason: refusal });
+      } else if (brain?.host === "device") {
+        try {
+          const dispatchId = await this.placeOnPiBrain({
+            ownerId,
+            deviceId: brain.deviceId,
+            clientMsgId: start.clientMsgId,
+            prompt: start.prompt,
+            ...(start.attachments?.length ? { attachments: start.attachments } : {}),
+            ...(start.locale ? { locale: start.locale } : {}),
+          });
+          log("info", "pi_brain_turn_placed", { deviceId: brain.deviceId, dispatchId });
+          return json(
+            {
+              protocol: TURN_PLANE_PROTOCOL,
+              conversationId,
+              turnId: `placed:${dispatchId}`,
+              accepted: true,
+              replayed: false,
+              createdConversation: false,
+            } satisfies CloudTurnStartResponse,
+            202,
+          );
+        } catch (error) {
+          // It went away meanwhile: this object answers instead.
+          log("info", "pi_brain_turn_unplaced", { deviceId: brain.deviceId, message: errorMessage(error) });
+        }
       }
       const receiptKey = chatTurnAdmissionKey(start.clientMsgId);
       const stored =
@@ -3773,6 +3940,14 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         // has none yet, and an explicit hint never overwrites a chosen one.
         this.journal.setTitle(conversationTitleFor(start));
       }
+      // Every conversation runs on pi-durable: one the loop started moves to
+      // pi at its next turn, whose first pi turn imports its journal whole.
+      if ((await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) !== "pi") {
+        await this.ctx.storage.put(AGENT_RUNTIME_KEY, "pi");
+        if (!createdConversation) {
+          log("info", "pi_conversation_migrated", { conversationId });
+        }
+      }
       if (this.ownerGeneration !== snapshot.ownerGeneration) {
         this.ownerGeneration = snapshot.ownerGeneration;
         await this.ctx.storage.put(
@@ -3801,7 +3976,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           : {}),
         ...(start.source ? { source: start.source } : {}),
         ...(start.title ? { title: start.title } : {}),
-        ...(start.hiddenMessage ? { hiddenMessage: true } : {}),
+        // A computer's agent brief is context for the agent, not a message.
+        ...(start.hiddenMessage || start.piAgent ? { hiddenMessage: true } : {}),
+        ...(start.piAgent ? { piAgent: start.piAgent } : {}),
         ...(start.locale ? { locale: start.locale } : {}),
         ...(start.attachments ? { attachments: start.attachments } : {}),
         ...(start.agentThreadControl
@@ -3957,13 +4134,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // response/restart can replay without registering a new owner fence or
       // overwriting the original lease/payload.
       let heldForLocalTurn = false;
-      let editConflict = false;
       await this.ctx.blockConcurrencyWhile(async () => {
-        const editLock = await this.activeConversationEditLock();
-        if (editLock) {
-          editConflict = true;
-          return;
-        }
         // Owner-purge cancellation marks the durable lease receipt retiring in
         // this same DO. Recheck inside the admission critical section so a
         // register/assert winner cannot persist after its orphan was retired.
@@ -4001,18 +4172,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           );
         }
       });
-      if (editConflict) {
-        this.cloudHomePreparations.delete(turnId);
-        await this.unregisterOwnerTurn(turn);
-        await this.releaseOwnerGate(turn);
-        return turnStartErrorResponse(
-          "conversation_locked",
-          "This conversation is being edited. Try again shortly.",
-          true,
-          1_000,
-        );
-      }
-
       const admissionCommitMs = Math.round(performance.now() - commitStarted);
       const projectionStarted = performance.now();
       // Projections, after the durable commit and before the 202: the queue
@@ -4056,7 +4215,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
 
       if (!heldForLocalTurn) {
         this.enqueue(turn, freshAdmission);
-        void this.steerWakeIntoRunningTurn(turn);
       } else this.cloudHomePreparations.delete(turnId);
       log("info", "chat_turn_admitted", {
         turnId,
@@ -4086,16 +4244,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     });
   }
 
-  // The in-flight loop, exposed so /cancel and the alarm can actually stop
-  // token burn instead of only marking the turn terminal.
-  private currentAgent?: RuntimeAgent;
-  // The resident loop hidden agent wakes can join. Kept apart from
-  // `currentAgent`, which the compaction summarizer borrows.
-  private steerableTurn?: SteerableTurn;
-  // Aborts the live turn's retry ladder alongside `currentAgent.abort()`:
+  // Aborts the live turn's retry ladder:
   // classification reads it to refuse retries after a cancel/timeout, and an
   // abort during retry backoff wakes the sleep instead of waiting it out.
   private currentTurnCancellation?: TurnRetryCancellation;
+  /** The pi-durable run of the live turn, for the same Stop and watchdog paths. */
+  private currentPiRun?: { abort(): void };
+  /** This conversation's pi-durable harness, opened once per isolate. */
+  private piRuntime?: Promise<import("./pi-runtime.js").PiConversationRuntime>;
+  private piClientsAttaching = false;
 
   private async finishPreCanceledTurn(
     turn: ChatTurnRequest,
@@ -4191,6 +4348,111 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       destinations: Promise<DevicesResponse | null>;
     }
   >();
+
+  /** A model grant from the owner, unless a freeze landed while it was issued. */
+  private async acquireOwnerModelGrant(
+    expected: LocalOwnerModelGrantExpectation,
+  ) {
+    const freezeEpoch = this.localOwnerModelGrants.freezeEpoch(expected);
+    const issued = await this.ownerGate(expected.ownerId).acquireModelGrant({
+      ownerId: expected.ownerId,
+      ownerGeneration: expected.ownerGeneration,
+      conversationId: expected.conversationId,
+      readerId: this.isolateId,
+      turnId: expected.turnId,
+      leaseId: expected.leaseId,
+      fenceGeneration: expected.fenceGeneration,
+      policy: expected.memoryPolicy,
+    });
+    const grant = this.localOwnerModelGrants.validAfter(
+      issued,
+      expected,
+      freezeEpoch,
+    );
+    if (!grant) throw new OwnerPurgeFenceError();
+    return { grant, expected };
+  }
+
+  /**
+   * A pi agent's run held to the owner's purge fence as a chat turn is: an
+   * owner-fence lease for the run (the same lease when a resumed run asks
+   * again), and a model grant under the owner's current memory policy on
+   * each request. A purge or a privacy change freezes the grant and aborts
+   * the request in flight.
+   */
+  private async piAgentGuard(
+    authority: import("./pi-runtime.js").PiAuthority,
+    turnId: string,
+  ): Promise<import("./pi-runtime.js").PiAgentGuard> {
+    const fenced: OwnerFencedTurn = {
+      ownerId: authority.ownerId,
+      ownerGeneration: authority.ownerGeneration,
+      turnId,
+    };
+    const fenceGeneration = await this.registerOwnerTurn(fenced);
+    const leaseId = fenced.ownerPurgeLeaseId;
+    try {
+      if (!leaseId) throw new OwnerPurgeFenceError();
+      const { memory } = await this.ownerGate(authority.ownerId).homeContext(
+        authority.ownerGeneration,
+        fenceGeneration,
+      );
+      const expected: LocalOwnerModelGrantExpectation = {
+        ownerId: authority.ownerId,
+        ownerGeneration: authority.ownerGeneration,
+        conversationId: authority.conversationId,
+        turnId,
+        leaseId,
+        fenceGeneration,
+        memoryPolicy: memory.preference,
+      };
+      let grantWork = this.acquireOwnerModelGrant(expected);
+      void grantWork.catch(() => undefined);
+      const currentGrant = async () => {
+        const current = await grantWork;
+        if (!this.localOwnerModelGrants.valid(current.grant, current.expected)) {
+          throw new OwnerPurgeFenceError();
+        }
+        if (current.grant.expiresAt - Date.now() > 60_000) return current;
+        grantWork = this.acquireOwnerModelGrant(expected);
+        void grantWork.catch(() => undefined);
+        return await grantWork;
+      };
+      const gateway = this.env.MODEL_GATEWAY;
+      if (!gateway) throw new Error("Model gateway is not configured.");
+      return {
+        fetch: async (request) => {
+          const current = await currentGrant();
+          const active = this.localOwnerModelGrants.begin(
+            current.grant,
+            current.expected,
+            request.signal,
+          );
+          try {
+            const response = await guardedModelFetch({
+              request: new Request(request, { signal: active.requestSignal }),
+              fetch: (value) => gateway.fetch(value),
+              mode: "authorize-before-fetch",
+              authorize: async () => {
+                if (this.purged()) throw new OwnerPurgeFenceError();
+                active.assertValid();
+              },
+            });
+            return releaseOwnerModelGrantAfterBody(response, active.release);
+          } catch (error) {
+            active.release();
+            throw error;
+          }
+        },
+        release: async () => {
+          await this.unregisterOwnerTurn(fenced);
+        },
+      };
+    } catch (error) {
+      await this.unregisterOwnerTurn(fenced).catch(() => undefined);
+      throw error;
+    }
+  }
 
   async freezeOwnerModelGrants(
     args: OwnerModelGrantFreezeRequest,
@@ -4288,8 +4550,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     const startupTimings: Record<string, number> = {
       queueWaitMs: Math.round(enteredAt - enqueuedAt),
     };
-    // A hidden wake the running turn already took in (`absorbSteeredWake`),
-    // which also retired its lease and gate slot.
+    // A turn already terminal in the journal.
     if (this.journal.turnState(turn.turnId)?.state === "terminal") {
       log("info", "chat_turn_duplicate_ignored", { turnId: turn.turnId });
       await this.ctx.storage.delete(`queued:${turn.turnId}`);
@@ -4523,16 +4784,15 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       await assertExactTurnActive();
       this.activeTurnId = turn.turnId;
       // An `anthropic` turn runs on the Claude Code CLI in the orchestrator
-      // container (`runCliTurn`); only the other engines run this loop.
+      // container (`runCliTurn`); Stella-model and ChatGPT-plan turns run on
+      // pi-durable (`runPiTurn`).
       const harnessExecution =
         turn.execution.engine === "anthropic" ? undefined : turn.execution;
-      // The durable turn is claimed before the heavy loop implementation is
-      // evaluated. Load it alongside read-only preparation on actual turns;
-      // object wake, admission, status, and cancellation stay on the lean path.
-      const agentRuntimeWork = harnessExecution
-        ? loadRuntimeAgent()
-        : undefined;
-      void agentRuntimeWork?.catch(() => undefined);
+      if (turn.piAgent && harnessExecution?.engine !== "stella") {
+        throw new Error(
+          "A computer's cloud agents run on Stella's models; this conversation's cloud turns use another engine.",
+        );
+      }
       // Admission already bound the owner; this only re-asserts it and sets
       // the title on a turn that carried one.
       this.bindConversation(turn);
@@ -4683,28 +4943,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         return context;
       });
       void measuredHomePreparation.catch(() => undefined);
-      const acquireModelGrant = async (
-        expected: LocalOwnerModelGrantExpectation,
-      ) => {
-        const freezeEpoch = this.localOwnerModelGrants.freezeEpoch(expected);
-        const issued = await this.ownerGate(turn.ownerId).acquireModelGrant({
-          ownerId: expected.ownerId,
-          ownerGeneration: expected.ownerGeneration,
-          conversationId: expected.conversationId,
-          readerId: this.isolateId,
-          turnId: expected.turnId,
-          leaseId: expected.leaseId,
-          fenceGeneration: expected.fenceGeneration,
-          policy: expected.memoryPolicy,
-        });
-        const grant = this.localOwnerModelGrants.validAfter(
-          issued,
-          expected,
-          freezeEpoch,
-        );
-        if (!grant) throw new OwnerPurgeFenceError();
-        return { grant, expected };
-      };
+      const acquireModelGrant = (expected: LocalOwnerModelGrantExpectation) =>
+        this.acquireOwnerModelGrant(expected);
       let modelGrantWork =
         executionSelection.engine === "stella"
           ? measuredHomePreparation.then(async ({ memoryPreference }) => {
@@ -4763,830 +5003,155 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         void modelGrantWork.catch(() => undefined);
         return await modelGrantWork;
       };
-      // Only memory reads depend on memory policy. Model resolution and other
-      // context can run alongside that chain; no provider call starts here.
-      const preparationWork = Promise.all([
-        measuredHomePreparation,
-        canonicalPromptsWork,
-        measurePreparation("localeMs", () =>
-          this.resolveTurnLocale(turn, () =>
-            assertTurnExecutionActive(turnCancellation, executionSignal),
-          ),
-        ),
-        measurePreparation("attachmentsMs", () =>
-          this.loadChatAttachmentImages(turn, executionSignal),
-        ),
-        measuredHomePreparation.then((context) => context.skillCatalog),
-        measurePreparation("modelResolutionMs", () =>
-          createCloudRelaySession({
-            audience: turn.audience,
-            gatewayOrigin: modelGatewayOrigin,
-            capability: turnCapability.token,
-            agentType: "orchestrator",
-            execution: executionSelection,
-            signal: executionSignal,
-            fetch: async (input, init) => {
-              const request = new Request(input, init);
-              // Resolution contains no prompt and can overlap home loading.
-              if (new URL(request.url).pathname === GATEWAY_RESOLVE_PATH) {
-                return measurePreparation("modelResolutionTransportMs", () =>
-                  modelGateway.fetch(request),
-                );
-              }
-              const execute = async (physicalRequest: Request) => {
-                const localGrant = await modelGrantForPhysicalRequest();
-                const activeGrant = localGrant
-                  ? this.localOwnerModelGrants.begin(
-                      localGrant.grant,
-                      localGrant.expected,
-                      physicalRequest.signal,
-                    )
-                  : undefined;
-                const guardedRequest = activeGrant
-                  ? new Request(physicalRequest, {
-                      signal: activeGrant.requestSignal,
-                    })
-                  : physicalRequest;
-                try {
-                  // An eligible signed request goes straight to its owner
-                  // DO; the DO retains every check.
-                  const relayOwners =
-                    executionSelection.engine === "stella" &&
-                    turnCapability.claims.ledgerScope === "owner-relay-v2"
-                      ? this.env.MODEL_GATEWAY_OWNERS
-                      : undefined;
-                  const guard = (requestToGuard: Request) =>
-                    guardedModelFetch({
-                      request: requestToGuard,
-                      fetch: (value) =>
-                        relayOwners
-                          ? relayOwners
-                              .get(
-                                relayOwners.idFromName(
-                                  turnCapability.claims.sub,
-                                ),
-                              )
-                              .fetch(value)
-                          : modelGateway.fetch(value),
-                      mode: activeGrant
-                        ? "authorize-before-fetch"
-                        : "gate-body",
-                      authorize: async () => {
-                        await assertExactTurnActive();
-                        const { memoryPreference } =
-                          await measuredHomePreparation;
-                        if (
-                          !turn.ownerPurgeGeneration ||
-                          !turn.ownerPurgeLeaseId
-                        ) {
-                          throw new OwnerPurgeFenceError();
-                        }
-                        assertTurnExecutionActive(
-                          turnCancellation,
-                          executionSignal,
-                        );
-                        if (activeGrant) activeGrant.assertValid();
-                        else {
-                          const policyStartedAt = performance.now();
-                          await requireCloudContext(
-                            "agent_home_memory",
-                            this.ownerGate(turn.ownerId).assertMemoryPolicy(
-                              memoryPreference,
-                              turn.ownerPurgeGeneration,
-                              turn.ownerPurgeLeaseId,
-                              turn.turnId,
-                            ),
-                          );
-                          log("info", "chat_model_dispatch_prepared", {
-                            turnId: turn.turnId,
-                            memoryRevalidationMs: Math.round(
-                              performance.now() - policyStartedAt,
-                            ),
-                          });
-                        }
-                        // Count physical requests after privacy validation, including
-                        // compaction and tool continuations, rather than Agent invocations.
-                        await this.noteDevAcceptanceProviderDispatch();
-                        assertTurnExecutionActive(
-                          turnCancellation,
-                          executionSignal,
-                        );
-                        // The dev counter is an asynchronous boundary. Freeze may
-                        // arrive while it is pending, so check the local grant again
-                        // at the last point before the request body is released.
-                        activeGrant?.assertValid();
-                      },
-                    });
-                  const response =
-                    executionSelection.engine === "stella"
-                      ? await (() => {
-                          const control = this.env.MODEL_GATEWAY_CONTROL;
-                          if (!control)
-                            throw new Error(
-                              "Model gateway cancellation is not configured.",
-                            );
-                          return fetchWithManagedCancellation({
-                            request: guardedRequest,
-                            capability: turnCapability.token,
-                            control: control as ModelGatewayControl & Fetcher,
-                            waitUntil: (work) => this.ctx.waitUntil(work),
-                            fetch: guard,
-                          });
-                        })()
-                      : await guard(guardedRequest);
-                  if (!response.ok) {
-                    subscriptionLimitNotice = nativeSubscriptionLimitNotice(
-                      response.headers.get(GATEWAY_SUBSCRIPTION_LIMIT_HEADER),
-                    );
-                  }
-                  return activeGrant
-                    ? releaseOwnerModelGrantAfterBody(
-                        response,
-                        activeGrant.release,
-                      )
-                    : response;
-                } catch (error) {
-                  activeGrant?.release();
-                  throw error;
-                }
-              };
-              return execute(request);
-            },
-          }),
-        ),
-      ]);
-      void preparationWork.catch(() => undefined);
-      const destinations = await destinationsWork;
-      await assertExactTurnActive();
-
-      // Filled by exactly one of the two branches below: a fresh turn
-      // prepares its window and journals its prompt; a resumed turn rebuilds
-      // both from what its lost isolate already made durable.
-      let turnContext!: { state: PromptContext; tools: AgentTool[] };
-      let turnRelaySession!: Awaited<typeof preparationWork>[5];
-      let turnHistory!: AgentMessage[];
-      let turnCurrentPrompt!: AgentMessage[];
-      let turnProduced: AgentMessage[] = [];
-      let producedIndexBase = 0;
-      if (!resumeTurn) {
-        // Repair BEFORE the prompt row exists. An eviction, a cancel or a
-        // watchdog abort can leave the tail as an assistant message with
-        // unanswered tool calls, which the provider rejects on the next
-        // request — a permanently bricked conversation. Closing it after the
-        // prompt row would put a user message between the call and its result,
-        // which is exactly as poisonous.
-        const now = Date.now();
-        for (const repaired of this.journal.repairTail(now)) {
-          this.publish(repaired.record);
-        }
-        // Foreign rows that arrived while the previous turn was running land at
-        // this clean boundary rather than splicing into a tool-call pair.
-        this.drainInbox();
-
-        // The window is chosen from resident rows only, and rollover guarantees
-        // the resident floor sits below the last turn's context start — so a
-        // normal turn never touches R2.
-        const storedContext =
-          await this.getTurnState<PromptContext>(PROMPT_CONTEXT_KEY);
-        const journalEpoch = this.journal.meta().epoch;
-        const previousContext = reusablePromptContext({
-          storedContext,
-          journalEpoch,
-          ownerGeneration: turn.ownerGeneration,
-        });
-        const storedCheckpoint =
-          previousContext || storedContext
-            ? await this.getTurnState<ContextCheckpoint>(CONTEXT_CHECKPOINT_KEY)
-            : undefined;
-        const previousCheckpoint = previousContext ? storedCheckpoint : undefined;
-        const selection = this.journal.selectWindow(
-          turn.turnId,
-          previousContext ? Number.MAX_SAFE_INTEGER : CLOUD_HISTORY_TOKEN_BUDGET,
-          promptContextHistoryStartAfterSeq({
-            previousContext,
-            previousCheckpoint,
-          }),
-        );
-        this.journal.setTurnContext(
-          turn.turnId,
-          selection.startSeq,
-          selection.endSeq,
-        );
-        let journalHistory = stampUserMessageSequences(
-          await this.hydrateWindow(selection),
-          selection.rows,
-        );
-        const [
-          { memoryPreference, memoryDocuments, personalityOverride },
-          canonicalPrompts,
-          locale,
-          attachmentImages,
-          skillCatalog,
-          relaySession,
-        ] = await preparationWork;
-        turnRelaySession = relaySession;
-        const memoryEnabled = memoryPreference.memoryEnabled;
-        log("info", "cloud_memory_preference_loaded", {
-          turnId: turn.turnId,
-          ownerGeneration: memoryPreference.ownerGeneration,
-          memoryEnabled,
-          revision: memoryPreference.revision,
-        });
-        const turnTools = await this.createTools(
-          turn,
-          agentHome,
-          skillCatalog,
-          memoryEnabled,
-        );
-        const sections = buildCloudSystemPromptSections({
-          canonicalBody: canonicalPrompts.orchestratorBody,
-          tools: turnTools.promptTools,
-          locale,
-          threadId: turn.conversationId,
-        });
-        const compaction = await compactCloudHistory({
-          messages: journalHistory,
-          rows: selection.rows,
-          checkpoint: previousCheckpoint,
-          contextWindow: relaySession.model.contextWindow,
-          modelMaxTokens: relaySession.model.maxTokens,
-          systemPrompt: canonicalPrompts.compactionSystemPrompt,
-          profile: memoryDocuments.find(
-            (document) =>
-              document.displayPath === LIFE_USER_PROFILE_DISPLAY_PATH,
-          )?.content,
-          beforeRetry: async (attempt, error) => {
-            log("info", "chat_compaction_summary_failed", {
-              turnId: turn.turnId,
-              attempt,
-              error: error instanceof Error ? error.message : String(error),
-            });
-            await assertExactTurnActive();
-            assertTurnExecutionActive(turnCancellation, executionSignal);
-          },
-          summarize: async ({ systemPrompt, prompt, maxTokens }) => {
-            await assertExactTurnActive();
-            const Agent = await agentRuntimeWork!;
-            const summaryStream = withoutPromptCache(
-              relaySession.createStreamFn({ reasoningEffort: "none" }),
-            );
-            const summarizer = new Agent({
-              initialState: {
-                model: relaySession.model,
-                systemPrompt,
-                tools: [],
-                thinkingLevel: "off",
-              },
-              getApiKey: () => turnCapability.token,
-              sessionId: turn.conversationId,
-              degenerateResponseRetries: 0,
-              providerRequestLimit: 1,
-              streamFn: (model, context, options) =>
-                summaryStream(model, context, { ...options, maxTokens }),
-            });
-            this.currentAgent = summarizer;
-            try {
-              assertTurnExecutionActive(turnCancellation, executionSignal);
-              await summarizer.prompt(prompt);
-              const result = getAgentCompletion(summarizer);
-              if (result.errorMessage) throw new Error(result.errorMessage);
-              // As on the desktop, a summary cut off at the output cap is
-              // not a summary.
-              const last = summarizer.state.messages.at(-1);
-              if (last?.role === "assistant" && last.stopReason !== "stop")
-                throw new Error(`summary ended with ${last.stopReason}`);
-              return result.finalText;
-            } finally {
-              this.currentAgent = undefined;
-            }
-          },
-        });
-        await assertExactTurnActive();
-        journalHistory = compaction.messages;
-        const contextStartSeq =
-          compaction.rows[0]?.seq ?? this.journal.meta().next_seq;
-        const executionContext = cloudExecutionContext(turn, destinations);
-        const agentRoster = promptContextBoundary({
-          previous: previousContext,
-          policy: memoryPreference,
-          startSeq: contextStartSeq,
-          journalEpoch,
-        })
-          ? await this.agentRoster(turn)
-          : undefined;
-        const context = preparePromptContext({
-          previous: previousContext,
-          policy: memoryPreference,
-          sections,
-          tools: turnTools.tools,
-          resident: cloudResidentContext({
-            personality:
-              personalityOverride ?? canonicalPrompts.personalityBody,
-            memoryDocuments,
-            skillCatalog,
-            executionContext,
-            agentRoster,
-          }),
-          sent: previousContext
-            ? sentResidentPrompts(journalHistory, previousContext.epoch)
-            : [],
-          startSeq: contextStartSeq,
-          journalEpoch,
-        });
-        turnContext = context;
-        const prepend = context.prepend;
-        const report = await this.wakeReport(turn);
-        await assertExactTurnActive();
-        const durablePrompt = {
-          role: "user",
-          content: [{ type: "text", text: report.prompt }],
-          timestamp: now,
-          executionContext,
-          ...(turn.originUserMessageId
-            ? { originUserMessageId: turn.originUserMessageId }
-            : {}),
-          providerContext: {
-            version: 2,
-            epoch: context.state.epoch,
-            prepend,
-            clock: new Date(now).toISOString(),
-            ...(turn.attachments?.length
-              ? { attachments: [...turn.attachments] }
-              : {}),
-          },
-          ...(turn.source ? { source: turn.source } : {}),
-        } as AgentMessage;
-        const promptPayload = await this.spillOversizePrompt(
-          turn.turnId,
-          durablePrompt,
-        );
-        if (promptPayload.spillKey) await assertExactTurnActive();
-        // The prompt, its hidden updates, and the adopted checkpoint commit
-        // together. A restart cannot remember an update that was never appended.
-        const contextStateChanged = context.state !== previousContext;
-        const checkpointChanged = promptContextCheckpointChanged({
-          storedContext,
-          previousContext,
-          storedCheckpoint,
-          nextCheckpoint: compaction.checkpoint,
-        });
-        const promptRow = this.ctx.storage.transactionSync(() => {
-          const row = this.journal.appendMessage({
-            turnId: turn.turnId,
-            writer: "orchestrator",
-            writerKey: `turn:${turn.turnId}:prompt`,
-            role: "user",
-            hidden: turn.hiddenMessage === true,
-            clientMsgId: turn.clientMsgId,
-            createdAt: now,
-            message: durablePrompt,
-            ...promptPayload,
-          });
-          if (contextStateChanged)
-            this.ctx.storage.kv.put(PROMPT_CONTEXT_KEY, context.state);
-          if (checkpointChanged) {
-            if (compaction.checkpoint)
-              this.ctx.storage.kv.put(
-                CONTEXT_CHECKPOINT_KEY,
-                compaction.checkpoint,
-              );
-            else this.ctx.storage.kv.delete(CONTEXT_CHECKPOINT_KEY);
-          }
-          return row;
-        });
-        this.journal.setTurnSpan(turn.turnId, promptRow.seq);
-        this.publish(promptRow.record);
-        this.publishAgentTerminal(turn, report);
-
-        const startedRow = this.journal.appendTurn({
-          turnId: turn.turnId,
-          writer: "orchestrator",
-          writerKey: `turn:${turn.turnId}:phase:started`,
-          phase: "started",
-          lane: turn.lane ?? "chat",
-          source: turn.source,
-          promptSeq: promptRow.seq,
-          createdAt: now,
-        });
-        this.journal.setTurnSpan(turn.turnId, startedRow.seq);
-        this.publish(startedRow.record);
-        this.live = {
-          turnId: turn.turnId,
-          streamId: null,
-          partialText: "",
-          tools: [],
-        };
-
-        const currentMessage = stampUserMessageSequences(
-          [durablePrompt],
-          [
-            {
-              seq: promptRow.seq,
-              role: "user",
-              hidden: turn.hiddenMessage === true,
-            },
-          ],
-        )[0]!;
-        turnHistory = providerHistory({
-          context: context.state,
-          checkpoint: compaction.checkpoint,
-          messages: journalHistory,
-        });
-        const currentPrompt = materializeProviderContext(
-          [currentMessage],
-          context.state.epoch,
-        );
-        if (attachmentImages.length > 0) {
-          const user = currentPrompt.at(-1);
-          if (user?.role === "user" && Array.isArray(user.content))
-            user.content.push(...attachmentImages);
-        }
-        turnCurrentPrompt = currentPrompt;
-        this.journal.setTurnContext(
-          turn.turnId,
-          contextStartSeq,
-          selection.endSeq,
-        );
-        void this.index
-          .flush({ activity: "running", updatedAt: now })
-          .catch(() => undefined);
-        log("info", "chat_prompt_context", {
-          turnId: turn.turnId,
-          boundary: context.boundary,
-          updates: prepend.length,
-          compacted: compaction.compacted,
-          startSeq: contextStartSeq,
-        });
-      } else {
-        // Resume: the prompt row, the prompt context it adopted and the
-        // history window it recorded are all durable, so rebuild exactly the
-        // request the lost isolate was sending instead of preparing a new one.
-        // Nothing is appended before the open calls are answered: an inbox
-        // row or a repair landing between a tool call and its result would
-        // poison the provider request.
-        const [
-          { memoryPreference, memoryDocuments, personalityOverride },
-          canonicalPrompts,
-          locale,
-          attachmentImages,
-          skillCatalog,
-          relaySession,
-        ] = await preparationWork;
-        turnRelaySession = relaySession;
-        const journalEpoch = this.journal.meta().epoch;
-        const previousContext = reusablePromptContext({
-          storedContext:
-            await this.getTurnState<PromptContext>(PROMPT_CONTEXT_KEY),
-          journalEpoch,
-          ownerGeneration: turn.ownerGeneration,
-        });
-        const range = this.journal.turnContextRange(turn.turnId);
-        if (!previousContext) {
-          throw new ChatTurnNotResumableError("prompt_context");
-        }
-        if (!range || previousContext.startSeq !== range.startSeq) {
-          throw new ChatTurnNotResumableError("context_range");
-        }
-        const turnTools = await this.createTools(
-          turn,
-          agentHome,
-          skillCatalog,
-          memoryPreference.memoryEnabled,
-        );
-        const context = resumePromptContext({
-          previous: previousContext,
-          policy: memoryPreference,
-          tools: turnTools.tools,
-          startSeq: range.startSeq,
-          journalEpoch,
-        });
-        // A boundary (memory disabled or erased, an owner reset) means the
-        // frozen context the lost isolate sent may carry context that must
-        // not be sent again. Fail rather than resume across it.
-        if (!context) {
-          throw new ChatTurnNotResumableError("context_boundary");
-        }
-        turnContext = context;
-        const checkpoint = await this.getTurnState<ContextCheckpoint>(
-          CONTEXT_CHECKPOINT_KEY,
-        );
-        const selection = this.journal.selectRange(
-          turn.turnId,
-          range.startSeq,
-          range.endSeq,
-        );
-        const journalHistory = stampUserMessageSequences(
-          await this.hydrateWindow(selection),
-          selection.rows,
-        );
-        turnHistory = providerHistory({
-          context: context.state,
-          checkpoint,
-          messages: journalHistory,
-        });
-        const own = this.journal.selectTurnMessages(turn.turnId);
-        const ownMessages = await this.hydrateWindow(own);
-        if (own.rows[0]?.role !== "user" || !ownMessages[0]) {
-          throw new ChatTurnNotResumableError("prompt_row");
-        }
-        const promptMessage = stampUserMessageSequences(
-          [ownMessages[0]],
-          [own.rows[0]],
-        )[0]!;
-        const currentPrompt = materializeProviderContext(
-          [promptMessage],
-          context.state.epoch,
-        );
-        if (attachmentImages.length > 0) {
-          const user = currentPrompt.at(-1);
-          if (user?.role === "user" && Array.isArray(user.content))
-            user.content.push(...attachmentImages);
-        }
-        turnCurrentPrompt = currentPrompt;
-        const produced = ownMessages.slice(1);
-        const counts = { rerun: 0, interrupted: 0, notStarted: 0 };
-        const open = this.journal
-          .openTailCalls()
-          .filter((call) => call.turnId === turn.turnId);
-        for (let index = 0; index < open.length; index += 1) {
-          await assertExactTurnActive();
-          const call = open[index]!;
-          const resolved = await resolveOpenToolCall({
-            tools: context.tools,
-            call,
-            started: index === 0,
-            signal: executionSignal,
-            now: () => Date.now(),
-          });
-          await assertExactTurnActive();
-          const appended = this.journal.appendRepairedResult(
-            turn.turnId,
-            resolved.message,
-            Date.now(),
+      // The turn's one transport to the model gateway: owner fence, model
+      // grant and managed cancellation on every physical request.
+      const relayFetch = async (
+        input: RequestInfo | URL,
+        init?: RequestInit,
+      ): Promise<Response> => {
+        const request = new Request(input, init);
+        // Resolution contains no prompt and can overlap home loading.
+        if (new URL(request.url).pathname === GATEWAY_RESOLVE_PATH) {
+          return measurePreparation("modelResolutionTransportMs", () =>
+            modelGateway.fetch(request),
           );
-          this.journal.setTurnSpan(turn.turnId, appended.seq);
-          this.publish(appended.record);
-          produced.push(resolved.message);
-          if (resolved.disposition === "rerun") counts.rerun += 1;
-          else if (resolved.disposition === "interrupted")
-            counts.interrupted += 1;
-          else counts.notStarted += 1;
         }
-        turnProduced = produced;
-        producedIndexBase = this.journal.maxProducedIndex(turn.turnId) + 1;
-        this.live = {
-          turnId: turn.turnId,
-          streamId: null,
-          partialText: "",
-          tools: [],
-        };
-        void this.index
-          .flush({ activity: "running", updatedAt: Date.now() })
-          .catch(() => undefined);
-        log("info", "chat_turn_resume_context", {
-          turnId: turn.turnId,
-          conversationId: turn.conversationId,
-          historyRows: selection.rows.length,
-          producedRows: produced.length,
-          summarized: Boolean(checkpoint),
-          finishedBeforeLoss: produced.at(-1)?.role === "assistant",
-          ...counts,
-        });
-      }
-      // Revalidate at the provider boundary below, including retries. Agent
-      // construction does not send context, so a second check here only adds
-      // a control-plane round trip before the same mandatory validation.
-
-      // The watchdog (or /cancel) may have fired during the setup awaits
-      // above, before currentAgent exists for abort() to reach — re-check so
-      // an already-terminal turn never starts the loop at all.
-      try {
-        await assertExactTurnActive();
-      } catch (error) {
-        if (
-          turnCancellation.aborted ||
-          (await this.getTurnState<boolean>("terminal"))
-        ) {
-          // The prompt row is already committed, so this turn has content
-          // worth indexing even though the loop never ran. Returning without
-          // this is how a canceled turn used to vanish from the search index permanently.
-          await this.afterTerminal(turn);
-          return json({ ok: false, canceled: true });
-        }
-        throw error;
-      }
-
-      await assertExactTurnActive();
-      const Agent = await agentRuntimeWork!;
-      // No await is allowed between this local latch and constructing the
-      // Agent. The next async admission boundary repeats the same check.
-      assertTurnExecutionActive(turnCancellation, executionSignal);
-      const steerable: SteerableTurn = {
-        turn,
-        watchdogAt,
-        waiting: [],
-        injected: new Map(),
-      };
-      const agent: RuntimeAgent = new Agent({
-        initialState: {
-          systemPrompt: turnContext.state.frozen.systemPrompt,
-          model: turnRelaySession.model,
-          tools: turnContext.tools,
-          messages: resumeTurn
-            ? [...turnHistory, ...turnCurrentPrompt, ...turnProduced]
-            : turnHistory,
-        },
-        sessionId: turn.conversationId,
-        getApiKey: () => turnCapability.token,
-        toolExecution: "sequential",
-        toolInactivityTimeoutMs: 60_000,
-        // Re-prune and strip stale images before EVERY provider call, exactly
-        // as the desktop loop does. The journal window selected above is the
-        // turn's base; without this per-call guard a tool-heavy turn (web
-        // results at ~20KB each) grows unchecked toward the model's declared
-        // window with only the pre-turn budget as slack. First-party
-        // Anthropic routes use the 1h cache tier so an agent completion
-        // wakes this conversation on a warm prefix; resumed turns derive the
-        // same tier from the same route (orchestrator-cache-retention.ts).
-        streamFn: withOrchestratorCacheRetention(
-          turnRelaySession.createStreamFn({
-            reasoningEffort: executionSelection.reasoningEffort,
-            transformContext: async (resolvedModel, rawContext, signal) => {
-              const messages = await buildDefaultTransformContext({
-                model: resolvedModel,
-              })(rawContext.messages, signal);
-              return {
-                ...rawContext,
-                messages: messages.filter(
-                  (message) =>
-                    message.role === "user" ||
-                    message.role === "assistant" ||
-                    message.role === "toolResult",
-                ),
-              };
-            },
-          }),
-          () => turnRelaySession.model,
-        ),
-        // The outer ladder below owns empty completions and physical request
-        // attempts — the same division of labor as the desktop runtime
-        // (`createRuntimeAgent`), which disables the loop's built-in
-        // double-call for the same reason.
-        degenerateResponseRetries: 0,
-        providerRequestLimit: AGENT_RUN_MAX_ATTEMPTS,
-        getSteeringMessages: () => this.takeSteeredWakes(steerable),
-      });
-
-      // Incremental persistence: every produced message is committed as it is
-      // produced. A DO eviction at minute four of a five-minute turn used to
-      // discard everything the turn had done; now it loses at most the message
-      // still streaming. This is only safe because repairTail() above closes
-      // whatever tool calls such an eviction leaves open.
-      //
-      // The handler is synchronous on purpose. The Agent's event sink is
-      // fire-and-forget — a returned promise is dropped — so an `await` here
-      // would silently lose rows. SQLite in a DO is synchronous, which is what
-      // makes that constraint costless.
-      let producedIndex = producedIndexBase;
-      let streamId: string | null = null;
-      let persistError: string | undefined;
-      const unsubscribe = agent.subscribe((event: AgentEvent) => {
-        // Agent.abort() can race one last provider callback. The subscriber is
-        // synchronous, so this in-memory latch is the only check that can sit
-        // directly in front of every journal append/broadcast without opening
-        // another await-sized TOCTOU window.
-        if (turnCancellation.aborted || executionSignal.aborted) return;
-        try {
-          if (event.type === "message_end" && event.message.role === "user") {
-            // Submitted user blocks already exist as durable prompt metadata.
-            if (turnCurrentPrompt.includes(event.message)) return;
-            const steered = steerable.injected.get(event.message);
-            if (steered) {
-              steerable.injected.delete(event.message);
-              this.absorbSteeredWake(turn, steered);
-              return;
-            }
-          }
-          this.onAgentEvent(turn, event, {
-            nextIndex: () => producedIndex++,
-            streamId: () => streamId,
-            setStreamId: (value) => {
-              streamId = value;
-            },
-          });
-        } catch (error) {
-          // A failed transcript write must fail the turn: the model's
-          // in-memory history would otherwise diverge from what the user is
-          // shown, and the next turn would read a history the user never saw.
-          persistError ??= errorMessage(error);
-          agent.abort();
-        }
-      });
-
-      // The desktop runtime's transient ladder, verbatim: resume the same
-      // in-memory context after a retryable provider/transport failure
-      // instead of failing the whole turn on one blip. The Effect cancellation
-      // latch is wired to the cancel/watchdog paths so an aborted turn classifies as
-      // canceled (never retried) and a cancel during backoff wakes the sleep.
-      const retryState = { attemptsUsed: 0, retriesUsed: 0 };
-      this.currentAgent = agent;
-      this.steerableTurn = steerable;
-      let execution: { finalText: string; errorMessage?: string };
-      try {
-        execution = await executeAgentRunWithRetry({
-          state: retryState,
-          isCanceled: () => turnCancellation.aborted,
-          sleep: (milliseconds) => turnCancellation.sleep(milliseconds),
-          execute: async (resume) => {
-            await assertExactTurnActive();
-            // The model transport checks memory policy and the exact lease
-            // before every physical request, including tools and compaction.
-            log("info", "chat_turn_prepared", {
-              turnId: turn.turnId,
-              conversationId: turn.conversationId,
-              admissionMs: turn.queuedAt
-                ? Math.round(
-                    Date.now() - turn.queuedAt - (performance.now() - started),
-                  )
-                : undefined,
-              totalPreparationMs: Math.round(performance.now() - started),
-              ...preparationTimings,
-            });
-
-            // Stop cannot interleave between this synchronous latch and
-            // Agent.prompt/continue entering _runLoop and creating its own
-            // provider/tool controller.
-            assertTurnExecutionActive(turnCancellation, executionSignal);
-            if (resume) {
-              await agent.continue();
-            } else if (resumeTurn) {
-              // A reply journaled before the loss only lacks its terminal;
-              // asking the model again would bill and possibly change it.
-              if (agent.state.messages.at(-1)?.role !== "assistant") {
-                await agent.continue();
-              }
-            } else {
-              await agent.prompt(turnCurrentPrompt);
-            }
-            const completion = getAgentCompletion(agent);
-            return { ...completion, finalText: completion.finalText.trim() };
-          },
-          prepareResume: (reason, classification) => {
-            // A subscription reset is minutes or hours away; retrying this
-            // turn hides the actionable notice behind minute-long backoffs.
-            if (subscriptionLimitNotice) return false;
-            const prepared = prepareTransientResumeTail(
-              agent.state.messages,
-              classification,
-            );
-            if (prepared) {
-              log("info", "chat_turn_transient_retry", {
-                turnId: turn.turnId,
-                conversationId: turn.conversationId,
-                category: classification.category,
-                message: reason,
+        const execute = async (physicalRequest: Request) => {
+          const localGrant = await modelGrantForPhysicalRequest();
+          const activeGrant = localGrant
+            ? this.localOwnerModelGrants.begin(
+                localGrant.grant,
+                localGrant.expected,
+                physicalRequest.signal,
+              )
+            : undefined;
+          const guardedRequest = activeGrant
+            ? new Request(physicalRequest, {
+                signal: activeGrant.requestSignal,
+              })
+            : physicalRequest;
+          try {
+            // An eligible signed request goes straight to its owner
+            // DO; the DO retains every check.
+            const relayOwners =
+              executionSelection.engine === "stella" &&
+              turnCapability.claims.ledgerScope === "owner-relay-v2"
+                ? this.env.MODEL_GATEWAY_OWNERS
+                : undefined;
+            const guard = (requestToGuard: Request) =>
+              guardedModelFetch({
+                request: requestToGuard,
+                fetch: (value) =>
+                  relayOwners
+                    ? relayOwners
+                        .get(
+                          relayOwners.idFromName(
+                            turnCapability.claims.sub,
+                          ),
+                        )
+                        .fetch(value)
+                    : modelGateway.fetch(value),
+                mode: activeGrant
+                  ? "authorize-before-fetch"
+                  : "gate-body",
+                authorize: async () => {
+                  await assertExactTurnActive();
+                  const { memoryPreference } =
+                    await measuredHomePreparation;
+                  if (
+                    !turn.ownerPurgeGeneration ||
+                    !turn.ownerPurgeLeaseId
+                  ) {
+                    throw new OwnerPurgeFenceError();
+                  }
+                  assertTurnExecutionActive(
+                    turnCancellation,
+                    executionSignal,
+                  );
+                  if (activeGrant) activeGrant.assertValid();
+                  else {
+                    const policyStartedAt = performance.now();
+                    await requireCloudContext(
+                      "agent_home_memory",
+                      this.ownerGate(turn.ownerId).assertMemoryPolicy(
+                        memoryPreference,
+                        turn.ownerPurgeGeneration,
+                        turn.ownerPurgeLeaseId,
+                        turn.turnId,
+                      ),
+                    );
+                    log("info", "chat_model_dispatch_prepared", {
+                      turnId: turn.turnId,
+                      memoryRevalidationMs: Math.round(
+                        performance.now() - policyStartedAt,
+                      ),
+                    });
+                  }
+                  // Count physical requests after privacy validation, including
+                  // compaction and tool continuations, rather than Agent invocations.
+                  await this.noteDevAcceptanceProviderDispatch();
+                  assertTurnExecutionActive(
+                    turnCancellation,
+                    executionSignal,
+                  );
+                  // The dev counter is an asynchronous boundary. Freeze may
+                  // arrive while it is pending, so check the local grant again
+                  // at the last point before the request body is released.
+                  activeGrant?.assertValid();
+                },
               });
+            const response =
+              executionSelection.engine === "stella"
+                ? await (() => {
+                    const control = this.env.MODEL_GATEWAY_CONTROL;
+                    if (!control)
+                      throw new Error(
+                        "Model gateway cancellation is not configured.",
+                      );
+                    return fetchWithManagedCancellation({
+                      request: guardedRequest,
+                      capability: turnCapability.token,
+                      control: control as ModelGatewayControl & Fetcher,
+                      waitUntil: (work) => this.ctx.waitUntil(work),
+                      fetch: guard,
+                    });
+                  })()
+                : await guard(guardedRequest);
+            if (!response.ok) {
+              subscriptionLimitNotice = nativeSubscriptionLimitNotice(
+                response.headers.get(GATEWAY_SUBSCRIPTION_LIMIT_HEADER),
+              );
             }
-            return prepared;
-          },
-          onRetry: (info) => {
-            log("info", "chat_turn_retry_scheduled", {
-              turnId: turn.turnId,
-              conversationId: turn.conversationId,
-              category: info.category,
-              retryNumber: info.retryNumber,
-              nextAttempt: info.nextAttempt,
-              delayMs: info.delayMs,
-            });
-          },
-        });
-      } finally {
-        this.currentAgent = undefined;
-        if (this.steerableTurn === steerable) this.steerableTurn = undefined;
-      }
-      unsubscribe();
-      // Oversize-row promotion, the only work the sync handler defers.
-      await this.background.catch(() => undefined);
-      if (persistError) {
-        throw new Error(`Persisting the reply failed: ${persistError}`);
-      }
-
-      if (await this.getTurnState<boolean>("terminal")) {
-        // Canceled or timed out mid-loop; the terminal event and its journal
-        // record are already written by whichever path marked it terminal.
-        // The post-terminal work is not: that path deliberately leaves it to
-        // the loop, which is the only caller that knows the loop has stopped
-        // and that a drain or a rollover is therefore safe.
-        await this.afterTerminal(turn);
-        return json({ ok: false, canceled: true });
-      }
-
-      // Everything the loop produced is already committed, row by row, above.
-      const finalText = execution.finalText;
-      if (execution.errorMessage) {
-        throw new Error(execution.errorMessage);
-      }
-      return await this.completeChatTurn(turn, finalText, started);
+            return activeGrant
+              ? releaseOwnerModelGrantAfterBody(
+                  response,
+                  activeGrant.release,
+                )
+              : response;
+          } catch (error) {
+            activeGrant?.release();
+            throw error;
+          }
+        };
+        return execute(request);
+      };
+      return await this.runPiTurn({
+        turn,
+        turnCancellation,
+        executionSignal,
+        resumeTurn,
+        started,
+        execution: harnessExecution,
+        capability: turnCapability.token,
+        relayFetch,
+        gatewayOrigin: modelGatewayOrigin,
+        homeWork: measuredHomePreparation,
+        canonicalPromptsWork,
+        destinationsWork,
+        measurePreparation,
+        preparationTimings,
+        assertExactTurnActive,
+      });
     } catch (error) {
       const message = errorMessage(error);
       const contextFailure = cloudContextFailure(error);
@@ -5727,6 +5292,1178 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    * session), and the turn is dispatched once: a resumed turn that finds its
    * dispatch record waits for that exact attempt's terminal instead.
    */
+  /**
+   * A Stella-model turn of a conversation that runs on pi-durable. The turn
+   * plane around it is unchanged: admission, owner fence, the turn's model
+   * capability and guarded transport, watchdog, terminal delivery. pi owns
+   * the run: the prompt goes to its root conversation under the turn id, so
+   * a turn resumed after an eviction finds the same submission, and pi's
+   * committed messages are mirrored into the journal for `/history`, the
+   * socket and the existing clients.
+   */
+  private async runPiTurn(args: {
+    turn: ChatTurnRequest;
+    turnCancellation: TurnRetryCancellation;
+    executionSignal: AbortSignal;
+    resumeTurn: boolean;
+    started: number;
+    execution: import("./pi-runtime.js").PiExecution;
+    capability: string;
+    relayFetch: typeof fetch;
+    gatewayOrigin: string;
+    homeWork: ReturnType<OrchestratorSessionObject["prepareCloudHomeContext"]>;
+    canonicalPromptsWork: Promise<CanonicalPrompts>;
+    destinationsWork: Promise<DevicesResponse | null>;
+    measurePreparation: <T>(name: string, work: () => Promise<T>) => Promise<T>;
+    preparationTimings: Record<string, number>;
+    assertExactTurnActive: () => Promise<void>;
+  }): Promise<Response> {
+    const { turn, turnCancellation, executionSignal, assertExactTurnActive } =
+      args;
+    const [home, canonicalPrompts, destinations, pi] = await Promise.all([
+      args.homeWork,
+      args.canonicalPromptsWork,
+      args.destinationsWork,
+      import("./pi-runtime.js"),
+    ]);
+    await assertExactTurnActive();
+    const executionContext = cloudExecutionContext(turn, destinations);
+    const modelSpec = (
+      agentType: "orchestrator" | "general",
+      execution: Extract<CloudExecutionSelection, { engine: "stella" }>,
+    ) => piModelSpec(agentType, execution, turn.audience);
+    const binding: import("./pi-runtime.js").PiTurnBinding = {
+      turnId: turn.turnId,
+      capability: args.capability,
+      fetch: args.relayFetch,
+      // Agents this turn starts run on this owner's authority after it ends.
+      authority: {
+        ownerId: turn.ownerId,
+        ownerGeneration: turn.ownerGeneration,
+        conversationId: turn.conversationId,
+        audience: turn.audience,
+        budgetMicroCents: turn.budgetMicroCents,
+        execution: args.execution,
+      },
+      // A ChatGPT plan turn runs on the plan's model, which the gateway does not resolve.
+      ...(args.execution.engine === "stella"
+        ? {
+            stellaModels: {
+              model: modelSpec("orchestrator", args.execution),
+              agentModel: modelSpec("general", args.execution),
+            },
+          }
+        : {}),
+      thinkingLevel: pi.thinkingLevelFor(
+        args.execution.reasoningEffort,
+        args.execution.engine,
+      ),
+      tools: async () =>
+        (
+          await this.createTools(
+            turn,
+            this.cloudAgentHome(turn),
+            home.skillCatalog,
+            home.memoryPreference.memoryEnabled,
+            "pi",
+          )
+        ).catalog,
+      sources: {
+        orchestratorPrompt: canonicalPrompts.orchestratorBody,
+        personality:
+          home.personalityOverride ?? canonicalPrompts.personalityBody,
+        memory: pi.memoryFromDocuments(
+          home.memoryPreference.memoryEnabled,
+          home.memoryDocuments,
+        ),
+        skillsCatalog: buildCloudSkillsBlock(home.skillCatalog) || undefined,
+        executionContext,
+        locale: await this.resolveTurnLocale(turn),
+      },
+    };
+    const runtime = await this.openPiRuntime(args.gatewayOrigin);
+    const unbind = await runtime.bind(binding);
+    const context = pi.contextFor(executionSignal);
+    let stream: Awaited<ReturnType<typeof runtime.follow>> | undefined;
+    let mirrored = (await this.ctx.storage.get<number>(PI_MIRRORED_KEY)) ?? 0;
+    try {
+      const report = await this.wakeReport(turn);
+      const promptKey = `turn:${turn.turnId}:prompt`;
+      const promptSeq =
+        args.resumeTurn && this.journal.hasRow(promptKey)
+          ? this.journal.selectTurnMessages(turn.turnId).rows[0]?.seq
+          : await this.journalCliPrompt(turn, executionContext, report, "pi");
+      if (promptSeq === undefined) {
+        throw new ChatTurnNotResumableError("prompt_row");
+      }
+      this.live = {
+        turnId: turn.turnId,
+        streamId: null,
+        partialText: "",
+        tools: [],
+      };
+      void this.index
+        .flush({ activity: "running", updatedAt: Date.now() })
+        .catch(() => undefined);
+      await runtime.configureRoot(binding, context);
+      // A reply the journal could not take fails the turn, as the loop's
+      // does: what the user is shown and what Stella read must not diverge.
+      // The entry stays unmirrored, so the next turn writes it again.
+      let persistError: string | undefined;
+      stream = await runtime.follow(
+        mirrored,
+        (entry) => {
+          if (persistError !== undefined) return;
+          const message = entry.model?.[0];
+          if (
+            message &&
+            (entry.kind === "pi.assistant" || entry.kind === "pi.tool-result") &&
+            // Written from the journal: another writer's, already there.
+            pi.journalSeqOf(entry) === undefined
+          ) {
+            try {
+              const appended = this.appendProduced(
+                turn,
+                message as unknown as AgentMessage,
+                {
+                  writer: "orchestrator",
+                  writerKey: `pi:${entry.id}`,
+                  streamId: null,
+                },
+              );
+              if (appended) this.publish(appended.record);
+            } catch (error) {
+              persistError = errorMessage(error);
+              this.currentPiRun?.abort();
+              return;
+            }
+          }
+          mirrored = Math.max(mirrored, entry.id);
+        },
+        context,
+        // Every client shows a turn's tools as they run, as the loop's.
+        (tool) =>
+          this.noteTurnTool(
+            turn,
+            { toolCallId: tool.toolCallId, name: tool.name, args: tool.args },
+            tool.phase,
+            tool.isError,
+          ),
+      );
+      await assertExactTurnActive();
+      if (turn.piAgent) {
+        await runtime.originAgent(turn.piAgent, turn.prompt, turn.turnId, context);
+        log("info", "pi_origin_agent_op", {
+          turnId: turn.turnId,
+          conversationId: turn.conversationId,
+          op: turn.piAgent.op,
+          threadId: turn.piAgent.threadId,
+        });
+        return await this.completeChatTurn(turn, "", args.started);
+      }
+      // What other writers journaled since (a computer's turns, another
+      // engine's) is part of the conversation this turn answers.
+      const [, images] = await Promise.all([
+        // Rows already rolled over to R2 are read from there.
+        runtime.importJournal(
+          (afterSeq) =>
+            this.archive.readRange(
+              afterSeq + 1,
+              Number.MAX_SAFE_INTEGER,
+              PI_JOURNAL_IMPORT_BATCH,
+            ),
+          turn.turnId,
+          context,
+        ),
+        this.loadChatAttachmentImages(turn, executionSignal),
+      ]);
+      const { root } = await runtime.open();
+      const clock = new Date().toISOString();
+      const text = turn.hiddenMessage
+        ? report.prompt
+        : `${report.prompt.replace(/\s+$/u, "")}\n\n${formatMessageRefTag(promptSeq)}`;
+      // Marked as the journal row is: the clock is context, and a prompt the
+      // user did not write (a wake, an agent's note) is read, not shown.
+      const hidden = { stella: { hidden: true as const } };
+      const submission = await root.submit(
+        {
+          type: "input",
+          requestId: `turn:${turn.turnId}`,
+          whenBusy: "followUp",
+          content: [
+            { type: "text", text: `<current-time>${clock}</current-time>`, ...hidden },
+            { type: "text", text, ...(turn.hiddenMessage ? hidden : {}) },
+            ...(turn.attachments?.length
+              ? [
+                  {
+                    type: "text" as const,
+                    text: attachedFilesText(turn.attachments, {
+                      readableHere: true,
+                    }),
+                  },
+                ]
+              : []),
+            ...images,
+          ],
+        },
+        context,
+      );
+      log("info", "pi_turn_submitted", {
+        turnId: turn.turnId,
+        conversationId: turn.conversationId,
+        submissionId: submission.id,
+        resumed: args.resumeTurn,
+        preparationMs: Math.round(performance.now() - args.started),
+        ...args.preparationTimings,
+      });
+      this.currentPiRun = {
+        abort: () => {
+          void root.abort(pi.contextFor()).catch((error: unknown) => {
+            log("error", "pi_turn_abort_failed", {
+              turnId: turn.turnId,
+              message: errorMessage(error),
+            });
+          });
+        },
+      };
+      if (executionSignal.aborted || turnCancellation.aborted) {
+        this.currentPiRun.abort();
+      }
+      let settled: Awaited<ReturnType<typeof submission.wait>>;
+      try {
+        settled = await submission.wait(context);
+      } catch (error) {
+        if (
+          turnCancellation.aborted ||
+          executionSignal.aborted ||
+          (await this.getTurnState<boolean>("terminal"))
+        ) {
+          // Stop or the watchdog wrote the terminal; pi was aborted with it.
+          this.currentPiRun?.abort();
+          await this.afterTerminal(turn);
+          return json({ ok: false, canceled: true });
+        }
+        if (persistError !== undefined) {
+          throw new Error(`Persisting the reply failed: ${persistError}`);
+        }
+        throw error;
+      }
+      if (persistError !== undefined) {
+        throw new Error(`Persisting the reply failed: ${persistError}`);
+      }
+      if (await this.getTurnState<boolean>("terminal")) {
+        await this.afterTerminal(turn);
+        return json({ ok: false, canceled: true });
+      }
+      if (settled.status !== "done") {
+        throw new Error(
+          `Stella could not answer this turn (${settled.reason}).`,
+        );
+      }
+      const finalText = (await runtime.answer(settled, context)).trim();
+      log("info", "pi_turn_answered", {
+        turnId: turn.turnId,
+        conversationId: turn.conversationId,
+        wallClockMs: Math.round(performance.now() - args.started),
+      });
+      return await this.completeChatTurn(turn, finalText, args.started);
+    } finally {
+      this.currentPiRun = undefined;
+      unbind();
+      await stream?.stop().catch(() => undefined);
+      await this.ctx.storage.put(PI_MIRRORED_KEY, mirrored).catch(() => undefined);
+      // Agents this turn started keep running after it.
+      await this.piHeartbeat().catch(() => undefined);
+      await this.placeBrainHandoff(
+        turn.turnId,
+        turnCancellation.aborted || executionSignal.aborted,
+      );
+    }
+  }
+
+  private piGatewayOrigin(): string {
+    return this.env.MODEL_GATEWAY_URL?.trim() ?? "";
+  }
+
+  /** Attaching for one more socket re-sends the snapshot to every pi socket. */
+  private async attachPiClients(): Promise<{ snapshot: unknown; hasOlder: boolean }> {
+    // This attach is the one the opening would otherwise start.
+    const attaching = this.piClientsAttaching;
+    this.piClientsAttaching = true;
+    try {
+      const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+      const { contextFor } = await import("./pi-runtime.js");
+      return await runtime.watchForClients(
+        (events) => this.hub.broadcastPi(events),
+        contextFor(),
+      );
+    } finally {
+      this.piClientsAttaching = attaching;
+    }
+  }
+
+  /** This conversation's pi-durable harness, opened once per isolate. */
+  private async openPiRuntime(
+    gatewayOrigin: string,
+  ): Promise<import("./pi-runtime.js").PiConversationRuntime> {
+    this.piRuntime ??= import("./pi-runtime.js").then(
+      ({ PiConversationRuntime }) =>
+        new PiConversationRuntime({
+          storage: this.ctx.storage,
+          env: this.env,
+          gatewayOrigin,
+          contextStartSeq: () =>
+            this.journal.contextStartSeq("", CLOUD_HISTORY_TOKEN_BUDGET),
+          waitUntil: (work) => this.ctx.waitUntil(work),
+          report: (error) =>
+            log("error", "pi_runtime_report", { message: errorMessage(error) }),
+          log: (event, fields) => log("info", event, fields),
+          deliverReport: (report, authority, agent) =>
+            this.deliverPiAgentReport(report, authority, agent),
+          deliverNote: (note, authority) =>
+            this.deliverPiAgentNote(note, authority),
+          // A computer's cloud agent reports to that computer: its journal
+          // import takes the card and gives it to its orchestrator.
+          deliverOriginReport: async (report, turnId, agent) => {
+            // The computer reads the report from its card; the journal's
+            // count of what runs learns it ended now, whether or not the
+            // computer is awake to read it.
+            if (!report.settled && !agent.running) {
+              this.publishPiAgentTerminal(report.threadId, agent, piReportOutcome(report.text));
+            }
+            const appended = this.journal.appendCard({
+              turnId,
+              createdAt: Date.now(),
+              card: {
+                type: "agent-report",
+                reportFor: report.origin.deviceId,
+                threadId: report.threadId,
+                requestId: report.requestId,
+                text: report.text,
+                ...(report.settled ? { settled: true as const } : {}),
+              },
+              writer: "orchestrator",
+              writerKey: `pi-report:${report.requestId}`,
+            });
+            if (appended.inserted) this.publish(appended.record);
+            log("info", "pi_origin_report_journaled", {
+              threadId: report.threadId,
+              settled: report.settled === true,
+              reportFor: report.origin.deviceId,
+              seq: appended.seq,
+            });
+          },
+          deliverThreadReport: (report) => this.deliverPiThreadReport(report),
+          // Every client draws the agents' rows from these cards, as it does
+          // the loop's; which of them run is pi's to say (`runningAgents`).
+          agentStarted: (event) =>
+            this.publishAgentLifecycleCard(event.turnId, Date.now(), {
+              type: "agent-lifecycle",
+              eventId: `pi-agent:${event.threadId}:${event.attempt}:started`,
+              event: {
+                type: "agent-started",
+                payload: {
+                  agentId: event.threadId,
+                  attemptGeneration: event.attempt,
+                  description: event.description,
+                  agentType: "general",
+                  ...(event.attempt > 1 ? { isFollowUp: true } : {}),
+                },
+              },
+            }),
+          // A pause reports nothing to the orchestrator, which is not woken
+          // for it; the agent's cards still end, or its row would read as
+          // running for good.
+          agentPaused: (event) =>
+            this.publishPiAgentTerminal(
+              event.threadId,
+              event,
+              { kind: "canceled", body: "Paused." },
+              event.turnId,
+            ),
+          agentsChanged: () => this.refreshAgentsSoon(),
+          agentTools: (authority, browser) =>
+            this.createPiAgentTools(authority, browser),
+          browserHandoff: (handoff, signal) =>
+            this.awaitPiBrowserHandoff(handoff, signal),
+          agentGuard: (authority, turnId) =>
+            this.piAgentGuard(authority, turnId),
+          deviceAgents: this.piDeviceAgents(),
+          // Her brief continues there once this turn ends (`runPiTurn`).
+          moveBrain: async (authority, host, brief) => {
+            const handoff: BrainHandoff = {
+              turnId: this.activeTurnId ?? "",
+              ownerId: authority.ownerId,
+              ownerGeneration: authority.ownerGeneration,
+              deviceId: host.deviceId,
+              clientMsgId: `handoff-${crypto.randomUUID()}`,
+              prompt: piBrainHandoffPrompt("the cloud", brief),
+            };
+            if (this.activeTurnId) {
+              await this.putTurnState({ [BRAIN_HANDOFF_KEY]: handoff });
+              await this.setPiBrain(host);
+              return;
+            }
+            // No turn of this object's runs her: nothing to wait for.
+            await this.setPiBrain(host);
+            await this.placeOnPiBrain({ ...handoff, handoff: true });
+          },
+          // What the agents reach beyond this conversation's harness: the
+          // owner's agent threads and other sessions, as the loop's do.
+          agentDirectory: {
+            list: async (authority) =>
+              await readAgentDirectory(this.piOwnerCaller(authority), authority.conversationId),
+            message: async (authority, args) =>
+              await sendAgentMessage(this.piOwnerCaller(authority), args),
+          },
+          heartbeat: () => {
+            void (async () => {
+              await this.ctx.storage.put(PI_LIVE_KEY, true);
+              await this.armAlarmNoLaterThan(Date.now() + PI_HEARTBEAT_MS);
+            })().catch(() => undefined);
+          },
+        }),
+    );
+    const runtime = await this.piRuntime;
+    await runtime.open();
+    // From now on pi says which of its agents run here.
+    if (!this.agentsView) {
+      this.agentsView = { pi: [], owner: [] };
+      this.refreshAgentsSoon();
+    }
+    // Sockets that watched the pi view through an eviction get a new stream
+    // and a fresh snapshot.
+    if (
+      !runtime.watchingForClients &&
+      !this.piClientsAttaching &&
+      this.hub.piSocketCount() > 0
+    ) {
+      this.piClientsAttaching = true;
+      void import("./pi-runtime.js")
+        .then(async ({ contextFor }) => {
+          const view = await runtime.watchForClients(
+            (events) => this.hub.broadcastPi(events),
+            contextFor(),
+          );
+          this.hub.broadcastPi([view.snapshot]);
+        })
+        .catch((error: unknown) => {
+          log("error", "pi_clients_attach_failed", {
+            message: errorMessage(error),
+          });
+        })
+        .finally(() => {
+          this.piClientsAttaching = false;
+        });
+    }
+    return runtime;
+  }
+
+  /**
+   * An agent's report reaches the orchestrator as a hidden wake turn, through
+   * the same admission as any turn. Its request id is the turn's
+   * `clientMsgId`, so a report sent again after an eviction is a replay.
+   */
+  /** The owner's object, as the pi agents' directory reads and messages it. */
+  private piOwnerCaller(authority: import("./pi-runtime.js").PiAuthority): AgentMessagingCaller {
+    return {
+      ownerGeneration: authority.ownerGeneration,
+      ownerInternal: async (name, args) =>
+        unwrapRpc(
+          await this.ownerGate(authority.ownerId).ownerInternal({
+            name,
+            args,
+            ownerGeneration: authority.ownerGeneration,
+          }),
+        ),
+    };
+  }
+
+  /**
+   * Agents a cloud pi conversation places on the owner's devices: started,
+   * messaged and paused through the owner's agent threads, the loop's device
+   * agents' plane. The device runs one as a whole; its report comes back as
+   * the same wake turn. Control receipts are kept per thread.
+   */
+  private piDeviceAgents(): import("./pi-runtime.js").PiDeviceAgents {
+    type Authority = import("./pi-runtime.js").PiAuthority;
+    const caller = (authority: Authority, parentTurnId: string): DeviceAgentCaller => ({
+      ownerInternal: async (name, args) =>
+        unwrapRpc(
+          await this.ownerGate(authority.ownerId).ownerInternal({
+            name,
+            args,
+            ownerGeneration: authority.ownerGeneration,
+          }),
+        ),
+      ownerGeneration: authority.ownerGeneration,
+      conversationId: authority.conversationId,
+      parentTurnId,
+    });
+    const receiptKey = (threadId: string) => `${PI_DEVICE_AGENT_PREFIX}${threadId}`;
+    const receipt = async (threadId: string): Promise<CloudAgentControlReceipt> => {
+      const prior = await this.ctx.storage.get<CloudAgentControlReceipt>(receiptKey(threadId));
+      if (!prior) throw new Error(`No agent ${threadId} here.`);
+      return prior;
+    };
+    // The owner's agent threads replay by request id across conversations.
+    const requestId = (authority: Authority, key: string) =>
+      `pi:${authority.conversationId}:${key}`.slice(0, 128);
+    return {
+      start: async (args, authority, parentTurnId) => {
+        const started = await spawnDeviceAgent(caller(authority, parentTurnId), {
+          clientMsgId: requestId(authority, args.key),
+          targetDeviceId: args.deviceId,
+          description: args.description,
+          prompt: args.prompt,
+        });
+        await this.ctx.storage.put(receiptKey(started.threadId), started);
+        return { threadId: started.threadId };
+      },
+      message: async (args, authority, parentTurnId) => {
+        const next = await continueDeviceAgent(
+          caller(authority, parentTurnId),
+          await receipt(args.threadId),
+          { controlRequestId: requestId(authority, args.key), message: args.message },
+        );
+        await this.ctx.storage.put(receiptKey(args.threadId), next);
+      },
+      status: async (threadId, authority, parentTurnId) => {
+        const current = await readDeviceAgent(caller(authority, parentTurnId), await receipt(threadId));
+        await this.ctx.storage.put(receiptKey(threadId), current);
+        return `${current.status} on device ${current.executorDeviceId ?? "?"}`;
+      },
+      pause: async (args, authority, parentTurnId) => {
+        const next = await cancelDeviceAgent(
+          caller(authority, parentTurnId),
+          await receipt(args.threadId),
+          requestId(authority, args.key),
+        );
+        await this.ctx.storage.put(receiptKey(args.threadId), next);
+      },
+    };
+  }
+
+  /**
+   * A hidden wake turn on this conversation for one of its pi agents, from
+   * the turn plane's service side: what Stella reads is the prompt, and no
+   * client shows it. Idempotent per `clientMsgId`.
+   */
+  private async startPiAgentWake(
+    authority: import("./pi-runtime.js").PiAuthority,
+    wake: { clientMsgId: string; prompt: string },
+  ): Promise<Response> {
+    const start: CloudTurnStartRequest = {
+      protocol: TURN_PLANE_PROTOCOL,
+      clientMsgId: wake.clientMsgId,
+      prompt: wake.prompt,
+      lane: "wake",
+      source: "agent-thread",
+      hiddenMessage: true,
+    };
+    return await this.handleTurnStart(
+      new Request("https://orchestrator-session/turn", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          [HEADER_OWNER]: authority.ownerId,
+          [HEADER_TURN_AUTH_KIND]: "service",
+          [TURN_OWNER_GENERATION_HEADER]: authority.ownerGeneration,
+        },
+        body: JSON.stringify(start),
+      }),
+    );
+  }
+
+  /** A note one of this conversation's pi agents sent Stella: a hidden wake turn, as its report is. */
+  private async deliverPiAgentNote(
+    note: import("@stella/agent/stella/agents").AgentNote,
+    authority: import("./pi-runtime.js").PiAuthority,
+  ): Promise<void> {
+    const response = await this.startPiAgentWake(authority, {
+      clientMsgId: note.requestId.slice(0, 64),
+      prompt: note.text.slice(0, AGENT_MESSAGE_FRAMED_MAX_CHARS),
+    });
+    const body = await response.text().catch(() => "");
+    if (response.status !== 202 && response.status !== 200) {
+      throw new Error(
+        `Stella did not take the agent's message (${response.status}): ${body.slice(0, 300)}`,
+      );
+    }
+    log("info", "pi_agent_note_delivered", {
+      conversationId: authority.conversationId,
+      threadId: note.threadId,
+      requestId: note.requestId,
+      status: response.status,
+    });
+  }
+
+  private async deliverPiAgentReport(
+    report: import("@stella/agent/stella/agents").AgentReport,
+    authority: import("./pi-runtime.js").PiAuthority,
+    agent: import("./pi-runtime.js").PiAgentInfo,
+  ): Promise<void> {
+    const limit = AGENT_MESSAGE_FRAMED_MAX_CHARS;
+    const prompt =
+      report.text.length <= limit
+        ? report.text
+        : `${report.text.slice(0, limit - 40)}\n[report truncated]`;
+    const response = await this.startPiAgentWake(authority, {
+      clientMsgId: report.requestId.slice(0, 64),
+      prompt,
+    });
+    const body = await response.text().catch(() => "");
+    if (response.status !== 202 && response.status !== 200) {
+      throw new Error(
+        `The agent's report was refused (${response.status}): ${body.slice(0, 300)}`,
+      );
+    }
+    log("info", "pi_agent_report_delivered", {
+      conversationId: authority.conversationId,
+      threadId: report.threadId,
+      requestId: report.requestId,
+      status: response.status,
+    });
+    // The agent's attempt ends on the turn its report wakes.
+    const wakeTurnId = (() => {
+      try {
+        return (JSON.parse(body) as { turnId?: unknown }).turnId;
+      } catch {
+        return undefined;
+      }
+    })();
+    if (typeof wakeTurnId !== "string" || !wakeTurnId) return;
+    // What the agent saved to the drive and linked, as the loop's agents' files card.
+    if (agent.files?.length) {
+      this.publishTurnFilesCard(wakeTurnId, `pi-files:${report.requestId}`, agent.files);
+    }
+    // A message since has it working again: this report does not end it.
+    if (agent.running) return;
+    this.publishPiAgentTerminal(report.threadId, agent, piReportOutcome(report.text), wakeTurnId);
+  }
+
+  /** The card that ends one of pi's agents' attempts, under `turnId` (its own, by default). */
+  private publishPiAgentTerminal(
+    threadId: string,
+    agent: import("./pi-runtime.js").PiAgentInfo,
+    outcome: { kind: "completed" | "failed" | "canceled"; body: string },
+    turnId = `pi-agent:${threadId}`,
+  ): void {
+    const identity = { agentId: threadId, attemptGeneration: agent.attempt };
+    this.publishAgentLifecycleCard(turnId, Date.now(), {
+      type: "agent-lifecycle",
+      eventId: `pi-agent:${threadId}:${agent.attempt}:${outcome.kind}`,
+      event:
+        outcome.kind === "completed"
+          ? { type: "agent-completed", payload: { ...identity, result: outcome.body } }
+          : {
+              type: outcome.kind === "failed" ? "agent-failed" : "agent-canceled",
+              payload: { ...identity, ...(outcome.body ? { error: outcome.body } : {}) },
+            },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Agent threads on pi (Stella's models or the owner's ChatGPT plan)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Start one attempt of an agent thread as a pi agent here, right away: pi
+   * runs it in the background whatever turn this conversation is running,
+   * on the authority its dispatcher admitted. The attempt is recorded before
+   * pi has it, so a pause that arrives first stops it, and a retried
+   * dispatch hands it over once. The owner's agent threads learn it started
+   * once pi has it.
+   */
+  async startPiThread(input: PiThreadStart): Promise<void> {
+    const { attempt } = input;
+    if (this.purged()) throw new Error("This conversation was deleted.");
+    const owner = this.journal.meta().owner_id;
+    if (owner && owner !== input.ownerId) {
+      throw new Error("This conversation belongs to another account.");
+    }
+    let record =
+      (await this.ctx.storage.get<PiThreadRecord>(
+        piThreadKey(attempt.threadId),
+      )) ??
+      ({
+        ownerId: input.ownerId,
+        ownerGeneration: input.ownerGeneration,
+        threadId: attempt.threadId,
+        description: attempt.description,
+        ...(attempt.originDeviceId
+          ? { originDeviceId: attempt.originDeviceId }
+          : {}),
+        attempts: [],
+        settledThrough: 0,
+      } satisfies PiThreadRecord);
+    if (attempt.attemptGeneration <= record.settledThrough) return;
+    let open = record.attempts.find(
+      (entry) => entry.attemptGeneration === attempt.attemptGeneration,
+    );
+    if (!open) {
+      open = {
+        turnId: attempt.turnId,
+        attemptGeneration: attempt.attemptGeneration,
+      };
+      record = { ...record, attempts: [...record.attempts, open] };
+      await this.ctx.storage.put(piThreadKey(attempt.threadId), record);
+    }
+    // Paused before it started: it never starts.
+    if (open.pausing) {
+      await this.settlePiThreadAttempts(record, attempt.attemptGeneration, {
+        status: "canceled",
+        errorMessage: "Paused by orchestrator.",
+      });
+      return;
+    }
+    if (open.handedOff) return;
+    const [runtime, { contextFor }, destinations] = await Promise.all([
+      this.openPiRuntime(this.piGatewayOrigin()),
+      import("./pi-runtime.js"),
+      this.ownerGate(input.ownerId)
+        .devices()
+        .catch(() => null),
+    ]);
+    await runtime.threadAttempt(
+      {
+        threadId: attempt.threadId,
+        description: attempt.description,
+        attemptGeneration: attempt.attemptGeneration,
+        authority: {
+          ownerId: input.ownerId,
+          ownerGeneration: input.ownerGeneration,
+          conversationId: input.conversationId,
+          audience: input.audience,
+          budgetMicroCents: input.budgetMicroCents,
+          execution: input.execution,
+        },
+        // A ChatGPT plan agent runs on the plan's model, which the gateway does not resolve.
+        ...(input.execution.engine === "stella"
+          ? { model: piModelSpec("general", input.execution, input.audience) }
+          : {}),
+        executionContext: cloudExecutionContext(input, destinations),
+      },
+      input.prompt,
+      contextFor(),
+    );
+    const now = Date.now();
+    const handed = await this.updatePiThreadRecord(attempt.threadId, (current) => ({
+      ...current,
+      attempts: current.attempts.map((entry) =>
+        entry.attemptGeneration === attempt.attemptGeneration
+          ? { ...entry, handedOff: true }
+          : entry,
+      ),
+    }));
+    await this.deferOwnerEvents([
+      {
+        v: OWNER_EVENT_VERSION,
+        key: attempt.turnId,
+        ownerId: input.ownerId,
+        ownerGeneration: input.ownerGeneration,
+        emittedAt: now,
+        kind: "turn.started",
+        turnId: attempt.turnId,
+        turnKind: "agent",
+        conversationId: input.conversationId,
+        sessionId: attempt.threadId,
+        lane: "agent",
+        source: "agent-thread",
+        threadId: attempt.threadId,
+        attemptGeneration: attempt.attemptGeneration,
+        agentType: "general",
+        execution: input.execution,
+        prompt: input.prompt,
+        createdAt: now,
+      },
+    ]);
+    // Paused while pi took it: it stops now, and settles as canceled.
+    if (
+      handed?.attempts.find(
+        (entry) => entry.attemptGeneration === attempt.attemptGeneration,
+      )?.pausing
+    ) {
+      await runtime.pauseThreadAgent(attempt.threadId, contextFor());
+    }
+    // Agents keep this object waking while they run.
+    await this.piHeartbeat().catch(() => undefined);
+    log("info", "pi_thread_attempt_started", {
+      threadId: attempt.threadId,
+      attemptTurnId: attempt.turnId,
+      attemptGeneration: attempt.attemptGeneration,
+    });
+  }
+
+  private async updatePiThreadRecord(
+    threadId: string,
+    change: (record: PiThreadRecord) => PiThreadRecord,
+  ): Promise<PiThreadRecord | undefined> {
+    return await this.ctx.blockConcurrencyWhile(async () => {
+      const current = await this.ctx.storage.get<PiThreadRecord>(
+        piThreadKey(threadId),
+      );
+      if (!current) return undefined;
+      const next = change(current);
+      await this.ctx.storage.put(piThreadKey(threadId), next);
+      return next;
+    });
+  }
+
+  /**
+   * A report of an agent thread's agent. It answers one attempt (the one
+   * whose message its run took; older open attempts are answered with it).
+   * A report without text settles an attempt only when it was paused.
+   */
+  private async deliverPiThreadReport(
+    report: import("./pi-runtime.js").PiThreadReport,
+  ): Promise<void> {
+    const record = await this.ctx.storage.get<PiThreadRecord>(
+      piThreadKey(report.threadId),
+    );
+    const handedOff = record?.attempts.filter((entry) => entry.handedOff) ?? [];
+    const answered =
+      report.attemptGeneration ?? handedOff.at(-1)?.attemptGeneration;
+    const attempt = record?.attempts.find(
+      (entry) => entry.attemptGeneration === answered,
+    );
+    if (!record || !attempt) {
+      log("info", "pi_thread_report_unmatched", {
+        threadId: report.threadId,
+        requestId: report.requestId,
+        attemptGeneration: report.attemptGeneration ?? null,
+      });
+      return;
+    }
+    let outcome: PiThreadOutcome;
+    if (report.settled) {
+      if (!attempt.pausing) return;
+      outcome = { status: "canceled", errorMessage: "Paused by orchestrator." };
+    } else {
+      const parsed = piReportOutcome(report.text);
+      outcome =
+        parsed.kind === "completed"
+          ? {
+              status: "completed",
+              resultJson: JSON.stringify({ finalText: parsed.body }),
+            }
+          : {
+              status: parsed.kind,
+              errorMessage:
+                parsed.body ||
+                (parsed.kind === "canceled"
+                  ? "The agent was stopped."
+                  : "The agent hit a problem and stopped."),
+            };
+    }
+    await this.settlePiThreadAttempts(record, attempt.attemptGeneration, {
+      ...outcome,
+      ...(report.files?.length ? { files: report.files } : {}),
+    });
+  }
+
+  /**
+   * Settle an agent thread's attempts through `attemptGeneration` with one
+   * outcome, as a BuildSession settles its agent's: each attempt's terminal
+   * event and the thread's completion go to the owner's agent threads, and
+   * the conversation that started the thread is woken with the report
+   * (a computer's dispatch is delivered to it by the agent threads). The
+   * decision is kept before anything is sent, so a redelivered report
+   * repeats the same terminal and the same wake.
+   */
+  private async settlePiThreadAttempts(
+    record: PiThreadRecord,
+    attemptGeneration: number,
+    outcome: PiThreadOutcome,
+  ): Promise<void> {
+    const decided = await this.ctx.blockConcurrencyWhile(async () => {
+      const current =
+        (await this.ctx.storage.get<PiThreadRecord>(
+          piThreadKey(record.threadId),
+        )) ?? record;
+      const merged = current.attempts.some(
+        (entry) => entry.attemptGeneration === attemptGeneration,
+      )
+        ? current
+        : {
+            ...current,
+            attempts: [
+              ...current.attempts,
+              ...record.attempts.filter(
+                (entry) => entry.attemptGeneration === attemptGeneration,
+              ),
+            ],
+          };
+      const settling = merged.attempts.filter(
+        (entry) => entry.attemptGeneration <= attemptGeneration,
+      );
+      if (settling.length === 0) return undefined;
+      const terminal =
+        settling.find((entry) => entry.attemptGeneration === attemptGeneration)
+          ?.terminal ?? { ...outcome, completedAt: Date.now() };
+      const next: PiThreadRecord = {
+        ...merged,
+        attempts: merged.attempts.map((entry) =>
+          entry.attemptGeneration <= attemptGeneration
+            ? { ...entry, terminal: entry.terminal ?? terminal }
+            : entry,
+        ),
+      };
+      await this.ctx.storage.put(piThreadKey(record.threadId), next);
+      return { next, terminal };
+    });
+    if (!decided) return;
+    const { next, terminal } = decided;
+    const settling = next.attempts.filter(
+      (entry) => entry.attemptGeneration <= attemptGeneration,
+    );
+    const latest = settling.find(
+      (entry) => entry.attemptGeneration === attemptGeneration,
+    )!;
+    const base = (key: string) => ({
+      v: OWNER_EVENT_VERSION,
+      key,
+      ownerId: next.ownerId,
+      ownerGeneration: next.ownerGeneration,
+      emittedAt: terminal.completedAt,
+    });
+    const events: OwnerEvent[] = [];
+    if (terminal.files?.length) {
+      events.push({
+        ...base(`${latest.turnId}:${latest.attemptGeneration}:1`),
+        kind: "turn.event",
+        turnId: latest.turnId,
+        attemptGeneration: latest.attemptGeneration,
+        sessionId: next.threadId,
+        eventSeq: 1,
+        eventKind: "output_files",
+        payload: { files: terminal.files },
+        terminal: false,
+        createdAt: terminal.completedAt,
+      });
+    }
+    for (const entry of settling) {
+      const settled = entry.terminal ?? terminal;
+      events.push({
+        ...base(`${entry.turnId}:${entry.attemptGeneration}:2`),
+        kind: "turn.event",
+        turnId: entry.turnId,
+        attemptGeneration: entry.attemptGeneration,
+        sessionId: next.threadId,
+        eventSeq: 2,
+        eventKind: settled.status,
+        payload:
+          settled.status === "completed"
+            ? { finalText: agentLifecycleReport(settled) }
+            : { message: settled.errorMessage ?? "The agent stopped." },
+        terminal: true,
+        terminalStatus: settled.status,
+        ...(settled.resultJson ? { resultJson: settled.resultJson } : {}),
+        ...(settled.errorMessage ? { errorMessage: settled.errorMessage } : {}),
+        createdAt: settled.completedAt,
+      });
+    }
+    events.push({
+      ...base(`${next.threadId}:${latest.turnId}:${latest.attemptGeneration}`),
+      kind: "thread.completed",
+      threadId: next.threadId,
+      turnId: latest.turnId,
+      attemptGeneration: latest.attemptGeneration,
+      status: terminal.status,
+      ...(terminal.resultJson ? { resultJson: terminal.resultJson } : {}),
+      ...(terminal.errorMessage ? { errorMessage: terminal.errorMessage } : {}),
+      completedAt: terminal.completedAt,
+    });
+    await this.deferOwnerEvents(events);
+    if (!next.originDeviceId) {
+      const completion = {
+        status: terminal.status,
+        ...(terminal.resultJson ? { resultJson: terminal.resultJson } : {}),
+        ...(terminal.errorMessage ? { errorMessage: terminal.errorMessage } : {}),
+      };
+      const wake: CloudTurnStartRequest = {
+        protocol: TURN_PLANE_PROTOCOL,
+        clientMsgId:
+          `wake:${next.threadId}:${latest.attemptGeneration}`.slice(0, 64),
+        prompt: agentCompletionPromptText({
+          threadId: next.threadId,
+          description: next.description,
+          ...completion,
+        }),
+        lane: "wake",
+        source: "agent-thread",
+        hiddenMessage: true,
+        agentThreadControl: {
+          lifecycleReport: agentLifecycleReport(completion),
+          threadId: next.threadId,
+          attemptGeneration: latest.attemptGeneration,
+          threadUpdatedAt: terminal.completedAt,
+          status: terminal.status,
+        },
+      };
+      const response = await this.handleTurnStart(
+        new Request("https://orchestrator-session/turn", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            [HEADER_OWNER]: next.ownerId,
+            [HEADER_TURN_AUTH_KIND]: "service",
+            [TURN_OWNER_GENERATION_HEADER]: next.ownerGeneration,
+          },
+          body: JSON.stringify(wake),
+        }),
+      );
+      const body = await response.text().catch(() => "");
+      if (response.status !== 202 && response.status !== 200) {
+        // pi delivers the report again; the kept decision repeats this wake.
+        throw new Error(
+          `The agent's report was refused (${response.status}): ${body.slice(0, 300)}`,
+        );
+      }
+    }
+    await this.updatePiThreadRecord(next.threadId, (current) => ({
+      ...current,
+      attempts: current.attempts.filter(
+        (entry) => entry.attemptGeneration > attemptGeneration,
+      ),
+      settledThrough: Math.max(current.settledThrough, attemptGeneration),
+    }));
+    log("info", "pi_thread_attempt_settled", {
+      threadId: next.threadId,
+      attemptGeneration,
+      status: terminal.status,
+      woke: !next.originDeviceId,
+    });
+  }
+
+  /**
+   * New input for the running attempt of an agent thread whose agent runs
+   * here; it reads it before its next step. `unknown` when none does.
+   */
+  async steerPiThread(input: PiThreadSteer): Promise<PiThreadSteerResult> {
+    const record = await this.ctx.storage.get<PiThreadRecord>(
+      piThreadKey(input.threadId),
+    );
+    if (
+      !record ||
+      record.ownerId !== input.ownerId ||
+      record.ownerGeneration !== input.ownerGeneration
+    ) {
+      return { accepted: false, reason: "unknown" };
+    }
+    const running = record.attempts
+      .filter((entry) => entry.handedOff && !entry.terminal && !entry.pausing)
+      .at(-1);
+    if (!running) return { accepted: false, reason: "not_running" };
+    const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+    const { contextFor } = await import("./pi-runtime.js");
+    await runtime.steerThreadAgent(
+      {
+        threadId: input.threadId,
+        attemptGeneration: running.attemptGeneration,
+        messageId: input.messageId,
+        text: input.text,
+      },
+      contextFor(),
+    );
+    return {
+      accepted: true,
+      turnId: running.turnId,
+      attemptGeneration: running.attemptGeneration,
+    };
+  }
+
+  /**
+   * Pause one exact attempt of an agent thread whose agent runs here. Its
+   * attempt settles as canceled once its run stops, or as it is handed over
+   * if pi does not have it yet.
+   */
+  async pausePiThread(input: PiThreadPause): Promise<PiThreadPauseResult> {
+    const decided = await this.ctx.blockConcurrencyWhile(
+      async (): Promise<PiThreadPauseResult | "pause"> => {
+        const record = await this.ctx.storage.get<PiThreadRecord>(
+          piThreadKey(input.threadId),
+        );
+        if (
+          !record ||
+          record.ownerId !== input.ownerId ||
+          record.ownerGeneration !== input.ownerGeneration
+        ) {
+          return "unknown";
+        }
+        if (input.attemptGeneration <= record.settledThrough) return "terminal";
+        const attempt = record.attempts.find(
+          (entry) => entry.attemptGeneration === input.attemptGeneration,
+        );
+        if (attempt && attempt.turnId !== input.turnId) return "changed";
+        if (
+          record.attempts.some(
+            (entry) => entry.attemptGeneration > input.attemptGeneration,
+          )
+        ) {
+          return "changed";
+        }
+        if (attempt?.terminal) return "terminal";
+        await this.ctx.storage.put(piThreadKey(input.threadId), {
+          ...record,
+          attempts: attempt
+            ? record.attempts.map((entry) =>
+                entry === attempt ? { ...entry, pausing: true } : entry,
+              )
+            : [
+                ...record.attempts,
+                {
+                  turnId: input.turnId,
+                  attemptGeneration: input.attemptGeneration,
+                  pausing: true,
+                },
+              ],
+        } satisfies PiThreadRecord);
+        return attempt?.handedOff ? "pause" : "paused";
+      },
+    );
+    if (decided !== "pause") return decided;
+    const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+    const { contextFor } = await import("./pi-runtime.js");
+    await runtime.pauseThreadAgent(input.threadId, contextFor());
+    return "paused";
+  }
+
+  /**
+   * While pi has work in flight here (agents running, their reports on the
+   * way), wake this object every {@link PI_HEARTBEAT_MS}. A wake after an
+   * eviction reopens the harness, which resumes that work.
+   */
+  private async piHeartbeat(): Promise<void> {
+    // Any conversation may hold pi work: its own, or a computer's cloud agent.
+    const live = await this.ctx.storage.get<boolean>(PI_LIVE_KEY);
+    if (!this.piRuntime && !live) return;
+    const reopening = !this.piRuntime;
+    const gatewayOrigin = this.env.MODEL_GATEWAY_URL?.trim() ?? "";
+    const runtime = await this.openPiRuntime(gatewayOrigin);
+    const { contextFor } = await import("./pi-runtime.js");
+    const busy = await runtime.busy(contextFor());
+    if (reopening) log("info", "pi_heartbeat_reopened", { busy });
+    if (busy !== Boolean(live)) {
+      if (busy) await this.ctx.storage.put(PI_LIVE_KEY, true);
+      else await this.ctx.storage.delete(PI_LIVE_KEY);
+    }
+    if (busy) await this.armAlarmNoLaterThan(Date.now() + PI_HEARTBEAT_MS);
+  }
+
+  /**
+   * Abort what pi is running for this conversation when no live turn here
+   * holds the run: a watchdog firing in an isolate that never resumed it.
+   */
+  private async abortPiConversation(): Promise<void> {
+    if ((await this.ctx.storage.get<string>(AGENT_RUNTIME_KEY)) !== "pi") return;
+    const gatewayOrigin = this.env.MODEL_GATEWAY_URL?.trim() ?? "";
+    const runtime = await this.openPiRuntime(gatewayOrigin);
+    const { root } = await runtime.open();
+    const { contextFor } = await import("./pi-runtime.js");
+    await root.abort(contextFor());
+  }
+
   private async runCliTurn(args: {
     turn: ChatTurnRequest;
     turnCancellation: TurnRetryCancellation;
@@ -6038,7 +6775,65 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           },
         );
       }
+      await this.placeBrainHandoff(
+        turn.turnId,
+        turnCancellation.aborted || executionSignal.aborted,
+      );
     }
+  }
+
+  /**
+   * Stella moved to one of the owner's computers during this turn, pi's or
+   * Claude Code's (`switch_destination`): now that the turn has ended, her
+   * brief continues there, as a computer's hand-off does. A turn the user
+   * stopped leaves her there with nothing to carry on.
+   */
+  private async placeBrainHandoff(
+    turnId: string,
+    stopped: boolean,
+  ): Promise<void> {
+    const handoff = await this.getTurnState<BrainHandoff>(
+      BRAIN_HANDOFF_KEY,
+    );
+    if (!handoff) return;
+    if (this.ctx.storage.kv) this.ctx.storage.kv.delete(BRAIN_HANDOFF_KEY);
+    else await this.ctx.storage.delete(BRAIN_HANDOFF_KEY);
+    if (handoff.turnId !== turnId || stopped) return;
+    try {
+      const dispatchId = await this.placeOnPiBrain({
+        ownerId: handoff.ownerId,
+        ownerGeneration: handoff.ownerGeneration,
+        deviceId: handoff.deviceId,
+        clientMsgId: handoff.clientMsgId,
+        prompt: handoff.prompt,
+        handoff: true,
+      });
+      log("info", "pi_brain_handoff_placed", {
+        turnId,
+        deviceId: handoff.deviceId,
+        dispatchId,
+      });
+    } catch (error) {
+      log("error", "pi_brain_handoff_failed", {
+        turnId,
+        deviceId: handoff.deviceId,
+        message: errorMessage(error),
+      });
+    }
+  }
+
+  /**
+   * The agents still working whose reports would wake Stella here, by
+   * description: the owner's agent threads running in this conversation,
+   * and pi's own where pi ran here.
+   */
+  private async workingAgentDescriptions(): Promise<string[]> {
+    const owner = await this.ownerRunningAgents();
+    const pi = this.agentsView?.pi ?? [];
+    const listed = new Set(pi.map((agent) => agent.agentId));
+    return [...pi, ...owner.filter((agent) => !listed.has(agent.agentId))].map(
+      (agent) => agent.title,
+    );
   }
 
   /**
@@ -6051,6 +6846,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     turn: ChatTurnRequest,
     executionContext: ExecutionContextSnapshot,
     report: WakeReport,
+    engine: "claude-code" | "pi" = "claude-code",
   ): Promise<number> {
     const now = Date.now();
     const durablePrompt = {
@@ -6063,7 +6859,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         : {}),
       providerContext: {
         version: 2,
-        epoch: `claude-code:${turn.turnId}`,
+        epoch: `${engine}:${turn.turnId}`,
         prepend: [],
         clock: new Date(now).toISOString(),
         ...(turn.attachments?.length
@@ -6421,7 +7217,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     }
   }
 
-  private noteCliTool(
+  private noteTurnTool(
     turn: ChatTurnRequest,
     call: { toolCallId: string; name: string; args: unknown },
     phase: "start" | "end",
@@ -6555,7 +7351,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             startedAt: Date.now(),
           } satisfies OrchestratorCliToolCallRecord,
         });
-        this.noteCliTool(turn, forward, "start");
+        this.noteTurnTool(turn, forward, "start");
         let message: AgentMessage;
         if (call.lostExecution) {
           // Its first execution started in an isolate that is gone: rerun a
@@ -6619,7 +7415,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         if (appended) this.publish(appended.record);
         const isError =
           (message as { isError?: boolean }).isError === true;
-        this.noteCliTool(turn, forward, "end", isError);
+        this.noteTurnTool(turn, forward, "end", isError);
         const stored = this.journal.messageByWriterKey(writerKey) ?? message;
         return {
           ok: true,
@@ -6962,91 +7758,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     if (turn.title) this.journal.setTitle(turn.title);
   }
 
-  private onAgentEvent(
-    turn: ChatTurnRequest,
-    event: AgentEvent,
-    cursor: {
-      nextIndex: () => number;
-      streamId: () => string | null;
-      setStreamId: (value: string | null) => void;
-    },
-  ): void {
-    switch (event.type) {
-      // Assistant text is delivered whole: the model's deltas are never
-      // broadcast, and the committed `message` record is the only thing that
-      // carries reply text to a client. The stream id is still allocated
-      // because it is a durable field of that record — it identifies which
-      // generation produced the row.
-      case "message_start": {
-        if ((event.message as { role?: string }).role !== "assistant") break;
-        const id = newStreamId();
-        cursor.setStreamId(id);
-        if (this.live) this.live.streamId = id;
-        break;
-      }
-      case "message_end": {
-        const index = cursor.nextIndex();
-        this.persistProduced(turn, event.message, index, cursor.streamId());
-        if ((event.message as { role?: string }).role === "assistant") {
-          cursor.setStreamId(null);
-          if (this.live) this.live.streamId = null;
-        }
-        break;
-      }
-      case "tool_execution_start": {
-        if (this.live) {
-          this.live.tools.push({
-            toolCallId: event.toolCallId,
-            name: event.toolName,
-            phase: "start",
-          });
-          if (this.live.tools.length > LIVE_TOOL_LIMIT) this.live.tools.shift();
-        }
-        this.hub.broadcastTool({
-          turnId: turn.turnId,
-          toolCallId: event.toolCallId,
-          name: event.toolName,
-          phase: "start",
-          argsPreview: previewArgs(event.args),
-        });
-        break;
-      }
-      case "tool_execution_end": {
-        const entry = this.live?.tools.find(
-          (tool) => tool.toolCallId === event.toolCallId,
-        );
-        if (entry) {
-          entry.phase = "end";
-          entry.isError = event.isError;
-        }
-        this.hub.broadcastTool({
-          turnId: turn.turnId,
-          toolCallId: event.toolCallId,
-          name: event.toolName,
-          phase: "end",
-          isError: event.isError,
-        });
-        break;
-      }
-      default:
-        break;
-    }
-  }
-
-  private persistProduced(
-    turn: ChatTurnRequest,
-    message: AgentMessage,
-    index: number,
-    streamId: string | null,
-  ): void {
-    const appended = this.appendProduced(turn, message, {
-      writer: "orchestrator",
-      writerKey: `turn:${turn.turnId}:msg:${index}`,
-      streamId,
-    });
-    if (appended) this.publish(appended.record);
-  }
-
   /**
    * Journal one produced message without publishing it, so a caller can
    * commit several rows (and its own cursor) in one transaction first. Null
@@ -7267,7 +7978,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
   }
 
   private async turnRunning(): Promise<boolean> {
-    if (await this.activeConversationEditLock()) return true;
     const localLease =
       await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
     if (localLease) return true;
@@ -7388,935 +8098,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
 
   async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
     await this.hub.onError(ws, error);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Canonical fork / rewind
-  // ---------------------------------------------------------------------------
-
-  private async activeConversationEditLock(): Promise<ConversationEditLock | null> {
-    const lock =
-      (await this.ctx.storage.get<ConversationEditLock>(
-        CONVERSATION_EDIT_LOCK_KEY,
-      )) ?? null;
-    if (!lock) return null;
-    if (lock.expiresAt > Date.now()) return lock;
-    await this.ctx.storage.delete(CONVERSATION_EDIT_LOCK_KEY);
-    return null;
-  }
-
-  private async bindConversationEditOwner(
-    request: ConversationEditRequest,
-    createdAt: number,
-    title: string,
-  ): Promise<Response | null> {
-    const meta = this.journal.meta();
-    if (meta.owner_id && meta.owner_id !== request.ownerId) {
-      return json(
-        { code: "not_found", message: "Conversation not found." },
-        404,
-      );
-    }
-    if (!meta.owner_id) {
-      if (meta.next_seq !== 0) {
-        return json(
-          {
-            code: "owner_missing",
-            message: "Conversation ownership is unavailable.",
-          },
-          409,
-        );
-      }
-      this.journal.bindOwner({
-        ownerId: request.ownerId,
-        ownerGeneration: request.ownerGeneration,
-        createdAt,
-        title,
-        conversationId: this.conversationId(),
-      });
-    }
-    this.ownerGeneration = request.ownerGeneration;
-    await this.ctx.storage.put("ownerDataGeneration", request.ownerGeneration);
-    return null;
-  }
-
-  private async conversationHasRuntimeWork(): Promise<boolean> {
-    const [turn, terminal, localLease, queued] = await Promise.all([
-      this.ctx.storage.get<ChatTurnRequest>("turn"),
-      this.ctx.storage.get<boolean>("terminal"),
-      this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY),
-      this.ctx.storage.list({ prefix: "queued:", limit: 1 }),
-    ]);
-    return Boolean(
-      (turn !== undefined && terminal !== true) ||
-        localLease ||
-        queued.size > 0 ||
-        this.live ||
-        this.activeTurnId ||
-        this.currentAgent ||
-        this.currentTurnCancellation ||
-        this.journal.inboxSize().rows > 0,
-    );
-  }
-
-  private async validConversationEditBoundary(
-    throughSeq: number,
-    headSeq: number,
-  ): Promise<boolean> {
-    if (throughSeq < -1 || throughSeq > headSeq) return false;
-    if (throughSeq === headSeq) return true;
-    const next = await this.archive.exportRawPage(
-      throughSeq + 1,
-      throughSeq + 1,
-      1,
-      CONVERSATION_EDIT_PAGE_BYTES,
-    );
-    const row = next.rows[0];
-    return Boolean(
-      row &&
-        row.seq === throughSeq + 1 &&
-        row.kind === "message" &&
-        row.role === "user" &&
-        row.hidden === 0,
-    );
-  }
-
-  private async handleConversationEditRoute(
-    path: string,
-    request: Request,
-  ): Promise<Response> {
-    const raw = (await request.json().catch(() => null)) as
-      | (Record<string, unknown> & {
-          fromSeq?: unknown;
-          rows?: unknown;
-          nextSeq?: unknown;
-        })
-      | null;
-    const parsed = parseConversationEditRequest(raw);
-    if (!parsed) {
-      return json(
-        { code: "bad_request", message: "Malformed conversation edit." },
-        400,
-      );
-    }
-    if (path.includes("fork-") && parsed.kind !== "fork") {
-      return json(
-        { code: "bad_request", message: "Wrong edit operation." },
-        400,
-      );
-    }
-    if (path.endsWith("/rewind") && parsed.kind !== "rewind") {
-      return json(
-        { code: "bad_request", message: "Wrong edit operation." },
-        400,
-      );
-    }
-    try {
-      switch (path) {
-        case "/internal/edit/fork-source/acquire":
-          return await this.acquireForkSource(
-            parsed as ForkConversationEditRequest,
-          );
-        case "/internal/edit/fork-source/export":
-          return await this.exportForkSource(
-            parsed as ForkConversationEditRequest,
-            raw?.fromSeq,
-          );
-        case "/internal/edit/fork-source/release":
-          return await this.releaseForkSource(
-            parsed as ForkConversationEditRequest,
-          );
-        case "/internal/edit/fork-target/begin":
-          return await this.beginForkTarget(
-            parsed as ForkConversationEditRequest,
-            raw,
-          );
-        case "/internal/edit/fork-target/import":
-          return await this.importForkTarget(
-            parsed as ForkConversationEditRequest,
-            raw,
-          );
-        case "/internal/edit/fork-target/status":
-          return await this.forkTargetStatus(
-            parsed as ForkConversationEditRequest,
-          );
-        case "/internal/edit/fork-target/complete":
-          return await this.completeForkTarget(
-            parsed as ForkConversationEditRequest,
-          );
-        case "/internal/edit/fork-target/release":
-          return await this.releaseForkTarget(
-            parsed as ForkConversationEditRequest,
-          );
-        case "/internal/edit/rewind":
-          return await this.rewindConversation(
-            parsed as RewindConversationEditRequest,
-          );
-        default:
-          return json({ error: "Not found." }, 404);
-      }
-    } catch (error) {
-      if (error instanceof JournalHeadConflictError) {
-        return json(
-          {
-            code: "head_conflict",
-            message: error.message,
-            epoch: error.epoch,
-            lastSeq: error.lastSeq,
-          },
-          409,
-        );
-      }
-      log("error", "conversation_edit_failed", {
-        path,
-        operationId: parsed.operationId,
-        message: errorMessage(error),
-      });
-      return json(
-        { code: "conversation_edit_failed", message: errorMessage(error) },
-        503,
-      );
-    }
-  }
-
-  private async acquireForkSource(
-    request: ForkConversationEditRequest,
-  ): Promise<Response> {
-    if (this.conversationId() !== request.sourceConversationId) {
-      return json(
-        { code: "not_found", message: "Conversation not found." },
-        404,
-      );
-    }
-    const result = await this.ctx.blockConcurrencyWhile(async () => {
-      const ownerError = await this.bindConversationEditOwner(
-        request,
-        request.sourceCreatedAt,
-        request.title,
-      );
-      if (ownerError) return ownerError;
-      const existing = await this.activeConversationEditLock();
-      if (
-        existing &&
-        (existing.kind !== "fork-source" ||
-          !sameConversationEditLock(existing, request))
-      ) {
-        return json(
-          {
-            code: "conversation_edit_in_progress",
-            message: "Another conversation edit is already running.",
-          },
-          409,
-        );
-      }
-      if (!existing && (await this.conversationHasRuntimeWork())) {
-        return json(
-          {
-            code: "turn_in_progress",
-            message:
-              "Wait for Stella to finish before forking this conversation.",
-            retryAfterMs: 1_000,
-          },
-          409,
-        );
-      }
-      const head = this.journal.head();
-      if (
-        head.epoch !== request.expectedEpoch ||
-        head.headSeq !== request.expectedLastSeq
-      ) {
-        return json(
-          {
-            code: "head_conflict",
-            message: "The conversation changed before it could be forked.",
-            epoch: head.epoch,
-            lastSeq: head.headSeq,
-          },
-          409,
-        );
-      }
-      const lock: ConversationEditLock = {
-        kind: "fork-source",
-        operationId: request.operationId,
-        ownerId: request.ownerId,
-        ownerGeneration: request.ownerGeneration,
-        expectedEpoch: request.expectedEpoch,
-        expectedLastSeq: request.expectedLastSeq,
-        throughSeq: request.throughSeq,
-        expiresAt: Date.now() + CONVERSATION_EDIT_LEASE_MS,
-      };
-      await this.ctx.storage.put(CONVERSATION_EDIT_LOCK_KEY, lock);
-      return null;
-    });
-    if (result) return result;
-    await this.archive.prepareForEdit();
-    if (
-      !(await this.validConversationEditBoundary(
-        request.throughSeq,
-        request.expectedLastSeq,
-      ))
-    ) {
-      await this.ctx.storage.delete(CONVERSATION_EDIT_LOCK_KEY);
-      return json(
-        {
-          code: "invalid_boundary",
-          message: "Fork at a user-message boundary.",
-        },
-        409,
-      );
-    }
-    return json({
-      acquired: true,
-      sourceEpoch: request.expectedEpoch,
-      sourceLastSeq: request.expectedLastSeq,
-    });
-  }
-
-  private async requireForkSourceLock(
-    request: ForkConversationEditRequest,
-  ): Promise<ConversationEditLock | Response> {
-    const lock = await this.activeConversationEditLock();
-    if (
-      !lock ||
-      lock.kind !== "fork-source" ||
-      !sameConversationEditLock(lock, request)
-    ) {
-      return json(
-        {
-          code: "fork_lease_lost",
-          message: "The fork snapshot lease expired.",
-        },
-        409,
-      );
-    }
-    const head = this.journal.head();
-    if (
-      head.epoch !== request.expectedEpoch ||
-      head.headSeq !== request.expectedLastSeq
-    ) {
-      return json(
-        {
-          code: "head_conflict",
-          message: "The fork source changed.",
-          epoch: head.epoch,
-          lastSeq: head.headSeq,
-        },
-        409,
-      );
-    }
-    lock.expiresAt = Date.now() + CONVERSATION_EDIT_LEASE_MS;
-    await this.ctx.storage.put(CONVERSATION_EDIT_LOCK_KEY, lock);
-    return lock;
-  }
-
-  private async exportForkSource(
-    request: ForkConversationEditRequest,
-    fromValue: unknown,
-  ): Promise<Response> {
-    const lock = await this.requireForkSourceLock(request);
-    if (lock instanceof Response) return lock;
-    const fromSeq =
-      typeof fromValue === "number" && Number.isSafeInteger(fromValue)
-        ? fromValue
-        : -2;
-    if (fromSeq < 0 || fromSeq > request.throughSeq) {
-      return json(
-        { code: "bad_request", message: "Invalid fork cursor." },
-        400,
-      );
-    }
-    const page = await this.archive.exportRawPage(
-      fromSeq,
-      request.throughSeq,
-      CONVERSATION_EDIT_PAGE_ROWS,
-      CONVERSATION_EDIT_PAGE_BYTES,
-      async () => {
-        const renewed = await this.requireForkSourceLock(request);
-        if (renewed instanceof Response) {
-          throw new Error("The fork source lease expired. Retry the request.");
-        }
-      },
-    );
-    return json(page);
-  }
-
-  private async releaseForkSource(
-    request: ForkConversationEditRequest,
-  ): Promise<Response> {
-    const lock = await this.activeConversationEditLock();
-    if (
-      lock?.kind === "fork-source" &&
-      sameConversationEditLock(lock, request)
-    ) {
-      await this.ctx.storage.delete(CONVERSATION_EDIT_LOCK_KEY);
-    }
-    return json({ released: true });
-  }
-
-  private forkTargetMatches(
-    state: ForkTargetState,
-    request: ForkConversationEditRequest,
-  ): boolean {
-    return (
-      state.operationId === request.operationId &&
-      state.ownerId === request.ownerId &&
-      state.ownerGeneration === request.ownerGeneration &&
-      state.sourceConversationId === request.sourceConversationId &&
-      state.targetConversationId === request.targetConversationId &&
-      state.throughSeq === request.throughSeq &&
-      state.sourceEpoch === request.expectedEpoch &&
-      state.sourceLastSeq === request.expectedLastSeq
-    );
-  }
-
-  private forkTargetLock(
-    request: ForkConversationEditRequest,
-  ): ConversationEditLock {
-    return {
-      kind: "fork-target",
-      operationId: request.operationId,
-      ownerId: request.ownerId,
-      ownerGeneration: request.ownerGeneration,
-      expectedEpoch: request.expectedEpoch,
-      expectedLastSeq: request.expectedLastSeq,
-      throughSeq: request.throughSeq,
-      expiresAt: Date.now() + CONVERSATION_EDIT_LEASE_MS,
-    };
-  }
-
-  private async requireForkTargetLock(
-    request: ForkConversationEditRequest,
-  ): Promise<ConversationEditLock | Response> {
-    const lock = await this.activeConversationEditLock();
-    if (
-      !lock ||
-      lock.kind !== "fork-target" ||
-      !sameConversationEditLock(lock, request)
-    ) {
-      return json(
-        {
-          code: "fork_lease_lost",
-          message: "The fork target lease expired. Retry the same request.",
-        },
-        409,
-      );
-    }
-    lock.expiresAt = Date.now() + CONVERSATION_EDIT_LEASE_MS;
-    await this.ctx.storage.put(CONVERSATION_EDIT_LOCK_KEY, lock);
-    return lock;
-  }
-
-  private async beginForkTarget(
-    request: ForkConversationEditRequest,
-    raw: Record<string, unknown> | null,
-  ): Promise<Response> {
-    if (this.conversationId() !== request.targetConversationId) {
-      return json(
-        { code: "not_found", message: "Fork target not found." },
-        404,
-      );
-    }
-    const sourceEpoch = raw?.sourceEpoch;
-    const sourceLastSeq = raw?.sourceLastSeq;
-    if (
-      sourceEpoch !== request.expectedEpoch ||
-      sourceLastSeq !== request.expectedLastSeq
-    ) {
-      return json(
-        { code: "source_conflict", message: "Fork source changed." },
-        409,
-      );
-    }
-    return await this.ctx.blockConcurrencyWhile(async () => {
-      const activeLock = await this.activeConversationEditLock();
-      if (
-        activeLock &&
-        (activeLock.kind !== "fork-target" ||
-          !sameConversationEditLock(activeLock, request))
-      ) {
-        return json(
-          {
-            code: "conversation_edit_in_progress",
-            message: "Another conversation edit is already running.",
-          },
-          409,
-        );
-      }
-      const existing = await this.ctx.storage.get<ForkTargetState>(
-        CONVERSATION_FORK_TARGET_KEY,
-      );
-      if (existing) {
-        if (!this.forkTargetMatches(existing, request)) {
-          return json(
-            {
-              code: "target_conflict",
-              message: "Fork target is already in use.",
-            },
-            409,
-          );
-        }
-        await this.ctx.storage.put(
-          CONVERSATION_EDIT_LOCK_KEY,
-          this.forkTargetLock(request),
-        );
-        return json({ begun: true, replayed: true });
-      }
-      const meta = this.journal.meta();
-      if (
-        meta.next_seq !== 0 ||
-        (meta.owner_id !== "" && meta.owner_id !== request.ownerId) ||
-        (meta.conversation_id !== "" &&
-          meta.conversation_id !== request.targetConversationId)
-      ) {
-        return json(
-          { code: "target_conflict", message: "Fork target is not empty." },
-          409,
-        );
-      }
-      const ownerError = await this.bindConversationEditOwner(
-        request,
-        request.targetCreatedAt,
-        request.title,
-      );
-      if (ownerError) return ownerError;
-      const state: ForkTargetState = {
-        operationId: request.operationId,
-        ownerId: request.ownerId,
-        ownerGeneration: request.ownerGeneration,
-        sourceConversationId: request.sourceConversationId,
-        targetConversationId: request.targetConversationId,
-        sourceEpoch: request.expectedEpoch,
-        sourceLastSeq: request.expectedLastSeq,
-        throughSeq: request.throughSeq,
-        nextSeq: 0,
-        title: request.title,
-        createdAt: request.targetCreatedAt,
-        state: "copying",
-      };
-      await this.ctx.storage.put({
-        [CONVERSATION_FORK_TARGET_KEY]: state,
-        [CONVERSATION_EDIT_LOCK_KEY]: this.forkTargetLock(request),
-      });
-      return json({ begun: true, replayed: false });
-    });
-  }
-
-  private parseForkRows(value: unknown): JournalRow[] | null {
-    if (!Array.isArray(value) || value.length > CONVERSATION_EDIT_PAGE_ROWS) {
-      return null;
-    }
-    const rows: JournalRow[] = [];
-    for (const valueRow of value) {
-      if (
-        !valueRow ||
-        typeof valueRow !== "object" ||
-        Array.isArray(valueRow)
-      ) {
-        return null;
-      }
-      const row = valueRow as Partial<JournalRow>;
-      if (
-        !Number.isSafeInteger(row.seq) ||
-        typeof row.kind !== "string" ||
-        typeof row.turn_id !== "string" ||
-        typeof row.writer !== "string" ||
-        typeof row.writer_key !== "string" ||
-        !Number.isSafeInteger(row.created_at) ||
-        !Number.isSafeInteger(row.bytes) ||
-        typeof row.payload_json !== "string" ||
-        !Number.isSafeInteger(row.hidden) ||
-        !Number.isSafeInteger(row.model_skip) ||
-        !Number.isSafeInteger(row.open_calls) ||
-        !Number.isSafeInteger(row.tokens)
-      ) {
-        return null;
-      }
-      rows.push(row as JournalRow);
-    }
-    return rows;
-  }
-
-  private async importForkTarget(
-    request: ForkConversationEditRequest,
-    raw: Record<string, unknown> | null,
-  ): Promise<Response> {
-    const lock = await this.requireForkTargetLock(request);
-    if (lock instanceof Response) return lock;
-    const state = await this.ctx.storage.get<ForkTargetState>(
-      CONVERSATION_FORK_TARGET_KEY,
-    );
-    if (!state || !this.forkTargetMatches(state, request)) {
-      return json(
-        { code: "target_conflict", message: "Fork target is unavailable." },
-        409,
-      );
-    }
-    if (state.state === "complete")
-      return json({ imported: true, replayed: true });
-    const rows = this.parseForkRows(raw?.rows);
-    if (!rows || rows.length === 0) {
-      return json({ code: "bad_request", message: "Fork page is empty." }, 400);
-    }
-    const firstSeq = rows[0]!.seq;
-    const currentNext = this.journal.meta().next_seq;
-    if (firstSeq !== currentNext) {
-      return json(
-        {
-          code: "fork_cursor_conflict",
-          message: "Fork page does not match the target cursor.",
-          nextSeq: currentNext,
-        },
-        409,
-      );
-    }
-    const mappedSpills = new Map<string, string>();
-    for (const row of rows) {
-      if (!row.spill_key) continue;
-      let targetKey = mappedSpills.get(row.spill_key);
-      if (!targetKey) {
-        const beforeCopy = await this.requireForkTargetLock(request);
-        if (beforeCopy instanceof Response) return beforeCopy;
-        targetKey = await this.archive.copyForkSpill(
-          row.spill_key,
-          request.operationId,
-        );
-        const afterCopy = await this.requireForkTargetLock(request);
-        if (afterCopy instanceof Response) return afterCopy;
-        mappedSpills.set(row.spill_key, targetKey);
-      }
-      row.spill_key = targetKey;
-    }
-    const imported = this.journal.importForkRows(
-      rows,
-      request.operationId,
-      request.ownerId,
-    );
-    if (!imported) {
-      return json({ code: "bad_request", message: "Fork page is empty." }, 400);
-    }
-    const nextSeq = imported.lastSeq + 1;
-    if (raw?.nextSeq !== nextSeq || nextSeq > request.throughSeq + 1) {
-      throw new Error("Fork source and target cursors diverged.");
-    }
-    state.nextSeq = nextSeq;
-    await this.ctx.storage.put(CONVERSATION_FORK_TARGET_KEY, state);
-    return json({
-      imported: true,
-      nextSeq,
-      complete: nextSeq > request.throughSeq,
-    });
-  }
-
-  private async forkTargetStatus(
-    request: ForkConversationEditRequest,
-  ): Promise<Response> {
-    const lock = await this.requireForkTargetLock(request);
-    if (lock instanceof Response) return lock;
-    const state = await this.ctx.storage.get<ForkTargetState>(
-      CONVERSATION_FORK_TARGET_KEY,
-    );
-    if (!state || !this.forkTargetMatches(state, request)) {
-      return json(
-        { code: "target_conflict", message: "Fork target is unavailable." },
-        409,
-      );
-    }
-    const meta = this.journal.meta();
-    const preview =
-      state.state === "complete" ? this.journal.lastPreview(160) : null;
-    return json({
-      state: state.state,
-      nextSeq: meta.next_seq,
-      targetEpoch: meta.epoch,
-      lastSeq: meta.next_seq - 1,
-      ...(preview ? { lastPreview: preview.text, lastRole: preview.role } : {}),
-    });
-  }
-
-  private async completeForkTarget(
-    request: ForkConversationEditRequest,
-  ): Promise<Response> {
-    const lock = await this.requireForkTargetLock(request);
-    if (lock instanceof Response) return lock;
-    const state = await this.ctx.storage.get<ForkTargetState>(
-      CONVERSATION_FORK_TARGET_KEY,
-    );
-    if (!state || !this.forkTargetMatches(state, request)) {
-      return json(
-        { code: "target_conflict", message: "Fork target is unavailable." },
-        409,
-      );
-    }
-    const meta = this.journal.meta();
-    if (meta.next_seq !== request.throughSeq + 1) {
-      return json(
-        { code: "fork_incomplete", message: "Fork target is still copying." },
-        409,
-      );
-    }
-    // The source prefix may span many cold R2 segments. Import is deliberately
-    // gapless into SQLite first; cut it back to the normal hot window before
-    // the target becomes discoverable so a large fork does not stay resident.
-    await this.archive.maybeRollover(Date.now());
-    state.state = "complete";
-    state.nextSeq = meta.next_seq;
-    state.completedAt = Date.now();
-    await this.ctx.storage.put(CONVERSATION_FORK_TARGET_KEY, state);
-    return json({ complete: true });
-  }
-
-  private async releaseForkTarget(
-    request: ForkConversationEditRequest,
-  ): Promise<Response> {
-    const lock = await this.activeConversationEditLock();
-    if (
-      lock?.kind === "fork-target" &&
-      sameConversationEditLock(lock, request)
-    ) {
-      await this.ctx.storage.delete(CONVERSATION_EDIT_LOCK_KEY);
-      // Publish the copy to the owner's index now, not when a client first
-      // connects: the index row is what an owner purge finds it by.
-      await this.index
-        .flush({ activity: "idle", updatedAt: Date.now() })
-        .catch(() => undefined);
-    }
-    return json({ released: true });
-  }
-
-  private async requestRewindCancellation(): Promise<void> {
-    const queued = await this.ctx.storage.list({ prefix: "queued:", limit: 1 });
-    if (queued.size > 0) {
-      throw new Error("Queued turns must be canceled before rewinding.");
-    }
-    const localLease =
-      await this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY);
-    if (localLease) await this.cancelLocalTurn(localLease);
-    const turn = await this.ctx.storage.get<ChatTurnRequest>("turn");
-    if (turn && !(await this.ctx.storage.get<boolean>("terminal"))) {
-      await this.cancelTurn(turn.turnId);
-    }
-  }
-
-  private async renewRewindLock(
-    request: RewindConversationEditRequest,
-  ): Promise<void> {
-    const lock = await this.activeConversationEditLock();
-    if (
-      !lock ||
-      lock.kind !== "rewind" ||
-      !sameConversationEditLock(lock, request)
-    ) {
-      throw new Error("The rewind lease expired. Retry the same request.");
-    }
-    lock.expiresAt = Date.now() + CONVERSATION_EDIT_LEASE_MS;
-    await this.ctx.storage.put(CONVERSATION_EDIT_LOCK_KEY, lock);
-  }
-
-  private async finalizeRewindSideEffects(
-    request: RewindConversationEditRequest,
-    now: number,
-  ): Promise<void> {
-    this.live = null;
-    this.hub.closeAll(1012);
-    const lock = await this.activeConversationEditLock();
-    if (lock?.kind === "rewind" && sameConversationEditLock(lock, request)) {
-      await this.ctx.storage.delete(CONVERSATION_EDIT_LOCK_KEY);
-    }
-    await this.index
-      .flush({ activity: "idle", updatedAt: now })
-      .catch(() => undefined);
-    await this.archive.drainPurge().catch((error) => {
-      log("error", "conversation_rewind_cleanup_deferred", {
-        operationId: request.operationId,
-        message: errorMessage(error),
-      });
-    });
-  }
-
-  private async rewindConversation(
-    request: RewindConversationEditRequest,
-  ): Promise<Response> {
-    if (this.conversationId() !== request.conversationId) {
-      return json(
-        { code: "not_found", message: "Conversation not found." },
-        404,
-      );
-    }
-    const meta = this.journal.meta();
-    const replay =
-      this.journal.conversationEditReceipt<RewindConversationEditResult>(
-        request.operationId,
-        "rewind",
-      );
-    if (replay) {
-      if (meta.owner_id !== request.ownerId) {
-        return json(
-          { code: "not_found", message: "Conversation not found." },
-          404,
-        );
-      }
-      await this.finalizeRewindSideEffects(request, Date.now());
-      return json({ ...replay, replayed: true });
-    }
-    const admission = await this.ctx.blockConcurrencyWhile(async () => {
-      const ownerError = await this.bindConversationEditOwner(
-        request,
-        meta.created_at,
-        meta.title || "Conversation",
-      );
-      if (ownerError) return { ok: false, response: ownerError } as const;
-      const head = this.journal.head();
-      const existingLock = await this.activeConversationEditLock();
-      if (
-        !conversationRewindHeadMatches(
-          request,
-          { epoch: head.epoch, lastSeq: head.headSeq },
-          existingLock,
-        )
-      ) {
-        return {
-          ok: false,
-          response: json(
-            {
-              code: "head_conflict",
-              message: "The conversation changed before it could be rewound.",
-              epoch: head.epoch,
-              lastSeq: head.headSeq,
-            },
-            409,
-          ),
-        } as const;
-      }
-      if (existingLock && !sameConversationEditLock(existingLock, request)) {
-        return {
-          ok: false,
-          response: json(
-            {
-              code: "conversation_edit_in_progress",
-              message: "Another edit is running.",
-            },
-            409,
-          ),
-        } as const;
-      }
-      const queued = await this.ctx.storage.list({
-        prefix: "queued:",
-        limit: 1,
-      });
-      const runtimeWork = await this.conversationHasRuntimeWork();
-      const runtimeAdmission = rewindRuntimeAdmission(request, {
-        runtimeWork,
-        queuedTurn: queued.size > 0,
-        continuingOperation: existingLock !== null,
-      });
-      if (runtimeAdmission === "turn-conflict") {
-        return {
-          ok: false,
-          response: json(
-            {
-              code: "turn_in_progress",
-              message: "Wait for Stella to finish before rewinding.",
-              retryAfterMs: 1_000,
-            },
-            409,
-          ),
-        } as const;
-      }
-      if (runtimeAdmission === "queued-conflict") {
-        return {
-          ok: false,
-          response: json(
-            {
-              code: "queued_turn_conflict",
-              message: "Cancel queued turns before rewinding.",
-            },
-            409,
-          ),
-        } as const;
-      }
-      const lock: ConversationEditLock = {
-        kind: "rewind",
-        operationId: request.operationId,
-        ownerId: request.ownerId,
-        ownerGeneration: request.ownerGeneration,
-        expectedEpoch: request.expectedEpoch,
-        expectedLastSeq: request.expectedLastSeq,
-        throughSeq: request.throughSeq,
-        expiresAt: Date.now() + CONVERSATION_EDIT_LEASE_MS,
-      };
-      await this.ctx.storage.put(CONVERSATION_EDIT_LOCK_KEY, lock);
-      return { ok: true, head, runtimeWork } as const;
-    });
-    if (!admission.ok) return admission.response;
-    const { head, runtimeWork } = admission;
-    if (runtimeWork) {
-      await this.requestRewindCancellation();
-      return json({
-        complete: false,
-        kind: "rewind",
-        operationId: request.operationId,
-        conversationId: request.conversationId,
-        previousEpoch: request.expectedEpoch,
-        nextEpoch: request.expectedEpoch,
-        lastSeq: request.expectedLastSeq,
-        cancelRequested: true,
-      } satisfies RewindConversationEditResult);
-    }
-    if (
-      !(await this.validConversationEditBoundary(
-        request.throughSeq,
-        head.headSeq,
-      ))
-    ) {
-      await this.ctx.storage.delete(CONVERSATION_EDIT_LOCK_KEY);
-      return json(
-        {
-          code: "invalid_boundary",
-          message: "Rewind at a user-message boundary.",
-        },
-        409,
-      );
-    }
-
-    const now = Date.now();
-    const plan = await this.archive.prepareTruncate(
-      request.throughSeq,
-      request.expectedEpoch + 1,
-      now,
-      () => this.renewRewindLock(request),
-    );
-    const result: RewindConversationEditResult & { replayed: boolean } = {
-      complete: true,
-      kind: "rewind",
-      operationId: request.operationId,
-      conversationId: request.conversationId,
-      previousEpoch: request.expectedEpoch,
-      nextEpoch: request.expectedEpoch + 1,
-      lastSeq: request.throughSeq,
-      ...(plan.lastPreview
-        ? {
-            lastPreview: plan.lastPreview.text,
-            lastRole: plan.lastPreview.role,
-          }
-        : {}),
-      replayed: false,
-    };
-    await this.renewRewindLock(request);
-    await this.journal.applyTruncate({
-      operationId: request.operationId,
-      throughSeq: request.throughSeq,
-      expectedEpoch: request.expectedEpoch,
-      expectedLastSeq: head.headSeq,
-      replacementSegment: plan.replacementSegment,
-      removedSegmentFirstSeqs: plan.removedSegmentFirstSeqs,
-      purgeKeys: plan.purgeKeys,
-      retiredWriterKeys: plan.retiredWriterKeys,
-      retiredTurnIds: plan.removedTurnIds,
-      retiredAt: now,
-      resultJson: JSON.stringify(result),
-    });
-    await this.finalizeRewindSideEffects(request, now);
-    return json(result);
   }
 
   // ---------------------------------------------------------------------------
@@ -8727,6 +8508,117 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
    * The desktop code tool's `history.sql` / `history.read`, answered with
    * exactly what the cloud code tool's history client runs.
    */
+  /**
+   * A call from one of the owner's computers for its own copy of this
+   * conversation, whose tools it moved to the cloud: run in a container this
+   * object holds for it, as its cloud agents' are (`PiConversationRuntime.workspace`).
+   */
+  private async handlePiWorkspace(request: Request): Promise<Response> {
+    const owner = await this.localTurnOwner(request);
+    if (owner instanceof Response) return owner;
+    const body = await request.json().catch(() => null);
+    try {
+      const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+      return json(
+        await runtime.workspace(
+          { ownerId: owner.ownerId, ownerGeneration: owner.ownerGeneration, conversationId: this.conversationId() },
+          body,
+        ),
+      );
+    } catch (error) {
+      log("info", "pi_workspace_failed", { message: errorMessage(error) });
+      return json({ error: errorMessage(error) }, 400);
+    }
+  }
+
+  /**
+   * Where this conversation's Stella runs: `GET` reads the record, `POST`
+   * moves her (a computer's user flipping it, or her own `switch_destination`
+   * there). From then on that host takes the conversation's turns, while
+   * it can.
+   */
+  private async handlePiBrain(request: Request): Promise<Response> {
+    const owner = await this.localTurnOwner(request);
+    if (owner instanceof Response) return owner;
+    if (request.method === "GET") {
+      return json({ record: (await this.ctx.storage.get<PiBrainRecord>(PI_BRAIN_KEY)) ?? null } satisfies PiBrainResponse);
+    }
+    const host = parsePiBrainHost(await request.json().catch(() => null));
+    if (!host) return json({ error: "Name the cloud or a device." }, 400);
+    const record = await this.setPiBrain(host);
+    return json({ record } satisfies PiBrainResponse);
+  }
+
+  private async setPiBrain(host: PiBrainHost): Promise<PiBrainRecord> {
+    const prior = await this.ctx.storage.get<PiBrainRecord>(PI_BRAIN_KEY);
+    const record: PiBrainRecord = { ...host, epoch: (prior?.epoch ?? 0) + 1, updatedAt: Date.now() };
+    await this.ctx.storage.put(PI_BRAIN_KEY, record);
+    log("info", "pi_brain_moved", {
+      host: record.host,
+      ...(record.host === "device" ? { deviceId: record.deviceId } : {}),
+      epoch: record.epoch,
+    });
+    return record;
+  }
+
+  /**
+   * Why the computer this conversation's Stella runs on can't take a turn
+   * now, as pi's `switch_destination` would refuse a move there; undefined
+   * when it can.
+   */
+  private async piBrainDeviceRefusal(ownerId: string, deviceId: string): Promise<string | undefined> {
+    const listed = await this.ownerGate(ownerId).devices().catch(() => undefined);
+    if (!listed) return "the devices list could not be read";
+    const device = listed.devices.find((entry) => entry.deviceId === deviceId);
+    if (!device) return "not connected";
+    const { deviceRefusal } = await import("@stella/agent/stella/execution");
+    return deviceRefusal(device, device.label?.trim() || deviceId);
+  }
+
+  /**
+   * A chat for this conversation placed on the computer its Stella runs on,
+   * which answers it from the shared journal: a message the user sent from
+   * elsewhere, or Stella's own brief when she moved there.
+   */
+  private async placeOnPiBrain(args: {
+    ownerId: string;
+    ownerGeneration?: string;
+    deviceId: string;
+    clientMsgId: string;
+    prompt: string;
+    attachments?: string[];
+    locale?: string;
+    handoff?: true;
+  }): Promise<string> {
+    const conversationId = this.conversationId();
+    const placed = await this.ownerGate(args.ownerId).submit({
+      request: {
+        protocol: PLACEMENT_PROTOCOL,
+        idempotencyKey: `pi-brain:${args.clientMsgId}`.slice(0, 128),
+        kind: "chat",
+        ingress: "cloud",
+        subject: "portable",
+        targetMode: "device",
+        targetDeviceId: args.deviceId,
+        conversationId,
+        requiredCapabilities: ["chat", ...(args.attachments?.length ? (["attachments"] as const) : [])],
+        payload: {
+          schemaVersion: 1,
+          prompt: args.prompt,
+          conversationId,
+          clientMsgId: args.clientMsgId,
+          userMessageEventId: args.clientMsgId,
+          ...(args.locale ? { locale: args.locale } : {}),
+          ...(args.attachments?.length ? { attachments: args.attachments } : {}),
+          ...(args.handoff ? { handoff: true as const } : {}),
+        },
+      },
+      ...(args.ownerGeneration ? { expectedGeneration: args.ownerGeneration } : {}),
+    });
+    if (!placed.ok) throw new Error(placed.error.message);
+    return placed.response.dispatch.dispatchId;
+  }
+
   private async handleHistoryQuery(request: Request): Promise<Response> {
     const owner = await this.localTurnOwner(request);
     if (owner instanceof Response) return owner;
@@ -9419,7 +9311,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         terminal,
         terminalDelivered,
         queued,
-        editLock,
       ] = await Promise.all([
         this.ctx.storage.get<LocalTurnLease>(LOCAL_TURN_LEASE_KEY),
         clientMsgId
@@ -9434,13 +9325,12 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           prefix: "queued:",
           limit: 1,
         }),
-        this.activeConversationEditLock(),
       ]);
       const cloudBusy =
         Boolean(cloudTurn && terminal !== true) ||
         Boolean(cloudTurn && terminalDelivered !== true) ||
         queued.size > 0;
-      if (local || cloudBusy || editLock || this.purged()) return;
+      if (local || cloudBusy || this.purged()) return;
       if (clientMsgId) {
         const replay = classifyLocalClientMessageReplay(
           concurrentClientReceipt,
@@ -10445,7 +10335,16 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       });
       return json({ error: "Conversation owner is unavailable." }, 409);
     }
-    const writerKey = `card:${sourceTurnId}:${card.type}`;
+    // One files card per source turn; an agent's lifecycle cards are one per
+    // event (its start and its end share the attempt they describe).
+    let writerKey = `card:${sourceTurnId}:${card.type}`;
+    if (card.type === "agent-lifecycle") {
+      const lifecycle = parseCloudAgentLifecycleCard(card);
+      if (!lifecycle) return json({ error: "Malformed request." }, 400);
+      writerKey = `card:${lifecycle.eventId}`;
+      // The owner's agent threads changed: theirs is the list, the card its receipt.
+      this.refreshAgentsSoon();
+    }
     const payloadJson = JSON.stringify(card);
     const now = Date.now();
     if (utf8Length(payloadJson) > MAX_ROW_BYTES) {
@@ -10456,16 +10355,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       // same reason the append route re-reads it.
       if (this.purged()) {
         return json({ error: "This conversation was deleted." }, 410);
-      }
-      if (await this.activeConversationEditLock()) {
-        return json(
-          {
-            code: "conversation_edit_in_progress",
-            message: "This conversation is being edited. Try again shortly.",
-            retryAfterMs: 1_000,
-          },
-          409,
-        );
       }
       if (await this.turnRunning()) {
         const size = this.journal.inboxSize();
@@ -10547,6 +10436,18 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     this.sealed = true;
     this.archive.seal();
     this.hub.closeAll(CLOSE_DELETED);
+    // Pi's runs stop here, with their leases, admissions and containers,
+    // before the storage they write goes.
+    const pi = this.piRuntime;
+    this.piRuntime = undefined;
+    const runtime = await pi?.catch(() => undefined);
+    if (runtime) {
+      await runtime.discard().then(
+        (runs) => log("info", "pi_purge_discarded", { runs }),
+        (error: unknown) =>
+          log("error", "pi_purge_discard_failed", { message: errorMessage(error) }),
+      );
+    }
     await this.archive.quiesce();
     // `segments` and `spills` outlive the drain — only the queue rows are
     // removed — so what has already been offered has to be remembered here, or
@@ -10811,49 +10712,6 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     }
   }
 
-  /**
-   * Let a hidden agent wake (an agent's message or its completion report)
-   * join the resident loop running here instead of waiting behind it. The
-   * wake is already durable under `queued:`; this only offers it to the loop,
-   * which takes it at its next steering poll (`takeSteeredWakes`). Anything
-   * the loop does not take stays queued and runs as its own turn.
-   */
-  private async steerWakeIntoRunningTurn(wake: ChatTurnRequest): Promise<void> {
-    if (wake.lane !== "wake" || wake.source !== "agent-thread") return;
-    const target = this.steerableTurn;
-    if (
-      !target ||
-      !this.ctx.storage.kv ||
-      target.turn.turnId === wake.turnId ||
-      target.turn.ownerId !== wake.ownerId ||
-      target.turn.ownerGeneration !== wake.ownerGeneration ||
-      Date.now() >= target.watchdogAt - WAKE_STEER_DEADLINE_MARGIN_MS
-    ) {
-      return;
-    }
-    try {
-      if (await this.wakeCanceled(wake)) return;
-      const report = await this.wakeReport(wake);
-      const message = {
-        role: "user",
-        content: [{ type: "text", text: report.prompt }],
-        timestamp: Date.now(),
-        source: wake.source,
-      } as AgentMessage;
-      // The loop's event sink is synchronous, so a row that would need the
-      // R2 spill runs as its own turn.
-      if (utf8Length(JSON.stringify(message)) > MAX_ROW_BYTES) return;
-      if (this.steerableTurn !== target) return;
-      target.waiting.push({ turn: wake, report, message });
-    } catch (error) {
-      log("error", "chat_wake_steer_skipped", {
-        turnId: wake.turnId,
-        intoTurnId: target.turn.turnId,
-        message: errorMessage(error),
-      });
-    }
-  }
-
   private async wakeCanceled(wake: ChatTurnRequest): Promise<boolean> {
     return (
       (await this.exactTurnCancellations.matching({
@@ -10864,138 +10722,214 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     );
   }
 
-  /** The loop's steering poll: the waiting wakes still queued and not stopped. */
-  private async takeSteeredWakes(target: SteerableTurn): Promise<AgentMessage[]> {
-    if (this.steerableTurn !== target || target.waiting.length === 0) return [];
-    if (Date.now() >= target.watchdogAt - WAKE_STEER_DEADLINE_MARGIN_MS) {
-      return [];
-    }
-    const candidates = target.waiting.splice(0);
-    const canceled = await Promise.all(
-      candidates.map((wake) => this.wakeCanceled(wake.turn)),
-    );
-    const kv = this.ctx.storage.kv;
-    const taken = candidates.filter(
-      (wake, index) =>
-        !canceled[index] && kv.get(`queued:${wake.turn.turnId}`) !== undefined,
-    );
-    for (const wake of taken) target.injected.set(wake.message, wake);
-    if (taken.length > 0) {
-      log("info", "chat_wake_steered", {
-        turnId: target.turn.turnId,
-        wakeTurnIds: taken.map((wake) => wake.turn.turnId),
-      });
-    }
-    return taken.map((wake) => wake.message);
-  }
+  /** When this object last checked its running agents against their owners. */
+  private agentsReconciledAt = 0;
 
+  /** What `agentsView` read last is in storage. */
+  private agentsViewStored = false;
   /**
-   * A steered wake the running loop just read. Synchronous, from the loop's
-   * event sink: the wake's prompt row (hidden, keyed to the wake so a replay
-   * is a no-op) and its lifecycle card land in the running turn, and the
-   * wake turn itself ends — dequeued, terminal in the journal so its own
-   * queued run is skipped, its owner terminal owed and its lease retirement
-   * recorded — in the same transaction.
+   * The running agents of a conversation pi has run in (`refreshAgents`),
+   * which `ready` and `agents` frames list; null where they are folded
+   * from the journal's agent cards.
    */
-  private absorbSteeredWake(running: ChatTurnRequest, steered: SteeredWake): void {
-    const { turn: wake, report, message } = steered;
-    const kv = this.ctx.storage.kv;
+  private agentsView: AgentsView | null = null;
+  private agentsRefresh: Promise<void> | null = null;
+  private agentsRefreshAgain = false;
+
+  private reconcileRunningAgentsSoon(): void {
     const now = Date.now();
-    const card = this.agentTerminalCard(wake, report);
-    const batchKey = `${OWNER_EVENT_BATCH_PREFIX}${crypto.randomUUID()}`;
-    const written = this.ctx.storage.transactionSync(() => {
-      const prompt = this.journal.appendMessage({
-        turnId: running.turnId,
-        writer: "orchestrator",
-        writerKey: `turn:${wake.turnId}:prompt`,
-        role: "user",
-        hidden: true,
-        createdAt: now,
-        message,
-      });
-      this.journal.setTurnSpan(running.turnId, prompt.seq);
-      const cardRow = card
-        ? this.journal.appendCard({
-            turnId: running.turnId,
-            createdAt: wake.agentThreadControl!.threadUpdatedAt,
-            card,
-            writer: "orchestrator",
-            writerKey: card.eventId,
-          })
-        : null;
-      if (cardRow) this.journal.setTurnSpan(running.turnId, cardRow.seq);
-      if (kv.get(`queued:${wake.turnId}`) === undefined) {
-        return { prompt, cardRow, event: null };
-      }
-      this.journal.upsertTurn({
-        turnId: wake.turnId,
-        sessionId: wake.sessionId,
-        ownerId: wake.ownerId,
-        lane: wake.lane,
-        source: wake.source,
-        clientMsgId: wake.clientMsgId,
-        state: "running",
-        now,
-      });
-      const range = this.journal.turnContextRange(running.turnId);
-      if (range) {
-        this.journal.setTurnContext(wake.turnId, range.startSeq, range.endSeq);
-      }
-      this.journal.setTurnSpan(wake.turnId, prompt.seq);
-      this.journal.setTurnTerminal(wake.turnId, "completed", now);
-      kv.delete(`queued:${wake.turnId}`);
-      const seqKey = turnEventSeqKey(wake.turnId);
-      const eventSeq = (kv.get<number>(seqKey) ?? 0) + 1;
-      kv.put(seqKey, eventSeq);
-      const event = this.turnEvent(
-        wake,
-        "completed",
-        { text: "", wallClockMs: 0, steeredInto: running.turnId },
-        eventSeq,
-        { terminal: true, resultJson: JSON.stringify({ finalText: "" }) },
-      );
-      kv.put(batchKey, [event]);
-      const leaseId = wake.ownerPurgeLeaseId;
-      const receiptKey = leaseId
-        ? orchestratorFenceLeaseReceiptKey(leaseId)
-        : undefined;
-      const receipt = receiptKey
-        ? kv.get<OwnerFenceLeaseReceipt>(receiptKey)
-        : undefined;
-      if (
-        receiptKey &&
-        receipt &&
-        this.ownerFenceReceiptMatches(receipt, wake, leaseId!)
-      ) {
-        kv.put(receiptKey, {
-          ...receipt,
-          phase: "unregister_pending",
-          updatedAt: now,
-        } satisfies OwnerFenceLeaseReceipt);
-      }
-      return { prompt, cardRow, event };
-    });
-    if (written.prompt.inserted) this.publish(written.prompt.record);
-    if (written.cardRow?.inserted) this.publish(written.cardRow.record);
-    if (!written.event) return;
-    const event = written.event;
-    log("info", "chat_wake_absorbed", {
-      turnId: wake.turnId,
-      intoTurnId: running.turnId,
-      promptSeq: written.prompt.seq,
-    });
+    if (now - this.agentsReconciledAt < AGENT_RECONCILE_INTERVAL_MS) return;
+    this.agentsReconciledAt = now;
+    if (this.agentsView) {
+      this.refreshAgentsSoon();
+      return;
+    }
     this.ctx.waitUntil(
-      (async () => {
-        await this.deliverDeferredOwnerEvents(batchKey, [event]);
-        await this.unregisterOwnerTurn(wake);
-        await this.releaseOwnerGate(wake);
-      })().catch((error: unknown) => {
-        log("error", "chat_wake_absorb_release_failed", {
-          turnId: wake.turnId,
+      this.reconcileRunningAgents().catch((error: unknown) => {
+        log("error", "conversation_agent_reconcile_failed", {
+          conversationId: this.conversationId(),
           message: errorMessage(error),
         });
       }),
     );
+  }
+
+  /** Read the running agents again: one read at a time, and one more for what changed during it. */
+  private refreshAgentsSoon(): void {
+    if (!this.agentsView || this.purged()) return;
+    if (this.agentsRefresh) {
+      this.agentsRefreshAgain = true;
+      return;
+    }
+    const refresh = (async () => {
+      do {
+        this.agentsRefreshAgain = false;
+        await this.refreshAgents();
+      } while (this.agentsRefreshAgain);
+    })()
+      .catch((error: unknown) => {
+        log("error", "conversation_agents_refresh_failed", {
+          conversationId: this.conversationId(),
+          message: errorMessage(error),
+        });
+      })
+      .finally(() => {
+        this.agentsRefresh = null;
+      });
+    this.agentsRefresh = refresh;
+    this.ctx.waitUntil(refresh);
+  }
+
+  /**
+   * The running agents of a conversation pi has run in, from the records of
+   * whoever runs them: Stella's own from pi's state here, everything else (a
+   * computer's agents, agents on a device, agent threads) from the owner's
+   * agent threads. Neither is folded from cards, so a card that was never
+   * written leaves nothing running; an agent that started before pi listed
+   * them and never ended is simply not listed. Clients hear the new list.
+   */
+  private async refreshAgents(): Promise<void> {
+    // pi's agents start and stop only while pi is open here: one it has not
+    // opened for, with none listed, has none running.
+    const pi =
+      this.piRuntime || this.agentsView?.pi.length
+        ? await (async () => {
+            const runtime = await this.openPiRuntime(this.piGatewayOrigin());
+            const { contextFor } = await import("./pi-runtime.js");
+            return await runtime.runningAgents(contextFor());
+          })()
+        : [];
+    const owner = await this.ownerRunningAgents().catch((error: unknown) => {
+      log("error", "conversation_owner_agents_failed", {
+        conversationId: this.conversationId(),
+        message: errorMessage(error),
+      });
+      return this.agentsView?.owner ?? [];
+    });
+    if (this.purged()) return;
+    const next: AgentsView = { pi, owner };
+    const changed = JSON.stringify(next) !== JSON.stringify(this.agentsView);
+    this.agentsView = next;
+    if (changed || !this.agentsViewStored) {
+      await this.ctx.storage.put(AGENTS_VIEW_KEY, next);
+      this.agentsViewStored = true;
+    }
+    this.hub.agentsChanged();
+  }
+
+  /** The owner's agent threads this conversation lists as running. */
+  private async ownerRunningAgents(): Promise<AgentActivityEntry[]> {
+    const ownerId = this.journal.ownerId();
+    if (!ownerId) return [];
+    const owner = await this.resolveOwnerForCaller({ ownerId });
+    if (!owner) return [];
+    const threads = unwrapRpc(
+      await this.ownerGate(ownerId).ownerInternal({
+        name: "agentThreads.runningIn",
+        args: { ownerGeneration: owner.ownerGeneration, conversationId: this.conversationId() },
+        ownerGeneration: owner.ownerGeneration,
+      }),
+    ) as Array<{
+      threadId: string;
+      description: string;
+      agentType: string;
+      attemptGeneration: number;
+      createdAt: number;
+      updatedAt: number;
+    }>;
+    return threads.map((thread) => ({
+      agentId: thread.threadId,
+      title: thread.description,
+      agentType: thread.agentType,
+      status: "running" as const,
+      createdAtMs: thread.createdAt,
+      updatedAtMs: thread.updatedAt,
+      attemptGeneration: thread.attemptGeneration,
+    }));
+  }
+
+  /**
+   * Settle what the journal of a conversation pi never ran in still shows
+   * as running and has in fact ended: there its cards are what lists them.
+   *
+   * Whoever owns an agent's record writes the card that ends it: its report,
+   * the owner's agent threads for a computer's agents. But the owner's post
+   * is best effort, and an agent that ended before those cards existed has
+   * none, so it read as running for good (the phantom "N agents running" a
+   * phone showed). When a client connects, each agent the journal lists as
+   * running is checked against the owner's agent threads (a computer's
+   * agents, cloud agents, agents on a device). One that ended is settled
+   * with how it ended; one still running there is left alone, and a computer
+   * settles its own on its next start (`computer-agent-reconcile`).
+   *
+   * The first pass in a conversation also settles what no owner knows at all:
+   * an agent its journal has carried since before any owner recorded agents.
+   */
+  private async reconcileRunningAgents(): Promise<void> {
+    if (this.purged()) return;
+    const running = this.journal.runningAgents();
+    const ownerId = this.journal.ownerId();
+    if (running.length === 0 || !ownerId || (await this.turnRunning())) return;
+    const owner = await this.resolveOwnerForCaller({ ownerId });
+    if (!owner) return;
+    const startedAt = Date.now();
+    const threads = new Map(
+      (
+        unwrapRpc(
+          await this.ownerGate(ownerId).ownerInternal({
+            name: "agentThreads.statuses",
+            args: { ownerGeneration: owner.ownerGeneration, threadIds: running.map((entry) => entry.agentId) },
+            ownerGeneration: owner.ownerGeneration,
+          }),
+        ) as Array<{ threadId: string; status: string; attemptGeneration: number; errorMessage?: string }>
+      ).map((thread) => [thread.threadId, thread]),
+    );
+    const unownedSettled = Boolean(await this.ctx.storage.get<number>(AGENTS_UNOWNED_SETTLED_KEY));
+    // Cards are rows: none lands inside a turn that started meanwhile.
+    if (this.purged() || (await this.turnRunning())) return;
+    for (const entry of running) {
+      const thread = threads.get(entry.agentId);
+      let ended: { kind: "completed" | "failed" | "canceled"; attempt: number; body: string } | null = null;
+      if (thread) {
+        // An owner record behind the journal's newest start is not about that start.
+        if (
+          (thread.status === "completed" || thread.status === "failed" || thread.status === "canceled") &&
+          thread.attemptGeneration >= (entry.attemptGeneration ?? 0)
+        ) {
+          ended = {
+            kind: thread.status,
+            attempt: entry.attemptGeneration ?? thread.attemptGeneration,
+            body: thread.errorMessage ?? "",
+          };
+        }
+      } else if (!unownedSettled && entry.createdAtMs < startedAt - AGENT_OWNER_RECORD_LAG_MS) {
+        ended = {
+          kind: "canceled",
+          attempt: entry.attemptGeneration ?? 1,
+          body: "No longer running: Stella lost track of this agent when it stopped.",
+        };
+      }
+      if (!ended) continue;
+      const identity = { agentId: entry.agentId, attemptGeneration: ended.attempt };
+      this.publishAgentLifecycleCard(`settle:${entry.agentId}`, Date.now(), {
+        type: "agent-lifecycle",
+        eventId: `settle:${entry.agentId}:${ended.attempt}`,
+        event:
+          ended.kind === "completed"
+            ? { type: "agent-completed", payload: { ...identity, result: "" } }
+            : {
+                type: ended.kind === "failed" ? "agent-failed" : "agent-canceled",
+                payload: { ...identity, ...(ended.body ? { error: ended.body } : {}) },
+              },
+      });
+      log("info", "conversation_agent_settled", {
+        conversationId: this.conversationId(),
+        agentId: entry.agentId,
+        status: ended.kind,
+        by: thread ? "owner" : "unowned",
+      });
+    }
+    if (!unownedSettled) await this.ctx.storage.put(AGENTS_UNOWNED_SETTLED_KEY, startedAt);
   }
 
   private publishAgentLifecycleCard(
@@ -11104,7 +11038,17 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     agentHome: AgentHome,
     skillCatalog: CloudSkillCatalogSnapshot,
     memoryEnabled: boolean,
-  ): Promise<{ tools: AgentTool[]; promptTools: ReadonlySet<string> }> {
+    /**
+     * `pi`: the tools for a pi-durable conversation, whose harness has the
+     * agent tools itself, so code's `tools.<name>` never reaches this loop's.
+     */
+    harness?: "pi",
+  ): Promise<{
+    tools: AgentTool[];
+    promptTools: ReadonlySet<string>;
+    /** Code and every other tool, demoted ones included. */
+    catalog: readonly CloudCodeSourceAgentTool[];
+  }> {
     const toolContext = {
       ownerId: turn.ownerId,
       ownerGeneration: turn.ownerGeneration,
@@ -11272,6 +11216,8 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
             }),
           releaseOwnerGate: async (input) => await this.releaseOwnerGate(input),
           deliverOwnerEvents: async (events) => await this.deferOwnerEvents([...events]),
+          // An agent on Stella's models runs in this conversation, at once.
+          startPiThread: async (input) => await this.startPiThread(input),
         },
         caller: {
           ownerId: turn.ownerId,
@@ -11463,17 +11409,24 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                   ? "steered"
                   : "resumed";
             } else if (isCloudAgentControlActive(prior.status)) {
-              const steered = await steerCloudAgent({
-                env: this.env,
+              const steer = {
+                ownerId: turn.ownerId,
+                ownerGeneration: turn.ownerGeneration,
                 threadId: prior.threadId,
-                message: {
-                  id: await toolScopedId("turn", toolCallId),
-                  kind: "input",
-                  text: args.message,
-                  createdAt: Date.now(),
-                },
-                ...(signal ? { signal } : {}),
-              });
+                messageId: await toolScopedId("turn", toolCallId),
+                text: args.message,
+              };
+              // A pi agent here, or else an agent in its own container.
+              const piSteered = await this.steerPiThread(steer);
+              const steered =
+                piSteered.accepted || piSteered.reason === "not_running"
+                  ? piSteered
+                  : await steerContainerAgent({ ...steer, env: this.env });
+              if (!steered.accepted && steered.reason === "busy") {
+                throw new Error(
+                  `${prior.threadId} is starting up or just finishing in its container. Send the message again in a moment.`,
+                );
+              }
               if (steered.accepted) {
                 if (steered.attemptGeneration !== prior.attemptGeneration) {
                   throw new Error(
@@ -11653,69 +11606,88 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
                 `${control.threadId} has no exact running turn to pause. Wait for its latest lifecycle update and try again.`,
               );
             }
-            const cancelRequestId = await sha256Hex(
-              JSON.stringify([
-                "pause_agent",
-                turn.turnId,
-                control.threadId,
-                toolCallId,
-              ]),
-            );
-            // The BuildSession atomically claims cancellation, stops the
-            // process, and delivers the terminal lifecycle wake. A
-            // pre-dispatch pause is persisted there and consumed as soon as
-            // the delayed turn arrives.
-            const teardown = await this.env.BUILD_SESSIONS.getByName(
-              control.threadId,
-            ).fetch("https://build-session/cancel", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                ownerId: turn.ownerId,
-                ownerGeneration: turn.ownerGeneration,
-                turnId: control.turnId,
-                attemptGeneration: control.attemptGeneration,
-                cancelRequestId,
-                reason: "Paused by orchestrator.",
-              }),
-              ...(signal ? { signal } : {}),
+            // An agent on Stella's models runs here as a pi agent: it stops,
+            // and its canceled report wakes this conversation.
+            const paused = await this.pausePiThread({
+              ownerId: turn.ownerId,
+              ownerGeneration: turn.ownerGeneration,
+              threadId: control.threadId,
+              turnId: control.turnId,
+              attemptGeneration: control.attemptGeneration,
             });
-            const teardownResult = (await teardown
-              .json()
-              .catch(() => ({}))) as {
-              canceled?: boolean;
-              pending?: boolean;
-              reason?: string;
-            };
-            if (teardown.status === 409) {
-              if (teardownResult.reason === "terminal_already_decided") {
-                disposition = "already_terminal";
-              } else {
-                throw new Error(
-                  `${control.threadId} was continued while it was being paused. Try again if the newer turn should also stop.`,
-                );
-              }
-            } else if (!teardown.ok) {
+            if (paused === "changed") {
               throw new Error(
-                `Could not pause ${control.threadId}. Try again.`,
+                `${control.threadId} was continued while it was being paused. Try again if the newer turn should also stop.`,
               );
-            } else if (
-              teardown.status === 202 &&
-              teardownResult.pending === true
-            ) {
-              disposition = "pending";
+            }
+            if (paused !== "unknown") {
+              disposition =
+                paused === "terminal" ? "already_terminal" : "pending";
             } else {
-              disposition = "paused";
-              // The BuildSession decided the terminal; its lifecycle wake
-              // repeats the same status and advances nothing further.
-              finalControl = await this.rememberCloudAgentControlReceipt({
-                ...control,
-                status: "canceled",
-                threadUpdatedAt: Math.max(
-                  Date.now(),
-                  control.threadUpdatedAt + 1,
-                ),
+              const cancelRequestId = await sha256Hex(
+                JSON.stringify([
+                  "pause_agent",
+                  turn.turnId,
+                  control.threadId,
+                  toolCallId,
+                ]),
+              );
+              // The BuildSession atomically claims cancellation, stops the
+              // process, and delivers the terminal lifecycle wake. A
+              // pre-dispatch pause is persisted there and consumed as soon as
+              // the delayed turn arrives.
+              const teardown = await this.env.BUILD_SESSIONS.getByName(
+                control.threadId,
+              ).fetch("https://build-session/cancel", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  ownerId: turn.ownerId,
+                  ownerGeneration: turn.ownerGeneration,
+                  turnId: control.turnId,
+                  attemptGeneration: control.attemptGeneration,
+                  cancelRequestId,
+                  reason: "Paused by orchestrator.",
+                }),
+                ...(signal ? { signal } : {}),
               });
+              const teardownResult = (await teardown
+                .json()
+                .catch(() => ({}))) as {
+                canceled?: boolean;
+                pending?: boolean;
+                reason?: string;
+              };
+              if (teardown.status === 409) {
+                if (teardownResult.reason === "terminal_already_decided") {
+                  disposition = "already_terminal";
+                } else {
+                  throw new Error(
+                    `${control.threadId} was continued while it was being paused. Try again if the newer turn should also stop.`,
+                  );
+                }
+              } else if (!teardown.ok) {
+                throw new Error(
+                  `Could not pause ${control.threadId}. Try again.`,
+                );
+              } else if (
+                teardown.status === 202 &&
+                teardownResult.pending === true
+              ) {
+                disposition = "pending";
+              } else {
+                disposition = "paused";
+                // The BuildSession decided the terminal; its lifecycle wake
+                // repeats the same status and advances nothing further.
+                finalControl = await this.rememberCloudAgentControlReceipt({
+                  ...control,
+                  status: "canceled",
+                  threadUpdatedAt: Math.max(
+                    Date.now(),
+                    control.threadUpdatedAt + 1,
+                  ),
+                });
+              }
             }
           }
           const outcome = await this.commitCloudAgentToolOutcome(
@@ -11735,66 +11707,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           );
         },
       },
-      // The desktop `web` tool's exact surface (web-def) and fetch pipeline
-      // (web-fetch-core, with per-redirect-hop SSRF re-validation). workerd
-      // has no resolver hook, so the guard runs literal-only here; Cloudflare's
-      // own egress policy backstops DNS-rebinding names.
-      {
-        name: WEB_TOOL_NAME,
-        label: "Web",
-        replay: WEB_TOOL_REPLAY,
-        description: WEB_TOOL_DESCRIPTION,
-        parameters: WEB_TOOL_PARAMETERS as unknown as TSchema,
-        execute: async (_id, params, signal) => {
-          const args = params as {
-            query?: string;
-            url?: string;
-            category?: string;
-            prompt?: string;
-          };
-          const query = args.query?.trim() ?? "";
-          const url = args.url?.trim() ?? "";
-          if (!query && !url) {
-            throw new Error("Either query or url is required.");
-          }
-          if (query && url) {
-            throw new Error("Pass either query or url, not both.");
-          }
-          if (url) {
-            const prompt = args.prompt?.trim() || undefined;
-            const text = await fetchReadableText(
-              { url, ...(prompt ? { prompt } : {}) },
-              {
-                guardUrl: (candidate) => normalizeSafePublicUrl(candidate),
-                // Same two protections the desktop tool applies: refuse a URL
-                // carrying a credential (exfiltration via a model-chosen
-                // query string), and redact secrets out of fetched page text
-                // before it becomes model-visible and lands in the transcript.
-                checkSecretLikeToken: containsSecretLikeToken,
-                sanitize: sanitizeToolVisibleText,
-                userAgent: "Stella/1.0 (Cloud)",
-                ...(signal ? { signal } : {}),
-              },
-            );
-            return {
-              content: [{ type: "text", text }],
-              details: { mode: "fetch", url },
-            };
-          }
-          signal?.throwIfAborted();
-          const category = args.category?.trim();
-          const payload = (await toolContext.ownerInternal("search.web", {
-            query,
-            ...(category ? { category } : {}),
-          })) as WebSearchResult;
-          return {
-            content: [
-              { type: "text", text: payload.text || "No results found." },
-            ],
-            details: { mode: "search", query, ...payload },
-          };
-        },
-      },
+      createCloudWebTool({ ownerInternal: toolContext.ownerInternal }),
       createCloudImageGenTool({
         ownerGeneration: turn.ownerGeneration,
         conversationId: turn.conversationId,
@@ -11838,7 +11751,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         : undefined;
     const codeTool = await createCloudCodeAgentTool({
       loader: this.env.LOADER,
-      tools,
+      tools:
+        harness === "pi"
+          ? tools.filter((tool) => !PI_HARNESS_AGENT_TOOL_NAMES.has(tool.name))
+          : tools,
       executionScope: `${turn.ownerGeneration}:${turn.conversationId}:${turn.turnId}`,
       connect: createCloudConnectClient(connectors),
       ...(memory ? { memory } : {}),
@@ -11864,8 +11780,36 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     const direct = tools.filter(
       (tool) => !tool.demoted || toolRequiresExplicitApproval(tool.approval),
     );
+    // Claude Code's Stella moves herself to one of the owner's computers
+    // with this; pi's has it in her own harness. Direct only, never inside
+    // code, and left out of the prompt's tools: the cloud prompt's
+    // `switch_destination` text is pi's, which moves tools too.
+    const switchDestination =
+      harness === "pi"
+        ? []
+        : [
+            createCloudSwitchDestinationTool({
+              devices: async () =>
+                (await this.ownerGate(turn.ownerId).devices()).devices,
+              workingAgents: () => this.workingAgentDescriptions(),
+              move: async (host, brief, toolCallId) => {
+                await this.putTurnState({
+                  [BRAIN_HANDOFF_KEY]: {
+                    turnId: turn.turnId,
+                    ownerId: turn.ownerId,
+                    ownerGeneration: turn.ownerGeneration,
+                    deviceId: host.deviceId,
+                    clientMsgId: await toolScopedId("message", toolCallId),
+                    prompt: piBrainHandoffPrompt("the cloud", brief),
+                  } satisfies BrainHandoff,
+                });
+                await this.setPiBrain({ host: "device", ...host });
+              },
+            }),
+          ];
     return {
-      tools: [codeTool, ...direct],
+      tools: [codeTool, ...direct, ...switchDestination],
+      catalog: [codeTool, ...tools],
       // The prompt renders against everything this turn can call, demoted
       // tools inside code included, and `history` and `memory` only when
       // code has them.
@@ -11874,6 +11818,116 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
         { history: memoryEnabled, memory: memory !== undefined },
       ),
     };
+  }
+
+  /**
+   * A pi-durable cloud agent's own tools: web, and code with the owner's
+   * connectors and the run's cloud browser (its files and shell are its
+   * container's). Built on the authority the agents keep, since they run
+   * between turns.
+   */
+  private async createPiAgentTools(
+    authority: {
+      ownerId: string;
+      ownerGeneration: string;
+      conversationId: string;
+    },
+    browser: CloudBrowserClient | undefined,
+  ): Promise<CloudCodeSourceAgentTool[]> {
+    const ownerInternal = async (name: string, args: unknown) =>
+      unwrapRpc(
+        await this.ownerGate(authority.ownerId).ownerInternal({
+          name,
+          args,
+          ownerGeneration: authority.ownerGeneration,
+        }),
+      );
+    const web = createCloudWebTool({ ownerInternal });
+    const connectors = new CloudConnectorDirectory({
+      source: {
+        catalog: () => listIntegrationCatalog(this.env),
+        actions: (args) => listIntegrationActions(this.env, args),
+        connections: async () =>
+          (await ownerInternal("integrations.connections", {})) as {
+            connections: Array<{ id: string; connected: boolean }>;
+          },
+        run: (args) => ownerInternal("integrations.run", args),
+      },
+      declines: this.connectorDeclines(),
+    });
+    const code = await createCloudCodeAgentTool({
+      loader: this.env.LOADER,
+      tools: [web],
+      executionScope: `${authority.ownerGeneration}:${authority.conversationId}:pi-agents`,
+      connect: createCloudConnectClient(connectors),
+      ...(browser ? { browser } : {}),
+    });
+    return [code, web];
+  }
+
+  /**
+   * A pi agent's login handoff, shown to the user as the owner's browser
+   * interaction (every signed-in client lists `browser.pending`) and waited
+   * on until it ends. Polling is the wait, as for the connect card: the
+   * owner object closes the interaction when the user finishes or cancels
+   * it, or at its deadline. A stopped agent withdraws it.
+   */
+  private async awaitPiBrowserHandoff(
+    handoff: import("./pi-runtime.js").PiBrowserHandoff,
+    signal: AbortSignal | undefined,
+  ): Promise<import("./pi-runtime.js").PiBrowserHandoffEnd> {
+    const { authority, browser, suspension } = handoff;
+    const ownerInternal = async (name: string, args: unknown) =>
+      unwrapRpc(
+        await this.ownerGate(authority.ownerId).ownerInternal({
+          name,
+          args,
+          ownerGeneration: authority.ownerGeneration,
+        }),
+      );
+    const interaction = { interactionId: suspension.interactionId };
+    await ownerInternal("browser.handoffOpen", {
+      conversationId: browser.conversationId,
+      threadId: browser.threadId,
+      turnId: browser.turnId,
+      attemptGeneration: browser.attemptGeneration,
+      toolCallId: handoff.toolCallId,
+      suspension,
+    });
+    // The owner's expiry job closes it at its deadline; this one is a backstop.
+    const deadline = suspension.expiresAt + BROWSER_HANDOFF_GRACE_MS;
+    while (true) {
+      if (signal?.aborted || Date.now() >= deadline) {
+        await ownerInternal("browser.handoffCancel", interaction).catch(
+          () => undefined,
+        );
+        if (signal?.aborted) throw new Error("Browser handoff withdrawn.");
+        return { result: "expired", safeMessage: "Browser access expired." };
+      }
+      const state = (await ownerInternal(
+        "browser.handoffState",
+        interaction,
+      ).catch(() => undefined)) as
+        | { state: string; result?: string; safeMessage?: string }
+        | undefined;
+      if (
+        state &&
+        state.state !== "pending" &&
+        state.state !== "human_control" &&
+        state.result
+      ) {
+        return {
+          result: state.result as import("./pi-runtime.js").PiBrowserHandoffEnd["result"],
+          safeMessage: state.safeMessage ?? "Browser access ended.",
+        };
+      }
+      // An abort just ends the wait; the loop's next check withdraws it.
+      await sleepWithAbort(
+        BROWSER_HANDOFF_POLL_MS,
+        signal,
+        () => new Error("Browser handoff wait aborted."),
+      ).catch(() => undefined);
+    }
   }
 
   /**

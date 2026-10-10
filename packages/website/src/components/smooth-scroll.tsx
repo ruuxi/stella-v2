@@ -1,6 +1,6 @@
 "use client";
 
-import Lenis from "lenis";
+import type Lenis from "lenis";
 import { useEffect } from "react";
 
 /**
@@ -27,12 +27,24 @@ export function SmoothScroll() {
     if (document.querySelector("[data-native-scroll]")) return;
 
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let LenisClass: typeof Lenis | null = null;
+    let loading = false;
+    let disposed = false;
     let lenis: Lenis | null = null;
     let frame = 0;
 
     const start = () => {
-      if (lenis) return;
-      lenis = new Lenis({
+      if (lenis || disposed) return;
+      if (!LenisClass) {
+        if (loading) return;
+        loading = true;
+        void import("lenis").then((mod) => {
+          LenisClass = mod.default;
+          if (!reduceMotion.matches) start();
+        });
+        return;
+      }
+      lenis = new LenisClass({
         autoRaf: false,
         lerp: 0.1,
         wheelMultiplier: 1,
@@ -62,6 +74,7 @@ export function SmoothScroll() {
     reduceMotion.addEventListener("change", sync);
 
     return () => {
+      disposed = true;
       reduceMotion.removeEventListener("change", sync);
       stop();
     };

@@ -71,7 +71,7 @@ export function OpsSkin() {
       <div className={o.console}>
         <header className={o.top}>
           <span className={o.tag}>
-            <b>STELLA</b> // SYSTEM OPERATIONS
+            <b>STELLA</b>{" // "}SYSTEM OPERATIONS
           </span>
           <span className={o.pattern}>
             PATTERN <b>ORANGE</b>
@@ -87,7 +87,7 @@ export function OpsSkin() {
         </header>
 
         <section className={o.net}>
-          <span className={o.panelTag}>AGENT NETWORK // LIVE</span>
+          <span className={o.panelTag}>AGENT NETWORK{" // "}LIVE</span>
           <svg viewBox="0 0 300 340" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
             <g className={o.grid}>
               {GRID.map(([x, y], i) => (
@@ -103,7 +103,7 @@ export function OpsSkin() {
             <polygon className={o.core} points={HEX(150, 172, 44)} />
             <polygon className={o.coreRing} points={HEX(150, 172, 56)} />
             <text className={o.coreText} x="150" y="168">STELLA</text>
-            <text className={o.coreSub} x="150" y="186">01 // MAIN</text>
+            <text className={o.coreSub} x="150" y="186">01{" // "}MAIN</text>
             {NODES.map((n) => (
               <g key={n.id} className={o.node} data-state={n.state}>
                 <polygon points={HEX(n.x, n.y, 22)} />
@@ -121,11 +121,11 @@ export function OpsSkin() {
 
         <section className={o.log}>
           <div className={o.directive}>
-            <span className={o.tab}>DIRECTIVE 0417 // INPUT</span>
+            <span className={o.tab}>DIRECTIVE 0417{" // "}INPUT</span>
             <p>CLEAN UP MY DOWNLOADS FOLDER.</p>
           </div>
           <div className={o.result}>
-            <span className={o.tab} data-c="ok">RESULT // COMPLETE</span>
+            <span className={o.tab} data-c="ok">RESULT{" // "}COMPLETE</span>
             <p>
               <span>FILES SORTED</span>
               <b>214</b>
@@ -143,12 +143,12 @@ export function OpsSkin() {
             </p>
           </div>
           <div className={o.directive}>
-            <span className={o.tab}>DIRECTIVE 0418 // INPUT</span>
+            <span className={o.tab}>DIRECTIVE 0418{" // "}INPUT</span>
             <p>TABLE FOR FOUR. FRIDAY. 2000.</p>
           </div>
           <div className={o.exec}>
             <span className={o.execRun}>EXECUTING</span>
-            <span className={o.execDone}>CONFIRMED // LUCIA 20:00 FRI</span>
+            <span className={o.execDone}>CONFIRMED{" // "}LUCIA 20:00 FRI</span>
           </div>
         </section>
 

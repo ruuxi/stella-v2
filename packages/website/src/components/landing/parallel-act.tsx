@@ -46,7 +46,6 @@ export function ParallelAct() {
       const s = SPAWN0 + i * SPAWN_GAP;
       const ask = askRefs.current[i];
       const row = rowRefs.current[i];
-      const reply = replyRefs.current[i];
       const menuRow = menuRowRefs.current[i];
       const askOn = t >= s;
       const rowOn = t >= s + 0.16;

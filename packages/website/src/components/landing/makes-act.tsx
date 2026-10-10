@@ -119,6 +119,7 @@ export function MakesAct() {
         const on = entry?.isIntersecting ?? false;
         setRunning(on);
         if (on) el.dataset.in = "1";
+        if (on && prefersReducedMotion()) setActive(CARDS.length - 1);
       },
       { threshold: 0.45 },
     );
@@ -146,9 +147,6 @@ export function MakesAct() {
     return () => window.clearTimeout(id);
   }, [running, hold, active, out, tick]);
 
-  useEffect(() => {
-    if (prefersReducedMotion()) setActive(CARDS.length - 1);
-  }, []);
 
   useEffect(() => {
     const v = videoRef.current;

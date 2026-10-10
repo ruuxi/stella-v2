@@ -14,6 +14,10 @@ import { STELLA_BROWSER_EXTENSION_ID } from "@stella/runtime/kernel/tools/stella
 import { isStellaExtensionInstalled } from "./stella-browser-bridge-service.js";
 import { ensureNativeCredential, loadConfiguredOAuthProviders, resolveDesktopNativeConnectorEntry, } from "../ipc/native-integration-handlers.js";
 import { PendingRequestStore } from "./pending-request-store.js";
+import {
+  IPC_CONNECTOR_CONNECT_REQUEST,
+  IPC_CONNECTOR_CONNECT_UPDATE,
+} from "@stella/contracts/desktop/ipc-channels";
 // Slightly under the CLI's 10-minute bridge timeout so the card always
 // resolves (and disappears) before the agent-side wait gives up.
 const CARD_TIMEOUT_MS = 9.5 * 60 * 1000;
@@ -131,7 +135,7 @@ export class ConnectorConnectService {
         for (const window of targetWindows) {
             if (window.isDestroyed())
                 continue;
-            window.webContents.send("connector-connect:request", request);
+            window.webContents.send(IPC_CONNECTOR_CONNECT_REQUEST, request);
         }
         return settled;
     }
@@ -201,7 +205,7 @@ export class ConnectorConnectService {
         for (const window of targetWindows) {
             if (window.isDestroyed())
                 continue;
-            window.webContents.send("connector-connect:request", request);
+            window.webContents.send(IPC_CONNECTOR_CONNECT_REQUEST, request);
         }
         return settled;
     }
@@ -377,7 +381,7 @@ export class ConnectorConnectService {
         for (const window of windows) {
             if (window.isDestroyed())
                 continue;
-            window.webContents.send("connector-connect:update", {
+            window.webContents.send(IPC_CONNECTOR_CONNECT_UPDATE, {
                 requestId,
                 phase,
                 ...(message ? { message } : {}),

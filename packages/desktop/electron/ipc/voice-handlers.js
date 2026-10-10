@@ -1,4 +1,3 @@
-import { ipcMain } from "electron";
 import { createMonotonicSeqGenerator } from "./monotonic-seq.js";
 import { applyShortcutRegistration } from "./shortcut-registration.js";
 import { getRealtimeVoicePreferences, loadLocalPreferences, resolveRealtimeVoiceId, saveLocalPreferences, } from "@stella/runtime/kernel/preferences/local-preferences";
@@ -6,9 +5,33 @@ import { DEFAULT_OPENAI_REALTIME_VOICE, DEFAULT_XAI_REALTIME_VOICE, buildXaiReal
 import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
 import { getLocalLlmCredential } from "@stella/runtime/kernel/storage/llm-credentials";
 import { getLocalLlmOAuthApiKey } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
-import { IPC_VOICE_CREATE_OPENAI_SESSION, IPC_VOICE_ORCHESTRATOR_CONFIG, IPC_VOICE_CREATE_XAI_SESSION, IPC_VOICE_REPORT_SESSION_ERROR, IPC_VOICE_RTC_TOGGLE, IPC_VOICE_SESSION_ERROR, } from "@stella/contracts/desktop/ipc-channels";
+import {
+  IPC_VOICE_CREATE_OPENAI_SESSION,
+  IPC_VOICE_ORCHESTRATOR_CONFIG,
+  IPC_VOICE_CREATE_XAI_SESSION,
+  IPC_VOICE_REPORT_SESSION_ERROR,
+  IPC_VOICE_RTC_TOGGLE,
+  IPC_VOICE_SESSION_ERROR,
+  IPC_AGENT_EVENT,
+  IPC_VOICE_ORCHESTRATOR_ACTIVITY,
+  IPC_DISPLAY_UPDATE,
+  IPC_VOICE_RUNTIME_STATE,
+  IPC_VOICE_REPORT_SESSION_ERROR_STATE,
+  IPC_VOICE_SESSION_ERROR_STATE,
+  IPC_VOICE_GET_SESSION_ERROR_STATE,
+  IPC_VOICE_RTC_SET_SHORTCUT,
+  IPC_VOICE_RTC_GET_SHORTCUT,
+  IPC_VOICE_PERSIST_TRANSCRIPT,
+  IPC_VOICE_ORCHESTRATOR_CHAT,
+  IPC_VOICE_WEB_SEARCH,
+  IPC_VOICE_GET_RUNTIME_STATE,
+} from "@stella/contracts/desktop/ipc-channels";
 import { requireMatchingCloudConversationId, requireRequestedCloudConversationId, } from "../cloud-conversation-mode.js";
 import { randomUUID } from "node:crypto";
+import {
+  handleIpc,
+  onIpc,
+} from "./typed-ipc.js";
 const DEFAULT_OPENAI_REALTIME_MODEL = "gpt-realtime-2.1";
 const DEFAULT_XAI_REALTIME_MODEL = "grok-voice-think-fast-1.0";
 const DEFAULT_RUNTIME_STATE = {
@@ -30,7 +53,7 @@ export const registerVoiceHandlers = (options) => {
     const emitVoiceAgentEvent = (eventPayload) => {
         const fullWindow = options.windowManager.getFullWindow();
         if (fullWindow && !fullWindow.isDestroyed()) {
-            fullWindow.webContents.send("agent:event", eventPayload);
+            fullWindow.webContents.send(IPC_AGENT_EVENT, eventPayload);
         }
     };
     /**
@@ -43,14 +66,14 @@ export const registerVoiceHandlers = (options) => {
         for (const window of options.windowManager.getAllWindows()) {
             if (window.isDestroyed())
                 continue;
-            window.webContents.send("voice:orchestratorActivity", activity);
+            window.webContents.send(IPC_VOICE_ORCHESTRATOR_ACTIVITY, activity);
         }
     };
     const emitVoiceDisplayPayload = (payload) => {
         for (const window of options.windowManager.getAllWindows()) {
             if (window.isDestroyed())
                 continue;
-            window.webContents.send("display:update", payload);
+            window.webContents.send(IPC_DISPLAY_UPDATE, payload);
         }
     };
     const asRecord = (value) => value && typeof value === "object" && !Array.isArray(value)
@@ -145,7 +168,7 @@ export const registerVoiceHandlers = (options) => {
         for (const window of windows) {
             if (window.isDestroyed())
                 continue;
-            window.webContents.send("voice:runtimeState", runtimeState);
+            window.webContents.send(IPC_VOICE_RUNTIME_STATE, runtimeState);
         }
     };
     // The voice runtime lives in the hidden, screen-spanning overlay window, so
@@ -161,28 +184,28 @@ export const registerVoiceHandlers = (options) => {
             target.webContents.send(IPC_VOICE_SESSION_ERROR, trimmed);
         }
     };
-    ipcMain.on(IPC_VOICE_REPORT_SESSION_ERROR, (_event, message) => {
+    onIpc(IPC_VOICE_REPORT_SESSION_ERROR, (_event, message) => {
         emitVoiceSessionErrorToast(message);
     });
     // Why a call failed, for surfaces that must show the reason rather than an
     // empty card. Every window gets it, and the last value is readable on
     // mount so a late-rendering surface still has it.
     let lastVoiceSessionError = "";
-    ipcMain.on("voice:reportSessionErrorState", (_event, message) => {
+    onIpc(IPC_VOICE_REPORT_SESSION_ERROR_STATE, (_event, message) => {
         lastVoiceSessionError = typeof message === "string" ? message.trim() : "";
         for (const window of options.windowManager.getAllWindows()) {
             if (window.isDestroyed())
                 continue;
-            window.webContents.send("voice:sessionErrorState", lastVoiceSessionError);
+            window.webContents.send(IPC_VOICE_SESSION_ERROR_STATE, lastVoiceSessionError);
         }
     });
-    ipcMain.handle("voice:getSessionErrorState", () => lastVoiceSessionError);
+    handleIpc(IPC_VOICE_GET_SESSION_ERROR_STATE, () => lastVoiceSessionError);
     const toggleVoiceRtc = () => {
         if (!options.getAppReady())
             return;
         options.toggleRealtimeVoice();
     };
-    ipcMain.on(IPC_VOICE_RTC_TOGGLE, (event) => {
+    onIpc(IPC_VOICE_RTC_TOGGLE, (event) => {
         if (!options.assertPrivilegedSender(event, IPC_VOICE_RTC_TOGGLE))
             return;
         toggleVoiceRtc();
@@ -205,7 +228,7 @@ export const registerVoiceHandlers = (options) => {
     if (!initialVoiceRtcShortcut.ok) {
         console.warn("[voice]", initialVoiceRtcShortcut.error);
     }
-    ipcMain.handle("voice-rtc:setShortcut", (_event, shortcut) => {
+    handleIpc(IPC_VOICE_RTC_SET_SHORTCUT, (_event, shortcut) => {
         const result = applyShortcutRegistration({
             label: "Voice realtime",
             requestedShortcut: shortcut,
@@ -221,8 +244,8 @@ export const registerVoiceHandlers = (options) => {
         }
         return result;
     });
-    ipcMain.handle("voice-rtc:getShortcut", () => currentVoiceRtcShortcut);
-    ipcMain.handle(IPC_VOICE_CREATE_OPENAI_SESSION, async (_event, payload) => {
+    handleIpc(IPC_VOICE_RTC_GET_SHORTCUT, () => currentVoiceRtcShortcut);
+    handleIpc(IPC_VOICE_CREATE_OPENAI_SESSION, async (_event, payload) => {
         const preferences = getRealtimeVoicePreferences(options.stellaAppDir);
         if (preferences.provider !== "openai") {
             throw new Error("OpenAI is not selected for voice.");
@@ -284,7 +307,7 @@ export const registerVoiceHandlers = (options) => {
             sessionId: typeof data.session?.id === "string" ? data.session.id : undefined,
         };
     });
-    ipcMain.handle(IPC_VOICE_CREATE_XAI_SESSION, async (_event, _payload) => {
+    handleIpc(IPC_VOICE_CREATE_XAI_SESSION, async (_event, _payload) => {
         const preferences = getRealtimeVoicePreferences(options.stellaAppDir);
         if (preferences.provider !== "xai") {
             throw new Error("xAI is not selected for voice.");
@@ -339,7 +362,7 @@ export const registerVoiceHandlers = (options) => {
             expiresAt,
         };
     });
-    ipcMain.on("voice:persistTranscript", (_event, payload) => {
+    onIpc(IPC_VOICE_PERSIST_TRANSCRIPT, (_event, payload) => {
         let conversationId;
         try {
             conversationId = resolveVoiceConversation(false, payload?.conversationId);
@@ -358,7 +381,7 @@ export const registerVoiceHandlers = (options) => {
             console.debug("[voice] transcript persistence failed (best-effort):", err.message);
         });
     });
-    ipcMain.handle("voice:orchestratorChat", async (_event, payload) => {
+    handleIpc(IPC_VOICE_ORCHESTRATOR_CHAT, async (_event, payload) => {
         if (!options.uiState.isVoiceRtcActive) {
             throw new Error("Voice mode is no longer active.");
         }
@@ -431,7 +454,7 @@ export const registerVoiceHandlers = (options) => {
             conversationId,
         });
     };
-    ipcMain.handle(IPC_VOICE_ORCHESTRATOR_CONFIG, async (_event, payload) => await voiceConfig(false, payload));
+    handleIpc(IPC_VOICE_ORCHESTRATOR_CONFIG, async (_event, payload) => await voiceConfig(false, payload));
     const executeVoiceTool = async (remote, payload) => {
         const conversationId = resolveVoiceConversation(remote, payload?.conversationId);
         const currentPayload = { ...payload, conversationId };
@@ -458,15 +481,15 @@ export const registerVoiceHandlers = (options) => {
             throw error;
         }
     };
-    ipcMain.handle("voice:webSearch", async (_event, payload) => {
+    handleIpc(IPC_VOICE_WEB_SEARCH, async (_event, payload) => {
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
             return { text: "Stella runtime not initialized.", results: [] };
         }
         return await stellaHostRunner.voiceWebSearch(payload);
     });
-    ipcMain.handle("voice:getRuntimeState", () => runtimeState);
-    ipcMain.on("voice:runtimeState", (_event, nextState) => {
+    handleIpc(IPC_VOICE_GET_RUNTIME_STATE, () => runtimeState);
+    onIpc(IPC_VOICE_RUNTIME_STATE, (_event, nextState) => {
         runtimeState = {
             sessionState: nextState?.sessionState ?? "idle",
             isConnected: Boolean(nextState?.isConnected),

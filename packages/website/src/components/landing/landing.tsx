@@ -2,6 +2,7 @@ import { Backdrop } from "./backdrop";
 import { Finale, LandingFooter, OpenSourceAct } from "./closing";
 import { ComputerAct } from "./computer-act";
 import { DevicesAct } from "./devices-act";
+import { FaqSection } from "./faq";
 import { landingFontVars } from "./fonts";
 import { LandingHeader } from "./landing-header";
 import { MakesAct } from "./makes-act";
@@ -23,6 +24,7 @@ export function Landing() {
         <MakesAct />
         <ModelsAct />
         <OpenSourceAct />
+        <FaqSection />
         <Finale />
       </main>
       <LandingFooter />

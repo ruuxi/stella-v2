@@ -97,9 +97,9 @@ export interface DeriveTokensOptions {
 
 const RATIOS = {
   light: {
-    textBase: 80,
-    textWeak: 58,
-    textWeaker: 40,
+    textBase: 82,
+    textWeak: 67,
+    textWeaker: 50,
     borderStrong: 20,
     borderBase: 12,
     borderWeak: 7,
@@ -115,9 +115,9 @@ const RATIOS = {
     panelSurfaceHighlight: 0.42,
   },
   dark: {
-    textBase: 82,
-    textWeak: 60,
-    textWeaker: 42,
+    textBase: 84,
+    textWeak: 66,
+    textWeaker: 50,
     borderStrong: 24,
     borderBase: 16,
     borderWeak: 10,

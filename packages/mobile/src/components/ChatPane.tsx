@@ -4924,7 +4924,11 @@ export function ChatPane({
         >
           {composerIntervention}
           <Reanimated.View
-            style={[composerRevealStyle, questionActive && styles.composerHidden]}
+            style={[
+              styles.composerReveal,
+              composerRevealStyle,
+              questionActive && styles.composerHidden,
+            ]}
             pointerEvents={questionActive ? "none" : "box-none"}
           >
           <Pressable
@@ -5616,6 +5620,7 @@ const makeStyles = (colors: Colors) =>
      */
     askRecordAbove: { marginBottom: 6 },
     composerHidden: { display: "none" },
+    composerReveal: { alignSelf: "stretch" },
     assistantBubble: {
       alignSelf: "flex-start",
       overflow: "hidden",

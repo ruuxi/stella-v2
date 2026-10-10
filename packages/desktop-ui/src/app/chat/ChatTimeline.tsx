@@ -45,6 +45,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type RefObject,
@@ -70,6 +71,7 @@ import { timestampHeaders } from "@/features/chat/lib/message-time-labels";
 import type { EventRowViewModel } from "@/features/chat/conversation-row-types";
 import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-model-configs";
 import { LoaderCircle } from "@/ui/icons";
+import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
 import { UserAskRecordCard } from "@/features/user-ask/UserAskRecordCard";
 import { useConversationUserAskRecords } from "@/features/user-ask/user-ask-store";
 import { useT } from "@/shared/i18n";
@@ -385,6 +387,21 @@ export const ChatTimeline = memo(function ChatTimeline({
       };
     });
   }, [askRecords, indicator, queuedUserMessages, rows]);
+  const tailItemId = useMemo(() => {
+    for (let index = listItems.length - 1; index >= 0; index -= 1) {
+      const item = listItems[index];
+      if (item?.type === "message" || item?.type === "ask-record") return item.id;
+    }
+    return null;
+  }, [listItems]);
+  const previousTailItemIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousTailItemIdRef.current;
+    previousTailItemIdRef.current = tailItemId;
+    if (!previous || !tailItemId || previous === tailItemId) return;
+    const frame = requestAnimationFrame(() => notifyChatContentGrowth());
+    return () => cancelAnimationFrame(frame);
+  }, [tailItemId]);
   const renderedMessageRowCount = listItems.reduce(
     (count, item) => count + (item.type === "message" ? 1 : 0),
     0,

@@ -80,6 +80,8 @@ const useRemaining = (deadlineAt: number | undefined): number | null => {
   return deadlineAt === undefined ? null : Math.max(0, deadlineAt - now);
 };
 
+const slotStyles = StyleSheet.create({ deckSlot: { alignSelf: "stretch" } });
+
 export function UserAskCard({
   conversationId,
 }: {
@@ -104,6 +106,7 @@ export function UserAskCard({
   if (questions.length === 0) return null;
   return (
     <Reanimated.View
+      style={slotStyles.deckSlot}
       entering={FadeInDown.springify().damping(20).stiffness(190)}
       exiting={FadeOutDown.duration(180)}
       layout={LinearTransition.springify().damping(22).stiffness(200)}

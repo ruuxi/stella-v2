@@ -340,6 +340,25 @@ export function desktopChats(options: DesktopChatsOptions) {
       ? { here: false, target: { mode: "cloud" } }
       : { here: false, target: { mode: "device", deviceId: record.deviceId }, ...(record.label ? { label: record.label } : {}) };
   };
+  /**
+   * What Stella reads hidden and the user did not write (an agent's report
+   * or note) for a conversation whose brain runs elsewhere: placed there as
+   * this computer's sends are, once per `requestId`. False when she runs
+   * here, for the conversation here to take.
+   */
+  const noteOnBrain = async (conversationId: string, requestId: string, text: string): Promise<boolean> => {
+    const record = await brainRecord(conversationId);
+    if (!record || (record.host === "device" && record.deviceId === options.deviceId)) return false;
+    const brain = options.brain?.(conversationId);
+    if (!brain) return false;
+    // Another computer's harness counts its own request ids.
+    const id = createHash("sha256").update(`${options.deviceId ?? ""}\0${conversationId}\0${requestId}`).digest("hex").slice(0, 48);
+    await brain.note(record, { id: `pi-note:${id}`, text });
+    // Her answer comes back through the journal.
+    const chat = await chats.get(conversationId)?.catch(() => undefined);
+    if (chat) chat.followUntil = Date.now() + FOLLOW_WINDOW_MS;
+    return true;
+  };
   const elsewhere = (placement: Extract<PiChatBrainResult, { here: false }>) =>
     `Stella for this chat runs ${placement.target.mode === "cloud" ? "in the cloud" : `on ${placement.label ?? placement.target.deviceId}`} now, so this computer does not answer it.`;
   // A model on another provider runs with the key the user stored for it,
@@ -495,6 +514,7 @@ export function desktopChats(options: DesktopChatsOptions) {
         if (!remoteStella && to !== conversationId) {
           // Another chat here: its Stella reads the note as its next turn, and the user does not see it.
           if (chats.has(to) || localSessions().some((row) => row.conversationId === to)) {
+            if (await noteOnBrain(to, `agent-note:${id}`, framed)) return { delivered: "queued", threadId: to };
             const chat = await ready(to);
             const note: TextContent & { stella: { hidden: true } } = { type: "text", text: framed, stella: { hidden: true } };
             await chat.root.submit({ type: "input", content: [note], whenBusy: "followUp", requestId: `agent-note:${id}` }, context);
@@ -592,6 +612,25 @@ export function desktopChats(options: DesktopChatsOptions) {
                     description: agent?.description ?? run.threadId,
                     attempt: await attempts(run.threadId),
                   });
+                },
+                // Stella reads them where she runs: here, or as a note placed there.
+                deliverReport: async (report, context) => {
+                  if (report.settled) return;
+                  if (await noteOnBrain(conversationId, report.requestId, report.text)) return;
+                  // The harness is open by then: reports run once it resumes.
+                  const root = await harness.conversation(report.rootConversationId, context);
+                  await root?.submit(
+                    { type: "input", content: report.text, whenBusy: "followUp", requestId: report.requestId },
+                    context,
+                  );
+                },
+                deliverNote: async (note, context) => {
+                  if (await noteOnBrain(conversationId, note.requestId, note.text)) return;
+                  const root = await harness.conversation(note.rootConversationId, context);
+                  if (!root) throw new Error("Stella is not reachable from here.");
+                  // Read by the model, never shown: the user did not write it.
+                  const hidden: TextContent & { stella: { hidden: true } } = { type: "text", text: note.text, stella: { hidden: true } };
+                  await root.submit({ type: "input", content: [hidden], whenBusy: "followUp", requestId: note.requestId }, context);
                 },
                 ...(agentReported
                   ? {

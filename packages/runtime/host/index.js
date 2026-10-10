@@ -1420,6 +1420,41 @@ export class StellaRuntimeHost {
         });
         return { ok: true };
     }
+    /**
+     * What Stella reads hidden (an agent's report or note) in a pi
+     * conversation whose brain runs elsewhere: placed there as a chat, as
+     * this computer places its user's sends, once per `id`.
+     */
+    async placePiBrainNote(params) {
+        const conversationId = typeof params?.conversationId === "string" ? params.conversationId.trim() : "";
+        const requested = params?.target && typeof params.target === "object" ? params.target : null;
+        const deviceId = typeof requested?.deviceId === "string" ? requested.deviceId.trim() : "";
+        const target = requested?.mode === "cloud"
+            ? { mode: "cloud" }
+            : requested?.mode === "device" && deviceId && deviceId !== this.deviceIdentity?.deviceId
+                ? { mode: "device", deviceId }
+                : null;
+        const prompt = typeof params?.prompt === "string" ? params.prompt.trim() : "";
+        const id = typeof params?.id === "string" ? params.id.trim() : "";
+        if (!conversationId || !target || !prompt || !id) {
+            return { ok: false, error: "A conversation, another host, a note and its id are required." };
+        }
+        try {
+            await this.startPlacedChat({
+                conversationId,
+                userPrompt: prompt,
+                requestId: id,
+                userMessageEventId: id,
+                storageMode: "cloud",
+                // Journaled hidden there: the user did not write it.
+                handoff: true,
+            }, target);
+            return { ok: true };
+        }
+        catch (error) {
+            return { ok: false, error: error instanceof Error ? error.message : String(error) };
+        }
+    }
     async startChat(payload) {
         const target = placedChatTarget(payload, this.deviceIdentity?.deviceId);
         if (target) return await this.startPlacedChat(payload, target);
@@ -2032,6 +2067,9 @@ export class StellaRuntimeHost {
         });
         peer.registerRequestHandler(METHOD_NAMES.HOST_EXECUTION_DESTINATION_SWITCH, async (params) => {
             return await this.switchExecutionDestination(params);
+        });
+        peer.registerRequestHandler(METHOD_NAMES.HOST_PI_BRAIN_NOTE, async (params) => {
+            return await this.placePiBrainNote(params);
         });
         peer.registerRequestHandler(METHOD_NAMES.HOST_CONNECTOR_CONNECT_REQUEST, async (params) => {
             if (!this.options.hostHandlers.requestConnectorConnection) {

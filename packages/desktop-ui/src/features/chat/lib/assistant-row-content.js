@@ -22,6 +22,7 @@ export const assistantRowHasVisibleContent = (row) => row.text.trim().length > 0
     (row.inlineImagePayloads?.length ?? 0) > 0 ||
     (row.webSearchResults?.length ?? 0) > 0 ||
     (row.mapArtifacts?.length ?? 0) > 0 ||
+    (row.askRecords?.length ?? 0) > 0 ||
     (row.sourceDiffPayloads?.length ?? 0) > 0 ||
     Boolean(row.customSlot) ||
     Boolean(row.voiceSession) ||

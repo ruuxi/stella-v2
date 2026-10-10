@@ -17,6 +17,7 @@
  * Reasoning text is intentionally NOT rendered anywhere in this surface
  * (the underlying data still flows through state for model history).
  */
+import { UserAskRecordCard } from "@/features/user-ask/UserAskRecordCard";
 import {
   Fragment,
   memo,
@@ -807,6 +808,9 @@ export const AssistantMessageRow = memo(
           {hasMapArtifacts && row.mapArtifacts && (
             <MapRouteCards cards={row.mapArtifacts} />
           )}
+          {row.askRecords?.map((record) => (
+            <UserAskRecordCard key={record.id} record={record} />
+          ))}
           {row.officePreviewRef && (
             <OfficePreviewCard previewRef={row.officePreviewRef} />
           )}

@@ -25,6 +25,7 @@ import {
   type UserAskRecipientKey,
   type UserAskState,
 } from "@stella/contracts/user-ask";
+import type { UserAskRecord } from "@stella/contracts/user-ask-deck";
 import { authClient } from "./auth-client";
 import { useBackendView } from "./backend";
 import { listExecutionDevices } from "./execution-placement";
@@ -300,6 +301,51 @@ export const cancelUserAsk = async (askId: string): Promise<void> => {
     { origin: backendOrigin() },
   );
   removeAskLocally(askId);
+};
+
+const EMPTY_RECORDS: readonly UserAskRecord[] = [];
+const MAX_RECORDS_PER_CONVERSATION = 50;
+let recordsByConversation: ReadonlyMap<string, readonly UserAskRecord[]> =
+  new Map();
+const recordListeners = new Set<() => void>();
+
+export const recordUserAskAnswer = (
+  conversationId: string,
+  record: UserAskRecord,
+): void => {
+  if (!conversationId) return;
+  const current = recordsByConversation.get(conversationId) ?? EMPTY_RECORDS;
+  const next = new Map(recordsByConversation);
+  next.set(
+    conversationId,
+    [...current.filter((entry) => entry.id !== record.id), record]
+      .sort((left, right) => left.createdAt - right.createdAt)
+      .slice(-MAX_RECORDS_PER_CONVERSATION),
+  );
+  recordsByConversation = next;
+  for (const listener of recordListeners) listener();
+};
+
+const subscribeRecords = (listener: () => void) => {
+  recordListeners.add(listener);
+  return () => {
+    recordListeners.delete(listener);
+  };
+};
+
+const getRecordsSnapshot = () => recordsByConversation;
+
+export const useConversationUserAskRecords = (
+  conversationId: string | null | undefined,
+): readonly UserAskRecord[] => {
+  const records = useSyncExternalStore(
+    subscribeRecords,
+    getRecordsSnapshot,
+    getRecordsSnapshot,
+  );
+  return conversationId
+    ? (records.get(conversationId) ?? EMPTY_RECORDS)
+    : EMPTY_RECORDS;
 };
 
 let focusedAskId: string | null = null;

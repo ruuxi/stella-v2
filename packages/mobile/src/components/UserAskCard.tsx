@@ -23,7 +23,9 @@ import {
   userAskDeckComplete,
   userAskDeckEntries,
   userAskDeckKey,
+  userAskRecordFromAnswer,
   type UserAskDeckEntry,
+  type UserAskRecord,
   type UserAskDraft,
   type UserAskDrafts,
 } from "@stella/contracts/user-ask-deck";
@@ -31,6 +33,7 @@ import { tapLight } from "../lib/haptics";
 import {
   answerUserAsk,
   cancelUserAsk,
+  recordUserAskAnswer,
   useConversationUserAsks,
   useResolveFocusedUserAsk,
   useUserAskOriginLabel,
@@ -77,33 +80,64 @@ export function UserAskCard({
   conversationId: string | null | undefined;
 }) {
   useUserAskSync(true);
-  const { questions, secureInput, focused } =
-    useConversationUserAsks(conversationId);
-  const showSecure =
-    secureInput !== null &&
-    (questions.length === 0 || focused?.askId === secureInput.askId);
-  useResolveFocusedUserAsk(
-    showSecure
-      ? (secureInput?.askId ?? null)
-      : questions.length > 0
-        ? (focused?.askId ?? null)
-        : null,
+  const { secureInput } = useConversationUserAsks(conversationId);
+  useResolveFocusedUserAsk(secureInput?.askId ?? null);
+  if (secureInput?.detail.kind !== "secure_input") return null;
+  return (
+    <SecureAskSurface
+      ask={secureInput}
+      detail={secureInput.detail}
+      key={secureInput.askId}
+    />
   );
-  if (showSecure && secureInput?.detail.kind === "secure_input") {
-    return (
-      <SecureAskSurface
-        ask={secureInput}
-        detail={secureInput.detail}
-        key={secureInput.askId}
-      />
-    );
-  }
+}
+
+export function UserAskInlineDeck({
+  conversationId,
+}: {
+  conversationId: string | null | undefined;
+}) {
+  const { questions, focused } = useConversationUserAsks(conversationId);
+  useResolveFocusedUserAsk(
+    focused?.kind === "question" ? focused.askId : null,
+  );
   if (questions.length === 0) return null;
   return (
     <QuestionDeck
       asks={questions}
       focusedAskId={focused?.kind === "question" ? focused.askId : null}
     />
+  );
+}
+
+export function UserAskRecordView({ record }: { record: UserAskRecord }) {
+  const colors = useColors();
+  const t = useT();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  return (
+    <View style={styles.record}>
+      {record.answers.map((answer, index) => (
+        <View key={`${record.id}:${index}`} style={styles.recordItem}>
+          <Text style={styles.recordQuestion}>{answer.question}</Text>
+          <Text
+            style={[
+              styles.recordAnswer,
+              answer.kind === "skipped" && styles.recordAnswerSkipped,
+            ]}
+          >
+            {answer.kind === "skipped"
+              ? t("userAsk.question.skipped")
+              : answer.answer}
+            {record.defaulted ? (
+              <Text style={styles.recordTag}>
+                {"  "}
+                {t("userAsk.question.default")}
+              </Text>
+            ) : null}
+          </Text>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -175,9 +209,18 @@ function QuestionDeck({
       if (busy) return;
       setBusy(true);
       setIssue(null);
-      const results = await Promise.allSettled(
-        userAskDeckAnswers(entries, finalDrafts).map(answerUserAsk),
-      );
+      const answers = userAskDeckAnswers(entries, finalDrafts);
+      const results = await Promise.allSettled(answers.map(answerUserAsk));
+      answers.forEach((answer, index) => {
+        if (results[index]?.status !== "fulfilled") return;
+        const ask = entries.find((entry) => entry.ask.askId === answer.askId)?.ask;
+        if (ask) {
+          recordUserAskAnswer(
+            ask.conversationId,
+            userAskRecordFromAnswer(entries, finalDrafts, ask),
+          );
+        }
+      });
       setBusy(false);
       if (results.some((result) => result.status === "rejected")) {
         setIssue(t("mobile.userAsk.answerFailed"));
@@ -217,7 +260,7 @@ function QuestionDeck({
   const textChosen = !draft.choiceId && !draft.skipped && typed;
 
   return (
-    <View style={styles.card} accessibilityRole="summary">
+    <View style={[styles.card, styles.inlineCard]} accessibilityRole="summary">
       <View key={userAskDeckKey(ask.askId, question.id)} style={styles.step}>
         <Text style={styles.title}>{question.question}</Text>
         {question.detail ? (
@@ -229,8 +272,8 @@ function QuestionDeck({
             const selected = draft.choiceId === option.id;
             return (
               <Pressable
-                accessibilityRole="radio"
-                accessibilityState={{ checked: selected, disabled: busy }}
+                accessibilityRole="button"
+                accessibilityState={{ selected, disabled: busy }}
                 disabled={busy}
                 key={option.id}
                 onPress={() => commit(pickUserAskOption(draft, option.id))}
@@ -833,6 +876,48 @@ const makeStyles = (colors: Colors) =>
     },
     body: {
       gap: 10,
+    },
+    inlineCard: {
+      alignSelf: "flex-start",
+      backgroundColor: colors.assistantBubbleFillTop,
+      borderRadius: 18,
+      borderWidth: 0,
+      width: "100%",
+    },
+    record: {
+      alignSelf: "flex-start",
+      backgroundColor: colors.assistantBubbleFillTop,
+      borderRadius: 18,
+      gap: 10,
+      maxWidth: "100%",
+      paddingHorizontal: 14,
+      paddingVertical: 11,
+    },
+    recordAnswer: {
+      color: colors.text,
+      fontFamily: fonts.sans.medium,
+      fontSize: 16,
+      lineHeight: 21,
+    },
+    recordAnswerSkipped: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.regular,
+      fontStyle: "italic",
+    },
+    recordItem: {
+      gap: 2,
+    },
+    recordQuestion: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.regular,
+      fontSize: 14,
+      lineHeight: 19,
+    },
+    recordTag: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.regular,
+      fontSize: 13,
+      fontStyle: "normal",
     },
     card: {
       alignSelf: "stretch",

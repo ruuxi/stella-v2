@@ -1,3 +1,4 @@
+import { parseAskUserToolResult, type UserAskRecord } from "@stella/contracts/user-ask-deck";
 import { lifecycleWakeTask, projectMobileLifecycle, resolvedMobileReplyRefs } from "./mobile-reply-context";
 import { cloudFileArtifact } from "./cloud-file-payload";
 import type { ChatArtifact, ChatMessage, MobileDisplayPayload } from "../types";
@@ -427,6 +428,23 @@ export const projectCloudConversationMessages = (args: {
           createdAt,
         }),
       ];
+      const askRecords = toolCalls(record).flatMap((call): UserAskRecord[] => {
+        if (call.name !== "ask_user") return [];
+        const result = toolResults.get(call.id);
+        if (!result || result.error) return [];
+        const content = Array.isArray(result.payload.content)
+          ? result.payload.content
+              .map((part) => asRecord(part))
+              .map((part) => (typeof part?.text === "string" ? part.text : ""))
+              .join("")
+          : undefined;
+        const parsed =
+          parseAskUserToolResult(result.payload.details) ??
+          parseAskUserToolResult(content);
+        return parsed
+          ? [{ id: `cloud:${turnId}:ask:${call.id}`, toolCallId: call.id, createdAt, ...parsed }]
+          : [];
+      });
       if (!value && !tools.length && !artifacts.length) continue;
       messages.push({
         id: `cloud:${turnId}:message:${record.seq}`,
@@ -441,6 +459,7 @@ export const projectCloudConversationMessages = (args: {
         ...(spawnedThreadIds.length ? { spawnedThreadIds } : {}),
         ...(spawnedDescriptions.length ? { spawnedDescriptions } : {}),
         ...(artifacts.length ? { artifacts } : {}),
+        ...(askRecords.length ? { askRecords } : {}),
       });
     }
 

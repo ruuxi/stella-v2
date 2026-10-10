@@ -16,6 +16,7 @@ import {
   userAskDeckAnswers,
   userAskDeckComplete,
   userAskDeckEntries,
+  userAskRecordFromAnswer,
   type UserAskDeckEntry,
   type UserAskDraft,
   type UserAskDrafts,
@@ -28,7 +29,11 @@ import {
   Clock,
 } from "@/ui/icons";
 import { useT } from "@/shared/i18n";
-import { answerUserAsk, useUserAskRemainingMs } from "./user-ask-store";
+import {
+  answerUserAsk,
+  recordUserAskAnswer,
+  useUserAskRemainingMs,
+} from "./user-ask-store";
 import { formatRemaining } from "./format-remaining";
 import "./user-ask-card.css";
 
@@ -188,9 +193,18 @@ export function UserAskDeck({ asks }: { asks: readonly UserAsk[] }) {
       if (busy) return;
       setBusy(true);
       setError(null);
-      const results = await Promise.all(
-        userAskDeckAnswers(entries, finalDrafts).map(answerUserAsk),
-      );
+      const answers = userAskDeckAnswers(entries, finalDrafts);
+      const results = await Promise.all(answers.map(answerUserAsk));
+      answers.forEach((answer, index) => {
+        if (!results[index]) return;
+        const ask = entries.find((entry) => entry.ask.askId === answer.askId)?.ask;
+        if (ask) {
+          recordUserAskAnswer(
+            ask.conversationId,
+            userAskRecordFromAnswer(entries, finalDrafts, ask),
+          );
+        }
+      });
       setBusy(false);
       if (results.some((ok) => !ok)) setError(t("userAsk.errors.answer"));
     },
@@ -251,7 +265,7 @@ export function UserAskDeck({ asks }: { asks: readonly UserAsk[] }) {
   return (
     <section
       ref={rootRef}
-      className="user-ask user-ask--deck"
+      className="user-ask user-ask--deck user-ask--inline"
       data-ask-id={entry.ask.askId}
       data-ask-kind="question"
       tabIndex={-1}

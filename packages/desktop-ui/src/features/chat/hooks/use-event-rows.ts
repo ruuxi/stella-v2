@@ -31,6 +31,7 @@ import {
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
 import { deriveTurnWebSearchResults } from "@/features/chat/lib/derive-turn-web-search";
 import { deriveTurnMapArtifacts } from "@/features/chat/lib/derive-turn-map-artifacts";
+import { deriveTurnAskRecords } from "@/features/chat/lib/derive-turn-ask-records";
 import { filterMessagesForUiDisplay } from "@/features/chat/lib/message-display";
 import {
   stabilizeTurnRows,
@@ -885,6 +886,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
         const inlineImagePayloads = deriveTurnInlineImagePayloads(toolEvents);
         const webSearchResults = deriveTurnWebSearchResults(toolEvents);
         const mapArtifacts = deriveTurnMapArtifacts(toolEvents);
+        const askRecords = deriveTurnAskRecords(toolEvents);
         const sourceDiffPayloads = collectTurnSourceDiffPayloads(toolEvents, {
           developerResourcesEnabled: developerResourcePreviewsEnabled,
           assistantText: text,
@@ -931,6 +933,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           ...(inlineImagePayloads.length > 0 ? { inlineImagePayloads } : {}),
           ...(webSearchResults.length > 0 ? { webSearchResults } : {}),
           ...(mapArtifacts.length > 0 ? { mapArtifacts } : {}),
+          ...(askRecords.length > 0 ? { askRecords } : {}),
           ...(sourceDiffPayloads.length > 0 ? { sourceDiffPayloads } : {}),
           ...(voiceSession ? { voiceSession } : {}),
           ...(backgroundWork ? { backgroundWork } : {}),

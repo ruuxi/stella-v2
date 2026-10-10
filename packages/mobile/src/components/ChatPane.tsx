@@ -170,6 +170,12 @@ import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
 import { fadeHex } from "../theme/oklch";
 import { fonts } from "../theme/fonts";
+import type { UserAskRecord } from "@stella/contracts/user-ask-deck";
+import {
+  useConversationUserAskRecords,
+  useConversationUserAsks,
+} from "../lib/user-asks";
+import { UserAskInlineDeck, UserAskRecordView } from "./UserAskCard";
 import type {
   ChatArtifact,
   ChatMessage,
@@ -1505,6 +1511,51 @@ const carryCompletionQuotes = (
   return { carried, forwarded };
 };
 
+const INLINE_ASK_RECORD_PREFIX = "inline-ask-record:";
+const INLINE_ASK_DECK_ID = "inline-ask-deck";
+
+const askRecordSignature = (record: UserAskRecord): string =>
+  record.answers.map((answer) => answer.question).join("\u0000");
+
+const withInlineAsks = (
+  messages: ChatMessage[],
+  sessionRecords: readonly UserAskRecord[],
+  hasOpenQuestions: boolean,
+): ChatMessage[] => {
+  if (sessionRecords.length === 0 && !hasOpenQuestions) return messages;
+  const shown = new Set<string>();
+  for (const message of messages) {
+    for (const record of message.askRecords ?? []) {
+      shown.add(record.toolCallId ?? record.id);
+      shown.add(askRecordSignature(record));
+    }
+  }
+  const out = [...messages];
+  for (const record of sessionRecords) {
+    if (shown.has(record.toolCallId ?? record.id) || shown.has(askRecordSignature(record))) {
+      continue;
+    }
+    const item: ChatMessage = {
+      id: `${INLINE_ASK_RECORD_PREFIX}${record.id}`,
+      role: "assistant",
+      text: "",
+      createdAt: record.createdAt,
+      askRecords: [record],
+    };
+    const before = out.findIndex(
+      (message) =>
+        (message.canonicalCreatedAt ?? message.createdAt ?? Number.POSITIVE_INFINITY) >
+        record.createdAt,
+    );
+    if (before < 0) out.push(item);
+    else out.splice(before, 0, item);
+  }
+  if (hasOpenQuestions) {
+    out.push({ id: INLINE_ASK_DECK_ID, role: "assistant", text: "", askDeck: true });
+  }
+  return out;
+};
+
 const ChatMessageRow = memo(function ChatMessageRow({
   item,
   conversationId,
@@ -2101,6 +2152,11 @@ const ChatMessageRow = memo(function ChatMessageRow({
           {evidenceMedia}
         </View>
       ) : null}
+      {item.askRecords?.map((record) => (
+        <View key={record.id} style={styles.artifactGroupSpaced}>
+          <UserAskRecordView record={record} />
+        </View>
+      ))}
       {scheduleReceipts.map((receipt) => (
         <Text
           key={receipt.id}
@@ -3395,6 +3451,17 @@ export function ChatPane({
     [messages, replyContexts, onOpenArtifact],
   );
   const quoteCarry = useMemo(() => carryCompletionQuotes(visibleMessages), [visibleMessages]);
+  const { questions: openQuestionAsks } = useConversationUserAsks(conversationId);
+  const sessionAskRecords = useConversationUserAskRecords(conversationId);
+  const listMessages = useMemo(
+    () =>
+      withInlineAsks(
+        visibleMessages,
+        sessionAskRecords,
+        openQuestionAsks.length > 0,
+      ),
+    [openQuestionAsks.length, sessionAskRecords, visibleMessages],
+  );
   // A conversation first observed empty mounts its list on the optimistic
   // send. Our post-send owner already places that row; starting Legend's
   // footer-preserving end bootstrap as well would move it a second time.
@@ -4270,6 +4337,18 @@ export function ChatPane({
   );
   const renderItem = useCallback(
     ({ item }: LegendListRenderItemProps<ChatMessage>) => {
+      if (item.askDeck) {
+        return <UserAskInlineDeck conversationId={conversationId} />;
+      }
+      if (item.id.startsWith(INLINE_ASK_RECORD_PREFIX) && item.askRecords) {
+        return (
+          <View>
+            {item.askRecords.map((record) => (
+              <UserAskRecordView key={record.id} record={record} />
+            ))}
+          </View>
+        );
+      }
       const isActiveAssistant = item.id === activeAssistantId;
       const isLatestUser = item.id === latestUserMessageId;
       const animate = shouldAnimateMessageEntry(
@@ -4360,7 +4439,15 @@ export function ChatPane({
     () => <View style={styles.itemSeparator} />,
     [styles],
   );
-  const getItemType = useCallback((item: ChatMessage) => item.role, []);
+  const getItemType = useCallback(
+    (item: ChatMessage) =>
+      item.askDeck
+        ? "ask-deck"
+        : item.id.startsWith(INLINE_ASK_RECORD_PREFIX)
+          ? "ask-record"
+          : item.role,
+    [],
+  );
 
   // The working indicator rides at the tail of the chat (desktop-style) instead
   // of floating above the composer. It keeps a stable slot, so fading it in or
@@ -4639,7 +4726,7 @@ export function ChatPane({
               importantForAccessibility={replyFocus ? "no-hide-descendants" : "auto"}
               style={styles.messageList}
               contentContainerStyle={listContentContainerStyle}
-              data={visibleMessages}
+              data={listMessages}
               extraData={listExtraData}
               // Short transcript rows measure roughly 44–70 pt. Reserve
               // enough containers for those runs; measured heights still

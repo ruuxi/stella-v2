@@ -70,6 +70,12 @@ import { timestampHeaders } from "@/features/chat/lib/message-time-labels";
 import type { EventRowViewModel } from "@/features/chat/conversation-row-types";
 import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-model-configs";
 import { LoaderCircle } from "@/ui/icons";
+import { UserAskDeck } from "@/features/user-ask/UserAskDeck";
+import { UserAskRecordCard } from "@/features/user-ask/UserAskRecordCard";
+import {
+  useConversationUserAskRecords,
+  useConversationUserAsks,
+} from "@/features/user-ask/user-ask-store";
 import { useT } from "@/shared/i18n";
 
 type ChatTimelineProps = {
@@ -343,11 +349,19 @@ export const ChatTimeline = memo(function ChatTimeline({
   contentContainerStyle,
 }: ChatTimelineProps) {
   const t = useT();
+  const conversationAsks = useConversationUserAsks(conversationId);
+  const openAsks = useMemo(
+    () => conversationAsks.filter((ask) => ask.detail.kind === "question"),
+    [conversationAsks],
+  );
+  const askRecords = useConversationUserAskRecords(conversationId);
   const listItems = useMemo<TimelineListItem[]>(() => {
     const items = buildChatTimelineItems({
       rows,
       queuedUserMessages: queuedUserMessages ?? [],
       includeWorkingIndicator: Boolean(indicator),
+      openAsks,
+      askRecords,
     });
     // Which rows open a new time group, by the same rule mobile uses.
     const timeHeaders = timestampHeaders(
@@ -380,7 +394,7 @@ export const ChatTimeline = memo(function ChatTimeline({
         gapAfter: next?.type === "queued-users" ? 6 : ROW_GAP,
       };
     });
-  }, [indicator, queuedUserMessages, rows]);
+  }, [askRecords, indicator, openAsks, queuedUserMessages, rows]);
   const renderedMessageRowCount = listItems.reduce(
     (count, item) => count + (item.type === "message" ? 1 : 0),
     0,
@@ -388,6 +402,24 @@ export const ChatTimeline = memo(function ChatTimeline({
 
   const renderItem = useCallback(
     ({ item }: LegendListRenderItemProps<TimelineListItem>) => {
+      if (item.type === "ask-deck") {
+        return (
+          <div className="event-row event-row--assistant">
+            <div className="event-item assistant">
+              <UserAskDeck asks={item.asks} />
+            </div>
+          </div>
+        );
+      }
+      if (item.type === "ask-record") {
+        return (
+          <div className="event-row event-row--assistant">
+            <div className="event-item assistant">
+              <UserAskRecordCard record={item.record} />
+            </div>
+          </div>
+        );
+      }
       if (item.type === "working-indicator") {
         return indicator ? (
           <div className="event-list-working-indicator">
@@ -469,8 +501,16 @@ export const ChatTimeline = memo(function ChatTimeline({
   if (rows.length === 0) {
     return (
       <div className="event-list-fallback" data-empty="true">
-        {emptyState ?? (
-          <div className="event-empty">{t("app.chat.timeline.empty")}</div>
+        {openAsks.length > 0 ? (
+          <div className="event-row event-row--assistant">
+            <div className="event-item assistant">
+              <UserAskDeck asks={openAsks} />
+            </div>
+          </div>
+        ) : (
+          emptyState ?? (
+            <div className="event-empty">{t("app.chat.timeline.empty")}</div>
+          )
         )}
         {extraTail ? (
           <div className="event-list-extra-tail">{extraTail}</div>

@@ -162,7 +162,14 @@ const piLocalLog = (
                     ui: { visibility: "visible" },
                     ...(message.display?.context ? { context: message.display.context } : {}),
                   }
-                : { ...writer, runtime: message.followedByToolCall ? { followedByToolCall: true } : {} },
+                : {
+                    ...writer,
+                    // When the reply began, which the timeline places the turn's agent cards by.
+                    runtime: {
+                      streamStartedAtMs: message.timestamp,
+                      ...(message.followedByToolCall ? { followedByToolCall: true } : {}),
+                    },
+                  },
           },
           timestamp: message.timestamp,
         }),

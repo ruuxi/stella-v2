@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { prefersReducedMotion } from "./motion";
 import { StellaCharacter } from "./stella-character";
+import { ThemeGradient, windowThemeStyle, type WindowThemeKey } from "./window-theme";
 import d from "./devices-act.module.css";
 
 const MESSAGES = [
@@ -16,6 +17,11 @@ const MESSAGES = [
 
 const DEVICES = ["computer", "phone", "browser"] as const;
 const HOLD_MS = 4200;
+const THEMES: WindowThemeKey[] = [
+  { id: "dracula", dark: false },
+  { id: "default", dark: true },
+  { id: "gruvbox", dark: false },
+];
 
 export function DevicesAct() {
   const sectionRef = useRef<HTMLElement>(null);
@@ -81,7 +87,12 @@ export function DevicesAct() {
             <div className={d.device}>
               <span className={d.island} />
               <span className={d.notch} />
-              <div className={d.screen}>
+              <div className={d.screen} style={windowThemeStyle(THEMES[device])}>
+                <div className={d.backdrop}>
+                  {THEMES.map((theme, i) => (
+                    <ThemeGradient key={theme.id} theme={theme} width={200} height={140} on={i === device} />
+                  ))}
+                </div>
                 <div className={d.chrome}>
                   <span className={d.lights}>
                     <i />
@@ -105,7 +116,7 @@ export function DevicesAct() {
                       <i />
                       <i />
                     </span>
-                    <StellaCharacter size={20} eyeColor="#ffffff" className={d.appMark} />
+                    <StellaCharacter size={20} eyeColor="var(--w-bg)" className={d.appMark} />
                   </div>
                   <div className={d.chat} data-pass={pass % 2 ? "a" : "b"} data-first={pass === 0 ? "1" : "0"}>
                     <div className={d.list}>

@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { usePlayOnce } from "./motion";
 import { Composer, WindowBar } from "./skins";
+import { windowThemeStyle } from "./window-theme";
 import p from "./parallel-act.module.css";
 
 const TASKS = [
@@ -82,7 +83,7 @@ export function ParallelAct() {
           Ten things <span>at once.</span>
         </h2>
         <div ref={winRef} className={p.stage} aria-hidden="true">
-          <div className={p.window}>
+          <div className={p.window} style={windowThemeStyle({ id: "default", dark: true })}>
             <WindowBar status={status ? <span className={p.shimmer} data-text={status}>{status}</span> : null} />
             <div className={p.column}>
               <div className={p.scroll}>

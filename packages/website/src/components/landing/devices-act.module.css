@@ -5,7 +5,7 @@
 
 .inner {
   display: grid;
-  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   align-items: center;
   gap: clamp(20px, 3vw, 60px);
   min-height: max(100svh, 720px);
@@ -39,7 +39,7 @@
 
 .name {
   grid-area: 1 / 1;
-  font-size: clamp(56px, 9.6vw, 190px);
+  font-size: clamp(56px, 7.8vw, 160px);
   font-weight: 820;
   line-height: 0.86;
   letter-spacing: -0.065em;
@@ -152,12 +152,14 @@
   flex-direction: column;
   overflow: hidden;
   border-radius: var(--sr);
-  background: #ffffff;
-  color: #1d1d1f;
+  background: var(--w-bg);
+  color: var(--w-fg);
   font-family: var(--font-sans), "Manrope", system-ui, sans-serif;
   transition:
     inset var(--t) var(--morph),
-    border-radius var(--t) var(--morph);
+    border-radius var(--t) var(--morph),
+    background-color var(--t) ease,
+    color var(--t) ease;
 }
 
 .notch,
@@ -191,6 +193,26 @@
 .stage[data-device="phone"] .island {
   opacity: 1;
   transition-delay: 600ms;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.backdrop > canvas {
+  opacity: 0;
+  transition: opacity var(--t) ease;
+}
+
+.backdrop > canvas[data-on="1"] {
+  opacity: 1;
+}
+
+.phoneStatus,
+.app {
+  position: relative;
 }
 
 .chrome {
@@ -285,7 +307,7 @@
   width: 22px;
   height: 10px;
   border-radius: 3px;
-  border: 1.5px solid #1d1d1f;
+  border: 1.5px solid currentColor;
 }
 
 .app {
@@ -403,14 +425,14 @@
 .me {
   align-self: flex-end;
   padding: 6px 12px;
-  background: #2871c9;
-  color: #f2fbff;
+  background: var(--w-me);
+  color: var(--w-me-fg);
 }
 
 .her {
   align-self: flex-start;
   padding: 7px 12px;
-  background: #e9e9ee;
+  background: linear-gradient(to bottom, var(--w-her-top), var(--w-her-bot));
 }
 
 .me[data-on="0"],
@@ -439,16 +461,17 @@
   margin-top: 12px;
   padding: 0 6px 0 14px;
   border-radius: 38px;
-  border: 1px solid rgba(214, 214, 214, 0.7);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
-  color: #8e8e93;
+  border: 1px solid var(--w-line);
+  background: linear-gradient(to bottom, var(--w-composer-top), var(--w-composer-bot));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), inset 0 1px 0 var(--w-highlight);
+  color: var(--w-sub);
 }
 
 .compose i {
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: #8fb8f5;
+  background: var(--w-send);
 }
 
 .homebar {
@@ -459,7 +482,7 @@
   height: 4px;
   margin-left: -52px;
   border-radius: 4px;
-  background: #1d1d1f;
+  background: var(--w-fg);
   opacity: 0;
   transition: opacity 300ms ease;
 }

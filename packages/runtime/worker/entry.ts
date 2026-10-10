@@ -1,11 +1,19 @@
 import { Cause, Effect, Exit, Scope } from "effect";
 import { loadModelRegistry } from "@stella/contracts/model-registry";
 import "../kernel/shared/http-proxy.js";
+import path from "node:path";
 import {
   getFileLogger,
   initFileLogger,
-  installGlobalErrorLogging,
+  installWorkerCrashHandling,
 } from "../observability/file-logger.js";
+import {
+  configureAgentProcessRegistry,
+  describeAgentProcesses,
+  killAgentProcessesSync,
+  reapAgentProcesses,
+  takeOrphanedAgentProcesses,
+} from "../kernel/shared/agent-process-registry.js";
 import { closeRuntimeTelemetry } from "../observability/runtime-telemetry.js";
 import type { JsonRpcPeer } from "@stella/contracts/protocol/rpc-peer";
 import { STELLA_RUNTIME_CLIENT_PROTOCOL_VERSION } from "@stella/contracts/protocol/runtime-client";
@@ -162,7 +170,15 @@ const main = async () => {
     }
     detachedMode = true;
     const logger = initFileLogger(cliArgs.stellaAppDir, "worker");
-    installGlobalErrorLogging(logger);
+    installWorkerCrashHandling(logger, {
+      context: () => ({ agentProcesses: describeAgentProcesses() }),
+      beforeFatalExit: () => {
+        killAgentProcessesSync();
+      },
+    });
+    process.on("exit", () => {
+      killAgentProcessesSync();
+    });
     logger.process("worker.starting", { pid: process.pid });
     // Snapshot the runtime tree's identity as loaded by THIS process
     // (process.argv[1] is the entry file the host spawned). The host compares
@@ -206,6 +222,27 @@ const main = async () => {
       );
       process.exit(3);
     }
+    const agentRegistryFile = path.join(
+      lifecycle.paths.rootDir,
+      "agent-processes.json",
+    );
+    const orphanedAgents = takeOrphanedAgentProcesses(agentRegistryFile);
+    if (orphanedAgents.length > 0) {
+      logger.warn("worker.orphaned-agents-found", {
+        agents: orphanedAgents.map(({ pid, label, command, startedAt }) => ({
+          pid,
+          label,
+          command,
+          startedAt,
+        })),
+      });
+      void reapAgentProcesses(orphanedAgents).then(() => {
+        logger.process("worker.orphaned-agents-reaped", {
+          pids: orphanedAgents.map(({ pid }) => pid),
+        });
+      });
+    }
+    configureAgentProcessRegistry(agentRegistryFile);
     serverIdentity = createRuntimeServerIdentity({
       rootHash: lifecycle.paths.rootHash,
       buildStamp:

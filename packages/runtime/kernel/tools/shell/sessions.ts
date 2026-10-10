@@ -18,6 +18,7 @@ import {
 } from "../head-tail-output-buffer.js";
 import { runToolEffect } from "../effect-runtime.js";
 import { acquireAbortLatch } from "../../agent-core/abort-bridge.js";
+import { watchChildStdio } from "../../shared/child-stdio.js";
 import { sanitizeToolVisibleText } from "../safety.js";
 import {
   buildShellEnv,
@@ -836,6 +837,9 @@ export const startShell = (
     child.stdin?.on("close", () => {
       record.stdinOpen = false;
       notifyShellActivity(record);
+    });
+    watchChildStdio(child, `shell ${record.id}`, (stream) => {
+      if (stream === "stdin") record.stdinOpen = false;
     });
     child.on("error", (error) => {
       append(

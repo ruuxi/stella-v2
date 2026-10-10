@@ -28,7 +28,7 @@ import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
 import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 import { planDisplayFileRead } from "./display-read-limit.js";
 import {
-  canvasUrlForOutputsFile,
+  canvasUrlForLocalFile,
   MAX_CANVAS_HTML_BYTES,
   registerCanvasHtml,
 } from "../source/canvas-protocol.js";
@@ -630,9 +630,10 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
   );
 
   // Canvases render from `stella-canvas://` (source/canvas-protocol.ts). A
-  // file under `outputs/` is served from disk; any other file (elsewhere on
-  // disk, or kept on another device) is read through the display lane above
-  // and held in memory, like a cloud canvas's HTML.
+  // file on this computer is served from disk with its own folder, so its
+  // relative images, styles and scripts load; a file kept on another device
+  // is read through the display lane above and held in memory, like a cloud
+  // canvas's HTML.
   handleIpc(
     IPC_DISPLAY_CANVAS_FILE_URL,
     async (event, payload?: { filePath?: unknown }) => {
@@ -646,10 +647,8 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
       if (!filePath) {
         throw new Error(`${IPC_DISPLAY_CANVAS_FILE_URL} requires a filePath.`);
       }
-      const url = await canvasUrlForOutputsFile(
-        requireStellaDataDir(),
-        filePath,
-      );
+      assertNotCloudWorkspacePath(filePath);
+      const url = await canvasUrlForLocalFile(filePath);
       if (url) return { url };
       const read = await readDisplayFile(
         { filePath, maxBytes: MAX_CANVAS_HTML_BYTES },

@@ -121,7 +121,6 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
             openPreview: (name) => openDraftPreview({
                 name,
                 stellaAppDir: state.stellaAppDir ?? config.stellaAppDir,
-                stellaDataDir: state.stellaDataDirPath ?? config.stellaDataDirPath,
                 preloadPath: path.join(config.electronDir, "preload.js"),
             }),
             connectionTimeoutMs: 4 * 60 * 1000,

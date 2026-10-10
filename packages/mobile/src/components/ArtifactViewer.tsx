@@ -29,6 +29,7 @@ import {
   artifactTitle,
 } from "../lib/mobile-artifacts";
 import {
+  bytesToDataUri,
   bytesToText,
   loadExistingOfficePreviewHtml,
   loadOfficePreviewHtml,
@@ -36,6 +37,7 @@ import {
   readLinkedArtifactFile,
 } from "../lib/desktop-artifact-data";
 import { deviceFileElsewhereMessage } from "@stella/contracts/device-files";
+import { embedRelativeHtmlAssets } from "@stella/contracts/html-relative-assets";
 import { sharePdf } from "../lib/chat-pdf";
 import {
   writeArtifactMediaFile,
@@ -123,6 +125,8 @@ type LoadedArtifact =
   /** A `file://` clip played by the native transport in `AudioPlayerView`. */
   | { kind: "audio"; uri: string }
   | { kind: "video"; uri: string; posterUri: string | null };
+
+const CANVAS_ASSET_MAX_BYTES = 16 * 1024 * 1024;
 
 const escapeHtml = (value: string): string =>
   value
@@ -541,9 +545,29 @@ export function ArtifactViewerContent({
       if (result.missing) throw new Error("This file is no longer available.");
 
       if (payload.kind === "canvas-html") {
+        const html = await embedRelativeHtmlAssets(
+          bytesToText(result.bytes),
+          filePath,
+          async ({ path, kind }) => {
+            const asset = await readLinkedArtifactFile(
+              access,
+              artifact.conversationId,
+              path,
+              controller.signal,
+            );
+            if (asset.missing || asset.sizeBytes > CANVAS_ASSET_MAX_BYTES) {
+              return null;
+            }
+            if (kind === "text") return bytesToText(asset.bytes);
+            return asset.mimeType.startsWith("image/")
+              ? bytesToDataUri(asset.bytes, asset.mimeType)
+              : null;
+          },
+          controller.signal,
+        );
         return {
           kind: "canvas-html" as const,
-          html: prepareDocumentHtml(bytesToText(result.bytes)),
+          html: prepareDocumentHtml(html),
         };
       }
       if (payload.kind === "markdown") {

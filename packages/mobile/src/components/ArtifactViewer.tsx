@@ -11,6 +11,11 @@ import {
 } from "react-native";
 import { Icon } from "./Icon";
 import { AudioPlayerView } from "./AudioPlayerView";
+import { PosterCover, VideoPlayerView } from "./VideoPlayerView";
+import {
+  cachedEvidenceSourceUri,
+  requestEvidencePreview,
+} from "../lib/chat-evidence-previews";
 import * as Sharing from "expo-sharing";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -24,7 +29,6 @@ import {
   artifactTitle,
 } from "../lib/mobile-artifacts";
 import {
-  bytesToDataUri,
   bytesToText,
   loadExistingOfficePreviewHtml,
   loadOfficePreviewHtml,
@@ -118,7 +122,7 @@ type LoadedArtifact =
   | { kind: "pdf"; uri: string }
   /** A `file://` clip played by the native transport in `AudioPlayerView`. */
   | { kind: "audio"; uri: string }
-  | { kind: "web-media"; html: string };
+  | { kind: "video"; uri: string; posterUri: string | null };
 
 const escapeHtml = (value: string): string =>
   value
@@ -220,33 +224,8 @@ function CanvasDocumentWebView({ html, style }: { html: string; style: object })
   );
 }
 
-/**
- * Wrapper document for media the viewer still renders in a WebView (video).
- * PDFs and audio have their own full-surface treatments — `kind: "pdf"` and
- * `kind: "audio"` — because this centred, capped-height card clipped PDF pages
- * and reduced audio to a floating browser control bar.
- */
-const mediaHtml = (colors: Colors, title: string, body: string) =>
-  `<!doctype html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="color-scheme" content="light dark" />
-<style>
-html, body { margin: 0; min-height: 100%; background: ${colors.background}; color: ${colors.text}; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
-body { display: flex; align-items: center; justify-content: center; padding: 18px; box-sizing: border-box; }
-.frame { width: 100%; }
-.title { font-size: 13px; color: ${colors.textMuted}; margin: 0 0 12px; overflow-wrap: anywhere; }
-video { width: 100%; border: 0; border-radius: 12px; background: ${colors.muted}; min-height: 70vh; }
-pre { white-space: pre-wrap; overflow-wrap: anywhere; }
-</style>
-</head>
-<body><main class="frame"><p class="title">${escapeHtml(title)}</p>${body}</main></body>
-</html>`;
-
 const delimitedToHtml = (
   colors: Colors,
-  title: string,
   text: string,
   delimiter: "," | "\t",
 ) => {
@@ -275,14 +254,13 @@ const delimitedToHtml = (
 <style>
 html, body { margin: 0; background: ${colors.background}; color: ${colors.text}; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
 body { padding: 16px; }
-h1 { font-size: 16px; margin: 0 0 12px; }
 .wrap { overflow: auto; border: 1px solid ${colors.border}; border-radius: 12px; background: ${colors.surface}; }
 table { border-collapse: collapse; min-width: 100%; font-size: 13px; }
 th, td { border-bottom: 1px solid ${colors.border}; border-right: 1px solid ${colors.border}; padding: 8px 10px; text-align: left; vertical-align: top; }
 th { position: sticky; top: 0; background: ${colors.muted}; font-weight: 600; }
 </style>
 </head>
-<body><h1>${escapeHtml(title)}</h1><div class="wrap"><table>${table}</table></div></body>
+<body><div class="wrap"><table>${table}</table></div></body>
 </html>`;
 };
 
@@ -327,6 +305,34 @@ export function ArtifactViewerContent({
   );
   const swipeable =
     Boolean(onNavigate) && Boolean(neighbours.previous || neighbours.next);
+
+  // A paired-computer video shows its poster while it loads: the chat row
+  // usually made one already, and the request for it is shared.
+  const isVideo =
+    artifact?.payload.kind === "media" && artifact.payload.asset.kind === "video";
+  const [pendingPoster, setPendingPoster] = useState<string | null>(null);
+  useEffect(() => {
+    setPendingPoster(null);
+    if (!artifact || artifact.payload.kind !== "media") return;
+    if (artifact.payload.asset.kind !== "video") return;
+    if ("driveBacked" in artifact.payload && artifact.payload.driveBacked === true) return;
+    const filePath = artifactPrimaryFilePath(artifact.payload);
+    if (!filePath) return;
+    let alive = true;
+    void requestEvidencePreview({
+      filePath,
+      kind: "video",
+      conversationId: artifact.conversationId,
+      access,
+    })
+      .then((preview) => {
+        if (alive && preview.kind === "video") setPendingPoster(preview.posterUri);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [artifact, access]);
 
   // On-device PDFs carry a local file URI we can hand straight to the OS share
   // sheet (save to Files / open in another app), without asking the computer.
@@ -433,7 +439,7 @@ export function ArtifactViewerContent({
             const delimiter = drivePath.toLowerCase().endsWith(".tsv") ? "\t" : ",";
             return {
               kind: "html" as const,
-              html: delimitedToHtml(colors, title, await fetchText(), delimiter),
+              html: delimitedToHtml(colors, await fetchText(), delimiter),
             };
           }
           // Office documents render in the platform web view from the URL.
@@ -443,10 +449,7 @@ export function ArtifactViewerContent({
           if (payload.asset.kind === "image") return { kind: "image" as const, uri };
           if (payload.asset.kind === "audio") return { kind: "audio" as const, uri };
           if (payload.asset.kind === "video") {
-            return {
-              kind: "web-media" as const,
-              html: mediaHtml(colors, title, `<video controls playsinline src="${uri}"></video>`),
-            };
+            return { kind: "video" as const, uri, posterUri: null };
           }
           const response = await fetch(uri, { signal: controller.signal });
           if (!response.ok) throw new Error("This file is no longer available.");
@@ -511,6 +514,24 @@ export function ArtifactViewerContent({
       if (!filePath) {
         throw new Error("This artifact does not have a mobile preview yet.");
       }
+      if (payload.kind === "media" && payload.asset.kind === "video") {
+        // The chat row's preview already pulled this clip onto the phone and
+        // made its poster; play that copy rather than reading it again.
+        const preview = await requestEvidencePreview({
+          filePath,
+          kind: "video",
+          conversationId: artifact.conversationId,
+          access,
+        }).catch(() => null);
+        const cached = cachedEvidenceSourceUri(filePath);
+        if (cached) {
+          return {
+            kind: "video" as const,
+            uri: cached,
+            posterUri: preview?.kind === "video" ? preview.posterUri : null,
+          };
+        }
+      }
       const result = await readLinkedArtifactFile(
         access,
         artifact.conversationId,
@@ -543,7 +564,6 @@ export function ArtifactViewerContent({
           kind: "html" as const,
           html: delimitedToHtml(
             colors,
-            title,
             bytesToText(result.bytes),
             delimiter,
           ),
@@ -568,15 +588,11 @@ export function ArtifactViewerContent({
             uri: materialize(result.bytes, result.mimeType, filePath),
           };
         }
-        const uri = bytesToDataUri(result.bytes, result.mimeType);
         if (payload.asset.kind === "video") {
           return {
-            kind: "web-media" as const,
-            html: mediaHtml(
-              colors,
-              title,
-              `<video controls playsinline src="${uri}"></video>`,
-            ),
+            kind: "video" as const,
+            uri: materialize(result.bytes, result.mimeType, filePath),
+            posterUri: null,
           };
         }
       }
@@ -601,7 +617,7 @@ export function ArtifactViewerContent({
       controller.abort();
       materialized?.remove();
     };
-  }, [access, artifact, colors, title]);
+  }, [access, artifact, colors]);
 
   return (
     <View style={styles.root}>
@@ -667,6 +683,8 @@ export function ArtifactViewerContent({
                 )}
               </View>
             </SwipeArea>
+          ) : loading && isVideo ? (
+            <PosterCover posterUri={pendingPoster} colors={colors} />
           ) : loading ? (
             <View style={styles.center}>
               <ActivityIndicator color={colors.textMuted} />
@@ -713,12 +731,15 @@ export function ArtifactViewerContent({
               forceDarkOn={false}
             />
           ) : loaded?.kind === "audio" ? (
-            <AudioPlayerView
+            <AudioPlayerView uri={loaded.uri} />
+          ) : loaded?.kind === "video" ? (
+            <VideoPlayerView
+              key={loaded.uri}
               uri={loaded.uri}
-              title={title}
-              subtitle={subtitle}
+              posterUri={loaded.posterUri ?? pendingPoster}
+              colors={colors}
             />
-          ) : loaded?.kind === "html" || loaded?.kind === "web-media" ? (
+          ) : loaded?.kind === "html" ? (
             <WebView
               originWhitelist={["*"]}
               source={{ html: loaded.html }}

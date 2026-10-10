@@ -59,9 +59,22 @@ export function ZoomableImageView({
   const focalX = useSharedValue(0);
   const focalY = useSharedValue(0);
 
+  // When the sheet changes size, a zoom fitted to the old frame no longer
+  // fits, so the image settles back to fit the new one.
   const onLayout = (event: LayoutChangeEvent) => {
-    width.value = event.nativeEvent.layout.width;
-    height.value = event.nativeEvent.layout.height;
+    const next = event.nativeEvent.layout;
+    const resized =
+      width.value > 0 &&
+      (Math.abs(width.value - next.width) > 0.5 ||
+        Math.abs(height.value - next.height) > 0.5);
+    width.value = next.width;
+    height.value = next.height;
+    if (resized) {
+      scale.value = withTiming(1, { duration: 180 });
+      x.value = withTiming(0, { duration: 180 });
+      y.value = withTiming(0, { duration: 180 });
+      swipeX.value = 0;
+    }
   };
 
   /** Largest translation that keeps the zoomed image covering the frame. */

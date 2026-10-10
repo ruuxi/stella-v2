@@ -5,9 +5,11 @@ import {
 } from "../model-routing.js";
 import { withStellaModelCatalogMetadata } from "../stella-model-catalog.js";
 import {
+  getAgentRuntimeEngine,
   getMaxAgentConcurrency,
   getModelOverride,
 } from "../preferences/local-preferences.js";
+import { desktopPiChatEnabled } from "@stella/contracts/pi-chat";
 import { runSubagentTask, shutdownSubagentRuntimes } from "../agent-runtime.js";
 import { createAgentLifecycleResponseTarget } from "../agent-runtime/response-target.js";
 import { persistThreadCustomMessage } from "../agent-runtime/thread-memory.js";
@@ -516,27 +518,52 @@ export const createAgentOrchestration = (
       ) {
         return;
       }
-      await deps.sendMessage({
-        conversationId: event.conversationId,
-        text: orchestratorPrompt,
-        uiVisibility: "hidden",
-        agentType: AGENT_IDS.ORCHESTRATOR,
-        deliverAs: "steer",
-        callbackRunId: event.rootRunId,
-        customType: "runtime.task_lifecycle",
-        ...(event.ownerGeneration
-          ? { ownerGeneration: event.ownerGeneration }
-          : {}),
-        ...(deliveryEventId ? { eventId: deliveryEventId } : {}),
-        display: false,
-        responseTarget: createAgentLifecycleResponseTarget({
-          agentId: event.agentId,
-          eventType: event.type,
-          ...(event.type === "agent-completed" && event.eventId
-            ? { completionEventId: event.eventId }
+      if (desktopPiChatEnabled(getAgentRuntimeEngine(context.stellaDataDir))) {
+        const deliver = context.state.piReportDelivery;
+        if (!deliver) {
+          throw new Error(
+            "Stella's chat is not ready to take this agent report yet.",
+          );
+        }
+        await deliver({
+          conversationId: event.conversationId,
+          requestId: `agent-report:${
+            deliveryEventId ??
+            `${event.agentId}:${event.attemptGeneration ?? 0}:${event.type}`
+          }`,
+          text: orchestratorPrompt,
+        });
+        persistThreadCustomMessage(context.runtimeStore, {
+          threadKey: orchestratorThreadKey,
+          customType: TASK_LIFECYCLE_CUSTOM_TYPE,
+          content: [{ type: "text", text: orchestratorPrompt }],
+          display: false,
+          timestamp: Date.now(),
+          ...(deliveryEventId ? { eventId: deliveryEventId } : {}),
+        });
+      } else {
+        await deps.sendMessage({
+          conversationId: event.conversationId,
+          text: orchestratorPrompt,
+          uiVisibility: "hidden",
+          agentType: AGENT_IDS.ORCHESTRATOR,
+          deliverAs: "steer",
+          callbackRunId: event.rootRunId,
+          customType: "runtime.task_lifecycle",
+          ...(event.ownerGeneration
+            ? { ownerGeneration: event.ownerGeneration }
             : {}),
-        }),
-      });
+          ...(deliveryEventId ? { eventId: deliveryEventId } : {}),
+          display: false,
+          responseTarget: createAgentLifecycleResponseTarget({
+            agentId: event.agentId,
+            eventType: event.type,
+            ...(event.type === "agent-completed" && event.eventId
+              ? { completionEventId: event.eventId }
+              : {}),
+          }),
+        });
+      }
     } finally {
       if (deliveryEventId) inFlightLifecycleEventIds.delete(deliveryEventId);
     }

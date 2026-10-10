@@ -491,6 +491,10 @@ export const createStellaHostRunner = (
     setCloudSyncEnabled: (enabled) => {
       context.state.cloudSyncEnabled = Boolean(enabled);
     },
+    setPiReportDelivery: (delivery) => {
+      if (delivery) context.state.piReportDelivery = delivery;
+      else delete context.state.piReportDelivery;
+    },
     start: runtimeInitialization.start,
     stop: async () => {
       cloudAgentLifecycle.stop();

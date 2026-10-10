@@ -48,6 +48,8 @@ type CloudAgentLifecycleMonitorOptions = {
 };
 
 const RETRY_DELAY_MS = 5_000;
+const MAX_RETRY_DELAY_MS = 5 * 60_000;
+const MAX_DELIVERY_ATTEMPTS = 8;
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object"
@@ -206,6 +208,7 @@ export const createCloudAgentLifecycleMonitor = (
   const inFlight = new Map<string, Promise<void>>();
   /** Cancel thunks for pending per-row retry fibers (the old timer Set). */
   const retryCancels = new Map<string, () => void>();
+  const failedAttempts = new Map<string, number>();
   let restartCancel: (() => void) | null = null;
 
   const scheduleRetry = (row: CloudAgentThreadRow) => {
@@ -213,8 +216,13 @@ export const createCloudAgentLifecycleMonitor = (
     const event = toLifecycleEvent(row);
     const retryKey = event?.eventId;
     if (!retryKey || retryCancels.has(retryKey)) return;
+    const failures = failedAttempts.get(retryKey) ?? 0;
+    failedAttempts.set(retryKey, failures + 1);
     const cancel = forkDelayedCall(
-      options.retryDelayMs ?? RETRY_DELAY_MS,
+      Math.min(
+        MAX_RETRY_DELAY_MS,
+        (options.retryDelayMs ?? RETRY_DELAY_MS) * 2 ** Math.min(failures, 16),
+      ),
       () => {
         retryCancels.delete(retryKey);
         if (row.ownerGeneration === activeOwnerGeneration) {
@@ -234,6 +242,8 @@ export const createCloudAgentLifecycleMonitor = (
         attemptGeneration: row.attemptGeneration,
         terminalUpdatedAt: row.updatedAt,
       });
+      const event = toLifecycleEvent(row);
+      if (event?.eventId) failedAttempts.delete(event.eventId);
       return true;
     } catch {
       scheduleRetry(row);
@@ -252,6 +262,17 @@ export const createCloudAgentLifecycleMonitor = (
       }
       await options.onControlReceipt?.(row);
       if (!event?.eventId) return;
+      const failures = failedAttempts.get(event.eventId) ?? 0;
+      if (
+        failures >= MAX_DELIVERY_ATTEMPTS &&
+        !options.hasDurableLifecycleEvent(event)
+      ) {
+        console.warn(
+          `[cloud-agent-lifecycle] giving up on ${event.type} for ${event.agentId} after ${failures} failed deliveries`,
+        );
+        await acknowledge(row);
+        return;
+      }
       if (!options.hasDurableLifecycleEvent(event)) {
         await options.onLifecycleEvent(event);
       }

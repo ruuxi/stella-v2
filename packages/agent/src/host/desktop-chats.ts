@@ -1258,6 +1258,13 @@ export function desktopChats(options: DesktopChatsOptions) {
       );
       return record.status === "running" ? "steered" : "resumed";
     },
+    async deliverReport(conversationId: string, report: { requestId: string; text: string }): Promise<void> {
+      if (await noteOnBrain(conversationId, report.requestId, report.text)) return;
+      const chat = await ready(conversationId);
+      await caughtUp(chat);
+      const hidden: TextContent & { stella: { hidden: true } } = { type: "text", text: report.text, stella: { hidden: true } };
+      await chat.root.submit({ type: "input", content: [hidden], whenBusy: "followUp", requestId: report.requestId }, context);
+    },
     /**
      * Where one of Stella's agents on this computer stands, for settling the
      * cloud's record of it: undefined when no conversation here started it.

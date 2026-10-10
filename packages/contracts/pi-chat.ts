@@ -446,6 +446,7 @@ export const piMessageText = (message: PiMessage | undefined): string => {
 
 /** An agent's report, which arrives as user input the user never wrote. */
 export const PI_REPORT_RE = /^\[(Agent completed|Task failed|Task canceled|Subagent paused)\]/;
+const LEADING_SYSTEM_REMINDER_RE = /^<system-reminder>[\s\S]*?<\/system-reminder>\s*/;
 
 /**
  * A note an agent sent with `send_message`, as `formatAgentMessage`
@@ -454,8 +455,10 @@ export const PI_REPORT_RE = /^\[(Agent completed|Task failed|Task canceled|Subag
 const AGENT_NOTE_RE = /^<agent-message from="[^"\n]*" thread_id="[^"\n]*">\n[\s\S]*\n<\/agent-message>$/;
 
 /** Text from Stella's agents, not the user: an agent's report, or a note an agent sent. */
-export const isPiAgentText = (text: string): boolean =>
-  PI_REPORT_RE.test(text.trimStart()) || AGENT_NOTE_RE.test(text.trim());
+export const isPiAgentText = (text: string): boolean => {
+  const body = text.trimStart().replace(LEADING_SYSTEM_REMINDER_RE, "");
+  return PI_REPORT_RE.test(body) || AGENT_NOTE_RE.test(text.trim());
+};
 
 /**
  * A user message an agent sent: one of its text parts is a report or a note.

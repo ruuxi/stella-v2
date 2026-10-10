@@ -8,6 +8,8 @@ import os from "os";
 import path from "path";
 import { extractAttachImageBlocks } from "../agent-runtime/tool-adapters.js";
 import { executeToolWithInactivityBound } from "./tool-inactivity.js";
+import { watchChildStdio } from "../shared/child-stdio.js";
+import { trackAgentProcess } from "../shared/agent-process-registry.js";
 import { sanitizeSensitiveData } from "@stella/contracts/sensitive-data";
 import {
   CLAUDE_CODE_MODEL_ALIASES,
@@ -1006,17 +1008,32 @@ const configuredTimeoutMs = (envName: string, fallbackMs: number) => {
  */
 const processIsDead = (child: ChildProcess) =>
   child.exitCode !== null || child.signalCode !== null;
+/**
+ * The CLI leads its own process group on POSIX, so termination reaches the
+ * shells and tools it started as well as the CLI itself.
+ */
+const signalProcessGroup = (child: ChildProcess, signal: NodeJS.Signals) => {
+  if (process.platform !== "win32" && child.pid) {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      // Fall back to the CLI alone.
+    }
+  }
+  child.kill(signal);
+};
 const killProcess = (child: ChildProcess) => {
   if (processIsDead(child)) return;
   try {
-    child.kill("SIGTERM");
+    signalProcessGroup(child, "SIGTERM");
   } catch {
     // Process may have already exited.
   }
   const sigkillTimer = setTimeout(() => {
     if (processIsDead(child)) return;
     try {
-      child.kill("SIGKILL");
+      signalProcessGroup(child, "SIGKILL");
     } catch {
       // Process may have already exited.
     }
@@ -2399,11 +2416,16 @@ class ClaudeCodeSessionRuntime {
       ),
       {
         stdio: ["pipe", "pipe", "pipe"],
+        detached: process.platform !== "win32",
         windowsHide: true,
         cwd: request.cwd,
         env: childEnv,
       },
     );
+    watchChildStdio(child, `claude-code ${request.sessionKey}`);
+    trackAgentProcess(child, `claude-code ${request.sessionKey}`, {
+      processGroup: process.platform !== "win32",
+    });
     const processState: ClaudeCodeProcessState = {
       child,
       stdoutBuffer: "",

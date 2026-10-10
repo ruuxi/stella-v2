@@ -13,7 +13,9 @@
 
 import { rpcErrorStatus, type RpcResponse } from "@stella/contracts/backend/protocol";
 import { sha256Hex } from "../hash.js";
-import { verifyCaller } from "../owner-store/routes.js";
+import { readBodyText } from "../http/body.js";
+import { requireCaller } from "../http/caller.js";
+import { fail as failJson, json } from "../http/response.js";
 import type { OwnerCaller } from "../owner-store/registry.js";
 import { MEDIA_MODELS } from "@stella/contracts/media-models";
 import { MEDIA_DOCS_URL } from "../owner-store/domains/media.js";
@@ -28,11 +30,8 @@ const AUTH_ACTION =
 
 type RouteEnv = Pick<Cloudflare.Env, "OWNER_GATES" | "CLOUD_BUILDER_PUBLIC_URL">;
 
-const json = (body: unknown, status = 200): Response =>
-  Response.json(body, { status, headers: { "cache-control": "no-store" } });
-
 const fail = (status: number, error: string, extra: Record<string, unknown> = {}): Response =>
-  json({ error, ...extra, docsUrl: MEDIA_DOCS_URL }, status);
+  failJson(status, error, { ...extra, docsUrl: MEDIA_DOCS_URL });
 
 /** An owner-object error as the JSON envelope media clients have always read. */
 const failRpc = (response: Extract<RpcResponse, { ok: false }>): Response => {
@@ -50,8 +49,7 @@ const authenticate = async (
   request: Request,
   env: RouteEnv,
 ): Promise<{ ok: true; caller: OwnerCaller } | { ok: false; response: Response }> => {
-  const header = request.headers.get("authorization") ?? "";
-  const verified = await verifyCaller(env, header.startsWith("Bearer ") ? header.slice(7).trim() : "");
+  const verified = await requireCaller(request, env, { allowAnonymous: true });
   if (verified.ok) return verified;
   if (verified.error.code !== "UNAUTHENTICATED") {
     return { ok: false, response: fail(rpcErrorStatus(verified.error.code), verified.error.message) };
@@ -63,12 +61,6 @@ const authenticate = async (
       action: AUTH_ACTION,
     }),
   };
-};
-
-const readText = async (request: Request, maxBytes: number): Promise<string | null> => {
-  if (Number(request.headers.get("content-length") ?? "0") > maxBytes) return null;
-  const text = await request.text();
-  return text.length > maxBytes ? null : text;
 };
 
 const rpc = async (env: RouteEnv, caller: OwnerCaller, name: string, args: unknown): Promise<RpcResponse> =>
@@ -83,8 +75,9 @@ const internal = async (env: RouteEnv, ownerId: string, name: string, args: unkn
 const generate = async (request: Request, env: RouteEnv): Promise<Response> => {
   const auth = await authenticate(request, env);
   if (!auth.ok) return auth.response;
-  const raw = await readText(request, MAX_BODY_BYTES);
-  if (raw === null) return fail(413, "The media request is too large.");
+  const text = await readBodyText(request, MAX_BODY_BYTES);
+  if (!text.ok) return fail(text.status, text.status === 413 ? "The media request is too large." : text.error);
+  const raw = text.value;
   let body: unknown;
   try {
     body = raw ? JSON.parse(raw) : null;
@@ -97,7 +90,7 @@ const generate = async (request: Request, env: RouteEnv): Promise<Response> => {
   const clientRequestKey = request.headers.get("idempotency-key")?.trim();
   const response = await rpc(env, auth.caller, "media.generate", {
     ...(body as Record<string, unknown>),
-    ...(clientRequestKey ? { clientRequestKey, requestHash: await sha256Hex(raw!) } : {}),
+    ...(clientRequestKey ? { clientRequestKey, requestHash: await sha256Hex(raw) } : {}),
   });
   return response.ok ? json(response.value, 202) : failRpc(response);
 };
@@ -124,8 +117,9 @@ const falWebhook = async (request: Request, env: RouteEnv): Promise<Response> =>
   const now = Date.now();
   const target = readFalWebhookUrl(new URL(request.url));
   if (!target) return fail(401, "Invalid webhook URL.");
-  const raw = await readText(request, MAX_WEBHOOK_BYTES);
-  if (raw === null) return fail(413, "Webhook body is too large.");
+  const text = await readBodyText(request, MAX_WEBHOOK_BYTES);
+  if (!text.ok) return fail(text.status, text.status === 413 ? "Webhook body is too large." : text.error);
+  const raw = text.value;
   if (!(await verifyFalSignature(request.headers, raw, now))) return fail(400, "Invalid fal webhook signature.");
   let body: unknown;
   try {

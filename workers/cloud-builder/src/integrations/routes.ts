@@ -22,7 +22,9 @@ import { rpcErrorStatus, type RpcResponse } from "@stella/contracts/backend/prot
 import { X_OAUTH_CALLBACK_PATH } from "@stella/contracts/backend/integrations";
 import { verifyOAuthState } from "../oauth-state.js";
 import { RpcError } from "../owner-store/errors.js";
-import { verifyCaller } from "../owner-store/routes.js";
+import { readJsonObject, type BodyResult } from "../http/body.js";
+import { requireCaller } from "../http/caller.js";
+import { fail, failRpcError, json } from "../http/response.js";
 import type { OwnerCaller } from "../owner-store/registry.js";
 import { verifyServiceBearerRequest } from "../service-bearer.js";
 import { listIntegrationActions, listIntegrationCatalog, publishIntegration } from "./catalog.js";
@@ -34,13 +36,8 @@ const MAX_ADMIN_BODY_BYTES = 8 * 1024 * 1024;
 
 type RouteEnv = Cloudflare.Env;
 
-const json = (body: unknown, status = 200): Response =>
-  Response.json(body, { status, headers: { "cache-control": "no-store" } });
-
-const fail = (status: number, error: string): Response => json({ error }, status);
-
 const failError = (error: unknown): Response => {
-  if (error instanceof RpcError) return fail(rpcErrorStatus(error.code), error.message);
+  if (error instanceof RpcError) return failRpcError(error);
   console.error(JSON.stringify({
     event: "integration_route_failed",
     message: error instanceof Error ? error.message : String(error),
@@ -49,34 +46,19 @@ const failError = (error: unknown): Response => {
 };
 
 const respond = (response: RpcResponse): Response =>
-  response.ok ? json(response.value) : fail(rpcErrorStatus(response.error.code), response.error.message);
+  response.ok ? json(response.value) : failRpcError(response.error);
 
 const authenticate = async (
   request: Request,
   env: RouteEnv,
 ): Promise<{ ok: true; caller: OwnerCaller } | { ok: false; response: Response }> => {
-  const header = request.headers.get("authorization") ?? "";
-  const verified = await verifyCaller(env, header.startsWith("Bearer ") ? header.slice(7).trim() : "");
-  if (!verified.ok) {
-    return { ok: false, response: fail(rpcErrorStatus(verified.error.code), verified.error.message) };
-  }
-  if (verified.caller.isAnonymous) return { ok: false, response: fail(403, "sign_in_required") };
-  return verified;
+  const verified = await requireCaller(request, env, { allowAnonymous: false, anonymousMessage: "sign_in_required" });
+  return verified.ok ? verified : { ok: false, response: failRpcError(verified.error) };
 };
 
-const readJsonObject = async (request: Request, maxBytes = MAX_BODY_BYTES): Promise<Record<string, unknown> | null> => {
-  if (Number(request.headers.get("content-length") ?? "0") > maxBytes) return null;
-  const text = await request.text();
-  if (text.length > maxBytes) return null;
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-};
+/** A refused body: 413 says so, anything else gets the route's own message. */
+const failBody = (body: Extract<BodyResult<unknown>, { ok: false }>, invalid: string): Response =>
+  fail(body.status, body.status === 413 ? body.error : invalid);
 
 const rpc = async (env: RouteEnv, caller: OwnerCaller, name: string, args: unknown): Promise<RpcResponse> =>
   await env.OWNER_GATES.getByName(caller.ownerId).ownerRpc({ name, args, caller });
@@ -96,8 +78,12 @@ const ownerCall = async (
 ): Promise<Response> => {
   const auth = await authenticate(request, env);
   if (!auth.ok) return auth.response;
-  const body = request.method === "POST" ? await readJsonObject(request) : null;
-  if (request.method === "POST" && !body) return fail(400, "Invalid JSON body.");
+  let body: Record<string, unknown> | null = null;
+  if (request.method === "POST") {
+    const read = await readJsonObject(request, MAX_BODY_BYTES);
+    if (!read.ok) return failBody(read, "Invalid JSON body.");
+    body = read.value;
+  }
   return respond(await rpc(env, auth.caller, name, args(body, new URL(request.url))));
 };
 
@@ -139,9 +125,9 @@ const adminUpsert = async (request: Request, env: RouteEnv): Promise<Response> =
     return fail(401, "Unauthorized");
   }
   const body = await readJsonObject(request, MAX_ADMIN_BODY_BYTES);
-  if (!body) return fail(400, "Invalid integration payload.");
+  if (!body.ok) return failBody(body, "Invalid integration payload.");
   try {
-    return json({ ok: true, ...(await publishIntegration(env, body)) });
+    return json({ ok: true, ...(await publishIntegration(env, body.value)) });
   } catch (error) {
     return failError(error);
   }
@@ -150,10 +136,10 @@ const adminUpsert = async (request: Request, env: RouteEnv): Promise<Response> =
 const nativeOAuthToken = async (request: Request, env: RouteEnv): Promise<Response> => {
   const auth = await authenticate(request, env);
   if (!auth.ok) return auth.response;
-  const body = await readJsonObject(request);
-  if (!body) return fail(400, "Invalid JSON body.");
+  const body = await readJsonObject(request, MAX_BODY_BYTES);
+  if (!body.ok) return failBody(body, "Invalid JSON body.");
   try {
-    const result = await exchangeNativeOAuthToken(env, body);
+    const result = await exchangeNativeOAuthToken(env, body.value);
     return json(result.body, result.status);
   } catch (error) {
     return failError(error);
@@ -163,8 +149,9 @@ const nativeOAuthToken = async (request: Request, env: RouteEnv): Promise<Respon
 const xRequest = async (request: Request, env: RouteEnv): Promise<Response> => {
   const auth = await authenticate(request, env);
   if (!auth.ok) return auth.response;
-  const body = await readJsonObject(request);
-  if (!body) return fail(400, "Provide method and an X API v2 path such as /2/users/me.");
+  const read = await readJsonObject(request, MAX_BODY_BYTES);
+  if (!read.ok) return failBody(read, "Provide method and an X API v2 path such as /2/users/me.");
+  const body = read.value;
   const response = await rpc(env, auth.caller, "x.request", {
     ...(body.method !== undefined ? { method: body.method } : {}),
     path: body.path,

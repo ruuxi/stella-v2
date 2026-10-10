@@ -569,6 +569,42 @@ function mannWhitneySignificant(a, b) {
   return sigma > 0 && Math.abs(u - mu) / sigma > 1.96;
 }
 
+function wilcoxonSignedRank(diffs) {
+  const d = diffs.filter((x) => x !== 0);
+  const n = d.length;
+  if (n < 6) return false;
+  const sorted = d.map((v) => ({ v, a: Math.abs(v) })).sort((x, y) => x.a - y.a);
+  const ranks = new Array(n);
+  let i = 0;
+  while (i < n) {
+    let j = i;
+    while (j + 1 < n && sorted[j + 1].a === sorted[i].a) j += 1;
+    for (let k = i; k <= j; k += 1) ranks[k] = (i + j) / 2 + 1;
+    i = j + 1;
+  }
+  const plus = sorted.reduce((acc, x, k) => acc + (x.v > 0 ? ranks[k] : 0), 0);
+  const w = Math.min(plus, (n * (n + 1)) / 2 - plus);
+  const critical = { 6: 0, 7: 2, 8: 3, 9: 5, 10: 8, 11: 10, 12: 13, 13: 17, 14: 21, 15: 25, 16: 29, 17: 34, 18: 40, 19: 46, 20: 52 };
+  if (critical[n] !== undefined) return w <= critical[n];
+  const mu = (n * (n + 1)) / 4;
+  const sigma = Math.sqrt((n * (n + 1) * (2 * n + 1)) / 24);
+  return Math.abs(w - mu) / sigma > 1.96;
+}
+
+function pairedVerdict(name, aValues, bValues) {
+  const n = Math.min(aValues.length, bValues.length);
+  const diffs = [];
+  for (let i = 0; i < n; i += 1) {
+    if (Number.isFinite(aValues[i]) && Number.isFinite(bValues[i])) diffs.push(bValues[i] - aValues[i]);
+  }
+  const sorted = [...diffs].sort((x, y) => x - y);
+  const med = quantile(sorted, 0.5);
+  if (!diffs.length || diffs.every((x) => x === 0)) return { med: 0, verdict: "same" };
+  if (!wilcoxonSignedRank(diffs)) return { med, verdict: "noise" };
+  const improved = HIGHER_IS_BETTER.has(name) ? med > 0 : med < 0;
+  return { med, verdict: improved ? "BETTER" : "WORSE" };
+}
+
 function verdict(name, base, after) {
   if (!base.n || !after.n) return "";
   if (base.median === after.median) return "same";
@@ -618,15 +654,19 @@ function compare(aPath, bPath) {
   for (const key of Object.keys(a.journeys)) {
     if (!b.journeys[key]?.length || !a.journeys[key].length) continue;
     console.log("\n## " + key + " (" + a.journeys[key].length + " vs " + b.journeys[key].length + " runs)");
-    console.log("| metric | before median [p25–p75] | after median [p25–p75] | Δ | Δ% | verdict |");
-    console.log("|---|---|---|---|---|---|");
+    const paired = a.meta.pairedWith === (b.meta.label || "") || b.meta.pairedWith === (a.meta.label || "");
+    console.log("| metric | before median [p25–p75] | after median [p25–p75] | Δ | Δ% | verdict |" + (paired ? " paired Δ | paired verdict |" : ""));
+    console.log("|---|---|---|---|---|---|" + (paired ? "---|---|" : ""));
     for (const n of Object.keys(a.journeys[key][0].metrics)) {
-      const sa = summarize(a.journeys[key].map((r) => r.metrics[n]));
-      const sb = summarize(b.journeys[key].map((r) => r.metrics[n]));
+      const av = a.journeys[key].map((r) => r.metrics[n]);
+      const bv = b.journeys[key].map((r) => r.metrics[n]);
+      const sa = summarize(av);
+      const sb = summarize(bv);
       const delta = sb.median - sa.median;
       const pct = sa.median ? (delta / Math.abs(sa.median)) * 100 : 0;
+      const pv = paired ? pairedVerdict(n, av, bv) : null;
       console.log(
-        "| " + n + " | " + fmt(sa.median) + " [" + fmt(sa.p25) + "–" + fmt(sa.p75) + "] | " + fmt(sb.median) + " [" + fmt(sb.p25) + "–" + fmt(sb.p75) + "] | " + fmt(delta) + " | " + pct.toFixed(1) + "% | " + verdict(n, sa, sb) + " |",
+        "| " + n + " | " + fmt(sa.median) + " [" + fmt(sa.p25) + "–" + fmt(sa.p75) + "] | " + fmt(sb.median) + " [" + fmt(sb.p25) + "–" + fmt(sb.p75) + "] | " + fmt(delta) + " | " + pct.toFixed(1) + "% | " + verdict(n, sa, sb) + " |" + (pv ? " " + fmt(pv.med) + " | " + pv.verdict + " |" : ""),
       );
     }
   }
@@ -698,7 +738,7 @@ async function main() {
   const chrome = findChrome(typeof args.chrome === "string" ? args.chrome : "");
   const browser = await launchBrowser(chrome, !args["no-gpu"]);
   const results = targets.map((t) => ({
-    meta: { label: targets.length > 1 ? t.name : args.label || "", date: new Date().toISOString(), base: t.base, runs, ...opts, chrome, gpu: !args["no-gpu"] },
+    meta: { label: targets.length > 1 ? t.name : args.label || "", pairedWith: targets.length > 1 ? targets.find((o) => o !== t).name : undefined, date: new Date().toISOString(), base: t.base, runs, ...opts, chrome, gpu: !args["no-gpu"] },
     journeys: Object.fromEntries(journeys.map((j) => [j.key, []])),
   }));
   try {

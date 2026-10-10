@@ -1801,6 +1801,29 @@ export class Journal {
     return start < scan.length ? scan[start]!.seq : this.meta().next_seq;
   }
 
+  /** The seq of a turn's first message (its prompt), while its rows are hot. */
+  turnStartSeq(turnId: string): number | undefined {
+    return this.sql
+      .exec<{ seq: number | null }>(
+        `SELECT MIN(seq) AS seq FROM journal WHERE turn_id = ? AND kind = 'message'`,
+        turnId,
+      )
+      .toArray()[0]?.seq ?? undefined;
+  }
+
+  /** The newest turns one writer ran, newest first. */
+  recentTurnIds(writer: string, limit: number): string[] {
+    return this.sql
+      .exec<{ turn_id: string }>(
+        `SELECT turn_id FROM journal WHERE kind = 'turn' AND writer = ? AND phase = 'started'
+          ORDER BY seq DESC LIMIT ?`,
+        writer,
+        limit,
+      )
+      .toArray()
+      .map((row) => row.turn_id);
+  }
+
   selectWindow(excludeTurnId: string, budgetTokens: number, afterSeq = -1): WindowSelection {
     const meta = this.meta();
     const startSeq = this.contextStartSeq(excludeTurnId, budgetTokens, afterSeq);

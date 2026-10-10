@@ -700,6 +700,10 @@ export const handleAgentStatus = async (
   };
 };
 
+/** POSIX or Windows absolute, without node:path (this module also runs in workers). */
+const isAbsoluteDirectory = (value: string): boolean =>
+  value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
+
 export const handleSpawnAgent = async (
   ctx: StateContext,
   args: Record<string, unknown>,
@@ -832,11 +836,23 @@ export const handleSpawnAgent = async (
   // is nowhere honest to put the work — refuse rather than silently run it in
   // the wrong place.
   const destination = parseSpawnDestination(args.destination);
+  const workingDirectory = toOptionalString(args.directory);
+  if (workingDirectory && !isAbsoluteDirectory(workingDirectory)) {
+    return {
+      error: `directory must be an absolute path; got "${workingDirectory}".`,
+    };
+  }
   const targetDeviceId =
     destination.kind === "device" && destination.deviceId !== context.deviceId
       ? destination.deviceId
       : undefined;
   const cloudPlacement = destination.kind === "cloud" || targetDeviceId !== undefined;
+  if (cloudPlacement && workingDirectory) {
+    // The cloud's and another computer's tools start in their own home.
+    return {
+      error: "directory works only for an agent that runs on this computer. Leave it out, and name the directory in the prompt instead.",
+    };
+  }
   if (cloudPlacement && context.conversationId.startsWith("local_")) {
     return {
       error: "This chat is stored only on this computer, so its agents run here too. Leave destination empty.",
@@ -1041,6 +1057,7 @@ export const handleSpawnAgent = async (
             ? { modelConfigSnapshot: context.modelConfigSnapshot }
             : {}),
         rootRunId: context.rootRunId,
+        ...(workingDirectory ? { workingDirectory } : {}),
         agentDepth: nextAgentDepth,
         ...(typeof maxAgentDepth === "number" ? { maxAgentDepth } : {}),
         parentAgentId,

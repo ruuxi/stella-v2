@@ -41,6 +41,11 @@ export const SPAWN_AGENT_TOOL_DESCRIPTOR = {
         description:
           'Where the agent runs: "cloud", or a device_id from the connected devices list. Omit to run it where you are.',
       },
+      directory: {
+        type: "string",
+        description:
+          "Absolute path of the directory the agent starts in, such as the project the work is about (so not with destination). Its AGENTS.md, when there is one, is added to the agent's context. The agent can still work anywhere. Omit it to start the agent in a fresh folder of its own.",
+      },
     },
     required: ["description", "prompt"],
   },

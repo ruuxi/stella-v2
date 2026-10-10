@@ -981,6 +981,8 @@ type RuntimeToolContextArgs = {
   stellaAppDir?: string;
   stellaDataDir?: string;
   toolWorkspaceRoot?: string;
+  /** A spawned agent's start directory; it confines nothing. */
+  agentWorkingDirectory?: string;
   parentAgentId?: string;
   agentDepth?: number;
   maxAgentDepth?: number;
@@ -1001,7 +1003,7 @@ export const buildRuntimeToolContext = (
   const workingDirectory = resolveAgentWorkingDirectory({
     agentType: args.agentType,
     stellaAppDir: args.stellaAppDir,
-    workingDirectory: args.toolWorkspaceRoot,
+    workingDirectory: args.toolWorkspaceRoot ?? args.agentWorkingDirectory,
   });
   return {
     executionHost: args.executionHost,
@@ -1016,6 +1018,9 @@ export const buildRuntimeToolContext = (
     ...(args.stellaDataDir ? { stellaDataDir: args.stellaDataDir } : {}),
     ...(args.toolWorkspaceRoot
       ? { toolWorkspaceRoot: args.toolWorkspaceRoot }
+      : {}),
+    ...(args.agentWorkingDirectory
+      ? { agentWorkingDirectory: args.agentWorkingDirectory }
       : {}),
     storageMode: args.storageMode ?? "local",
     ...(args.ownerGeneration ? { ownerGeneration: args.ownerGeneration } : {}),
@@ -1106,6 +1111,8 @@ export type ModelToolCallOptions = {
   stellaAppDir?: string;
   stellaDataDir?: string;
   toolWorkspaceRoot?: string;
+  /** A spawned agent's start directory; it confines nothing. */
+  agentWorkingDirectory?: string;
   parentAgentId?: string;
   agentDepth?: number;
   maxAgentDepth?: number;
@@ -1168,6 +1175,7 @@ export const executeModelToolCall = async (
     stellaAppDir: opts.stellaAppDir,
     stellaDataDir: opts.stellaDataDir,
     toolWorkspaceRoot: opts.toolWorkspaceRoot,
+    agentWorkingDirectory: opts.agentWorkingDirectory,
     parentAgentId: opts.parentAgentId,
     agentDepth: opts.agentDepth,
     maxAgentDepth: opts.maxAgentDepth,

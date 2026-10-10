@@ -138,15 +138,17 @@ function DeckQuestion({
               }
             }}
           />
-          <button
-            type="button"
-            className="user-ask__other-confirm"
-            aria-label={t("userAsk.question.confirm")}
-            disabled={busy || !typed}
-            onClick={onConfirmText}
-          >
-            <Check size={16} strokeWidth={2.5} aria-hidden="true" />
-          </button>
+          {typed ? (
+            <button
+              type="button"
+              className="user-ask__other-confirm"
+              aria-label={t("userAsk.question.confirm")}
+              disabled={busy}
+              onClick={onConfirmText}
+            >
+              <Check size={16} strokeWidth={2.5} aria-hidden="true" />
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

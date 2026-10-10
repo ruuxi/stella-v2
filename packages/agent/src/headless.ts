@@ -132,7 +132,7 @@ async function main() {
         backendUrl,
         destination: { kind: "device", deviceId: "headless", label: "This computer (headless)" },
       }),
-      agents: desktopAgentsHost({ deviceId: "headless" }),
+      agents: desktopAgentsHost({ deviceId: "headless", dataDir: dataDir! }),
       env: environments.env,
     },
     context,

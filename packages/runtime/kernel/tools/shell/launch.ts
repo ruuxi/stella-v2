@@ -659,7 +659,9 @@ export const resolveManagedShellCommand = (
     explicitCwd !== undefined && explicitCwd !== null
       ? String(explicitCwd)
       : resolveToolFallbackCwd(
-          context?.toolWorkspaceRoot ?? context?.stellaAppDir,
+          context?.toolWorkspaceRoot ??
+            context?.agentWorkingDirectory ??
+            context?.stellaAppDir,
         );
   if (context?.executionHost === "sandbox") {
     const workspaceRoot = context.toolWorkspaceRoot?.trim();

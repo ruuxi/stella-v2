@@ -10,7 +10,7 @@ import { fonts } from "../theme/fonts";
 import { fadeHex } from "../theme/oklch";
 import type { ChatArtifact } from "../types";
 import { artifactIconName, artifactTitle } from "../lib/mobile-artifacts";
-import { AGENT_ACTIVITY_INK, deriveFilePillRow } from "../lib/agent-activity-presentation";
+import { deriveFilePillRow } from "../lib/agent-activity-presentation";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
 import { Icon, type IconName } from "./Icon";
 
@@ -41,8 +41,8 @@ export function ReplyFilePills({
         >
           <Icon
             name={artifactIconName(artifact.payload) as IconName}
-            size={13}
-            color={colors.textMuted}
+            size={14}
+            color={colors.accent}
           />
           <Text
             style={styles.pillLabel}
@@ -84,17 +84,17 @@ const makeStyles = (colors: Colors) =>
       maxWidth: "100%",
       borderRadius: 999,
       borderWidth: StyleSheet.hairlineWidth,
-      borderColor: fadeHex(colors[AGENT_ACTIVITY_INK.pillBorderInk], AGENT_ACTIVITY_INK.pillBorderAlpha),
-      backgroundColor: fadeHex(colors[AGENT_ACTIVITY_INK.pillBorderInk], 0.03),
-      paddingHorizontal: 10,
-      paddingVertical: 5,
+      borderColor: fadeHex(colors.accent, 0.22),
+      backgroundColor: fadeHex(colors.accent, 0.16),
+      paddingHorizontal: 11,
+      paddingVertical: 6,
     },
     pillPressed: { opacity: 0.72 },
     pillLabel: {
       color: colors.text,
       flexShrink: 1,
       fontFamily: fonts.sans.medium,
-      fontSize: 12,
+      fontSize: 14,
       letterSpacing: -0.1,
     },
   });

@@ -27,7 +27,7 @@ import {
   legacyTablesPresent,
 } from "./legacy-import.js";
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const FTS_TOKENIZER = "'porter unicode61 remove_diacritics 2'";
 
@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS agent (
   parent_agent_id TEXT,
   model_config_json TEXT,
   tool_workspace_root TEXT,
+  working_directory TEXT,
   status TEXT NOT NULL,
   started_at INTEGER NOT NULL,
   completed_at INTEGER,
@@ -686,6 +687,18 @@ const MIGRATIONS: Migration[] = [
       // Two new, empty tables + their own indexes (CREATE ... IF NOT EXISTS
       // only): constant time at open on any file size.
       db.exec(RUN_TASK_SCHEMA_SQL);
+    },
+  },
+  {
+    version: 6,
+    apply: (db) => {
+      // Where each agent starts. A file created at migration 1 by this build
+      // already has the column; adding a nullable column is constant time.
+      try {
+        db.exec("ALTER TABLE agent ADD COLUMN working_directory TEXT;");
+      } catch {
+        /* column already exists */
+      }
     },
   },
 ];

@@ -33,6 +33,7 @@ import {
 import Reanimated, {
   FadeIn,
   FadeInDown,
+  FadeOut,
   FadeOutDown,
   LinearTransition,
 } from "react-native-reanimated";
@@ -362,24 +363,31 @@ function QuestionDeck({
               returnKeyType="done"
               value={draft.text}
             />
-            <Pressable
-              accessibilityLabel={t("userAsk.question.confirm")}
-              accessibilityRole="button"
-              disabled={busy || !typed}
-              hitSlop={6}
-              onPress={() => commit(typeUserAskText(draft.text))}
-              style={({ pressed }) => [
-                styles.otherConfirm,
-                (busy || !typed) && styles.otherConfirmIdle,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Icon
-                color={typed ? colors.accentForeground : colors.textMuted}
-                name="check"
-                size={18}
-              />
-            </Pressable>
+            {typed ? (
+              <Reanimated.View
+                entering={FadeIn.duration(140)}
+                exiting={FadeOut.duration(120)}
+              >
+                <Pressable
+                  accessibilityLabel={t("userAsk.question.confirm")}
+                  accessibilityRole="button"
+                  disabled={busy}
+                  hitSlop={6}
+                  onPress={() => commit(typeUserAskText(draft.text))}
+                  style={({ pressed }) => [
+                    styles.otherConfirm,
+                    busy && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Icon
+                    color={colors.accentForeground}
+                    name="check"
+                    size={18}
+                  />
+                </Pressable>
+              </Reanimated.View>
+            ) : null}
           </View>
         </View>
       </Reanimated.View>
@@ -1167,9 +1175,6 @@ const makeStyles = (colors: Colors) =>
       height: 36,
       justifyContent: "center",
       width: 36,
-    },
-    otherConfirmIdle: {
-      backgroundColor: colors.muted,
     },
     otherInput: {
       color: colors.text,

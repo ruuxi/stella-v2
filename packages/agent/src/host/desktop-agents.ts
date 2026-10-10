@@ -7,9 +7,11 @@
  * only its tools there (`execution`), as does any conversation whose tools
  * `switch_destination` moved.
  */
+import { mkdir } from "node:fs/promises";
 import type { Context } from "@earendil-works/chord";
 import type { EnvTarget } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
+import { defaultAgentDirectory } from "@stella/runtime/kernel/agents/agent-directory";
 import type { RemoteAgentHost, StellaAgentsHost } from "../stella/agents.ts";
 
 export function desktopAgentsHost(
@@ -24,6 +26,8 @@ export function desktopAgentsHost(
     deliverReport?: StellaAgentsHost["deliverReport"];
     deliverNote?: StellaAgentsHost["deliverNote"];
     directory?: StellaAgentsHost["directory"];
+    /** The Stella data directory (`~/.stella`): new agents start in a folder of their own under it. */
+    dataDir?: string;
     /** Where a conversation's tools can run away from this computer. */
     execution?: StellaAgentsHost["execution"];
   } = {},
@@ -36,6 +40,7 @@ export function desktopAgentsHost(
     ...(options.deliverReport ? { deliverReport: options.deliverReport } : {}),
     ...(options.deliverNote ? { deliverNote: options.deliverNote } : {}),
     ...(options.directory ? { directory: options.directory } : {}),
+    ...(options.dataDir ? { agentDirectory: (threadId: string) => defaultAgentDirectory(options.dataDir!, threadId) } : {}),
     ...(options.execution ? { execution: options.execution } : {}),
     rootPlacement: { kind: "local" },
     place: (destination, caller) => {
@@ -70,6 +75,8 @@ export function desktopEnvironments(defaultCwd: string) {
       const directory = cwd ?? defaultCwd;
       let env = envs.get(directory);
       if (!env) {
+        // An agent's own folder exists once it first works there.
+        if (cwd) await mkdir(directory, { recursive: true }).catch(() => undefined);
         env = new NodeExecutionEnv({ cwd: directory });
         envs.set(directory, env);
       }

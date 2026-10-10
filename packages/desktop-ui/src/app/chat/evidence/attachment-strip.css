@@ -238,6 +238,28 @@
   background: var(--surface-inset);
 }
 
+.event-item.assistant .attachment-pill {
+  border-color: color-mix(in oklch, var(--interactive) 22%, transparent);
+  background: color-mix(in oklch, var(--interactive) 16%, transparent);
+  color: var(--text-strong);
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-medium);
+}
+
+.event-item.assistant .attachment-pill:hover {
+  border-color: color-mix(in oklch, var(--interactive) 34%, transparent);
+  background: color-mix(in oklch, var(--interactive) 24%, transparent);
+}
+
+.event-item.assistant .attachment-pill__glyph {
+  color: var(--interactive);
+}
+
+.event-item.assistant .attachment-pill__meta {
+  font-size: var(--font-size-xs);
+  font-weight: var(--weight-regular, 400);
+}
+
 .attachment-pill__glyph {
   display: grid;
   flex-shrink: 0;

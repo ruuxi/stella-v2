@@ -12,6 +12,7 @@ import { X } from "@/ui/icons";
 import { Popover } from "@/ui/popover";
 import { useT } from "@/shared/i18n";
 import { useCloudAgentReport } from "@/features/cloud/use-cloud-agent-report";
+import { useAgentTitle } from "@/features/cloud/use-agent-title";
 import { piAgentReport, piChatEnabled } from "@/features/chat/pi/pi-chat-store";
 import "./reply-preview.css";
 
@@ -76,9 +77,11 @@ export function TaskReportButton({
   const resolvedReport =
     cloudReport === undefined ? undefined : (cloudReport ?? report);
   const title =
-    liveTitle?.trim() ||
-    (reference.title !== reference.threadId ? reference.title.trim() : "") ||
-    t("app.chat.focus.agentFallback");
+    useAgentTitle(conversationId, reference.threadId, [
+      liveTitle,
+      reference.title,
+      cloudReport?.description,
+    ]) || t("app.chat.focus.agentFallback");
 
   const prefetch = useCallback(() => {
     if (requestedRef.current) return;

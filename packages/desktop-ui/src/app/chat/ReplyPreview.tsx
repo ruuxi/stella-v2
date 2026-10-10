@@ -21,6 +21,7 @@ import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecy
 import { useT } from "@/shared/i18n";
 import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
 import { useThreadActivityRecords } from "@/features/chat/hooks/use-thread-activity-records";
+import { useAgentTitle } from "@/features/cloud/use-agent-title";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
 import "./reply-preview.css";
 
@@ -163,8 +164,7 @@ function AgentReplyPreview({
 }) {
   const t = useT();
   const title =
-    liveTitle?.trim() ||
-    (reference.title !== reference.threadId ? reference.title.trim() : "") ||
+    useAgentTitle(conversationId, reference.threadId, [liveTitle, reference.title]) ||
     t("app.chat.focus.agentFallback");
   const open = useCallback(() => {
     openConversationFocus({

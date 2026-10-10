@@ -6,6 +6,7 @@ import {
   type ReplyContextProjection,
   type ReplyContextRow,
 } from "@stella/contracts/reply-context";
+import { journalAgentTitles } from "@stella/contracts/agent-titles";
 import type { ChatMessage, ChatArtifact } from "../types";
 import type { JournalFile, JournalRecord } from "./cloud-conversation-protocol";
 import { cloudFileArtifact } from "./cloud-file-payload";
@@ -50,16 +51,6 @@ export function summaryExcerpt(result: string): string {
   return `${cut.trimEnd()}…`;
 }
 
-const wakeText = (record: JournalRecord): string => {
-  if (record.kind !== "message") return "";
-  const content = record.payload.content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((block) => (block && typeof block === "object" && "text" in block && typeof block.text === "string" ? block.text : ""))
-    .join("\n");
-};
-
 /**
  * Lifecycle cards onto transcript rows, matching desktop:
  *   - the turn that spawned a task carries the spawn card, which settles
@@ -72,12 +63,7 @@ const wakeText = (record: JournalRecord): string => {
  * particular reply existing at the moment a card is read.
  */
 export function projectMobileLifecycle(messages: ChatMessage[], records: readonly JournalRecord[], conversationId: string): ChatMessage[] {
-  const titles = new Map<string, string>();
-  for (const record of records) {
-    if (record.kind !== "message" || record.role !== "user" || !record.hidden) continue;
-    const task = lifecycleWakeTask(wakeText(record));
-    if (task?.description && !titles.has(task.threadId)) titles.set(task.threadId, task.description);
-  }
+  const titles = journalAgentTitles(records);
   const messagesById = new Map(messages.map(message => [message.id, message]));
   const assistantsByTurn = new Map<string, Array<{ seq: number; message: ChatMessage }>>();
   for (const record of records) {

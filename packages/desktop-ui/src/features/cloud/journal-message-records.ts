@@ -5,6 +5,7 @@ import type {
   MessageRecord,
 } from "@stella/contracts/local-chat";
 import { isPiAgentText } from "@stella/contracts/pi-chat";
+import { journalAgentTitles } from "@stella/contracts/agent-titles";
 import { groupEventsIntoMessages } from "@/features/chat/lib/group-events-into-messages";
 import type { JournalRecord } from "./conversation-protocol";
 import { messageText } from "./conversation-protocol";
@@ -524,32 +525,8 @@ export const journalRecordsToMessageRecords = (
 ): MessageRecord[] => {
   const byTurn = new Map<string, JournalRecord[]>();
   const recordsBySeq = new Map<number, JournalMessageRecord>();
-  const agentTitles = new Map<string, string>();
+  const agentTitles = journalAgentTitles(records);
   for (const record of records) {
-    if (
-      record.kind === "card" &&
-      record.card.type === "agent-lifecycle" &&
-      record.card.event.type === "agent-started"
-    ) {
-      const { agentId, description } = record.card.event.payload;
-      if (description.trim()) agentTitles.set(agentId, description.trim());
-    }
-    if (record.kind === "message" && record.role === "user" && record.hidden) {
-      const wake = lifecycleWakeTask(messageText(record.payload));
-      if (wake?.description && !agentTitles.has(wake.threadId)) {
-        agentTitles.set(wake.threadId, wake.description);
-      }
-    }
-    if (record.kind === "message" && record.role === "toolResult") {
-      const details = asRecord(record.payload.details);
-      if (
-        typeof details?.thread_id === "string" &&
-        typeof details.description === "string" &&
-        details.description.trim()
-      ) {
-        agentTitles.set(details.thread_id, details.description.trim());
-      }
-    }
     const turn = byTurn.get(record.turnId);
     if (turn) turn.push(record);
     else byTurn.set(record.turnId, [record]);

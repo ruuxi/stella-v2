@@ -35,6 +35,8 @@ export type WorkerHealthSnapshot = {
   deviceId: string | null;
   voiceBusy?: boolean;
   pendingVoiceRequestCount?: number;
+  /** pi has a turn or agent in flight (work the runner fields do not see). */
+  piBusy?: boolean;
 };
 
 /**

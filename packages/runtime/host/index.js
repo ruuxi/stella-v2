@@ -97,12 +97,14 @@ const bufferAgentEvent = (buffers, event) => {
  * "Busy" for the purposes of stale-worker restarts: anything that a worker
  * kill would visibly interrupt. `activeRun`/`activeAgentCount` come from the
  * worker's active-run registry (the authoritative in-flight signal); voice
- * fields cover a live voice orchestrator turn. A `null` health snapshot
+ * fields cover a live voice orchestrator turn; `piBusy` covers pi turns and
+ * agents, which the runner fields do not see. A `null` health snapshot
  * means the worker is unreachable, so there is nothing to preserve.
  */
 export const isWorkerBusyForRestart = (health) => health != null &&
     (health.voiceBusy === true ||
         (health.pendingVoiceRequestCount ?? 0) > 0 ||
+        health.piBusy === true ||
         health.activeRun != null ||
         health.activeAgentCount > 0);
 export const shouldAckWorkerRunEvent = (event) => {
@@ -486,8 +488,12 @@ export class StellaRuntimeHost {
         this.workerRestartCheckInFlight = true;
         try {
             const health = await this.getWorkerHealth({ ensureWorker: false }).catch(() => null);
-            if (!this.canRestartWorkerNow(health))
+            if (!this.canRestartWorkerNow(health)) {
+                // pi work ends without a RUN_FINISHED notification, so keep a
+                // re-check armed for any deferred restart, not only stale ones.
+                this.startStaleWorkerQuiescencePoll();
                 return;
+            }
             this.executeWorkerRestart();
         }
         finally {

@@ -830,6 +830,7 @@ export const launchPreparedOrchestratorRun = (args: {
             signal,
             onUpdate,
           ),
+        buildAgentShellEnvironment: context.toolHost.buildAgentShellEnvironment,
         deviceId: context.deviceId,
         stellaDataDir: context.stellaDataDir,
         ...(context.cliBridgeSocketPath

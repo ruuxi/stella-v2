@@ -47,6 +47,7 @@ export {
   resolveExecOutputTokens,
 } from "./shell/handlers.js";
 export {
+  buildAgentShellEnvironment,
   buildShellCommand,
   resolveDefaultShell,
   resolveShellLaunch,

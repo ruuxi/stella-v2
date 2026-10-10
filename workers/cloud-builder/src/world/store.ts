@@ -1236,7 +1236,18 @@ export class WorldSqlStore implements WorldToolFileApi {
       )
       .toArray()[0];
     if (existing) {
-      this.sql.exec("DELETE FROM world_dirents WHERE manifest_id = ?", live);
+      // The id names exactly these contents, so the live entries become the
+      // sealed copy's: a memory wipe may have purged paths from it
+      // (`purgeHistory`), and the live manifest is rebuilt from it below.
+      this.sql.exec(
+        "DELETE FROM world_dirents WHERE manifest_id = ?",
+        manifestId,
+      );
+      this.sql.exec(
+        "UPDATE world_dirents SET manifest_id = ? WHERE manifest_id = ?",
+        manifestId,
+        live,
+      );
       this.sql.exec("DELETE FROM world_tombstones WHERE manifest_id = ?", live);
       this.sql.exec("DELETE FROM world_manifests WHERE manifest_id = ?", live);
       this.sql.exec(
@@ -1286,6 +1297,41 @@ export class WorldSqlStore implements WorldToolFileApi {
     );
     await this.collectGarbage(100);
     return { manifestId, forkId };
+  }
+
+  /**
+   * Drop `inputs` and everything under them from every checkpoint, leaving
+   * the live manifest alone (`remove` handles it), so no earlier checkpoint
+   * keeps erased content reachable. The blobs only they held go with the
+   * next garbage collection. Returns the checkpoint entries dropped.
+   */
+  purgeHistory(inputs: readonly string[]): number {
+    const live = this.liveManifest();
+    let dropped = 0;
+    for (const input of inputs) {
+      const path = normalizeWorldPath(input);
+      const parts = direntParts(path);
+      const under = `${path}/`;
+      dropped += this.sql.exec(
+        `DELETE FROM world_dirents
+          WHERE manifest_id <> ?
+            AND ((parent_path = ? AND name = ?) OR parent_path = ?
+              OR substr(parent_path, 1, ?) = ?)`,
+        live,
+        parts.parent,
+        parts.name,
+        path,
+        under.length,
+        under,
+      ).rowsWritten;
+      this.sql.exec(
+        "DELETE FROM world_tombstones WHERE path = ? OR substr(path, 1, ?) = ?",
+        path,
+        under.length,
+        under,
+      );
+    }
+    return dropped;
   }
 
   async manifest(

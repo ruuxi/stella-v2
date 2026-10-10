@@ -20,6 +20,7 @@
 import type { Context } from "@earendil-works/chord";
 import { Type, type AssistantMessage, type ModelThinkingLevel, type TextContent } from "@earendil-works/pi-ai";
 import {
+  AgentDoc,
   AssistantEntry,
   configure,
   defineDoc,
@@ -233,6 +234,11 @@ export type StellaAgentsHost = {
    * the cloud admits the run and binds its model capability here.
    */
   beginAgentRun?(run: AgentRun, context: Context): Promise<void>;
+  /**
+   * A model an agent is started on that its caller's may not be (another
+   * Stella alias): the host registers it so the agent can resolve it.
+   */
+  ensureModel?(model: ModelRef, context: Context): Promise<void>;
   endAgentRun?(run: AgentRun, context: Context, end?: AgentRunEnd): Promise<void>;
   /**
    * A report for the orchestrator. Default: a follow-up input to the root
@@ -442,6 +448,9 @@ export function stellaAgents(host: StellaAgentsHost) {
             await host.beginAgentRun?.(run, context);
             const agent = await runtime.conversation(agentConversationId, context);
             if (!agent) throw new Error(`Agent ${threadId} no longer exists.`);
+            // Its model may be one nothing registered since a restart (another Stella alias).
+            const model = host.ensureModel ? (await runtime.snapshot(AgentDoc, agentConversationId, context))?.model : undefined;
+            if (model) await host.ensureModel?.(model, context);
             const submission = await agent.submit(
               { type: "input", content: message, whenBusy: "steer", requestId: `agent-msg:${reporter.id}` },
               context,
@@ -699,6 +708,8 @@ export function stellaAgents(host: StellaAgentsHost) {
         requested?.startsWith("stella/") && callerAgent.model?.provider === STELLA_PROVIDER_ID
           ? { model: { provider: STELLA_PROVIDER_ID, modelId: stellaModelId("general", requested) } }
           : childRun(callerAgent);
+      // An alias other than the caller's is registered before the agent runs on it.
+      if (requested && runsOn.model) await host.ensureModel?.(runsOn.model, context);
       const description = args.description.trim() || "agent";
       // An agent's agent stays with it, its tools where it asked or where its
       // caller's run (the cloud, a computer), so its report climbs the chain
@@ -1218,6 +1229,7 @@ export function stellaAgents(host: StellaAgentsHost) {
     const runsOn: RunsOn = args.model
       ? { model: args.model, ...(args.thinkingLevel ? { thinkingLevel: args.thinkingLevel } : {}) }
       : childRun(await root.agent(context));
+    if (args.model) await host.ensureModel?.(args.model, context);
     return await harness.commit(
       (tx) =>
         createAgent(tx, {

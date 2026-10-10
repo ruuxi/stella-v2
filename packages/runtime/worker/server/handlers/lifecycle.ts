@@ -6,6 +6,7 @@ import {
 } from "@stella/contracts/protocol";
 import { BootTimeline } from "../../../observability/boot-timing.js";
 import * as ModelCatalog from "../model-catalog.js";
+import { piChatsBusy } from "../pi-chats.js";
 import * as WorkerSessions from "../sessions.js";
 import { fromPromise, type WorkerRpcHandlers } from "../rpc.js";
 import type { WorkerInitializationState } from "../types.js";
@@ -65,6 +66,9 @@ export const lifecycleHandlers: WorkerRpcHandlers = {
         deviceId: session?.config.deviceId ?? null,
         voiceBusy: session?.voice.isBusy() ?? false,
         pendingVoiceRequestCount: session?.voice.getPendingRequestCount() ?? 0,
+        // pi turns and agents run outside the legacy runner, so the runner
+        // fields above read idle while pi works. Same check idle shutdown uses.
+        piBusy: session ? piChatsBusy(session) : false,
       };
     }),
 

@@ -84,7 +84,7 @@ function DeckQuestion({
         <p className="user-ask__detail">{question.detail}</p>
       ) : null}
       <div className="user-ask__options" role="radiogroup" aria-label={question.question}>
-        {question.options.map((option, index) => {
+        {question.options.map((option) => {
           const selected = draft.choiceId === option.id;
           const isDefault = option.id === question.defaultChoiceId;
           return (
@@ -98,9 +98,6 @@ function DeckQuestion({
               disabled={busy}
               onClick={() => onPick(option.id)}
             >
-              <span className="user-ask__option-key" aria-hidden="true">
-                {index + 1}
-              </span>
               <span className="user-ask__option-copy">
                 <span className="user-ask__option-label">{option.label}</span>
                 {option.hint ? (
@@ -145,7 +142,6 @@ function DeckQuestion({
             type="button"
             className="user-ask__other-confirm"
             aria-label={t("userAsk.question.confirm")}
-            title={t("userAsk.question.confirm")}
             disabled={busy || !typed}
             onClick={onConfirmText}
           >
@@ -265,7 +261,7 @@ export function UserAskDeck({ asks }: { asks: readonly UserAsk[] }) {
   return (
     <section
       ref={rootRef}
-      className="user-ask user-ask--deck user-ask--inline"
+      className="user-ask user-ask--deck"
       data-ask-id={entry.ask.askId}
       data-ask-kind="question"
       tabIndex={-1}
@@ -302,7 +298,6 @@ export function UserAskDeck({ asks }: { asks: readonly UserAsk[] }) {
               type="button"
               className="user-ask__nav"
               aria-label={t("userAsk.question.previous")}
-              title={t("userAsk.question.previous")}
               disabled={index === 0}
               onClick={() => goTo(index - 1)}
             >
@@ -318,7 +313,6 @@ export function UserAskDeck({ asks }: { asks: readonly UserAsk[] }) {
               type="button"
               className="user-ask__nav"
               aria-label={t("userAsk.question.next")}
-              title={t("userAsk.question.next")}
               disabled={index === total - 1}
               onClick={() => goTo(index + 1)}
             >

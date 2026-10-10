@@ -1,7 +1,6 @@
 import type { EventRowViewModel } from "@/features/chat/conversation-row-types";
 import type { QueuedUserMessage } from "@/features/chat/hooks/queued-user-messages";
 import { eventRowRendersContent } from "@/features/chat/lib/assistant-row-content";
-import type { UserAsk } from "@stella/contracts/user-ask";
 import type { UserAskRecord } from "@stella/contracts/user-ask-deck";
 
 export type ChatTimelineItem =
@@ -13,11 +12,6 @@ export type ChatTimelineItem =
   | {
       id: "chat-timeline:working-indicator";
       type: "working-indicator";
-    }
-  | {
-      id: "chat-timeline:ask-deck";
-      type: "ask-deck";
-      asks: readonly UserAsk[];
     }
   | {
       id: string;
@@ -46,7 +40,6 @@ export const buildChatTimelineItems = (args: {
   rows: EventRowViewModel[];
   queuedUserMessages: readonly QueuedUserMessage[];
   includeWorkingIndicator: boolean;
-  openAsks?: readonly UserAsk[];
   askRecords?: readonly UserAskRecord[];
 }): ChatTimelineItem[] => {
   const items: ChatTimelineItem[] = [];
@@ -86,13 +79,6 @@ export const buildChatTimelineItems = (args: {
     else items.splice(before, 0, recordItem);
   }
 
-  if (args.openAsks && args.openAsks.length > 0) {
-    items.push({
-      id: "chat-timeline:ask-deck",
-      type: "ask-deck",
-      asks: args.openAsks,
-    });
-  }
 
   if (args.includeWorkingIndicator) {
     items.push({

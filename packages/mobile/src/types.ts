@@ -240,8 +240,6 @@ export type ComposerQuote = {
 export type ChatMessage = {
   /** Compact records of answered `ask_user` questions on this row. */
   askRecords?: readonly UserAskRecord[];
-  /** The live question card's slot in the transcript. */
-  askDeck?: true;
   /** Durable reply relationships; UI hides adjacent context. */
   replyRefs?: ReplyRef[];
   agentStates?: Record<string, "running" | "completed" | "error">;

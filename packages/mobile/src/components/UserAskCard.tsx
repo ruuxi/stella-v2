@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -29,6 +29,12 @@ import {
   type UserAskDraft,
   type UserAskDrafts,
 } from "@stella/contracts/user-ask-deck";
+import Reanimated, {
+  FadeIn,
+  FadeInDown,
+  FadeOutDown,
+  LinearTransition,
+} from "react-native-reanimated";
 import { tapLight } from "../lib/haptics";
 import {
   answerUserAsk,
@@ -80,33 +86,33 @@ export function UserAskCard({
   conversationId: string | null | undefined;
 }) {
   useUserAskSync(true);
-  const { secureInput } = useConversationUserAsks(conversationId);
-  useResolveFocusedUserAsk(secureInput?.askId ?? null);
-  if (secureInput?.detail.kind !== "secure_input") return null;
-  return (
-    <SecureAskSurface
-      ask={secureInput}
-      detail={secureInput.detail}
-      key={secureInput.askId}
-    />
-  );
-}
-
-export function UserAskInlineDeck({
-  conversationId,
-}: {
-  conversationId: string | null | undefined;
-}) {
-  const { questions, focused } = useConversationUserAsks(conversationId);
-  useResolveFocusedUserAsk(
-    focused?.kind === "question" ? focused.askId : null,
-  );
+  const { questions, secureInput, focused } =
+    useConversationUserAsks(conversationId);
+  const showSecure =
+    secureInput !== null &&
+    (questions.length === 0 || focused?.askId === secureInput.askId);
+  useResolveFocusedUserAsk(focused?.askId ?? null);
+  if (showSecure && secureInput?.detail.kind === "secure_input") {
+    return (
+      <SecureAskSurface
+        ask={secureInput}
+        detail={secureInput.detail}
+        key={secureInput.askId}
+      />
+    );
+  }
   if (questions.length === 0) return null;
   return (
-    <QuestionDeck
-      asks={questions}
-      focusedAskId={focused?.kind === "question" ? focused.askId : null}
-    />
+    <Reanimated.View
+      entering={FadeInDown.springify().damping(20).stiffness(190)}
+      exiting={FadeOutDown.duration(180)}
+      layout={LinearTransition.springify().damping(22).stiffness(200)}
+    >
+      <QuestionDeck
+        asks={questions}
+        focusedAskId={focused?.kind === "question" ? focused.askId : null}
+      />
+    </Reanimated.View>
   );
 }
 
@@ -118,6 +124,7 @@ export function UserAskRecordView({ record }: { record: UserAskRecord }) {
     <View style={styles.record}>
       {record.answers.map((answer, index) => (
         <View key={`${record.id}:${index}`} style={styles.recordItem}>
+          {index > 0 ? <View style={styles.recordDivider} /> : null}
           <Text style={styles.recordQuestion}>{answer.question}</Text>
           <Text
             style={[
@@ -260,8 +267,16 @@ function QuestionDeck({
   const textChosen = !draft.choiceId && !draft.skipped && typed;
 
   return (
-    <View style={[styles.card, styles.inlineCard]} accessibilityRole="summary">
-      <View key={userAskDeckKey(ask.askId, question.id)} style={styles.step}>
+    <Reanimated.View
+      layout={LinearTransition.springify().damping(22).stiffness(200)}
+      style={styles.card}
+      accessibilityRole="summary"
+    >
+      <Reanimated.View
+        key={userAskDeckKey(ask.askId, question.id)}
+        entering={FadeIn.duration(180)}
+        style={styles.step}
+      >
         <Text style={styles.title}>{question.question}</Text>
         {question.detail ? (
           <Text style={styles.detail}>{question.detail}</Text>
@@ -270,12 +285,23 @@ function QuestionDeck({
         <View style={styles.options} accessibilityRole="radiogroup">
           {question.options.map((option, optionIndex) => {
             const selected = draft.choiceId === option.id;
+            const previousSelected =
+              optionIndex > 0 &&
+              draft.choiceId === question.options[optionIndex - 1]?.id;
             return (
+              <Fragment key={option.id}>
+              {optionIndex > 0 ? (
+                <View
+                  style={[
+                    styles.divider,
+                    (selected || previousSelected) && styles.dividerHidden,
+                  ]}
+                />
+              ) : null}
               <Pressable
                 accessibilityRole="button"
                 accessibilityState={{ selected, disabled: busy }}
                 disabled={busy}
-                key={option.id}
                 onPress={() => commit(pickUserAskOption(draft, option.id))}
                 style={({ pressed }) => [
                   styles.option,
@@ -284,18 +310,7 @@ function QuestionDeck({
                   busy && styles.disabled,
                 ]}
               >
-                <View
-                  style={[styles.optionKey, selected && styles.optionKeySelected]}
-                >
-                  <Text
-                    style={[
-                      styles.optionKeyText,
-                      selected && styles.optionKeyTextSelected,
-                    ]}
-                  >
-                    {optionIndex + 1}
-                  </Text>
-                </View>
+                
                 <View style={styles.optionCopy}>
                   <Text style={styles.optionLabel}>{option.label}</Text>
                   {option.hint ? (
@@ -310,8 +325,17 @@ function QuestionDeck({
                   </Text>
                 ) : null}
               </Pressable>
+              </Fragment>
             );
           })}
+          <View
+            style={[
+              styles.divider,
+              (textChosen ||
+                draft.choiceId === question.options[question.options.length - 1]?.id) &&
+                styles.dividerHidden,
+            ]}
+          />
 
           <View style={[styles.other, textChosen && styles.optionSelected]}>
             <AskTextInput
@@ -354,7 +378,7 @@ function QuestionDeck({
             </Pressable>
           </View>
         </View>
-      </View>
+      </Reanimated.View>
 
       {issue ? <Text style={styles.issue}>{issue}</Text> : null}
 
@@ -450,7 +474,7 @@ function QuestionDeck({
           ) : null}
         </View>
       </View>
-    </View>
+    </Reanimated.View>
   );
 }
 
@@ -877,21 +901,21 @@ const makeStyles = (colors: Colors) =>
     body: {
       gap: 10,
     },
-    inlineCard: {
-      alignSelf: "flex-start",
-      backgroundColor: colors.assistantBubbleFillTop,
-      borderRadius: 18,
-      borderWidth: 0,
-      width: "100%",
-    },
     record: {
       alignSelf: "flex-start",
       backgroundColor: colors.assistantBubbleFillTop,
       borderRadius: 18,
-      gap: 10,
       maxWidth: "100%",
       paddingHorizontal: 14,
-      paddingVertical: 11,
+      paddingVertical: 3,
+    },
+    recordDivider: {
+      backgroundColor: colors.border,
+      height: StyleSheet.hairlineWidth,
+      left: 0,
+      position: "absolute",
+      top: 0,
+      width: 48,
     },
     recordAnswer: {
       color: colors.text,
@@ -906,6 +930,7 @@ const makeStyles = (colors: Colors) =>
     },
     recordItem: {
       gap: 2,
+      paddingVertical: 8,
     },
     recordQuestion: {
       color: colors.textMuted,
@@ -1081,15 +1106,22 @@ const makeStyles = (colors: Colors) =>
       justifyContent: "center",
       width: 32,
     },
+    divider: {
+      backgroundColor: colors.border,
+      height: StyleSheet.hairlineWidth,
+      marginLeft: 14,
+      marginRight: 14,
+    },
+    dividerHidden: {
+      opacity: 0,
+    },
     option: {
       alignItems: "center",
-      borderColor: colors.border,
-      borderRadius: 15,
-      borderWidth: StyleSheet.hairlineWidth,
+      borderRadius: 14,
       flexDirection: "row",
       gap: 12,
       minHeight: 52,
-      paddingLeft: 11,
+      paddingLeft: 14,
       paddingRight: 14,
       paddingVertical: 10,
     },
@@ -1103,25 +1135,6 @@ const makeStyles = (colors: Colors) =>
       fontSize: 13,
       lineHeight: 18,
     },
-    optionKey: {
-      alignItems: "center",
-      backgroundColor: colors.muted,
-      borderRadius: 8,
-      height: 28,
-      justifyContent: "center",
-      width: 28,
-    },
-    optionKeySelected: {
-      backgroundColor: colors.accent,
-    },
-    optionKeyText: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 14,
-    },
-    optionKeyTextSelected: {
-      color: colors.accentForeground,
-    },
     optionLabel: {
       color: colors.text,
       fontFamily: fonts.sans.medium,
@@ -1131,7 +1144,6 @@ const makeStyles = (colors: Colors) =>
     },
     optionSelected: {
       backgroundColor: colors.accentSoft,
-      borderColor: colors.selectBorder,
     },
     optionTag: {
       color: colors.textWeaker,
@@ -1139,15 +1151,12 @@ const makeStyles = (colors: Colors) =>
       fontSize: 13,
     },
     options: {
-      gap: 8,
-      marginTop: 14,
+      marginHorizontal: -6,
+      marginTop: 12,
     },
     other: {
       alignItems: "flex-end",
-      backgroundColor: colors.surfaceInset,
-      borderColor: colors.border,
-      borderRadius: 15,
-      borderWidth: StyleSheet.hairlineWidth,
+      borderRadius: 14,
       flexDirection: "row",
       gap: 8,
       minHeight: 52,

@@ -71,6 +71,7 @@ import Reanimated, {
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
+  withSpring,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AddContextSheet } from "./AddContextSheet";
@@ -175,7 +176,7 @@ import {
   useConversationUserAskRecords,
   useConversationUserAsks,
 } from "../lib/user-asks";
-import { UserAskInlineDeck, UserAskRecordView } from "./UserAskCard";
+import { UserAskRecordView } from "./UserAskCard";
 import type {
   ChatArtifact,
   ChatMessage,
@@ -1512,17 +1513,15 @@ const carryCompletionQuotes = (
 };
 
 const INLINE_ASK_RECORD_PREFIX = "inline-ask-record:";
-const INLINE_ASK_DECK_ID = "inline-ask-deck";
 
 const askRecordSignature = (record: UserAskRecord): string =>
   record.answers.map((answer) => answer.question).join("\u0000");
 
-const withInlineAsks = (
+const withInlineAskRecords = (
   messages: ChatMessage[],
   sessionRecords: readonly UserAskRecord[],
-  hasOpenQuestions: boolean,
 ): ChatMessage[] => {
-  if (sessionRecords.length === 0 && !hasOpenQuestions) return messages;
+  if (sessionRecords.length === 0) return messages;
   const shown = new Set<string>();
   for (const message of messages) {
     for (const record of message.askRecords ?? []) {
@@ -1549,9 +1548,6 @@ const withInlineAsks = (
     );
     if (before < 0) out.push(item);
     else out.splice(before, 0, item);
-  }
-  if (hasOpenQuestions) {
-    out.push({ id: INLINE_ASK_DECK_ID, role: "assistant", text: "", askDeck: true });
   }
   return out;
 };
@@ -3455,13 +3451,20 @@ export function ChatPane({
   const sessionAskRecords = useConversationUserAskRecords(conversationId);
   const listMessages = useMemo(
     () =>
-      withInlineAsks(
-        visibleMessages,
-        sessionAskRecords,
-        openQuestionAsks.length > 0,
-      ),
-    [openQuestionAsks.length, sessionAskRecords, visibleMessages],
+      withInlineAskRecords(visibleMessages, sessionAskRecords),
+    [sessionAskRecords, visibleMessages],
   );
+  const questionActive = openQuestionAsks.length > 0;
+  const composerReveal = useSharedValue(questionActive ? 0 : 1);
+  useEffect(() => {
+    composerReveal.value = questionActive
+      ? 0
+      : withSpring(1, { damping: 22, stiffness: 220, mass: 0.9 });
+  }, [composerReveal, questionActive]);
+  const composerRevealStyle = useAnimatedStyle(() => ({
+    opacity: composerReveal.value,
+    transform: [{ translateY: (1 - composerReveal.value) * 18 }],
+  }));
   // A conversation first observed empty mounts its list on the optimistic
   // send. Our post-send owner already places that row; starting Legend's
   // footer-preserving end bootstrap as well would move it a second time.
@@ -4337,9 +4340,6 @@ export function ChatPane({
   );
   const renderItem = useCallback(
     ({ item }: LegendListRenderItemProps<ChatMessage>) => {
-      if (item.askDeck) {
-        return <UserAskInlineDeck conversationId={conversationId} />;
-      }
       if (item.id.startsWith(INLINE_ASK_RECORD_PREFIX) && item.askRecords) {
         return (
           <View>
@@ -4441,9 +4441,7 @@ export function ChatPane({
   );
   const getItemType = useCallback(
     (item: ChatMessage) =>
-      item.askDeck
-        ? "ask-deck"
-        : item.id.startsWith(INLINE_ASK_RECORD_PREFIX)
+      item.id.startsWith(INLINE_ASK_RECORD_PREFIX)
           ? "ask-record"
           : item.role,
     [],
@@ -4925,6 +4923,10 @@ export function ChatPane({
           style={[styles.composerWrap, { paddingBottom: composerBottomPad }]}
         >
           {composerIntervention}
+          <Reanimated.View
+            style={[composerRevealStyle, questionActive && styles.composerHidden]}
+            pointerEvents={questionActive ? "none" : "box-none"}
+          >
           <Pressable
             accessible={false}
             style={styles.composerFocusTarget}
@@ -5211,6 +5213,7 @@ export function ChatPane({
               )}
             </GlassSurface>
           </Pressable>
+          </Reanimated.View>
         </View>
       </Reanimated.View>
       <AddContextSheet
@@ -5612,6 +5615,7 @@ const makeStyles = (colors: Colors) =>
      * could clip a trailing code block.
      */
     askRecordAbove: { marginBottom: 6 },
+    composerHidden: { display: "none" },
     assistantBubble: {
       alignSelf: "flex-start",
       overflow: "hidden",

@@ -444,18 +444,15 @@ export const useConversationUserAsks = (
   const focusedId = useFocusedUserAskId();
   return useMemo(() => {
     if (asks.length === 0) return NO_CONVERSATION_ASKS;
+    if (!conversationId) return NO_CONVERSATION_ASKS;
+    const mine = asks.filter((ask) => ask.conversationId === conversationId);
+    if (mine.length === 0) return NO_CONVERSATION_ASKS;
     const focused = focusedId
-      ? (asks.find((ask) => ask.askId === focusedId) ?? null)
+      ? (mine.find((ask) => ask.askId === focusedId) ?? null)
       : null;
-    const mine = asks.filter(
-      (ask) => !ask.conversationId || ask.conversationId === conversationId,
-    );
-    const pool = mine.length > 0 ? mine : asks;
-    const shown =
-      focused && !pool.includes(focused) ? [focused, ...pool] : pool;
-    const secureInputs = shown.filter((ask) => ask.kind === "secure_input");
+    const secureInputs = mine.filter((ask) => ask.kind === "secure_input");
     return {
-      questions: shown.filter((ask) => ask.detail.kind === "question"),
+      questions: mine.filter((ask) => ask.detail.kind === "question"),
       secureInput:
         focused?.kind === "secure_input" ? focused : (secureInputs[0] ?? null),
       focused,

@@ -229,6 +229,14 @@ export type BaseRunOptions = {
     signal?: AbortSignal,
     onUpdate?: ToolUpdateCallback,
   ) => Promise<ToolResult>;
+  /**
+   * Stella's managed-shell environment (CLI shims, entrypoint variables,
+   * media / X auth) for engines whose CLIs bring their own shell.
+   */
+  buildAgentShellEnvironment?: (
+    context: ToolContext,
+    cwd: string,
+  ) => Record<string, string>;
   deviceId: string;
   stellaDataDir: string;
   /** Private action-broker endpoint injected only into connector-capable children. */

@@ -99,11 +99,15 @@ import {
 import type { StellaContextSources, StellaMemory } from "@stella/agent/stella/context";
 import {
   alignJournalContext,
+  checkpointToPublish,
   importJournal,
   journalImportAfter,
   JournalSyncDoc,
+  noteCheckpointPublished,
   type JournalMessage,
+  type JournalStart,
 } from "@stella/agent/stella/journal-sync";
+import type { JournalCheckpointFirstKept } from "@stella/contracts/journal-checkpoint";
 export { journalSeqOf } from "@stella/agent/stella/journal-sync";
 import type { AgentModelReasoningEffort, CloudExecutionSelection } from "@stella/contracts/agent-engine";
 import type { AgentActivityEntry } from "@stella/contracts/conversation-agent-activity";
@@ -313,10 +317,10 @@ export type PiRuntimeOptions = {
   env: PiRuntimeEnv;
   gatewayOrigin: string;
   /**
-   * The journal's context start (`Journal.contextStartSeq`), where the root
-   * transcript is seeded from, as a computer's transcript is.
+   * Where the root transcript is seeded from, as a computer's transcript is:
+   * the conversation's latest checkpoint, or the journal's context start.
    */
-  contextStartSeq(): number;
+  journalStart(): Promise<JournalStart>;
   waitUntil(work: Promise<unknown>): void;
   report(error: unknown): void;
   log(event: string, fields: Record<string, unknown>): void;
@@ -1080,11 +1084,16 @@ export class PiConversationRuntime {
           return;
         }
         if (report.origin && this.#options.deliverOriginReport) {
+          // What the run delivered goes with its report, once, as for the other hosts.
+          const filesKey = deliveredFilesKey(report.threadId);
+          const files = report.settled ? undefined : await this.#options.storage.get<PiDeliveredFile[]>(filesKey);
+          const info = await this.#agentInfo(report.threadId, context);
           await this.#options.deliverOriginReport(
             { ...report, origin: report.origin },
             this.#binding?.turnId ?? this.#state?.lastTurnId ?? `pi:${authority.conversationId}`,
-            await this.#agentInfo(report.threadId, context),
+            files?.length ? { ...info, files } : info,
           );
+          if (files) await this.#options.storage.delete(filesKey);
           return;
         }
         // Only the host that started it counts what settled without a report.
@@ -1579,8 +1588,10 @@ export class PiConversationRuntime {
   async #releaseLease(agentConversationId: PiComputeKey, held: AgentLease, end: AgentRunEnd): Promise<void> {
     const { lease } = held;
     const { record } = lease;
-    const up = held.used && (await lease.ready.then(() => true, () => false));
-    if (!end.aborted && up) {
+    // A stopped run aborts a container still coming up now, not after it is up.
+    if (end.aborted) lease.abort();
+    const up = !end.aborted && held.used && (await lease.ready.then(() => true, () => false));
+    if (up) {
       try {
         // The agent's home is the world: a link to `~/drive/...` names the drive copy there.
         const linked = extractLocalFileLinkPaths(end.answer ?? "").map((linkedPath) =>
@@ -1763,7 +1774,8 @@ export class PiConversationRuntime {
       const root = await harness.root(BACKGROUND_CONTEXT);
       // Before recovered work runs: a root seeded with the whole journal is
       // too large to read back into one model request.
-      if (await alignJournalContext(harness, root, this.#options.contextStartSeq(), BACKGROUND_CONTEXT)) {
+      const { contextStartSeq } = await this.#options.journalStart();
+      if (await alignJournalContext(harness, root, contextStartSeq, BACKGROUND_CONTEXT)) {
         this.#options.log("pi_root_context_aligned", {});
       }
       const rootSession = await this.#providerSession(harness, root.id, BACKGROUND_CONTEXT);
@@ -2071,7 +2083,7 @@ export class PiConversationRuntime {
   ): Promise<number> {
     const { harness, root } = await this.open();
     const state = await harness.snapshot(JournalSyncDoc, root.id, context);
-    const start = await journalImportAfter(state, () => this.#options.contextStartSeq());
+    const start = await journalImportAfter(state, () => this.#options.journalStart());
     let after = start.after;
     const ran = new Map<string, boolean>();
     for (;;) {
@@ -2089,10 +2101,38 @@ export class PiConversationRuntime {
         messages.push({ seq: record.seq, turnId: record.turnId, role: record.role, hidden: record.hidden === true, message });
       }
       const through: number = page.records.at(-1)?.seq ?? after;
-      await importJournal(harness, root, messages, through, context, start.seededFromSeq);
+      await importJournal(harness, root, messages, through, context, start.seed);
       if (page.complete || through <= after) return through;
       after = through;
     }
+  }
+
+  /**
+   * The root's newest compaction, kept as the conversation's checkpoint for
+   * every other host (`checkpointToPublish`). One of its own prompts is the
+   * input of one of `ownTurnIds`, submitted as `turn:<id>`.
+   */
+  async publishCheckpoint(
+    ownTurnIds: () => readonly string[],
+    store: (summary: string, firstKept: JournalCheckpointFirstKept) => Promise<number | undefined>,
+    context: Context,
+  ): Promise<void> {
+    const { harness, root } = await this.open();
+    const pending = await checkpointToPublish(
+      harness,
+      root,
+      async (prompt) => {
+        for (const turnId of ownTurnIds()) {
+          const submission = await root.commit((tx) => tx.submissionByRequest(root.id, `turn:${turnId}`), context);
+          if (submission?.entry === prompt.id) return { turnId };
+        }
+        return undefined;
+      },
+      context,
+    );
+    if (!pending) return;
+    await store(pending.summary, pending.firstKept);
+    await noteCheckpointPublished(harness, root, pending.markerId, context);
   }
 
   /** Entries of the root conversation as they commit, from `afterEntryId` on. */

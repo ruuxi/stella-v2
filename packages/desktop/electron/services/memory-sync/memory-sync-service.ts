@@ -195,6 +195,8 @@ export class MemorySyncService {
   private polled: Array<() => void> = [];
   private memoriesWatcher: FSWatcher | null = null;
   private disposed = false;
+  /** The account the running pass started in; its requests use only it. */
+  private passSubject: string | null = null;
 
   constructor(private readonly options: MemorySyncServiceOptions) {
     this.local = new LocalMemoryFiles(options.stellaDataDir);
@@ -388,6 +390,12 @@ export class MemorySyncService {
     this.timer = null;
     this.running = this.pass(mode)
       .catch((error: unknown) => {
+        // The account changed mid-pass; the new account's own pass follows.
+        if (!(error instanceof PassStopped)) throw error;
+        this.log("memory_sync.stopped", { reason: error.reason });
+        this.request("full", UNSETTLED_RETRY_MS);
+      })
+      .catch((error: unknown) => {
         this.log("memory_sync.failed", {
           message: error instanceof Error ? error.message : String(error),
         });
@@ -395,6 +403,7 @@ export class MemorySyncService {
         this.request("full", ERROR_RETRY_MS);
       })
       .finally(() => {
+        this.passSubject = null;
         this.running = null;
         if (this.rerun) {
           this.rerun = false;
@@ -414,7 +423,15 @@ export class MemorySyncService {
         baseUrl,
         value: new BackendClient({
           baseUrl,
-          getToken: () => this.options.getAuthToken(),
+          // A pass is bound to the account it started in: a request made
+          // after a switch would carry another account's credentials.
+          getToken: async () => {
+            const token = await this.options.getAuthToken();
+            if (!this.passSubject || tokenSubject(token) !== this.passSubject) {
+              throw new PassStopped("ACCOUNT_CHANGED");
+            }
+            return token;
+          },
         }),
       };
     }
@@ -430,6 +447,7 @@ export class MemorySyncService {
       if (subject) this.request("full", NOT_READY_RETRY_MS);
       return;
     }
+    this.passSubject = subject;
     let state = await this.loadState();
     if (state.owner !== null && state.owner !== subject) {
       this.publish({ phase: "held", heldReason: "other_account" });

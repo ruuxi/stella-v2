@@ -428,6 +428,11 @@ export type RunnerContext = {
       signal?: AbortSignal,
       onUpdate?: ToolUpdateCallback,
     ) => Promise<ToolResult>;
+    /** Stella's managed-shell environment, for CLIs that bring their own shell. */
+    buildAgentShellEnvironment: (
+      context: ToolContext,
+      cwd: string,
+    ) => Record<string, string>;
     /** Attach extension hooks to host-dispatched (nested, voice) tool calls. */
     setToolCallHooks: (hooks: Pick<HookEmitter, "emit"> | undefined) => void;
     endBrowserTurn: (

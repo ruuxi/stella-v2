@@ -254,6 +254,20 @@ export const buildWebRenderer = async (options: WebBuildOptions): Promise<{ file
   );
   const entry = [...chunks.values()].find((chunk) => chunk.isEntry);
   if (!entry) throw new Error("The build produced no entry chunk.");
+  const statsFile = process.env.STELLA_WEB_BUILD_STATS;
+  if (statsFile) {
+    const stats = [...chunks.values()].map((chunk) => ({
+      fileName: chunk.fileName,
+      isEntry: chunk.isEntry,
+      bytes: Buffer.byteLength(chunk.code),
+      imports: chunk.imports,
+      dynamicImports: chunk.dynamicImports,
+      modules: Object.entries(chunk.modules)
+        .map(([id, info]) => ({ id: toPosix(path.relative(repoRoot, id)), bytes: info.renderedLength }))
+        .sort((a, b) => b.bytes - a.bytes),
+    }));
+    fs.writeFileSync(statsFile, JSON.stringify(stats));
+  }
   // Preload the entry's static import graph so it doesn't load as a waterfall.
   const preload = new Set<string>();
   const walk = (fileName: string) => {

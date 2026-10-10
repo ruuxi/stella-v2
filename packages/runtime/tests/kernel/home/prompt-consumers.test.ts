@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { readOrSeedPersonality } from "@stella/runtime/kernel/personality/personality";
 import { defaultPromptForAgentType } from "@stella/runtime/kernel/runner/shared";
-import { resolveThreadCompactionSystemPrompt } from "@stella/runtime/kernel/thread-runtime";
+import { resolveThreadCompactionSystemPrompt } from "@stella/runtime/kernel/thread-compaction-summary";
 
 const roots = new Set<string>();
 

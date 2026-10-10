@@ -86,7 +86,7 @@ describe("reply reference storage", () => {
     }) as unknown as SqliteDatabase;
     initializeDesktopDatabase(db);
     const store = new SessionStore(db);
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "user_message",
       payload: { text: "kept" },
@@ -101,7 +101,9 @@ describe("reply reference storage", () => {
     };
     expect(version.user_version).toBe(SCHEMA_VERSION);
     expect(countRefs(db)).toBe(0);
-    expect(store.listMessages(CONVERSATION).messages).toHaveLength(1);
+    expect(
+      store.messageWindows.listMessages(CONVERSATION).messages,
+    ).toHaveLength(1);
     db.close();
     await rm(rootPath, { recursive: true, force: true });
   });
@@ -109,18 +111,18 @@ describe("reply reference storage", () => {
   it("resolves citations against the conversation and drops unknown targets", () => {
     const { store } = createContext();
     seedAgent(store, "pricing-research", "Pricing research");
-    const user = store.appendEvent({
+    const user = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "user_message",
       payload: { text: "Compare **vendor** pricing for me" },
     });
-    const hidden = store.appendEvent({
+    const hidden = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "user_message",
       payload: { text: "hidden", metadata: { ui: { visibility: "hidden" } } },
     });
     expect(typeof user.sequence).toBe("number");
-    const resolved = store.resolveReplyRefs(CONVERSATION, [
+    const resolved = store.chat.resolveReplyRefs(CONVERSATION, [
       { kind: "message", sequence: user.sequence! },
       { kind: "message", sequence: hidden.sequence! },
       { kind: "message", sequence: 9_999 },
@@ -146,20 +148,22 @@ describe("reply reference storage", () => {
   it("drops the message directly above and falls back to the lifecycle agent", () => {
     const { store } = createContext();
     seedAgent(store, "task-1", "Summarize the report");
-    const user = store.appendEvent({
+    const user = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "user_message",
       payload: { text: "Summarize it" },
     });
     expect(
-      store.resolveReplyRefs(
+      store.chat.resolveReplyRefs(
         CONVERSATION,
         [{ kind: "message", sequence: user.sequence! }],
         { excludeMessageId: user._id },
       ),
     ).toEqual([]);
     expect(
-      store.resolveReplyRefs(CONVERSATION, [], { fallbackAgentId: "task-1" }),
+      store.chat.resolveReplyRefs(CONVERSATION, [], {
+        fallbackAgentId: "task-1",
+      }),
     ).toEqual([
       { kind: "agent", threadId: "task-1", title: "Summarize the report" },
     ]);
@@ -168,16 +172,16 @@ describe("reply reference storage", () => {
   it("indexes refs with the entry, rewrites them on update, and counts replies", () => {
     const { store, db } = createContext();
     seedAgent(store, "task-1", "Summarize the report");
-    const user = store.appendEvent({
+    const user = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "user_message",
       payload: { text: "Summarize it" },
     });
-    const refs = store.resolveReplyRefs(CONVERSATION, [
+    const refs = store.chat.resolveReplyRefs(CONVERSATION, [
       { kind: "message", sequence: user.sequence! },
       { kind: "agent", threadId: "task-1" },
     ]);
-    const reply = store.appendEvent({
+    const reply = store.chat.appendEvent({
       conversationId: CONVERSATION,
       eventId: "assistant-1",
       type: "assistant_message",
@@ -188,12 +192,12 @@ describe("reply reference storage", () => {
       },
     });
     expect(countRefs(db)).toBe(2);
-    expect(store.listReplyCounts(CONVERSATION)).toEqual({
+    expect(store.chat.listReplyCounts(CONVERSATION)).toEqual({
       messages: { [user._id]: 1 },
       agents: { "task-1": 1 },
     });
     // A rewritten row (same id) replaces its refs instead of accumulating.
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: CONVERSATION,
       eventId: reply._id,
       type: "assistant_message",
@@ -206,12 +210,12 @@ describe("reply reference storage", () => {
       },
     });
     expect(countRefs(db)).toBe(1);
-    expect(store.listReplyCounts(CONVERSATION)).toEqual({
+    expect(store.chat.listReplyCounts(CONVERSATION)).toEqual({
       messages: {},
       agents: { "task-1": 1 },
     });
     // A second reply citing the agent bumps the count.
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "assistant_message",
       payload: {
@@ -221,40 +225,40 @@ describe("reply reference storage", () => {
         },
       },
     });
-    expect(store.listReplyCounts(CONVERSATION).agents["task-1"]).toBe(2);
+    expect(store.chat.listReplyCounts(CONVERSATION).agents["task-1"]).toBe(2);
   });
 
   it("returns a message lineage: the root and every reply citing it", () => {
     const { store } = createContext();
-    const asked = store.appendEvent({
+    const asked = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "user_message",
       payload: { text: "What about the Arch package?" },
     });
-    const lookingIntoIt = store.appendEvent({
+    const lookingIntoIt = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "assistant_message",
       payload: { text: "Looking into it.", userMessageId: asked._id },
     });
-    const unrelatedUser = store.appendEvent({
+    const unrelatedUser = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "user_message",
       payload: { text: "Unrelated question" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "assistant_message",
       payload: { text: "Unrelated answer", userMessageId: unrelatedUser._id },
     });
-    const later = store.appendEvent({
+    const later = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "user_message",
       payload: { text: "Any news?" },
     });
-    const refs = store.resolveReplyRefs(CONVERSATION, [
+    const refs = store.chat.resolveReplyRefs(CONVERSATION, [
       { kind: "message", sequence: asked.sequence! },
     ]);
-    const answer = store.appendEvent({
+    const answer = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "assistant_message",
       payload: {
@@ -263,7 +267,7 @@ describe("reply reference storage", () => {
         metadata: { runtime: { replyRefs: refs } },
       },
     });
-    const lineage = store.listLineageMessages(CONVERSATION, {
+    const lineage = store.messageWindows.listLineageMessages(CONVERSATION, {
       root: { kind: "message", id: asked._id },
     });
     expect(lineage.hasOlder).toBe(false);
@@ -277,17 +281,17 @@ describe("reply reference storage", () => {
   it("returns a message lineage that carries updates on the tasks its turn spawned", () => {
     const { store } = createContext();
     seedAgent(store, "pricing-research", "Pricing research");
-    const asked = store.appendEvent({
+    const asked = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "user_message",
       payload: { text: "Compare vendor pricing" },
     });
-    const spawnReply = store.appendEvent({
+    const spawnReply = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "assistant_message",
       payload: { text: "On it.", userMessageId: asked._id },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "agent-started",
       payload: {
@@ -297,20 +301,20 @@ describe("reply reference storage", () => {
         rootRunId: "run-1",
       },
     });
-    const unrelatedUser = store.appendEvent({
+    const unrelatedUser = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "user_message",
       payload: { text: "Something else" },
     });
-    const unrelatedReply = store.appendEvent({
+    const unrelatedReply = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "assistant_message",
       payload: { text: "Sure.", userMessageId: unrelatedUser._id },
     });
-    const refs = store.resolveReplyRefs(CONVERSATION, [], {
+    const refs = store.chat.resolveReplyRefs(CONVERSATION, [], {
       fallbackAgentId: "pricing-research",
     });
-    const completionReply = store.appendEvent({
+    const completionReply = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "assistant_message",
       payload: {
@@ -318,7 +322,7 @@ describe("reply reference storage", () => {
         metadata: { runtime: { replyRefs: refs } },
       },
     });
-    const lineage = store.listLineageMessages(CONVERSATION, {
+    const lineage = store.messageWindows.listLineageMessages(CONVERSATION, {
       root: { kind: "message", id: asked._id },
     });
     expect(lineage.messages.map((m) => m._id)).toEqual([
@@ -326,23 +330,25 @@ describe("reply reference storage", () => {
       spawnReply._id,
       completionReply._id,
     ]);
-    expect(lineage.messages.map((m) => m._id)).not.toContain(unrelatedReply._id);
+    expect(lineage.messages.map((m) => m._id)).not.toContain(
+      unrelatedReply._id,
+    );
   });
 
   it("pages a lineage newest-first on beforeSequence", () => {
     const { store } = createContext();
-    const asked = store.appendEvent({
+    const asked = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "user_message",
       payload: { text: "root" },
     });
-    const refs = store.resolveReplyRefs(CONVERSATION, [
+    const refs = store.chat.resolveReplyRefs(CONVERSATION, [
       { kind: "message", sequence: asked.sequence! },
     ]);
     const replies: string[] = [];
     for (let index = 0; index < 5; index += 1) {
       replies.push(
-        store.appendEvent({
+        store.chat.appendEvent({
           conversationId: CONVERSATION,
           type: "assistant_message",
           payload: {
@@ -352,20 +358,20 @@ describe("reply reference storage", () => {
         })._id,
       );
     }
-    const first = store.listLineageMessages(CONVERSATION, {
+    const first = store.messageWindows.listLineageMessages(CONVERSATION, {
       root: { kind: "message", id: asked._id },
       limit: 2,
     });
     expect(first.hasOlder).toBe(true);
     expect(first.messages.map((m) => m._id)).toEqual(replies.slice(3));
-    const older = store.listLineageMessages(CONVERSATION, {
+    const older = store.messageWindows.listLineageMessages(CONVERSATION, {
       root: { kind: "message", id: asked._id },
       limit: 3,
       beforeSequence: first.messages[0]!.sequence,
     });
     expect(older.hasOlder).toBe(true);
     expect(older.messages.map((m) => m._id)).toEqual(replies.slice(0, 3));
-    const rest = store.listLineageMessages(CONVERSATION, {
+    const rest = store.messageWindows.listLineageMessages(CONVERSATION, {
       root: { kind: "message", id: asked._id },
       limit: 3,
       beforeSequence: older.messages[0]!.sequence,
@@ -377,17 +383,17 @@ describe("reply reference storage", () => {
   it("returns an agent lineage with the spawn turn, cards, and citing replies", () => {
     const { store } = createContext();
     seedAgent(store, "pricing-research", "Pricing research");
-    const asked = store.appendEvent({
+    const asked = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "user_message",
       payload: { text: "Compare vendor pricing" },
     });
-    const spawnReply = store.appendEvent({
+    const spawnReply = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "assistant_message",
       payload: { text: "On it.", userMessageId: asked._id },
     });
-    const started = store.appendEvent({
+    const started = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "agent-started",
       payload: {
@@ -397,17 +403,17 @@ describe("reply reference storage", () => {
         rootRunId: "run-1",
       },
     });
-    const unrelatedUser = store.appendEvent({
+    const unrelatedUser = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "user_message",
       payload: { text: "Something else" },
     });
-    const unrelatedReply = store.appendEvent({
+    const unrelatedReply = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "assistant_message",
       payload: { text: "Sure.", userMessageId: unrelatedUser._id },
     });
-    const completed = store.appendEvent({
+    const completed = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "agent-completed",
       payload: {
@@ -416,10 +422,10 @@ describe("reply reference storage", () => {
         result: "ok",
       },
     });
-    const refs = store.resolveReplyRefs(CONVERSATION, [], {
+    const refs = store.chat.resolveReplyRefs(CONVERSATION, [], {
       fallbackAgentId: "pricing-research",
     });
-    const completionReply = store.appendEvent({
+    const completionReply = store.chat.appendEvent({
       conversationId: CONVERSATION,
       type: "assistant_message",
       payload: {
@@ -436,7 +442,7 @@ describe("reply reference storage", () => {
         },
       },
     });
-    const lineage = store.listLineageMessages(CONVERSATION, {
+    const lineage = store.messageWindows.listLineageMessages(CONVERSATION, {
       root: { kind: "agent", threadId: "pricing-research" },
     });
     expect(lineage.messages.map((m) => m._id)).toEqual([
@@ -466,12 +472,12 @@ describe("reply reference storage", () => {
   it("returns nothing for an unknown root", () => {
     const { store } = createContext();
     expect(
-      store.listLineageMessages(CONVERSATION, {
+      store.messageWindows.listLineageMessages(CONVERSATION, {
         root: { kind: "message", id: "missing" },
       }),
     ).toEqual({ messages: [], visibleMessageCount: 0, hasOlder: false });
     expect(
-      store.listLineageMessages(CONVERSATION, {
+      store.messageWindows.listLineageMessages(CONVERSATION, {
         root: { kind: "agent", threadId: "missing" },
       }),
     ).toEqual({ messages: [], visibleMessageCount: 0, hasOlder: false });

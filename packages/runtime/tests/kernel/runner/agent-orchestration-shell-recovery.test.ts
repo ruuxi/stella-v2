@@ -248,10 +248,12 @@ describe("subagent shell recovery scope", () => {
     const durableSettings = new Map<string, string>();
     const runtimeStore = {
       getAgentRecord: vi.fn(() => null),
-      getSetting: vi.fn((key: string) => durableSettings.get(key) ?? null),
-      setSetting: vi.fn((key: string, value: string) => {
-        durableSettings.set(key, value);
-      }),
+      chat: {
+        getSetting: vi.fn((key: string) => durableSettings.get(key) ?? null),
+        setSetting: vi.fn((key: string, value: string) => {
+          durableSettings.set(key, value);
+        }),
+      },
     };
     const context = {
       stellaDataDir: "/tmp/stella-data",
@@ -326,7 +328,7 @@ describe("subagent shell recovery scope", () => {
       error: "Canceled by placement",
       threadId: "placement-agent:exact-pre-cancel",
     });
-    expect(runtimeStore.setSetting).toHaveBeenCalledOnce();
+    expect(runtimeStore.chat.setSetting).toHaveBeenCalledOnce();
     expect(createAgent).not.toHaveBeenCalled();
     expect(restartedCreateAgent).not.toHaveBeenCalled();
     expect(cancelAgent).not.toHaveBeenCalled();
@@ -351,10 +353,12 @@ describe("subagent shell recovery scope", () => {
         conversationCallbacks: new Map(),
       },
       runtimeStore: {
-        getSetting: vi.fn((key: string) => durableSettings.get(key) ?? null),
-        setSetting: vi.fn((key: string, value: string) => {
-          durableSettings.set(key, value);
-        }),
+        chat: {
+          getSetting: vi.fn((key: string) => durableSettings.get(key) ?? null),
+          setSetting: vi.fn((key: string, value: string) => {
+            durableSettings.set(key, value);
+          }),
+        },
         getAgentRecord: vi.fn(() =>
           created
             ? {

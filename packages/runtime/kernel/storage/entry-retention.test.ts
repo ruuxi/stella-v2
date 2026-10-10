@@ -87,15 +87,17 @@ const seedConversation = (
   for (let turn = 0; turn < 3; turn += 1) {
     const t = base + turn * 100;
     const runId = `run-${conversationId}-${turn}`;
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "user_message",
       eventId: `${conversationId}-user-${turn}`,
       timestamp: t,
       payload: { text: `question ${turn} about zebra migrations` },
     });
-    insertLegacyRunEvent(db, conversationId, runId, t + 1, { type: "run_start" });
-    store.appendEvent({
+    insertLegacyRunEvent(db, conversationId, runId, t + 1, {
+      type: "run_start",
+    });
+    store.chat.appendEvent({
       conversationId,
       type: "tool_request",
       eventId: `${conversationId}-tool-req-${turn}`,
@@ -108,7 +110,7 @@ const seedConversation = (
       toolCallId: `call-${turn}`,
       toolName: "Bash",
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "tool_result",
       eventId: `${conversationId}-tool-res-${turn}`,
@@ -122,7 +124,7 @@ const seedConversation = (
       resultPreview: "ok",
     });
     if (turn === 1) {
-      store.appendEvent({
+      store.chat.appendEvent({
         conversationId,
         type: "agent-started",
         eventId: `${conversationId}-agent-started`,
@@ -130,12 +132,15 @@ const seedConversation = (
         payload: { agentId: "thread-a", description: "look into zebras" },
       });
     }
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       eventId: `${conversationId}-assistant-${turn}`,
       timestamp: t + 7,
-      payload: { text: `answer ${turn}: zebra stripes`, userMessageId: `${conversationId}-user-${turn}` },
+      payload: {
+        text: `answer ${turn}: zebra stripes`,
+        userMessageId: `${conversationId}-user-${turn}`,
+      },
     });
     // The legacy writer's run_end landed after the reply, so the newest
     // entry in a conversation was usually a run_event.
@@ -147,35 +152,43 @@ const seedConversation = (
 };
 
 const snapshot = (store: SessionStore, threadKey: string) => {
-  const events = store.listEvents(CONVERSATION, 500);
+  const events = store.chat.listEvents(CONVERSATION, 500);
   const pivot = events[4]!;
   const firstUser = events.find((event) => event.type === "user_message")!;
   return {
     events,
-    eventsBefore: store.listEventsBefore(CONVERSATION, {
+    eventsBefore: store.chat.listEventsBefore(CONVERSATION, {
       beforeTimestampMs: pivot.timestamp,
       beforeId: pivot._id,
       limit: 3,
     }),
-    eventCount: store.getEventCount(CONVERSATION),
-    syncMessages: store.listSyncMessages(CONVERSATION),
-    messages: store.listMessages(CONVERSATION, { maxVisibleMessages: 50 }),
-    messagesAfter: store.listMessagesAfter(CONVERSATION, {
+    eventCount: store.chat.getEventCount(CONVERSATION),
+    syncMessages: store.chat.listSyncMessages(CONVERSATION),
+    messages: store.messageWindows.listMessages(CONVERSATION, {
+      maxVisibleMessages: 50,
+    }),
+    messagesAfter: store.messageWindows.listMessagesAfter(CONVERSATION, {
       afterTimestampMs: firstUser.timestamp,
       afterId: firstUser._id,
       afterSequence: firstUser.sequence,
       maxVisibleMessages: 50,
     }),
-    messagesAfterWithoutSource: store.listMessagesAfter(CONVERSATION, {
-      afterTimestampMs: firstUser.timestamp,
-      afterId: firstUser._id,
-      afterSequence: firstUser.sequence,
-      maxVisibleMessages: 50,
-      includeSourceEvents: false,
+    messagesAfterWithoutSource: store.messageWindows.listMessagesAfter(
+      CONVERSATION,
+      {
+        afterTimestampMs: firstUser.timestamp,
+        afterId: firstUser._id,
+        afterSequence: firstUser.sequence,
+        maxVisibleMessages: 50,
+        includeSourceEvents: false,
+      },
+    ),
+    activity: store.chat.listActivity(CONVERSATION),
+    recentActivity: store.chat.listRecentActivitySince({
+      sinceMs: 0,
+      limit: 500,
     }),
-    activity: store.listActivity(CONVERSATION),
-    recentActivity: store.listRecentActivitySince({ sinceMs: 0, limit: 500 }),
-    summaries: store.listConversationSummaries({}),
+    summaries: store.chat.listConversationSummaries({}),
     thread: store.loadThreadMessages(threadKey),
   };
 };
@@ -226,7 +239,7 @@ describe("sweepLegacyRunEventEntries", () => {
     counts: Record<string, number>,
   ) => {
     for (const [conversationId, count] of Object.entries(counts)) {
-      store.appendEvent({
+      store.chat.appendEvent({
         conversationId,
         type: "user_message",
         eventId: `${conversationId}-user`,
@@ -234,9 +247,15 @@ describe("sweepLegacyRunEventEntries", () => {
         payload: { text: "hi" },
       });
       for (let index = 0; index < count; index += 1) {
-        insertLegacyRunEvent(db, conversationId, `run-${conversationId}`, 2 + index, {
-          type: "tool_end",
-        });
+        insertLegacyRunEvent(
+          db,
+          conversationId,
+          `run-${conversationId}`,
+          2 + index,
+          {
+            type: "tool_end",
+          },
+        );
       }
     }
   };
@@ -260,8 +279,8 @@ describe("sweepLegacyRunEventEntries", () => {
     expect(perTransaction.filter((n) => n > 0)).toEqual([10, 10, 10, 7]);
     expect(countRunEvents(db)).toBe(0);
     // Only run_event rows go.
-    expect(store.getEventCount(CONVERSATION)).toBe(1);
-    expect(store.getEventCount(OTHER_CONVERSATION)).toBe(1);
+    expect(store.chat.getEventCount(CONVERSATION)).toBe(1);
+    expect(store.chat.getEventCount(OTHER_CONVERSATION)).toBe(1);
   });
 
   test("each batch seeks the (conversation_id, type, seq) index", () => {
@@ -298,7 +317,10 @@ describe("sweepLegacyRunEventEntries", () => {
     expect(busyAfterTwo).toEqual({ deleted: 20, batches: 2, outcome: "busy" });
     expect(countRunEvents(db)).toBe(10);
 
-    const rest = await sweepLegacyRunEventEntries(db, { batchSize: 10, pauseMs: 0 });
+    const rest = await sweepLegacyRunEventEntries(db, {
+      batchSize: 10,
+      pauseMs: 0,
+    });
     expect(rest).toEqual({ deleted: 10, batches: 1, outcome: "complete" });
     expect(countRunEvents(db)).toBe(0);
   });

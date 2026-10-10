@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import {
   decodeServerFrame,
   type JournalRecord,
-} from "../../../src/features/cloud/conversation-protocol";
+} from "@stella/contracts/conversation-protocol";
 import {
   ConversationSocket,
   type ConversationSocketEvent,

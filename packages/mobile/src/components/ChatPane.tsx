@@ -1,15 +1,13 @@
-import { AssistantBubble, SENT_BUBBLE_POP, useBubblePop } from "./BubblePop";
 import type { ReplyRef } from "@stella/contracts/reply-refs";
-import { cloudWorldDrivePath } from "@stella/contracts/cloud-world-paths";
 import { AgentReportSheet, ReplyFocus, type AgentReplyRef } from "./ReplyFocus";
-import { ReplyPreview, replyTitle, type ReplyAgentStatus } from "./ReplyPreview";
-import { ReplyFilePills } from "./ReplyFilePills";
-import { mobileReplyContexts, type MobileReplyContexts } from "../lib/mobile-reply-context";
+import { type ReplyAgentStatus } from "./ReplyPreview";
+import {
+  mobileReplyContexts,
+  type MobileReplyContexts,
+} from "../lib/mobile-reply-context";
 import { useAgentReplyTitles } from "../lib/use-agent-reply-titles";
 import {
   type ReactNode,
-  type Ref,
-  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -17,39 +15,28 @@ import {
   useState,
 } from "react";
 import {
-  ActivityIndicator,
   Alert,
-  Animated,
-  Dimensions,
-  Easing,
-  FlatList,
   type GestureResponderEvent,
   Keyboard,
   LayoutChangeEvent,
   LayoutAnimation,
   Linking,
-  type ListRenderItemInfo,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
   Pressable,
-  ScrollView,
   Share,
   StyleSheet,
   Text,
-  type TextLayoutEventData,
   TextInput,
-  type TextInputProps,
   UIManager,
   useWindowDimensions,
   View,
 } from "react-native";
 import {
   LegendList,
-  type LegendListRef,
   type LegendListRenderItemProps,
 } from "@legendapp/list/react-native";
-import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import MaskedView from "@react-native-masked-view/masked-view";
 import * as Clipboard from "expo-clipboard";
@@ -63,7 +50,6 @@ import {
 } from "../lib/chat-attachments";
 import { useT } from "../i18n";
 import {
-  useChatDraft,
   useChatDraftSelector,
   type ChatDraftStore,
 } from "../lib/chat-draft-store";
@@ -71,57 +57,62 @@ import Reanimated, {
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
-  withSpring,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AddContextSheet } from "./AddContextSheet";
-import { Icon, type IconName } from "./Icon";
-import { GlassSurface, liquidGlassSupported } from "./glass";
-import { AssistantMarkdown } from "./AssistantMarkdown";
-import { assistantBubbleNeedsBoundedWidth } from "../lib/assistant-bubble-layout";
-import { AssistantTextSelection } from "./AssistantTextSelection";
-import { extractPlainText } from "react-native-nitro-markdown";
+import { Icon } from "./Icon";
 import {
   formatTimestampHeader,
   readReceipt,
   timestampHeaders,
 } from "../lib/message-time-labels";
 import {
-  MESSAGE_PRESS_SCALE,
   MessageContextMenu,
   type MessageMenuAction,
 } from "./MessageContextMenu";
 import { AppBackdrop } from "./AppBackdrop";
 import { useShellTopInset } from "./MainScreenSurface";
 import { useKeyboardHandler } from "react-native-keyboard-controller";
-import { MessageEvidenceStrip } from "./evidence/MessageEvidenceStrip";
-import { artifactPrimaryFilePath } from "../lib/mobile-artifacts";
-import { AppPreviewCard } from "./AppPreviewCard";
-import { extractStellaAppLinkSlugs } from "@stella/contracts/workspace-apps";
+import type { UserAskRecord } from "@stella/contracts/user-ask-deck";
+import {
+  useConversationUserAskRecords,
+  useConversationUserAsks,
+} from "../lib/user-asks";
+import { UserAskRecordView } from "./UserAskCard";
+import { consolidateRowArtifacts } from "../lib/agent-artifact-consolidation";
+import {
+  ASSISTANT_ROW_PAD_VERTICAL,
+  ChatMessageRow,
+  rowCompletionQuotes,
+  MessageEntry,
+  carryCompletionQuotes,
+  makeMessageRowStyles,
+  type MessageMenuRequest,
+  type MessageRowActions,
+} from "./chat/MessageRow";
+import {
+  CHAT_HORIZONTAL_INSET,
+  Composer,
+  type ComposerModelPickerConfig,
+  LAYOUT_SPRING,
+  draftHasText,
+  isDraftEmpty,
+} from "./chat/Composer";
+import { CatchUpPill, ScrollToBottomFab } from "./chat/FloatingControls";
+import {
+  type AnchorRect,
+  type PlusMenuOption,
+  PlusMenuPopover,
+} from "./chat/PlusMenu";
+import { ChatSearchResults, useChatSearchResults } from "./chat/Search";
 import { stellaFileChatArtifact } from "../lib/stella-file-links";
-import {
-  extractLocalFileLinkPaths,
-  unlinkLocalFileLinks,
-} from "@stella/contracts/local-file-links";
-import {
-  resolveCloudDriveFileUri,
-  useCloudDriveFileUri,
-} from "../lib/use-cloud-drive-file-uri";
-import { MapRouteCard } from "./MapRouteCard";
-import { scheduleReceiptText } from "../lib/schedule-receipt-summary";
 import { useCatchUpIndicatorVisible } from "../lib/catch-up-indicator";
 import { ChatHistoryPaging } from "../lib/chat-history-paging";
 import {
-  isStandInArtifactRow,
   markPrependedMessagesSeen,
   shouldAnimateMessageEntry,
   visibleChatMessages,
 } from "../lib/message-row-identity";
-import {
-  inlineAgentWorkCardSections,
-  consolidateRowArtifacts,
-} from "../lib/agent-artifact-consolidation";
-import { DictationRecordingBar } from "./DictationRecordingBar";
 import { RealtimeVoiceOverlay } from "./RealtimeVoiceOverlay";
 import {
   getVoiceEnabled,
@@ -138,19 +129,11 @@ import { canSubmitFinalizedDictation } from "../lib/dictation-send";
 import { hasAiConsent, requestAiConsent } from "../lib/ai-consent";
 import type { RealtimeVoiceActionDispatch } from "../lib/realtime-voice-protocol";
 import type { StoredPhoneAccess } from "../lib/phone-access";
-import {
-  bytesToDataUri,
-  readLinkedArtifactFile,
-} from "../lib/desktop-artifact-data";
-import { isDeviceOfflineError } from "../lib/device-requests";
 import { useChatSearch } from "../lib/chat-search";
-import { resolveComposerExpanded } from "../lib/composer-model-layout";
-import {
-  canStartPostSendPlacement,
-  resolvePostSendPlacement,
-  shouldPlaceLatestTurn,
-} from "../lib/chat-post-send-placement";
+import { canStartPostSendPlacement } from "../lib/chat-post-send-placement";
 import { resolveChatDataChangeScrollOwner } from "../lib/chat-scroll-ownership";
+import { useChatScroll } from "../lib/use-chat-scroll";
+import { useKeyboardInset } from "../lib/use-keyboard-inset";
 import { notifySuccess, tapMedium, tapLight } from "../lib/haptics";
 import {
   pauseReadAloud,
@@ -162,32 +145,15 @@ import {
   useReadAloudPreference,
 } from "../lib/read-aloud";
 import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
-import {
-  isUserMessageTruncatable,
-  shouldRemeasureUserMessageWidth,
-  userMessageNumberOfLines,
-} from "../lib/user-message-clamp";
 import { type Colors } from "../theme/colors";
 import { useColors } from "../theme/theme-context";
-import { fadeHex } from "../theme/oklch";
 import { fonts } from "../theme/fonts";
-import type { UserAskRecord } from "@stella/contracts/user-ask-deck";
-import {
-  useConversationUserAskRecords,
-  useConversationUserAsks,
-} from "../lib/user-asks";
-import { UserAskRecordView } from "./UserAskCard";
 import type {
   ChatArtifact,
   ChatMessage,
   ComposerQuote,
   MobileTask,
 } from "../types";
-
-const describePastedText = (pasted: { lines: number; chars: number }): string =>
-  pasted.lines > 1
-    ? `${pasted.lines.toLocaleString()} lines`
-    : `${pasted.chars.toLocaleString()} chars`;
 
 // Required for LayoutAnimation on Android.
 if (
@@ -197,59 +163,6 @@ if (
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-// ---------------------------------------------------------------------------
-// Constants — mapped from desktop full-shell.composer.css
-// ---------------------------------------------------------------------------
-
-/**
- * Content-height threshold for pill → expanded.
- * RN `onContentSizeChange` reports raw text height (no padding).
- * fontSize 16 × lineHeight ~22 ≈ 22 per line; trip on the second line so
- * wrapping immediately grows the composer instead of clipping behind the
- * send button.
- */
-const EXPAND_THRESHOLD = 30;
-/** Tallest the typed text area grows before it scrolls inside the composer. */
-const COMPOSER_INPUT_MAX_HEIGHT = 200;
-/**
- * Tallest a live dictation transcript grows in an empty composer (eight
- * transcript lines, inside the typed area's cap) before it scrolls.
- */
-const DICTATION_INLINE_MAX_HEIGHT = 168;
-/**
- * Tallest a live transcript grows under already-typed text (three lines),
- * which has its own cap above it.
- */
-const DICTATION_BELOW_MAX_HEIGHT = 63;
-/** LayoutAnimation config matching the same 350ms critically-damped spring. */
-const LAYOUT_SPRING = {
-  duration: 350,
-  update: { type: LayoutAnimation.Types.spring, springDamping: 1 },
-  create: {
-    type: LayoutAnimation.Types.spring,
-    springDamping: 1,
-    property: LayoutAnimation.Properties.opacity,
-  },
-  delete: {
-    type: LayoutAnimation.Types.spring,
-    springDamping: 1,
-    property: LayoutAnimation.Properties.opacity,
-  },
-};
-
-/**
- * Extra breathing room beyond the list's trailing slack (the chat tail +
- * measured composer height). The slack is empty scrollable padding so messages
- * can sit above the overlay — without adding it, "near bottom" never engages
- * in the normal reading position (desktop `followRearmThreshold` does the same).
- */
-const SCROLL_NEAR_BOTTOM_BASE_PX = 96;
-/** Base distance before showing the scroll-to-bottom FAB (plus trailing slack). */
-const SCROLL_AWAY_FROM_BOTTOM_BASE_PX = 96;
-/** Re-arm stream auto-follow once the user scrolls back to the true bottom. */
-const SCROLL_AT_BOTTOM_THRESHOLD = 8;
-/** Quiet window after the last gesture frame before momentum is considered done. */
-const MANUAL_SCROLL_SETTLE_MS = 140;
 /**
  * Quiet window after the footer stops shrinking before we commit the smaller
  * height to the list inset. A collapse animation emits a burst of intermediate
@@ -258,57 +171,6 @@ const MANUAL_SCROLL_SETTLE_MS = 140;
  * spring's tail so we settle on the resting height, not a mid-animation one.
  */
 const FOOTER_SHRINK_SETTLE_MS = 140;
-/** Native animation guard so stream-follow lag is not mistaken for scrollback. */
-const FOLLOW_NATIVE_ANIMATION_GUARD_MS = 320;
-const FOLLOW_HARD_SNAP_PX = 240;
-const FOLLOW_TARGET_EPSILON_PX = 0.5;
-const FOLLOW_TOP_PEEK_PX = 56;
-
-/**
- * Auto-follow motion model — ported from desktop's "continuous spring glide".
- *
- * Streaming content grows in discrete, irregular bursts (a line / a few tokens
- * at a time). A naive "ease toward the new bottom with an animated scroll, then
- * stop" follow restarts a native ease per chunk and crawls the last few pixels
- * asymptotically, so back-to-back short bumps read as a start/stop stutter.
- *
- * Instead we drive the offset ourselves each frame from a critically-damped
- * spring whose velocity *persists* across frames and across chunk boundaries: a
- * new chunk just moves the target, and because the spring is still carrying
- * velocity from the previous chunk the motion blends into one continuous glide.
- * Acceleration scales with the gap (`stiffness · diff`), so a big burst still
- * catches up quickly while a slow trickle glides gently — no asymptotic crawl,
- * no per-chunk restart. Critical damping (`damping ≈ 2·√stiffness`) settles
- * without overshoot. The loop stays warm for `FOLLOW_STREAM_IDLE_MS` after the
- * last growth so a slow stream doesn't re-settle per line, then eases to rest.
- * Above `FOLLOW_HARD_SNAP_PX` we land directly — that far off, any glide would
- * leave the streamed text below the viewport for too many frames.
- */
-const FOLLOW_SPRING_STIFFNESS = 0.00026; // px/ms² per px of gap (~250ms settle)
-const FOLLOW_SPRING_DAMPING = 0.0322; // ≈ 2·√stiffness → critically damped
-/** Keep gliding this long after the last content growth before settling to rest. */
-const FOLLOW_STREAM_IDLE_MS = 200;
-/** Clamp per-frame dt so a JS-thread / GC pause can't fling the viewport. */
-const FOLLOW_MAX_FRAME_MS = 48;
-/** Assumed dt for the first frame of a glide (before two timestamps exist). */
-const FOLLOW_DEFAULT_FRAME_MS = 16;
-/** Minimum per-frame step so the loop never stalls on sub-pixel rounding. */
-const FOLLOW_MIN_STEP_PX = 0.5;
-/**
- * Gentle one-shot profile for the post-send nudge — a single settle into the
- * reading position with no streaming pressure, so a slow constant ease-out
- * reads better than the stream-tuned spring. If a stream chunk arrives mid-nudge
- * its (non-gentle) target update clears the gentle flag and the spring takes
- * over on the same loop instead of fighting.
- */
-const FOLLOW_GENTLE_LERP_FACTOR = 0.12;
-/**
- * How long after a send the latest user row's layout changes may re-run the
- * post-send placement. Covers the four-line clamp collapsing a long message a
- * few frames after the anchor was first computed, without letting much later
- * layout churn (e.g. a "Show more" tap) yank the scroll position around.
- */
-const POST_SEND_REANCHOR_WINDOW_MS = 1500;
 
 const EDGE_FADE = 48;
 /**
@@ -319,15 +181,12 @@ const LIST_TOP_GAP = 84;
 /** How far below the top bar the scrolled-under fade reaches. */
 const TOP_TAPER_TAIL = 24;
 const CATCH_UP_PILL_GAP = 10;
-const SEARCH_DROPDOWN_GAP = 6;
 /** LegendList's data-change tail pin, hoisted so it keeps one identity. */
 const LEGEND_TAIL_SCROLL_AT_END = {
   animated: false,
   on: { dataChange: true, itemLayout: false, layout: false },
 } as const;
 const MESSAGE_LIST_GAP = 10;
-/** `assistantRow`'s vertical padding, part of the visible gap between bubbles. */
-const ASSISTANT_ROW_PAD_VERTICAL = 2;
 /**
  * Fixed reading-area floor below the last message (desktop's
  * `.event-list-trailing-region` `min-height`). The inline working indicator
@@ -351,693 +210,6 @@ const CHAT_TAIL_GAP = WORKING_INDICATOR_SLOT_HEIGHT + 12;
 const FLOATING_CONTROL_LIFT = WORKING_INDICATOR_SLOT_HEIGHT;
 /** Cancels the shell `content` padding so chat owns its horizontal inset. */
 const SHELL_CONTENT_PADDING = 20;
-/** Horizontal inset from the true screen edge once shell padding is cancelled. */
-const CHAT_HORIZONTAL_INSET = 12;
-/**
- * How long a finger must rest on a message before its press shrink starts.
- * Longer than a tap and than the moment a drag turns into a list scroll.
- */
-const MESSAGE_HOLD_MS = 180;
-/** When the long-press menu opens; the shrink fills the time after the hold. */
-const MESSAGE_LONG_PRESS_MS = 420;
-
-// ---------------------------------------------------------------------------
-// Keyboard inset — keeps the composer and message list above the OS keyboard.
-//
-// The *motion* of the composer and the message list is driven on the UI thread
-// from one value, the keyboard's height as react-native-keyboard-controller
-// reads it from the keyboard's own animation every frame (see `keyboardLift`),
-// so both move with the keyboard frame for frame and together. Nothing here
-// may re-render or re-lay-out the chat while the keyboard animates: the
-// keyboard moves in the render server regardless, and any main-thread layout
-// work left the composer frozen behind it while the list jumped ahead. So this
-// hook only publishes the settled height as JS state after the animation ends.
-// ---------------------------------------------------------------------------
-
-function useKeyboardInset() {
-  const bottomInset = useSafeAreaInsets().bottom;
-  const [height, setHeight] = useState(0);
-
-  useEffect(() => {
-    const onDidShow = (e: { endCoordinates: { height: number } }) => {
-      setHeight(e.endCoordinates.height);
-    };
-    const onDidHide = () => setHeight(0);
-
-    const subs = [
-      Keyboard.addListener("keyboardDidShow", onDidShow),
-      Keyboard.addListener("keyboardDidHide", onDidHide),
-    ];
-
-    return () => {
-      for (const sub of subs) sub.remove();
-    };
-  }, []);
-
-  const open = height > 0;
-  // The composer's bottom pad is keyboard-independent: it always reserves the
-  // home-indicator safe area. When the keyboard is up the composer is lifted
-  // clear of it by `composerKeyboardStyle` (by `keyboardHeight - bottomInset`),
-  // so that reserved band lands inside the keyboard region — a constant 6pt
-  // gap sits above the keyboard either way, with no per-state padding swap to
-  // animate.
-  const composerBottomPad = 6 + bottomInset;
-
-  return { height, open, composerBottomPad };
-}
-
-// ---------------------------------------------------------------------------
-// Scroll — manual by default; smooth auto-follow while assistant streams in
-// near the bottom.
-// ---------------------------------------------------------------------------
-
-function useChatScroll(
-  listTrailingSlackPx: number,
-  trailingMessageId: string | null,
-  listLeadingInsetPx: number,
-) {
-  const listRef = useRef<LegendListRef>(null);
-  const listTrailingSlackRef = useRef(listTrailingSlackPx);
-  listTrailingSlackRef.current = listTrailingSlackPx;
-  const listLeadingInsetRef = useRef(listLeadingInsetPx);
-  listLeadingInsetRef.current = listLeadingInsetPx;
-  const [awayFromBottom, setAwayFromBottom] = useState(false);
-  const nearBottomLimit = SCROLL_NEAR_BOTTOM_BASE_PX + listTrailingSlackPx;
-  const atBottomLimit = SCROLL_AT_BOTTOM_THRESHOLD + listTrailingSlackPx;
-  const awayFromBottomLimit =
-    SCROLL_AWAY_FROM_BOTTOM_BASE_PX + listTrailingSlackPx;
-  const metricsRef = useRef({ offsetY: 0, contentHeight: 0, layoutHeight: 0 });
-  const contentHeightRef = useRef(0);
-  const followArmedRef = useRef(true);
-  const [isFollowingLatest, setIsFollowingLatest] = useState(true);
-  const followRearmBlockedRef = useRef(false);
-  const followTargetOffsetRef = useRef<number | null>(null);
-  const followRafRef = useRef(0);
-  const followAnimatingUntilMsRef = useRef(0);
-  const activeAssistantHeightRef = useRef(0);
-  const latestUserLayoutRef = useRef<{ id: string; height: number } | null>(
-    null,
-  );
-  /**
-   * Live post-send anchor. Placement re-runs from the latest user row's own
-   * `onLayout` and list content-size events until its geometry settles. Both
-   * the four-line clamp and composer collapse can change the target after
-   * the initial paint.
-   */
-  const pendingSendAnchorRef = useRef<{
-    userMessageId: string;
-    placedRowHeightPx: number | null;
-    staleAtMs: number;
-  } | null>(null);
-  const placeLatestTurnRafRef = useRef(0);
-  const trailingMessageIdRef = useRef(trailingMessageId);
-  trailingMessageIdRef.current = trailingMessageId;
-  /** Content height before the next assistant-driven layout pass. */
-  const assistantLayoutBaselineRef = useRef<number | null>(null);
-  /** True while the user's finger is actively dragging the list. */
-  const isDraggingRef = useRef(false);
-  /** Holds through drag momentum so an upward fling still blocks re-arming. */
-  const manualScrollActiveRef = useRef(false);
-  const manualScrollSettleTimerRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
-  /** Spring velocity (px/ms) — persists across frames and chunk boundaries. */
-  const followVelRef = useRef(0);
-  /** Offset we last committed; the spring integrates from here, not laggy native. */
-  const followCurrentRef = useRef(0);
-  /** Timestamp of the previous glide frame, for dt. 0 = first frame. */
-  const lastFrameTimeRef = useRef(0);
-  /** Timestamp of the last content growth, to keep the loop warm between lines. */
-  const lastTargetTimeRef = useRef(0);
-  /** Gentle one-shot (post-send) vs. stream spring profile. */
-  const followGentleRef = useRef(false);
-
-  const setFollowArmed = useCallback((armed: boolean) => {
-    if (followArmedRef.current === armed) return;
-    followArmedRef.current = armed;
-    setIsFollowingLatest(armed);
-  }, []);
-
-  const stopFollowLoop = useCallback(() => {
-    if (followRafRef.current) {
-      cancelAnimationFrame(followRafRef.current);
-      followRafRef.current = 0;
-    }
-    followTargetOffsetRef.current = null;
-    followAnimatingUntilMsRef.current = 0;
-    followVelRef.current = 0;
-    lastFrameTimeRef.current = 0;
-    lastTargetTimeRef.current = 0;
-    followGentleRef.current = false;
-  }, []);
-
-  useEffect(
-    () => () => {
-      stopFollowLoop();
-      if (manualScrollSettleTimerRef.current) {
-        clearTimeout(manualScrollSettleTimerRef.current);
-      }
-      if (placeLatestTurnRafRef.current) {
-        cancelAnimationFrame(placeLatestTurnRafRef.current);
-      }
-    },
-    [stopFollowLoop],
-  );
-
-  const scheduleManualScrollSettle = useCallback(() => {
-    if (manualScrollSettleTimerRef.current) {
-      clearTimeout(manualScrollSettleTimerRef.current);
-    }
-    manualScrollSettleTimerRef.current = setTimeout(() => {
-      manualScrollSettleTimerRef.current = null;
-      if (!isDraggingRef.current) {
-        manualScrollActiveRef.current = false;
-      }
-    }, MANUAL_SCROLL_SETTLE_MS);
-  }, []);
-
-  const onScroll = useCallback(
-    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-      const previousOffsetY = metricsRef.current.offsetY;
-      const offsetDelta = contentOffset.y - previousOffsetY;
-      metricsRef.current = {
-        offsetY: contentOffset.y,
-        contentHeight: contentSize.height,
-        layoutHeight: layoutMeasurement.height,
-      };
-      contentHeightRef.current = contentSize.height;
-
-      // iOS rubber-band: after overscrolling past the tail the list springs
-      // back upward. That return is not a scrollback and must not block
-      // re-arming, or follow stays released while the user sits at the end.
-      const maxOffsetY = Math.max(
-        0,
-        contentSize.height - layoutMeasurement.height,
-      );
-      const bouncingBackFromTail = previousOffsetY > maxOffsetY + 0.5;
-
-      if (manualScrollActiveRef.current) {
-        scheduleManualScrollSettle();
-        if (offsetDelta < -0.5 && !bouncingBackFromTail) {
-          followRearmBlockedRef.current = true;
-        } else if (offsetDelta > 0.5) {
-          followRearmBlockedRef.current = false;
-        }
-      }
-
-      const hasOverflow = contentSize.height > layoutMeasurement.height + 2;
-      const distFromBottom = Math.max(
-        0,
-        contentSize.height - contentOffset.y - layoutMeasurement.height,
-      );
-
-      // Re-arm the follow latch when the user returns to the true tail. The
-      // wider near-bottom band can still follow while armed, but it should not
-      // re-enable follow after an intentional scrollback. Never re-arm while a
-      // drag is in flight — otherwise the first few pixels of an upward drag
-      // (still inside the at-bottom band) re-engage follow and the next
-      // streaming layout yanks the user straight back down.
-      if (distFromBottom <= atBottomLimit) {
-        if (!isDraggingRef.current && !followRearmBlockedRef.current) {
-          setFollowArmed(true);
-        }
-      } else if (
-        distFromBottom > nearBottomLimit &&
-        pendingSendAnchorRef.current === null &&
-        followTargetOffsetRef.current === null &&
-        !followRafRef.current &&
-        Date.now() > followAnimatingUntilMsRef.current
-      ) {
-        setFollowArmed(false);
-        stopFollowLoop();
-      }
-
-      setAwayFromBottom(hasOverflow && distFromBottom > awayFromBottomLimit);
-    },
-    [
-      atBottomLimit,
-      awayFromBottomLimit,
-      nearBottomLimit,
-      scheduleManualScrollSettle,
-      setFollowArmed,
-      stopFollowLoop,
-    ],
-  );
-
-  const resetAssistantAutoScroll = useCallback(() => {
-    // Reset per-row measurements without claiming follow ownership. A fresh
-    // assistant row may arrive while the user is reading history; only an
-    // explicit tail action may re-arm that released latch.
-    assistantLayoutBaselineRef.current = null;
-    activeAssistantHeightRef.current = 0;
-    if (!pendingSendAnchorRef.current) stopFollowLoop();
-  }, [stopFollowLoop]);
-
-  const releaseFollow = useCallback(() => {
-    pendingSendAnchorRef.current = null;
-    followRearmBlockedRef.current = true;
-    setFollowArmed(false);
-    stopFollowLoop();
-  }, [setFollowArmed, stopFollowLoop]);
-
-  // The user grabbed the list — drop follow immediately and remember the drag
-  // is live so `onScroll` won't re-arm until the gesture settles.
-  const onScrollBeginDrag = useCallback(() => {
-    isDraggingRef.current = true;
-    manualScrollActiveRef.current = true;
-    // The user owns the scroll now — a late post-send re-anchor must not
-    // fight the gesture.
-    pendingSendAnchorRef.current = null;
-    if (manualScrollSettleTimerRef.current) {
-      clearTimeout(manualScrollSettleTimerRef.current);
-      manualScrollSettleTimerRef.current = null;
-    }
-    // Pause follow immediately, but only an actual upward delta should block
-    // it from re-arming when a tap/drag gesture ends at the live tail.
-    setFollowArmed(false);
-    stopFollowLoop();
-  }, [setFollowArmed, stopFollowLoop]);
-
-  // Gesture settled (lift, or end of momentum). Clear the drag flag and re-arm
-  // only if the user came to rest at the true tail.
-  const onScrollSettle = useCallback(() => {
-    isDraggingRef.current = false;
-    scheduleManualScrollSettle();
-    const { offsetY, contentHeight, layoutHeight } = metricsRef.current;
-    const distFromBottom = Math.max(0, contentHeight - offsetY - layoutHeight);
-    // Coming to rest anywhere inside the near-bottom band re-arms follow —
-    // the same band `onScroll` uses to release it. Re-arming only at the
-    // exact tail left a dead zone where the user was visibly at the bottom
-    // but new messages never scrolled into view.
-    if (distFromBottom <= nearBottomLimit) {
-      followRearmBlockedRef.current = false;
-      setFollowArmed(true);
-    }
-  }, [nearBottomLimit, scheduleManualScrollSettle, setFollowArmed]);
-
-  /** Call when assistant text grows, before layout measures the new height. */
-  const prepareAssistantLayoutFollow = useCallback(() => {
-    assistantLayoutBaselineRef.current = contentHeightRef.current;
-  }, []);
-
-  // Drive the list to `offset` directly (no native animation) — the spring owns
-  // the motion, so each frame just commits the integrated position. We treat the
-  // committed offset as the source of truth during a glide because native
-  // `onScroll` read-back lags a frame or two behind.
-  const commitOffset = useCallback((offset: number) => {
-    followCurrentRef.current = offset;
-    metricsRef.current.offsetY = offset;
-    followAnimatingUntilMsRef.current =
-      Date.now() + FOLLOW_NATIVE_ANIMATION_GUARD_MS;
-    listRef.current?.scrollToOffset({ offset, animated: false });
-  }, []);
-
-  const updateAwayFromBottom = useCallback(
-    (offset: number) => {
-      const { layoutHeight } = metricsRef.current;
-      const contentHeight = contentHeightRef.current;
-      const dist = Math.max(0, contentHeight - offset - layoutHeight);
-      setAwayFromBottom(
-        contentHeight > layoutHeight + 2 && dist > awayFromBottomLimit,
-      );
-    },
-    [awayFromBottomLimit],
-  );
-
-  const stepFollow = useCallback(() => {
-    followRafRef.current = 0;
-    if (!followArmedRef.current || followTargetOffsetRef.current === null) {
-      followTargetOffsetRef.current = null;
-      return;
-    }
-
-    const { layoutHeight } = metricsRef.current;
-    const contentHeight = contentHeightRef.current;
-    const maxOffset = Math.max(0, contentHeight - layoutHeight);
-    const target = Math.max(
-      0,
-      Math.min(maxOffset, followTargetOffsetRef.current),
-    );
-    const current = followCurrentRef.current;
-    const diff = target - current;
-    const absDiff = Math.abs(diff);
-    const now = Date.now();
-
-    // Caught up. The gentle one-shot ends here; a stream glide idles in place
-    // (velocity bled off) and stays warm so the next chunk continues without a
-    // restart — until the stream has been quiet for FOLLOW_STREAM_IDLE_MS.
-    if (absDiff < FOLLOW_MIN_STEP_PX) {
-      commitOffset(target);
-      followVelRef.current = 0;
-      lastFrameTimeRef.current = 0;
-      if (
-        followGentleRef.current ||
-        now - lastTargetTimeRef.current > FOLLOW_STREAM_IDLE_MS
-      ) {
-        followTargetOffsetRef.current = null;
-        updateAwayFromBottom(target);
-        return;
-      }
-      followRafRef.current = requestAnimationFrame(stepFollow);
-      return;
-    }
-
-    // Gentle post-send reframe: constant low-factor ease-out, no velocity carry,
-    // no hard snap — a single smooth settle.
-    if (followGentleRef.current) {
-      const lerpStep = diff * FOLLOW_GENTLE_LERP_FACTOR;
-      const stepPx =
-        Math.abs(lerpStep) >= FOLLOW_MIN_STEP_PX
-          ? lerpStep
-          : Math.sign(diff) * FOLLOW_MIN_STEP_PX;
-      commitOffset(current + stepPx);
-      updateAwayFromBottom(current + stepPx);
-      followRafRef.current = requestAnimationFrame(stepFollow);
-      return;
-    }
-
-    // Massive gap (post-tool dump, resumed conversation jumping to the latest
-    // reply) — land directly rather than glide hundreds of px with text
-    // off-screen the whole time. Stay warm so the trickle that follows glides.
-    if (absDiff > FOLLOW_HARD_SNAP_PX) {
-      commitOffset(target);
-      followVelRef.current = 0;
-      lastFrameTimeRef.current = 0;
-      if (now - lastTargetTimeRef.current > FOLLOW_STREAM_IDLE_MS) {
-        followTargetOffsetRef.current = null;
-        updateAwayFromBottom(target);
-        return;
-      }
-      followRafRef.current = requestAnimationFrame(stepFollow);
-      return;
-    }
-
-    // Critically-damped spring step. Velocity persists across frames (and across
-    // chunk boundaries via setFollowTarget), so the motion is a continuous glide
-    // rather than a per-chunk ease-out-to-stop.
-    const dt = lastFrameTimeRef.current
-      ? Math.min(
-          FOLLOW_MAX_FRAME_MS,
-          Math.max(1, now - lastFrameTimeRef.current),
-        )
-      : FOLLOW_DEFAULT_FRAME_MS;
-    lastFrameTimeRef.current = now;
-    const accel =
-      FOLLOW_SPRING_STIFFNESS * diff -
-      FOLLOW_SPRING_DAMPING * followVelRef.current;
-    // Stream-follow never runs backward, so clamp velocity ≥ 0.
-    followVelRef.current = Math.max(0, followVelRef.current + accel * dt);
-    let step = followVelRef.current * dt;
-    if (step < FOLLOW_MIN_STEP_PX) step = FOLLOW_MIN_STEP_PX;
-    if (step >= diff) {
-      // Would reach/overshoot this frame — land exactly and keep velocity
-      // consistent with the distance actually covered.
-      commitOffset(target);
-      followVelRef.current = diff / dt;
-    } else {
-      commitOffset(current + step);
-    }
-    updateAwayFromBottom(followCurrentRef.current);
-    followRafRef.current = requestAnimationFrame(stepFollow);
-  }, [commitOffset, updateAwayFromBottom]);
-
-  const setFollowTarget = useCallback(
-    (target: number, gentle = false) => {
-      if (!followArmedRef.current) return;
-
-      const { layoutHeight } = metricsRef.current;
-      const contentHeight = contentHeightRef.current;
-      const maxOffset = Math.max(0, contentHeight - layoutHeight);
-      const clamped = Math.max(0, Math.min(maxOffset, target));
-
-      // Seed the spring's current offset from the real position when starting
-      // cold, so the first frame integrates from where the list actually sits.
-      if (!followRafRef.current && followTargetOffsetRef.current === null) {
-        followCurrentRef.current = metricsRef.current.offsetY;
-      }
-
-      // Don't follow backwards during a stream glide — that would scroll the
-      // user up against their intent. The gentle post-send nudge opts in.
-      if (
-        !gentle &&
-        clamped <= followCurrentRef.current + FOLLOW_TARGET_EPSILON_PX
-      ) {
-        return;
-      }
-
-      // Switching motion profile shouldn't carry stale velocity between them.
-      if (gentle !== followGentleRef.current) followVelRef.current = 0;
-      followGentleRef.current = gentle;
-      followTargetOffsetRef.current = clamped;
-      // Mark content growth so the spring stays warm across the irregular gaps
-      // of a slow stream (gentle nudges don't extend it).
-      if (!gentle) lastTargetTimeRef.current = Date.now();
-      if (!followRafRef.current) {
-        followRafRef.current = requestAnimationFrame(stepFollow);
-      }
-    },
-    [stepFollow],
-  );
-
-  const followActiveAssistantRow = useCallback(() => {
-    const assistantHeight = activeAssistantHeightRef.current;
-    if (assistantHeight <= 0) return;
-
-    const { layoutHeight } = metricsRef.current;
-    if (layoutHeight <= 0) return;
-
-    const contentHeight = contentHeightRef.current;
-    const rowBottom = Math.max(0, contentHeight - listTrailingSlackPx);
-    const rowTop = Math.max(0, rowBottom - assistantHeight);
-    const desiredScrollTop = Math.max(0, contentHeight - layoutHeight);
-    const pinnedTop = Math.max(
-      0,
-      rowTop - FOLLOW_TOP_PEEK_PX - listLeadingInsetRef.current,
-    );
-    setFollowTarget(Math.min(pinnedTop, desiredScrollTop));
-  }, [listTrailingSlackPx, setFollowTarget]);
-
-  const onActiveAssistantLayout = useCallback(
-    (event: LayoutChangeEvent) => {
-      activeAssistantHeightRef.current = event.nativeEvent.layout.height;
-      followActiveAssistantRow();
-    },
-    [followActiveAssistantRow],
-  );
-
-  const clearActiveAssistantLayout = useCallback(() => {
-    activeAssistantHeightRef.current = 0;
-    assistantLayoutBaselineRef.current = null;
-    stopFollowLoop();
-  }, [stopFollowLoop]);
-
-  const scrollToBottom = useCallback(() => {
-    pendingSendAnchorRef.current = null;
-    followRearmBlockedRef.current = false;
-    setFollowArmed(true);
-    resetAssistantAutoScroll();
-    requestAnimationFrame(() =>
-      listRef.current?.scrollToEnd({ animated: true }),
-    );
-  }, [resetAssistantAutoScroll, setFollowArmed]);
-
-  const getShouldPlaceLatestTurn = useCallback(() => {
-    const { offsetY, layoutHeight } = metricsRef.current;
-    const distanceFromBottomPx = Math.max(
-      0,
-      contentHeightRef.current - offsetY - layoutHeight,
-    );
-    return shouldPlaceLatestTurn({
-      distanceFromBottomPx,
-      isFollowingLatest: followArmedRef.current,
-    });
-  }, []);
-
-  /**
-   * Place the newest user row above the current trailing slack (chat tail +
-   * reserved bottom inset). The same gentle loop owns
-   * this motion and streaming follow, so the two movements blend if reply text
-   * arrives before placement settles.
-   */
-  const placeLatestTurn = useCallback(() => {
-    const pending = pendingSendAnchorRef.current;
-    if (!pending) return;
-    if (Date.now() > pending.staleAtMs) {
-      pendingSendAnchorRef.current = null;
-      return;
-    }
-    const metrics = metricsRef.current;
-    const contentHeight = contentHeightRef.current;
-    const maxOffset = Math.max(0, contentHeight - metrics.layoutHeight);
-    const measurement = latestUserLayoutRef.current;
-    const isInitialPlacement = pending.placedRowHeightPx === null;
-
-    // If the optimistic row is no longer the list tail (for example, an
-    // assistant placeholder landed immediately after it), settling forward
-    // once is safer than using another row's height and framing the wrong
-    // turn — and later row-height changes must not re-anchor either.
-    if (trailingMessageIdRef.current !== pending.userMessageId) {
-      pendingSendAnchorRef.current = null;
-      if (isInitialPlacement) setFollowTarget(maxOffset, true);
-      return;
-    }
-
-    // The row hasn't reported its layout yet — `onLatestUserLayout` schedules
-    // placement again as soon as (and whenever) its height commits.
-    if (measurement?.id !== pending.userMessageId) return;
-
-    pending.placedRowHeightPx = measurement.height;
-    const target = resolvePostSendPlacement({
-      contentHeightPx: contentHeight,
-      viewportHeightPx: metrics.layoutHeight,
-      trailingSlackPx: listTrailingSlackRef.current,
-      rowHeightPx: measurement.height,
-      leadingInsetPx: listLeadingInsetRef.current,
-    });
-
-    // Gentle one-shot ease-out on the shared spring loop. If the reply starts
-    // streaming mid-nudge, its (non-gentle) target update takes over the same
-    // loop — the two motions blend instead of fighting separate animations.
-    setFollowTarget(target, true);
-  }, [setFollowTarget]);
-
-  /** Coalesced two-frame delay so placement reads post-layout list metrics. */
-  const schedulePlaceLatestTurn = useCallback(() => {
-    if (placeLatestTurnRafRef.current) {
-      cancelAnimationFrame(placeLatestTurnRafRef.current);
-    }
-    placeLatestTurnRafRef.current = requestAnimationFrame(() => {
-      placeLatestTurnRafRef.current = requestAnimationFrame(() => {
-        placeLatestTurnRafRef.current = 0;
-        placeLatestTurn();
-      });
-    });
-  }, [placeLatestTurn]);
-
-  const onListContentSizeChange = useCallback(
-    (_width: number, height: number) => {
-      const previousHeight = contentHeightRef.current;
-      contentHeightRef.current = height;
-      metricsRef.current.contentHeight = height;
-
-      // Composer collapse and footer changes can settle after the user
-      // row measures. Re-anchor from this committed geometry as well.
-      const pending = pendingSendAnchorRef.current;
-      if (
-        pending &&
-        pending.userMessageId === trailingMessageIdRef.current &&
-        Date.now() <= pending.staleAtMs
-      ) {
-        schedulePlaceLatestTurn();
-        return;
-      }
-      pendingSendAnchorRef.current = null;
-
-      const baseline = assistantLayoutBaselineRef.current;
-      if (baseline === null || height <= baseline) {
-        if (activeAssistantHeightRef.current > 0) {
-          followActiveAssistantRow();
-        } else if (previousHeight > 0 && height > previousHeight) {
-          // A settled append at the live tail (a reply that lands whole as the
-          // turn ends, a synced message, a row finishing its layout): keep
-          // the new end in view. Released follow ignores this.
-          setFollowTarget(Math.max(0, height - metricsRef.current.layoutHeight));
-        }
-        return;
-      }
-
-      assistantLayoutBaselineRef.current = null;
-      if (activeAssistantHeightRef.current > 0) {
-        followActiveAssistantRow();
-      } else {
-        setFollowTarget(
-          Math.max(0, height - metricsRef.current.layoutHeight),
-        );
-      }
-    },
-    [followActiveAssistantRow, schedulePlaceLatestTurn, setFollowTarget],
-  );
-
-  const onLatestUserLayout = useCallback(
-    (messageId: string, event: LayoutChangeEvent) => {
-      const height = event.nativeEvent.layout.height;
-      latestUserLayoutRef.current = { id: messageId, height };
-      const pending = pendingSendAnchorRef.current;
-      if (!pending || pending.userMessageId !== messageId) return;
-      if (Date.now() > pending.staleAtMs) return;
-      // First layout after a send, or a post-anchor height change (the
-      // four-line clamp collapsing a long message) — (re)place against the
-      // settled height so the committed target never outlives the geometry
-      // it was computed from.
-      if (
-        pending.placedRowHeightPx === null ||
-        Math.abs(pending.placedRowHeightPx - height) > 1
-      ) {
-        schedulePlaceLatestTurn();
-      }
-    },
-    [schedulePlaceLatestTurn],
-  );
-
-  const nudgeAfterSend = useCallback(
-    (userMessageId: string) => {
-      pendingSendAnchorRef.current = {
-        userMessageId,
-        placedRowHeightPx: null,
-        staleAtMs: Date.now() + POST_SEND_REANCHOR_WINDOW_MS,
-      };
-      followRearmBlockedRef.current = false;
-      setFollowArmed(true);
-      stopFollowLoop();
-      // The row may already be mounted and measured (a keyboard-deferred
-      // nudge runs well after the optimistic append), in which case no new
-      // `onLayout` will arrive — so kick off the first placement from here.
-      schedulePlaceLatestTurn();
-    },
-    [schedulePlaceLatestTurn, setFollowArmed, stopFollowLoop],
-  );
-
-  return {
-    listRef,
-    onScroll,
-    onListContentSizeChange,
-    onActiveAssistantLayout,
-    clearActiveAssistantLayout,
-    scrollToBottom,
-    resetAssistantAutoScroll,
-    prepareAssistantLayoutFollow,
-    onLatestUserLayout,
-    onScrollBeginDrag,
-    onScrollSettle,
-    getShouldPlaceLatestTurn,
-    releaseFollow,
-    nudgeAfterSend,
-    awayFromBottom,
-    isFollowingLatest,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Message wrapper — pops a just-sent message in, mirroring desktop `bubble-pop`.
-// ---------------------------------------------------------------------------
-
-function MessageEntry({
-  children,
-  onLayout,
-  animate,
-}: {
-  children: ReactNode;
-  onLayout?: (event: LayoutChangeEvent) => void;
-  animate: boolean;
-}) {
-  const animatedStyle = useBubblePop(animate, SENT_BUBBLE_POP);
-  return (
-    <Animated.View onLayout={onLayout} style={animatedStyle}>
-      {children}
-    </Animated.View>
-  );
-}
 
 const copyMessageText = (text: string) => {
   const trimmed = text.trim();
@@ -1064,8 +236,6 @@ const quoteMessageText = (text: string): string =>
     .split("\n")
     .map((line) => `> ${line}`)
     .join("\n");
-
-type ChatStyles = ReturnType<typeof makeStyles>;
 
 /**
  * The long-press menu's read-aloud entry for an assistant reply. It reads the
@@ -1122,2048 +292,44 @@ const speakAloudMenuAction = (
   };
 };
 
-
-/** Anchor passed to the message-actions popover (the long-press point). */
-type MessageMenuRequest = { message: ChatMessage; anchor: AnchorRect };
-
-/**
- * User message body with collapse/expand for long text — the mobile analogue
- * of desktop's `UserMessageBody`. Collapsed by default when the rendered text
- * exceeds `USER_MESSAGE_COLLAPSE_LINES`; a tappable "Show more" / "Show less"
- * toggle then reveals or re-hides the overflow.
- *
- * Overflow is detected from the native text-layout line boxes (not a
- * character count). The measuring pass renders at the collapse cap plus one
- * line — enough to distinguish "fits" from "overflows" without ever painting
- * a long message at full height (a full-height first paint used to inflate
- * the row after send and skew the post-send scroll anchor). Later width
- * changes remeasure so wrap at a new bubble width can grow or shrink the
- * toggle.
- */
-function UserMessageText({
-  text,
-  styles,
-}: {
-  text: string;
-  styles: ChatStyles;
-}) {
-  const { width: windowWidth } = useWindowDimensions();
-  const [expanded, setExpanded] = useState(false);
-  const [totalLines, setTotalLines] = useState<number | null>(null);
-  const [measuring, setMeasuring] = useState(true);
-  const measuredWidthRef = useRef<number | null>(null);
-
-  // Reset when the underlying message text changes (row reuse across items).
-  useEffect(() => {
-    setExpanded(false);
-    setTotalLines(null);
-    setMeasuring(true);
-    measuredWidthRef.current = null;
-  }, [text]);
-
-  // Remeasure from the viewport width, not the text box itself. User bubbles
-  // are width:fit-content, so clamping the first four lines can shrink the
-  // box and would otherwise oscillate if we keyed off the text layout width.
-  useEffect(() => {
-    if (
-      shouldRemeasureUserMessageWidth(measuredWidthRef.current, windowWidth)
-    ) {
-      measuredWidthRef.current = windowWidth;
-      setMeasuring(true);
-      return;
-    }
-    if (measuredWidthRef.current === null) {
-      measuredWidthRef.current = windowWidth;
-    }
-  }, [windowWidth]);
-
-  const handleTextLayout = useCallback(
-    (event: NativeSyntheticEvent<TextLayoutEventData>) => {
-      const lines = event.nativeEvent.lines.length;
-      if (measuring || totalLines === null) {
-        setTotalLines(lines);
-        setMeasuring(false);
-      }
-    },
-    [measuring, totalLines],
-  );
-
-  const isTruncatable = isUserMessageTruncatable(totalLines);
-
-  return (
-    <>
-      <Text
-        style={styles.userText}
-        maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-        onTextLayout={handleTextLayout}
-        numberOfLines={userMessageNumberOfLines({
-          expanded,
-          measuring,
-          truncatable: isTruncatable,
-        })}
-      >
-        {text}
-      </Text>
-      {isTruncatable ? (
-        <Pressable
-          onPress={() => setExpanded((prev) => !prev)}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel={
-            expanded ? "Show less of this message" : "Show more of this message"
-          }
-        >
-          {({ pressed }) => (
-            <Text
-              style={[styles.userToggle, pressed && styles.userTogglePressed]}
-              maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-            >
-              {expanded ? "Show less" : "Show more"}
-            </Text>
-          )}
-        </Pressable>
-      ) : null}
-    </>
-  );
-}
-
-const generatedImageAspectRatio = (value: string | undefined): number => {
-  const match = value
-    ?.trim()
-    .match(/^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/);
-  if (!match) return 4 / 3;
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  return width > 0 && height > 0 ? width / height : 4 / 3;
-};
-
-const GeneratedImageTile = memo(function GeneratedImageTile({
-  filePath,
-  conversationId,
-  access,
-  driveBacked,
-  aspectRatio,
-  alt,
-  generationState,
-  colors,
-}: {
-  filePath?: string;
-  conversationId: string;
-  access?: StoredPhoneAccess;
-  /** `filePath` is a cloud drive path; resolve it through the drive, not the computer. */
-  driveBacked?: boolean;
-  aspectRatio: number;
-  alt: string;
-  generationState?: "running" | "completed" | "failed" | "canceled";
-  colors: Colors;
-}) {
-  const [computerUri, setComputerUri] = useState<string | null>(null);
-  const [computerFailed, setComputerFailed] = useState(false);
-  const [computerOffline, setComputerOffline] = useState(false);
-  const drive = useCloudDriveFileUri(driveBacked && filePath ? filePath : null);
-  const uri = driveBacked ? drive.uri : computerUri;
-  const failed = driveBacked ? drive.failed : computerFailed;
-  const offline = !driveBacked && computerOffline;
-  useEffect(() => {
-    let cancelled = false;
-    const setUri = setComputerUri;
-    const setFailed = setComputerFailed;
-    setUri(null);
-    setFailed(false);
-    setComputerOffline(false);
-    if (!filePath || driveBacked) return () => undefined;
-    if (/^(?:file|https?|data):/i.test(filePath)) {
-      setUri(filePath);
-      return () => undefined;
-    }
-    const controller = new AbortController();
-    void readLinkedArtifactFile(access ?? null, conversationId, filePath, controller.signal)
-      .then((result) => {
-        if (cancelled) return;
-        if (result.missing) {
-          setFailed(true);
-          return;
-        }
-        setUri(bytesToDataUri(result.bytes, result.mimeType));
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setComputerOffline(isDeviceOfflineError(error));
-        setFailed(true);
-      });
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [access, conversationId, driveBacked, filePath]);
-
-  return (
-    <View
-      accessibilityLabel={failed ? "Generated image failed to load" : alt}
-      accessibilityRole="image"
-      style={[
-        generatedImageStyles.tile,
-        { aspectRatio, backgroundColor: colors.surface },
-      ]}
-    >
-      {uri ? (
-        <Image
-          source={{ uri }}
-          style={generatedImageStyles.image}
-          contentFit="cover"
-        />
-      ) : (
-        <View style={generatedImageStyles.placeholder}>
-          {failed ||
-          generationState === "failed" ||
-          generationState === "canceled" ? (
-            <Text style={{ color: colors.textMuted }}>
-              {generationState === "canceled"
-                ? "Image generation canceled"
-                : generationState === "failed"
-                  ? "Image generation failed"
-                  : offline
-                    ? "Your computer is offline"
-                    : "Image unavailable"}
-            </Text>
-          ) : (
-            <>
-              <ActivityIndicator size="small" color={colors.textMuted} />
-              <Text
-                style={[
-                  generatedImageStyles.placeholderText,
-                  { color: colors.textMuted },
-                ]}
-              >
-                Generating image...
-              </Text>
-            </>
-          )}
-        </View>
-      )}
-    </View>
-  );
-});
-
-const GeneratedImageCard = memo(function GeneratedImageCard({
-  artifact,
-  access,
-  colors,
-  onPress,
-}: {
-  artifact: ChatArtifact;
-  access?: StoredPhoneAccess;
-  colors: Colors;
-  onPress?: (artifact: ChatArtifact) => void;
-}) {
-  const payload = artifact.payload;
-  const driveBacked = payload.kind === "media" && payload.driveBacked === true;
-  const open = useCallback(() => {
-    if (!onPress) return;
-    if (
-      !driveBacked ||
-      payload.kind !== "media" ||
-      payload.asset.kind !== "image"
-    ) {
-      onPress(artifact);
-      return;
-    }
-    // The viewer renders http(s) images directly; hand it signed URLs so a
-    // cloud drive path is never asked of the computer.
-    const asset = payload.asset;
-    void Promise.all(asset.filePaths.map(resolveCloudDriveFileUri))
-      .then((filePaths) =>
-        onPress({
-          ...artifact,
-          payload: { ...payload, asset: { ...asset, filePaths } },
-        }),
-      )
-      .catch(() => onPress(artifact));
-  }, [artifact, driveBacked, onPress, payload]);
-  if (payload.kind !== "media" || payload.asset.kind !== "image") return null;
-  const paths =
-    payload.asset.filePaths.length > 0 ? payload.asset.filePaths : [undefined];
-  return (
-    <Pressable
-      accessibilityRole={
-        payload.asset.filePaths.length > 0 ? "button" : undefined
-      }
-      accessibilityLabel={
-        payload.generationState === "failed"
-          ? "Image generation failed"
-          : payload.asset.filePaths.length > 0
-            ? "Open generated image"
-            : "Generating image"
-      }
-      disabled={payload.asset.filePaths.length === 0}
-      onPress={open}
-      style={generatedImageStyles.strip}
-    >
-      {paths.map((filePath, index) => (
-        <GeneratedImageTile
-          key={filePath ?? `${artifact.id}:${index}`}
-          filePath={filePath}
-          conversationId={artifact.conversationId}
-          access={access}
-          driveBacked={driveBacked}
-          aspectRatio={generatedImageAspectRatio(payload.aspectRatio)}
-          alt={payload.prompt ?? "Generated image"}
-          generationState={payload.generationState}
-          colors={colors}
-        />
-      ))}
-    </Pressable>
-  );
-});
-
-const generatedImageStyles = StyleSheet.create({
-  image: { height: "100%", width: "100%" },
-  placeholder: {
-    alignItems: "center",
-    flex: 1,
-    gap: 8,
-    justifyContent: "center",
-  },
-  placeholderText: { fontFamily: fonts.sans.regular, fontSize: 14 },
-  strip: { gap: 8 },
-  tile: { borderRadius: 14, maxWidth: 320, overflow: "hidden", width: "100%" },
-});
-
-type CompletionQuote = {
-  key: string;
-  artifactId: string;
-  ref: AgentReplyRef;
-  files: ChatArtifact[];
-};
-
-/**
- * The tasks a row relays the results of: one quote per agent of each settled
- * completion card on the row (a follow-up keeps its spawn row instead).
- */
-const rowCompletionQuotes = (
-  agentWork: ReturnType<typeof consolidateRowArtifacts>["agentWork"],
-): CompletionQuote[] =>
-  agentWork.flatMap((artifact) => {
-    if (
-      artifact.payload.state !== "done" ||
-      artifact.payload.followUp === true ||
-      artifact.payload.completion !== true
-    ) {
-      return [];
-    }
-    const sections = inlineAgentWorkCardSections(artifact) ?? [];
-    const filesByAgent = new Map(
-      sections.flatMap((section) => (section.agentId ? [[section.agentId, section.files] as const] : [])),
-    );
-    const agents =
-      artifact.payload.agents && artifact.payload.agents.length > 0
-        ? artifact.payload.agents.map((agent) => ({
-            agentId: agent.agentId,
-            title: agent.title,
-            files: filesByAgent.get(agent.agentId) ?? [],
-          }))
-        : (artifact.payload.agentIds ?? []).slice(0, 1).map((agentId) => ({
-            agentId,
-            title: artifact.payload.title,
-            files: [] as ChatArtifact[],
-          }));
-    return agents.flatMap((agent) => {
-      if (!agent.agentId) return [];
-      return [{
-        key: `${artifact.id}:${agent.agentId}`,
-        artifactId: artifact.id,
-        ref: { kind: "agent" as const, threadId: agent.agentId, title: agent.title || artifact.payload.title },
-        files: agent.files,
-      }];
-    });
-  });
-
-/**
- * A cloud completion lands on its own textless row just above the reply that
- * relays it. That row keeps the task quote; the reply below takes the task's
- * report link and files, so they ride in its bubble like on desktop.
- */
-const carryCompletionQuotes = (
-  messages: readonly ChatMessage[],
-): { carried: ReadonlyMap<string, CompletionQuote[]>; forwarded: ReadonlySet<string> } => {
-  const carried = new Map<string, CompletionQuote[]>();
-  const forwarded = new Set<string>();
-  let pending: { ids: string[]; quotes: CompletionQuote[] } = { ids: [], quotes: [] };
-  for (const message of messages) {
-    if (message.role !== "assistant") {
-      pending = { ids: [], quotes: [] };
-      continue;
-    }
-    if ((message.text ?? "").trim().length > 0) {
-      if (pending.quotes.length > 0) {
-        carried.set(message.id, pending.quotes);
-        for (const id of pending.ids) forwarded.add(id);
-      }
-      pending = { ids: [], quotes: [] };
-      continue;
-    }
-    const quotes = rowCompletionQuotes(
-      consolidateRowArtifacts(message.artifacts ?? [], message.tasks ?? []).agentWork,
-    );
-    if (quotes.length > 0) {
-      pending = { ids: [...pending.ids, message.id], quotes: [...pending.quotes, ...quotes] };
-    }
-  }
-  return { carried, forwarded };
-};
-
-const INLINE_ASK_RECORD_PREFIX = "inline-ask-record:";
-
-const askRecordSignature = (record: UserAskRecord): string =>
-  record.answers.map((answer) => answer.question).join("\u0000");
-
-const withInlineAskRecords = (
-  messages: ChatMessage[],
-  sessionRecords: readonly UserAskRecord[],
-): ChatMessage[] => {
-  if (sessionRecords.length === 0) return messages;
-  const shown = new Set<string>();
-  for (const message of messages) {
-    for (const record of message.askRecords ?? []) {
-      shown.add(record.toolCallId ?? record.id);
-      shown.add(askRecordSignature(record));
-    }
-  }
-  const out = [...messages];
-  for (const record of sessionRecords) {
-    if (shown.has(record.toolCallId ?? record.id) || shown.has(askRecordSignature(record))) {
-      continue;
-    }
-    const item: ChatMessage = {
-      id: `${INLINE_ASK_RECORD_PREFIX}${record.id}`,
-      role: "assistant",
-      text: "",
-      createdAt: record.createdAt,
-      askRecords: [record],
-    };
-    const before = out.findIndex(
-      (message) =>
-        (message.canonicalCreatedAt ?? message.createdAt ?? Number.POSITIVE_INFINITY) >
-        record.createdAt,
-    );
-    if (before < 0) out.push(item);
-    else out.splice(before, 0, item);
-  }
-  return out;
-};
-
-const ChatMessageRow = memo(function ChatMessageRow({
-  item,
-  conversationId,
-  styles,
-  colors,
-  animate,
-  menuActive,
-  isSelecting,
-  anySelecting,
-  onOpenArtifact,
-  onOpenStellaFile,
-  onOpenMessageMenu,
-  onEndSelecting,
-  onAskStella,
-  onOpenAgentActivity,
-  contextRef,
-  contextStatus,
-  onOpenReply,
-  onOpenReport,
-  desktopAccess,
-  menuClone = false,
-  receiptLabel,
-  carriedQuotes,
-  quotesForwarded = false,
-  hideAgentChips = false,
-}: {
-  item: ChatMessage;
-  /** Scopes this row's file reads, the way a tapped file link is scoped. */
-  conversationId: string;
-  styles: ChatStyles;
-  colors: Colors;
-  animate: boolean;
-  /**
-   * True while this row's long-press menu is open. The menu draws its own copy
-   * of the bubble above the scrim, so the original steps aside.
-   */
-  menuActive: boolean;
-  /** True while this row is in native text-selection mode. */
-  isSelecting: boolean;
-  /** True while ANY row is selecting — lets other rows tap-to-dismiss it. */
-  anySelecting: boolean;
-  onOpenArtifact?: (
-    artifact: ChatArtifact,
-    gallery?: readonly ChatArtifact[],
-  ) => void;
-  /** Opens a tapped `stella://file/...` markdown link in the file viewer. */
-  onOpenStellaFile?: (path: string, gallery?: readonly string[]) => void;
-  onOpenMessageMenu: (request: MessageMenuRequest) => void;
-  /** Leaves native text-selection mode for this row. */
-  onEndSelecting: () => void;
-  onAskStella: (text: string) => void;
-  /** Opens the activity hub — the tap-through target for agent rows. */
-  onOpenAgentActivity?: () => void;
-  /** The one reference worth quoting above this reply (shared reply-context rule). */
-  contextRef?: ReplyRef;
-  /** Live state of the quoted task, for its status glyph. */
-  contextStatus?: ReplyAgentStatus;
-  onOpenReply?: (ref: ReplyRef) => void;
-  onOpenReport?: (ref: AgentReplyRef) => void;
-  desktopAccess?: StoredPhoneAccess | null;
-  /** Render only the bubble, for the long-press menu's lifted copy. */
-  menuClone?: boolean;
-  /** "Delivered" / "Read" under the latest user message. */
-  receiptLabel?: string | null;
-  /** Tasks quoted on the textless row just above, whose report link and
-   *  files this reply's bubble carries. */
-  carriedQuotes?: CompletionQuote[];
-  /** This row's tasks are carried by the reply below it. */
-  quotesForwarded?: boolean;
-  /** The previous assistant message already shows this row's task chip. */
-  hideAgentChips?: boolean;
-}) {
-  // iOS press feedback: the held bubble eases down while the long-press
-  // builds, then the menu lifts a copy of it (see MessageContextMenu).
-  const pressScale = useRef(new Animated.Value(1)).current;
-  const bubbleRef = useRef<View>(null);
-  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancelHold = () => {
-    if (holdTimerRef.current === null) return;
-    clearTimeout(holdTimerRef.current);
-    holdTimerRef.current = null;
-  };
-  useEffect(
-    () => () => {
-      if (holdTimerRef.current !== null) clearTimeout(holdTimerRef.current);
-    },
-    [],
-  );
-  // Nothing moves until the finger has stayed down for MESSAGE_HOLD_MS, so a
-  // tap, or a touch the list takes over as a scroll, never shows the press.
-  // The timer is cancelled on release; an `Animated.delay` would not be,
-  // because stopping `pressScale` leaves a sequence's pending delay running.
-  const pressIn = () => {
-    cancelHold();
-    holdTimerRef.current = setTimeout(() => {
-      holdTimerRef.current = null;
-      Animated.timing(pressScale, {
-        toValue: MESSAGE_PRESS_SCALE,
-        duration: MESSAGE_LONG_PRESS_MS - MESSAGE_HOLD_MS,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }).start();
-    }, MESSAGE_HOLD_MS);
-  };
-  const pressOut = () => {
-    cancelHold();
-    pressScale.stopAnimation();
-    Animated.spring(pressScale, {
-      toValue: 1,
-      stiffness: 420,
-      damping: 30,
-      useNativeDriver: true,
-    }).start();
-  };
-  const pressStyle = useMemo(
-    () => ({ transform: [{ scale: pressScale }] }),
-    [pressScale],
-  );
-  const openMenu = () => {
-    // Every menu action works on text; an attachment-only bubble has none.
-    if (!item.text.trim()) return;
-    const bubble = bubbleRef.current;
-    if (!bubble) return;
-    // The frame is measured on an unscaled wrapper, so it is the bubble's
-    // resting size even while the press shrink is showing.
-    bubble.measureInWindow((x, y, width, height) => {
-      // Medium impact for the lift; action taps then fire a light tap.
-      tapMedium();
-      onOpenMessageMenu({ message: item, anchor: { x, y, width, height } });
-    });
-  };
-
-  // Keyed on the stable sub-objects: the trailing assistant row's `item` is
-  // replaced whenever a message segment lands or a tool step updates, but its
-  // artifacts/toolSteps keep their identity, so these derivations must not
-  // re-run and mint fresh objects that defeat child memoization.
-  const consolidated = useMemo(
-    () => consolidateRowArtifacts(item.artifacts ?? [], item.tasks ?? []),
-    [item.artifacts, item.tasks],
-  );
-  // Every file this reply hands over, in the order it named them: the loose
-  // file artifacts of the turn, then the files its own text links. Generated
-  // images keep their own full-width presentation, so they stay out of it.
-  const evidencePaths = useMemo(() => {
-    if (item.role !== "assistant") return [];
-    const paths: string[] = [];
-    for (const artifact of consolidated.looseFiles) {
-      if (
-        artifact.payload.kind === "media" &&
-        artifact.payload.asset.kind === "image"
-      ) {
-        continue;
-      }
-      const filePath = artifactPrimaryFilePath(artifact.payload);
-      if (filePath) paths.push(filePath);
-    }
-    paths.push(...extractLocalFileLinkPaths(item.text ?? ""));
-    return paths;
-  }, [consolidated.looseFiles, item.role, item.text]);
-  // A cloud turn names one drive file twice: drive-relative as an artifact,
-  // world-absolute as a link. The strip shows each file once, by the
-  // world-absolute path, which is the one that opens from the drive.
-  const evidenceStripPaths = useMemo(() => {
-    const byKey = new Map<string, string>();
-    for (const filePath of evidencePaths) {
-      const drivePath = cloudWorldDrivePath(filePath);
-      const key = drivePath ?? filePath;
-      if (!byKey.has(key) || drivePath) byKey.set(key, filePath);
-    }
-    return [...byKey.values()];
-  }, [evidencePaths]);
-  // Schedule tool results render their human-readable summaries as plain
-  // text lines in the flow (desktop parity — no chip/card). Every settled
-  // Schedule call in the turn gets its line, in call order; unparseable or
-  // side-channel-JSON results render nothing. Keyed by step id for the map.
-  const scheduleReceipts = useMemo(() => {
-    const receipts: { id: string; text: string }[] = [];
-    for (const step of item.toolSteps ?? []) {
-      if (step.toolName.toLowerCase() !== "schedule") continue;
-      if (step.status === "error") continue;
-      const text = scheduleReceiptText({ resultPreview: step.resultPreview });
-      if (text) receipts.push({ id: step.id, text });
-    }
-    return receipts;
-  }, [item.toolSteps]);
-  const bodyText = useMemo(
-    () =>
-      evidencePaths.length > 0
-        ? unlinkLocalFileLinks(item.text, evidencePaths)
-        : item.text,
-    [item.text, evidencePaths],
-  );
-  const hasText = bodyText.trim().length > 0;
-  // Apps the reply links (`stella://app/<slug>`) show as app cards under it.
-  const linkedAppSlugs = useMemo(
-    () => (item.role === "assistant" ? extractStellaAppLinkSlugs(item.text) : []),
-    [item.role, item.text],
-  );
-  const boundedAssistantBubble = useMemo(
-    () => item.role === "assistant" && assistantBubbleNeedsBoundedWidth(item.text),
-    [item.role, item.text],
-  );
-  // The reply row is appended empty when the turn dispatches and gains its text
-  // when the message lands, so "mounted empty" is exactly "this message arrived
-  // while the user was watching" — the cue for the landing entrance. Rows
-  // restored from history mount with their text and render settled.
-  const mountedEmptyRef = useRef(!hasText);
-
-  if (item.role === "user") {
-    const thumbs = item.thumbnailUris ?? [];
-    const attachmentPreviews = item.attachmentPreviews ?? [];
-    const showThumbs = thumbs.length > 0;
-    const documentNames = item.documentNames ?? [];
-    const showText = item.text.trim().length > 0;
-    const quotedText = item.quotedText?.trim();
-    const pastedTexts = item.pastedTexts ?? [];
-    const hasBubbleBody =
-      showText ||
-      showThumbs ||
-      attachmentPreviews.length > 0 ||
-      documentNames.length > 0;
-    const userBubbleBody = (
-      <>
-        {attachmentPreviews.length > 0 ? (
-          <View style={[styles.userThumbStrip, showText && styles.userThumbsAbove]}>
-            {attachmentPreviews.slice(0, 3).map(preview => (
-              <View key={preview.path} style={styles.userThumbImage}>
-                {preview.imageUri ? (
-                  <Image source={{ uri: preview.imageUri }} style={styles.userThumbImage}
-                    contentFit="cover" accessibilityLabel={preview.name} />
-                ) : (
-                  <View style={styles.userAttachmentPlaceholder}>
-                    <Icon name="file-text" size={20} color={colors.textMuted} />
-                    <Text style={styles.userDocumentName} numberOfLines={2}>{preview.name}</Text>
-                  </View>
-                )}
-              </View>
-            ))}
-          </View>
-        ) : showThumbs ? (
-          <View
-            style={[
-              styles.userThumbStrip,
-              showText && styles.userThumbsAbove,
-            ]}
-          >
-            {thumbs.slice(0, 3).map((uri) => (
-              <Image
-                key={uri}
-                source={{ uri }}
-                style={styles.userThumbImage}
-                contentFit="cover"
-              />
-            ))}
-          </View>
-        ) : null}
-        {attachmentPreviews.length === 0 && documentNames.length > 0 ? (
-          <View
-            style={[
-              styles.userDocumentStrip,
-              showText && styles.userThumbsAbove,
-            ]}
-          >
-            {documentNames.map((name) => (
-              <View key={name} style={styles.userDocumentChip}>
-                <Icon
-                  name="file-text"
-                  size={12}
-                  color={colors.textMuted}
-                />
-                <Text
-                  style={styles.userDocumentName}
-                  numberOfLines={1}
-                  maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-                >
-                  {name}
-                </Text>
-              </View>
-            ))}
-          </View>
-        ) : null}
-        {showText ? (
-          <UserMessageText text={item.text} styles={styles} />
-        ) : null}
-      </>
-    );
-    if (menuClone) {
-      return <View style={styles.userBubble}>{userBubbleBody}</View>;
-    }
-    return (
-      <View style={styles.userRow}>
-        <View style={styles.userColumn}>
-          {quotedText ? (
-            // Quoted / "Ask Stella" context rides to the model as a separate
-            // field and shows here as a chip — never folded into the bubble
-            // body — so internal framing/decoration can't leak into the text.
-            <View style={[styles.quoteChip, styles.userQuoteChip]}>
-              <Icon
-                name="quote"
-                size={13}
-                color={colors.textMuted}
-                style={styles.quoteChipIcon}
-              />
-              <Text
-                style={styles.quoteChipText}
-                numberOfLines={1}
-                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-              >
-                {quotedText}
-              </Text>
-            </View>
-          ) : null}
-          {pastedTexts.map((pasted, index) => (
-            <View
-              key={`pasted-${index}`}
-              style={[styles.quoteChip, styles.userQuoteChip]}
-              accessibilityLabel={`Pasted text, ${describePastedText(pasted)}`}
-            >
-              <Icon
-                name="file-text"
-                size={13}
-                color={colors.textMuted}
-                style={styles.quoteChipIcon}
-              />
-              <Text
-                style={styles.quoteChipText}
-                numberOfLines={1}
-                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-              >
-                {`Pasted text · ${describePastedText(pasted)}`}
-              </Text>
-            </View>
-          ))}
-          {!hasBubbleBody ? null : isSelecting && showText ? (
-            // "Select" mode: the bubble body becomes a native selection
-            // surface (with a Copy pill), so a substring can be lifted out.
-            <View style={styles.userBubble}>
-              <AssistantTextSelection
-                text={item.text}
-                colors={{ ...colors, text: colors.userBubbleText }}
-                onDismiss={onEndSelecting}
-              />
-            </View>
-          ) : (
-            <View
-              ref={bubbleRef}
-              collapsable={false}
-              style={menuActive ? styles.bubbleHidden : null}
-            >
-              <Animated.View style={pressStyle}>
-                <Pressable
-                  onLongPress={openMenu}
-                  onPressIn={pressIn}
-                  onPressOut={pressOut}
-                  // While another message is selecting, a tap here exits
-                  // selection, so tapping away always dismisses.
-                  onPress={anySelecting ? onEndSelecting : undefined}
-                  delayLongPress={MESSAGE_LONG_PRESS_MS}
-                  accessibilityHint="Long press for message actions"
-                  style={styles.userBubble}
-                >
-                  {userBubbleBody}
-                </Pressable>
-              </Animated.View>
-            </View>
-          )}
-          {receiptLabel ? (
-            <Text
-              style={styles.receipt}
-              maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-            >
-              {receiptLabel}
-            </Text>
-          ) : null}
-          {item.stopped ? (
-            <Text
-              style={styles.stoppedTag}
-              maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-            >
-              Stopped
-            </Text>
-          ) : null}
-        </View>
-      </View>
-    );
-  }
-  // Desktop-parity consolidation: agent lifecycle cards are expanded per
-  // agent, noise writes are filtered and declared deliverables lead. The
-  // minimal agent rows no longer surface file pills — agent-produced files
-  // stay reachable through the activity hub — so `agentFiles` is unused here.
-  const {
-    agentWork: agentWorkArtifacts,
-    maps: mapArtifacts,
-    looseFiles,
-  } = consolidated;
-  const isStandIn = isStandInArtifactRow(item);
-  // Assistant text no longer streams, so there is no partial-render window to
-  // protect: every card mounts as soon as its artifact reaches the row.
-  const showMapArtifacts = !isStandIn && mapArtifacts.length > 0;
-  const generatedImages = looseFiles.filter(
-    (artifact) =>
-      artifact.payload.kind === "media" &&
-      artifact.payload.asset.kind === "image",
-  );
-  const showGeneratedImages = !isStandIn && generatedImages.length > 0;
-  // Everything else the reply attached shows as the strip: one row of real
-  // media previews, then the rest as pills.
-  const showEvidence = !isStandIn && evidencePaths.length > 0;
-  const showArtifacts =
-    showMapArtifacts ||
-    (showGeneratedImages && !hasText) ||
-    linkedAppSlugs.length > 0;
-  // Desktop renders the complete markdown body once, then attaches activity
-  // and artifact cards at the row boundary. Keep the same shape on mobile:
-  // stored text offsets still describe event chronology, but must never become
-  // character-level insertion points that split prose (or markdown) in two.
-  const groupAgentWorkArtifacts = agentWorkArtifacts;
-  // Desktop parity: a task whose result this reply relays is quoted ABOVE
-  // the bubble the iMessage way; the files it produced ride as pills at the
-  // bottom of the reply bubble itself. A settled follow-up keeps its spawn
-  // row.
-  const completionQuotes = rowCompletionQuotes(groupAgentWorkArtifacts);
-  const relayedQuotes = [
-    ...(quotesForwarded ? [] : completionQuotes),
-    ...(carriedQuotes ?? []),
-  ];
-  const quotedThreadIds = new Set(
-    [...completionQuotes, ...relayedQuotes].map((quote) => quote.ref.threadId),
-  );
-  // Files a relayed task produced, minus any the evidence strip already shows
-  // because the reply links them.
-  const evidencePathSet = new Set(evidencePaths);
-  const replyFiles = onOpenArtifact
-    ? relayedQuotes
-        .flatMap((quote) => quote.files)
-        .filter((file, index, all) => {
-          const filePath = artifactPrimaryFilePath(file.payload);
-          return (
-            !(filePath && evidencePathSet.has(filePath)) &&
-            all.findIndex((other) => other.id === file.id) === index
-          );
-        })
-    : [];
-  const showReplyFiles = !isStandIn && replyFiles.length > 0;
-  // Everything the reply attaches sits at the bottom of its bubble; a reply
-  // with no text shows the same pieces on their own.
-  const generatedImageCards = showGeneratedImages
-    ? generatedImages.map((artifact) => (
-        <GeneratedImageCard
-          key={artifact.id}
-          artifact={artifact}
-          access={desktopAccess ?? undefined}
-          colors={colors}
-          onPress={onOpenArtifact}
-        />
-      ))
-    : null;
-  // With text, pictures and video sit in their own block under the bubble
-  // and file pills at the bottom of it; without text, the strip stands alone.
-  const evidenceMedia = showEvidence ? (
-    <MessageEvidenceStrip
-      filePaths={evidenceStripPaths}
-      conversationId={conversationId}
-      access={desktopAccess ?? null}
-      colors={colors}
-      onOpen={onOpenStellaFile}
-      part={hasText ? "media" : undefined}
-      style={hasText ? styles.mediaBelowBubble : undefined}
-    />
-  ) : null;
-  const evidenceDocuments =
-    showEvidence && hasText ? (
-      <MessageEvidenceStrip
-        filePaths={evidenceStripPaths}
-        conversationId={conversationId}
-        access={desktopAccess ?? null}
-        colors={colors}
-        onOpen={onOpenStellaFile}
-        part="documents"
-        style={styles.bubbleEvidence}
-      />
-    ) : null;
-  const replyFilePills =
-    showReplyFiles && onOpenArtifact ? (
-      <ReplyFilePills
-        files={replyFiles}
-        colors={colors}
-        onOpenArtifact={onOpenArtifact}
-        style={styles.bubbleFilePills}
-      />
-    ) : null;
-  // The full report of each task this reply relays (or cites, unless it is
-  // still running) opens from a quiet "more" after the reply's text, not from
-  // the quote.
-  const reportRefs: AgentReplyRef[] = [
-    ...relayedQuotes.map((quote) => quote.ref),
-    ...(contextRef?.kind === "agent" &&
-    !quotedThreadIds.has(contextRef.threadId) &&
-    contextStatus !== "running"
-      ? [contextRef]
-      : []),
-  ];
-  const moreLinks =
-    onOpenReport && reportRefs.length > 0
-      ? reportRefs.map((ref) => ({
-          key: ref.threadId,
-          label: `Full report: ${replyTitle(ref)}`,
-          onPress: () => onOpenReport(ref),
-        }))
-      : undefined;
-  const fillAssistantBubble = boundedAssistantBubble;
-  const assistantBubble = (
-    <AssistantBubble
-      style={[styles.assistantBubble, fillAssistantBubble && styles.assistantBlockBubble]}
-      animate={!menuClone && (animate || mountedEmptyRef.current)}
-    >
-      <AssistantMarkdown
-        text={bodyText}
-        colors={colors}
-        fill={boundedAssistantBubble}
-        onStellaFileLink={onOpenStellaFile}
-        moreLinks={moreLinks}
-      />
-      {evidenceDocuments}
-      {replyFilePills}
-    </AssistantBubble>
-  );
-  if (menuClone) return assistantBubble;
-  return (
-    <View style={styles.assistantRow}>
-      {onOpenReply && !hideAgentChips
-        ? completionQuotes.map((quote) => (
-            <ReplyPreview
-              key={quote.key}
-              reference={quote.ref}
-              status={
-                contextRef?.kind === "agent" && contextRef.threadId === quote.ref.threadId
-                  ? contextStatus
-                  : "completed"
-              }
-              colors={colors}
-              onOpen={() => onOpenReply(quote.ref)}
-            />
-          ))
-        : null}
-      {contextRef &&
-      onOpenReply &&
-      !(contextRef.kind === "agent" && hideAgentChips) &&
-      !(contextRef.kind === "agent" && quotedThreadIds.has(contextRef.threadId)) ? (
-        <ReplyPreview
-          reference={contextRef}
-          status={contextStatus}
-          colors={colors}
-          onOpen={() => onOpenReply(contextRef)}
-        />
-      ) : null}
-      {item.askRecords?.map((record) => (
-        <View key={record.id} style={hasText ? styles.askRecordAbove : undefined}>
-          <UserAskRecordView record={record} />
-        </View>
-      ))}
-      {hasText && isSelecting ? (
-        // "Select" mode: the reply's plain text in a selection surface with
-        // everything selected and a Copy / Ask Stella pill.
-        <View style={[styles.assistantBubble, styles.assistantSelectBubble]}>
-          <AssistantTextSelection
-            text={extractPlainText(item.text).trim()}
-            colors={{ ...colors, text: colors.assistantBubbleText }}
-            onAskStella={onAskStella}
-            onDismiss={onEndSelecting}
-          />
-        </View>
-      ) : hasText ? (
-        <View
-          ref={bubbleRef}
-          collapsable={false}
-          style={[
-            fillAssistantBubble ? styles.assistantBubbleSlotFill : styles.assistantBubbleSlot,
-            menuActive && styles.bubbleHidden,
-          ]}
-        >
-          <Animated.View style={pressStyle}>
-            <Pressable
-              onLongPress={openMenu}
-              onPressIn={pressIn}
-              onPressOut={pressOut}
-              onPress={anySelecting ? onEndSelecting : undefined}
-              delayLongPress={MESSAGE_LONG_PRESS_MS}
-              accessibilityHint="Long press for message actions"
-            >
-              {assistantBubble}
-            </Pressable>
-          </Animated.View>
-        </View>
-      ) : null}
-      {hasText && (showGeneratedImages || showEvidence) ? (
-        <View>
-          {showGeneratedImages ? (
-            <View style={[styles.artifactGroup, styles.mediaBelowBubble]}>
-              {generatedImageCards}
-            </View>
-          ) : null}
-          {evidenceMedia}
-        </View>
-      ) : null}
-      {scheduleReceipts.map((receipt) => (
-        <Text
-          key={receipt.id}
-          style={styles.scheduleReceipt}
-          maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-        >
-          {receipt.text}
-        </Text>
-      ))}
-      {showArtifacts ? (
-        <View
-          style={[styles.artifactGroup, hasText && styles.artifactGroupSpaced]}
-        >
-          {/* Running agents surface in the top bar's status mark, not as
-              transcript rows; finished ones arrive as quotes above replies. */}
-          {linkedAppSlugs.map((slug) => (
-            <AppPreviewCard key={`app:${slug}`} slug={slug} colors={colors} />
-          ))}
-          {showMapArtifacts
-            ? mapArtifacts.map((artifact) => (
-                <MapRouteCard
-                  key={artifact.id}
-                  payload={artifact.payload}
-                  colors={colors}
-                />
-              ))
-            : null}
-          {hasText ? null : generatedImageCards}
-        </View>
-      ) : null}
-      {hasText ? null : evidenceMedia}
-      {hasText || !replyFilePills ? null : (
-        <View style={styles.artifactGroupSpaced}>{replyFilePills}</View>
-      )}
-      {item.stopped ? (
-        <Text
-          style={styles.stoppedTag}
-          maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-        >
-          Stopped
-        </Text>
-      ) : null}
-      {item.cloudFallback ? (
-        <Text
-          style={styles.cloudTag}
-          maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-        >
-          Answered while your computer was offline
-        </Text>
-      ) : null}
-    </View>
-  );
-});
-
-const isDraftEmpty = (draft: string) => draft.length === 0;
-const draftHasText = (draft: string) => draft.trim().length > 0;
-
-/**
- * The composer's text input — the only component a keystroke re-renders. It
- * subscribes to the draft store for its value and writes edits straight back.
- */
-function ComposerTextInput({
-  draftStore,
-  ref,
-  ...props
-}: Omit<TextInputProps, "value" | "onChangeText"> & {
-  draftStore: ChatDraftStore;
-  ref?: Ref<TextInput>;
-}) {
-  const value = useChatDraft(draftStore);
-  return (
-    <TextInput
-      ref={ref}
-      {...props}
-      value={value}
-      onChangeText={draftStore.set}
-    />
-  );
-}
-
-/**
- * Submit button that springs between enabled/disabled states like the
- * desktop `motion.button` in `ComposerPrimitives.tsx`:
- *   animate={{ opacity: canSubmit ? 1 : 0.4, scale: canSubmit ? 1 : 0.92 }}
- *   transition={{ type: "spring", duration: 0.2, bounce: 0 }}
- */
-function AnimatedSubmitButton({
-  canSubmit,
-  onPress,
-  styles,
-  colors,
-  accessibilityLabel,
-}: {
-  canSubmit: boolean;
-  onPress: () => void;
-  styles: ChatStyles;
-  colors: Colors;
-  accessibilityLabel: string;
-}) {
-  const opacity = useRef(new Animated.Value(canSubmit ? 1 : 0.4)).current;
-  const scale = useRef(new Animated.Value(canSubmit ? 1 : 0.92)).current;
-
-  useEffect(() => {
-    Animated.parallel([
-      Animated.spring(opacity, {
-        toValue: canSubmit ? 1 : 0.4,
-        damping: 18,
-        stiffness: 260,
-        mass: 0.6,
-        useNativeDriver: true,
-      }),
-      Animated.spring(scale, {
-        toValue: canSubmit ? 1 : 0.92,
-        damping: 18,
-        stiffness: 260,
-        mass: 0.6,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [canSubmit, opacity, scale]);
-
-  const animatedStyle = useMemo(
-    () => ({ opacity, transform: [{ scale }] }),
-    [opacity, scale],
-  );
-
-  return (
-    <Animated.View style={animatedStyle}>
-      <Pressable
-        onPress={onPress}
-        disabled={!canSubmit}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: !canSubmit }}
-        accessibilityLabel={accessibilityLabel}
-        style={styles.submitButton}
-        hitSlop={4}
-      >
-        <Icon
-          name="arrow-up"
-          size={15}
-          color={colors.accentForeground}
-          weight="heavy"
-        />
-      </Pressable>
-    </Animated.View>
-  );
-}
-
-/**
- * Square stop affordance shown in place of the submit button while a reply is
- * streaming (chat) or pending (computer chat). Calling `onPress` cancels the
- * in-flight reply and cancels any queued messages. Canceled user bubbles stay
- * visible in the transcript with a Stopped label; resuming requires re-sending.
- */
-function StopButton({
-  onPress,
-  styles,
-  colors,
-}: {
-  onPress: () => void;
-  styles: ChatStyles;
-  colors: Colors;
-}) {
-  return (
-    <Pressable
-      onPress={() => {
-        tapLight();
-        onPress();
-      }}
-      accessibilityRole="button"
-      accessibilityLabel="Stop reply"
-      style={styles.submitButton}
-      hitSlop={4}
-    >
-      <Icon
-        name="stop"
-        size={13}
-        color={colors.accentForeground}
-        weight="heavy"
-        filled
-      />
-    </Pressable>
-  );
-}
-
-/**
- * Transient "Catching up" pill — top-center overlay while a catch-up sync
- * (landing / foreground return / Force Sync) is pulling turns the phone may
- * have missed. Non-interactive and absolutely positioned so it never shifts
- * the transcript; appearance/disappearance mirror the floating glass controls'
- * materialize/dissolve language.
- */
-function CatchUpPill({
-  visible,
-  top,
-  styles,
-  colors,
-}: {
-  visible: boolean;
-  top: number;
-  styles: ChatStyles;
-  colors: Colors;
-}) {
-  // Stays mounted so the glass can run its native materialize/dissolve
-  // transition; the JS anim fades the content along with it.
-  const anim = useRef(new Animated.Value(visible ? 1 : 0)).current;
-  useEffect(() => {
-    Animated.timing(anim, {
-      toValue: visible ? 1 : 0,
-      duration: 220,
-      useNativeDriver: true,
-    }).start();
-  }, [anim, visible]);
-
-  return (
-    <Animated.View
-      pointerEvents="none"
-      accessibilityElementsHidden={!visible}
-      style={[
-        styles.catchUpPill,
-        {
-          top,
-          // Opacity on a Liquid Glass ancestor makes iOS drop the glass
-          // material, so only fade the wrapper on the (non-glass) fallback.
-          opacity: liquidGlassSupported ? 1 : anim,
-          transform: [
-            {
-              translateY: anim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [-8, 0],
-              }),
-            },
-          ],
-        },
-      ]}
-    >
-      <GlassSurface
-        glass="regular"
-        legible
-        present={visible}
-        radius={15}
-        fallbackColor={colors.surface}
-        style={styles.catchUpPillGlass}
-      >
-        {/* Border + content are children of the glass, so fading them is safe. */}
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            StyleSheet.absoluteFill,
-            styles.catchUpPillRing,
-            { opacity: anim },
-          ]}
-        />
-        <Animated.View style={[styles.catchUpPillRow, { opacity: anim }]}>
-          <ActivityIndicator size="small" color={colors.textMuted} />
-          <Text
-            style={styles.catchUpPillText}
-            accessibilityLabel="Catching up with your computer"
-          >
-            Catching up
-          </Text>
-        </Animated.View>
-      </GlassSurface>
-    </Animated.View>
-  );
-}
-
-function ScrollToBottomFab({
-  visible,
-  hasUnread,
-  onPress,
-  styles,
-  colors,
-  bottomOffset,
-}: {
-  visible: boolean;
-  hasUnread: boolean;
-  onPress: () => void;
-  styles: ChatStyles;
-  colors: Colors;
-  /** Distance in pt from the bottom of the viewport — sit just above the composer. */
-  bottomOffset?: number;
-}) {
-  // Stays mounted across visibility changes so the glass can run its native
-  // materialize/dissolve transition; the JS anim fades the icon along with it.
-  const anim = useRef(new Animated.Value(visible ? 1 : 0)).current;
-  useEffect(() => {
-    Animated.timing(anim, {
-      toValue: visible ? 1 : 0,
-      duration: 220,
-      useNativeDriver: true,
-    }).start();
-  }, [anim, visible]);
-
-  return (
-    <Animated.View
-      pointerEvents={visible ? "box-none" : "none"}
-      style={[
-        styles.scrollToBottomFab,
-        bottomOffset !== undefined && { bottom: bottomOffset },
-        {
-          // Opacity on a Liquid Glass ancestor makes iOS drop the glass
-          // material, so only fade the wrapper on the (non-glass) fallback. On
-          // glass the material fades via `present` and the icon fades below.
-          opacity: liquidGlassSupported ? 1 : anim,
-          transform: [
-            {
-              translateY: anim.interpolate({
-                inputRange: [0, 1],
-                outputRange: [8, 0],
-              }),
-            },
-          ],
-        },
-      ]}
-    >
-      <Pressable
-        accessibilityLabel={
-          hasUnread
-            ? "Scroll to latest messages, new replies below"
-            : "Scroll to latest messages"
-        }
-        accessibilityRole="button"
-        hitSlop={6}
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.scrollToBottomFabInner,
-          pressed && styles.scrollToBottomFabPressed,
-        ]}
-      >
-        <GlassSurface
-          glass="clear"
-          interactive
-          present={visible}
-          radius={16}
-          fallbackColor={colors.surface}
-          style={styles.scrollToBottomFabGlass}
-        >
-          {/* Border + icon are children of the glass, so fading them is safe —
-              keeps the outline from lingering after the material dissolves. */}
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              StyleSheet.absoluteFill,
-              styles.scrollToBottomFabRing,
-              { opacity: anim },
-            ]}
-          />
-          <Animated.View style={{ opacity: anim }}>
-            <Icon
-              name="chevron-down"
-              size={16}
-              color={colors.accent}
-              weight="semibold"
-            />
-          </Animated.View>
-        </GlassSurface>
-        {hasUnread ? (
-          <Animated.View
-            style={[styles.scrollToBottomDot, { opacity: anim }]}
-          />
-        ) : null}
-      </Pressable>
-    </Animated.View>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// "+" menu — single source of truth for composer attach actions across both
-// the chat and the computer chat. The chat has both Attach + View computer;
-// the computer chat skips Attach since it doesn't accept image input.
-//
-// The menu renders as a small popover anchored just above the `+` button
-// (drop-up, since the composer is at the bottom of the screen) rather than
-// a center-screen action sheet. This mirrors the desktop's `+` menu
-// behavior and feels more native for an inline composer affordance.
-// ---------------------------------------------------------------------------
-
-type PlusMenuOption = {
-  id: string;
-  label: string;
-  icon: IconName;
-  onSelect: () => void;
-  disabled?: boolean;
-  selected?: boolean;
-  trailingLabel?: string;
-  /** When set, tapping opens this list instead of calling `onSelect`. */
-  submenu?: PlusMenuOption[];
-  /** Header shown above a submenu (defaults to the parent row label). */
-  submenuTitle?: string;
-};
-
-type PlusMenuLevel = {
-  title: string;
-  options: PlusMenuOption[];
-};
-
-type AnchorRect = { x: number; y: number; width: number; height: number };
-
-const PLUS_MENU_GAP = 10;
-const PLUS_MENU_MIN_WIDTH = 200;
-// Roomier minimum for the focused message context menu (the `large` variant).
-const PLUS_MENU_LARGE_MIN_WIDTH = 268;
-const PLUS_MENU_EDGE_PADDING = 12;
-
-function PlusMenuPopover({
-  visible,
-  anchor,
-  options,
-  onDismiss,
-  colors,
-  containerRef,
-  headerLabel = null,
-  scrim = false,
-  large = false,
-  wrapLabels = false,
-  minWidth,
-}: {
-  visible: boolean;
-  anchor: AnchorRect | null;
-  options: PlusMenuOption[];
-  onDismiss: () => void;
-  colors: Colors;
-  /**
-   * The chat root the menu overlays. Anchors are captured in window space; we
-   * render *in-tree* (not in a `Modal`) so Liquid Glass can actually sample the
-   * chat behind the menu — a `Modal` is a separate window with nothing to
-   * refract, which leaves the glass clear and its materialize animation inert.
-   * We translate window anchors into this container's local space.
-   */
-  containerRef: React.RefObject<View | null>;
-  /**
-   * Non-interactive header shown above the options (the message menu passes the
-   * message timestamp, e.g. "Aug 7, 12:56 PM"). Omitted when null.
-   */
-  headerLabel?: string | null;
-  /**
-   * Focused context-menu treatment (message menu): a LIGHT non-glass scrim
-   * behind the card plus a frostier tint on the card's Liquid Glass, so the
-   * menu itself is the authentic frosted-glass surface. The backdrop stays a
-   * plain scrim (never a `GlassView`): a second glass layer beneath the in-tree
-   * menu triggers Apple's glass-on-glass suppression and renders the menu clear,
-   * so the frost must come from the single glass card, not the backdrop.
-   */
-  scrim?: boolean;
-  /**
-   * Roomier rows/typography/width for the focused message context menu, to match
-   * the reference (a small dense popover like the +/model menus reads too
-   * cramped as a primary context menu).
-   */
-  large?: boolean;
-  /** Allow long model names to remain readable. */
-  wrapLabels?: boolean;
-  minWidth?: number;
-}) {
-  const styles = useMemo(() => makePlusMenuStyles(colors), [colors]);
-  const [menuLayout, setMenuLayout] = useState<{
-    width: number;
-    height: number;
-  } | null>(null);
-  const [origin, setOrigin] = useState<{ x: number; y: number }>({
-    x: 0,
-    y: 0,
-  });
-  const [submenuStack, setSubmenuStack] = useState<PlusMenuLevel[]>([]);
-  // Snappy entrance: the menu springs up from the anchor once it has been
-  // measured, instead of the slow flat fade of the RN Modal.
-  const anim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (!visible) {
-      setMenuLayout(null);
-      setSubmenuStack([]);
-      anim.setValue(0);
-      return;
-    }
-    // Snapshot the container's window offset so window-space anchors land in
-    // the right spot once we re-base them into local coordinates.
-    containerRef.current?.measureInWindow((x, y) => setOrigin({ x, y }));
-  }, [visible, anim, containerRef]);
-
-  useEffect(() => {
-    if (visible && menuLayout) {
-      Animated.spring(anim, {
-        toValue: 1,
-        damping: 24,
-        stiffness: 520,
-        mass: 0.5,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [visible, menuLayout, anim]);
-
-  const activeLevel = submenuStack[submenuStack.length - 1];
-  const visibleOptions = activeLevel?.options ?? options;
-  const submenuTitle = activeLevel?.title ?? null;
-
-  const handleRequestClose = useCallback(() => {
-    if (submenuStack.length > 0) {
-      setSubmenuStack((prev) => prev.slice(0, -1));
-      setMenuLayout(null);
-      return;
-    }
-    onDismiss();
-  }, [onDismiss, submenuStack.length]);
-
-  const goBack = useCallback(() => {
-    setSubmenuStack((prev) => prev.slice(0, -1));
-    setMenuLayout(null);
-  }, []);
-
-  const onSelectOption = useCallback(
-    (option: PlusMenuOption) => {
-      const submenu = option.submenu;
-      if (submenu && submenu.length > 0) {
-        setSubmenuStack((prev) => [
-          ...prev,
-          {
-            title: option.submenuTitle ?? option.label,
-            options: submenu,
-          },
-        ]);
-        setMenuLayout(null);
-        return;
-      }
-      setSubmenuStack([]);
-      onDismiss();
-      option.onSelect();
-    },
-    [onDismiss],
-  );
-
-  if (!visible || !anchor) {
-    return null;
-  }
-
-  const screen = Dimensions.get("window");
-  const measured = menuLayout;
-  const menuMinWidth = minWidth ?? (large ? PLUS_MENU_LARGE_MIN_WIDTH : PLUS_MENU_MIN_WIDTH);
-  // Cap the options list so a tall menu scrolls instead of overflowing the
-  // screen; short menus (the common case) still size to their content.
-  const menuMaxOptionsHeight = Math.round(screen.height * 0.55);
-  const desiredWidth = Math.max(menuMinWidth, measured?.width ?? 0);
-  // Left-align with the anchor, clamped inside the screen so the bubble
-  // never spills past the edge of the device. Computed in window space, then
-  // re-based into the container's local space (we render in-tree, not modal).
-  const windowLeft = Math.min(
-    Math.max(PLUS_MENU_EDGE_PADDING, anchor.x),
-    screen.width - desiredWidth - PLUS_MENU_EDGE_PADDING,
-  );
-  const left = windowLeft - origin.x;
-  // Drop-up by default; fall back to drop-down if the menu wouldn't fit
-  // above the anchor.
-  const menuHeight = measured?.height ?? 0;
-  const dropUpTop = anchor.y - menuHeight - PLUS_MENU_GAP;
-  const isDropDown = Boolean(measured) && dropUpTop < PLUS_MENU_EDGE_PADDING;
-  const windowTop = isDropDown
-    ? anchor.y + anchor.height + PLUS_MENU_GAP
-    : dropUpTop;
-  const top = windowTop - origin.y;
-  // Emerge from the anchor: a drop-up menu rises into place, a drop-down
-  // menu settles down into place.
-  const enterTranslateY = anim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [isDropDown ? -8 : 8, 0],
-  });
-  const enterScale = anim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.96, 1],
-  });
-
-  return (
-    <View style={styles.overlay} pointerEvents="box-none">
-      {scrim ? (
-        <Animated.View
-          pointerEvents="none"
-          style={[styles.scrim, { opacity: anim }]}
-        />
-      ) : null}
-      <Pressable
-        style={StyleSheet.absoluteFill}
-        onPress={handleRequestClose}
-        accessibilityLabel="Dismiss menu"
-      />
-      <Animated.View
-        onLayout={(event) => {
-          const { width, height } = event.nativeEvent.layout;
-          setMenuLayout({ width, height });
-        }}
-        style={[
-          styles.menu,
-          {
-            left,
-            minWidth: menuMinWidth,
-            top: measured ? top : anchor.y - PLUS_MENU_GAP - origin.y,
-            transform: [{ translateY: enterTranslateY }, { scale: enterScale }],
-          },
-        ]}
-      >
-        <GlassSurface
-          glass="regular"
-          // The menu card is the ONE Liquid Glass surface (expo-glass-effect
-          // GlassView / UIGlassEffect on iOS 26). The focused message menu
-          // (`scrim` variant) leans into a frostier, more refractive tint so it
-          // reads as genuine Liquid Glass — its backdrop scrim keeps labels
-          // legible, so it needn't carry `legible`'s heavier opaque surface tint
-          // the way the inline +/model menus (over undimmed live chat) do.
-          {...(scrim
-            ? { tintColor: fadeHex(colors.surface, 0.66) }
-            : { legible: true })}
-          present={Boolean(measured)}
-          radius={large ? 18 : 14}
-          ringed
-          pointerEvents="none"
-          style={StyleSheet.absoluteFill}
-        />
-        {/* Fade the menu *contents* — never the glass or its parent. Animating
-              opacity on a GlassView ancestor makes iOS drop the Liquid Glass
-              material entirely (renders clear). The glass itself fades via its
-              own `present`-driven materialize animation; the spring lives on the
-              transform above. */}
-        <Animated.View style={{ opacity: measured ? anim : 0 }}>
-          {headerLabel && !submenuTitle ? (
-            <View
-              style={[
-                styles.menuItem,
-                large && styles.menuItemLarge,
-                styles.menuHeader,
-              ]}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-            >
-              <Text
-                style={[
-                  styles.menuHeaderLabel,
-                  large && styles.menuHeaderLabelLarge,
-                ]}
-                numberOfLines={1}
-              >
-                {headerLabel}
-              </Text>
-            </View>
-          ) : null}
-          {submenuTitle ? (
-            <Pressable
-              accessibilityLabel="Back to menu"
-              onPress={goBack}
-              style={({ pressed }) => [
-                styles.menuItem,
-                styles.menuItemFirst,
-                styles.submenuHeader,
-                pressed && styles.menuItemPressed,
-              ]}
-            >
-              <Icon
-                name="chevron-left"
-                size={16}
-                color={colors.textMuted}
-                style={styles.menuItemIcon}
-              />
-              <Text style={styles.submenuHeaderLabel} numberOfLines={1}>
-                {submenuTitle}
-              </Text>
-            </Pressable>
-          ) : null}
-          <ScrollView
-            style={{ maxHeight: menuMaxOptionsHeight }}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-          >
-            {visibleOptions.map((option, index) => {
-              const isFirst = !submenuTitle && index === 0;
-              const isLast = index === visibleOptions.length - 1;
-              const hasSubmenu = Boolean(option.submenu?.length);
-              return (
-                <Pressable
-                  key={option.id}
-                  accessibilityLabel={option.label}
-                  disabled={option.disabled}
-                  onPress={() => onSelectOption(option)}
-                  style={({ pressed }) => [
-                    styles.menuItem,
-                    large && styles.menuItemLarge,
-                    isFirst && styles.menuItemFirst,
-                    isLast && styles.menuItemLast,
-                    pressed && styles.menuItemPressed,
-                    option.disabled && styles.menuItemDisabled,
-                  ]}
-                >
-                  <Icon
-                    name={option.icon}
-                    size={large ? 20 : 16}
-                    color={option.disabled ? colors.textMuted : colors.text}
-                    style={
-                      large ? styles.menuItemIconLarge : styles.menuItemIcon
-                    }
-                  />
-                  <Text
-                    style={[
-                      styles.menuItemLabel,
-                      large && styles.menuItemLabelLarge,
-                      option.disabled && styles.menuItemLabelMuted,
-                    ]}
-                    numberOfLines={wrapLabels ? 2 : 1}
-                  >
-                    {option.label}
-                  </Text>
-                  {option.trailingLabel ? (
-                    <Text style={styles.menuItemTrailing} numberOfLines={1}>
-                      {option.trailingLabel}
-                    </Text>
-                  ) : hasSubmenu ? (
-                    <Icon
-                      name="chevron-right"
-                      size={15}
-                      color={colors.textMuted}
-                      style={styles.menuItemCheck}
-                    />
-                  ) : option.selected ? (
-                    <Icon
-                      name="check"
-                      size={15}
-                      color={colors.accent}
-                      style={styles.menuItemCheck}
-                    />
-                  ) : null}
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </Animated.View>
-      </Animated.View>
-    </View>
-  );
-}
-
-const makePlusMenuStyles = (colors: Colors) =>
-  StyleSheet.create({
-    overlay: {
-      // In-tree overlay covering the chat root (no Modal), so Liquid Glass can
-      // sample the content behind the menu. `box-none` lets taps fall through
-      // to the backdrop / menu children only.
-      ...StyleSheet.absoluteFill,
-      zIndex: 50,
-    },
-    scrim: {
-      // Non-glass backdrop behind the focused message menu: a LIGHT plain dark
-      // scrim (the app's sheet/modal convention — see TopSheet), kept subtle so
-      // the menu's Liquid Glass refracts near-live chat and reads as authentic
-      // frost instead of a muddied dark panel. It must NOT be a GlassView — a
-      // second glass layer beneath the menu triggers Apple's glass-on-glass
-      // suppression and renders the menu clear — so the frost comes entirely
-      // from the single glass surface (the menu card), never from the backdrop.
-      ...StyleSheet.absoluteFill,
-      backgroundColor: "rgba(0, 0, 0, 0.2)",
-    },
-    menuHeader: {
-      borderBottomColor: fadeHex(colors.border, 0.55),
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      justifyContent: "center",
-      marginBottom: 4,
-      paddingBottom: 10,
-      paddingVertical: 8,
-    },
-    menuHeaderLabel: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 12,
-      letterSpacing: -0.1,
-      textAlign: "center",
-    },
-    menuHeaderLabelLarge: { fontSize: 13, paddingVertical: 2 },
-    // `large` variant — roomier rows/typography for the focused message menu.
-    menuItemLarge: {
-      gap: 14,
-      paddingHorizontal: 18,
-      paddingVertical: 15,
-    },
-    menuItemIconLarge: { width: 24 },
-    menuItemLabelLarge: { fontSize: 17, letterSpacing: -0.3 },
-    menu: {
-      borderRadius: 14,
-      paddingVertical: 6,
-      position: "absolute",
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.05,
-      shadowRadius: 6,
-      elevation: 2,
-    },
-    menuItem: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: 12,
-      paddingHorizontal: 14,
-      paddingVertical: 11,
-    },
-    menuItemFirst: {},
-    menuItemLast: {},
-    menuItemPressed: { backgroundColor: fadeHex(colors.text, 0.06) },
-    menuItemDisabled: { opacity: 0.55 },
-    menuItemIcon: { width: 20 },
-    menuItemLabel: {
-      color: colors.text,
-      flex: 1,
-      fontFamily: fonts.sans.medium,
-      fontSize: 15,
-      letterSpacing: -0.2,
-    },
-    menuItemLabelMuted: { color: colors.textMuted },
-    menuItemTrailing: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 13,
-      letterSpacing: -0.15,
-      marginLeft: 12,
-      maxWidth: 136,
-    },
-    menuItemCheck: { marginLeft: 12 },
-    submenuHeader: {
-      borderBottomColor: fadeHex(colors.border, 0.55),
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      marginBottom: 4,
-      paddingBottom: 10,
-    },
-    submenuHeaderLabel: {
-      color: colors.textMuted,
-      flex: 1,
-      fontFamily: fonts.sans.medium,
-      fontSize: 14,
-      letterSpacing: -0.15,
-    },
-  });
-
-// Case- and accent-insensitive fold for matching: decompose, drop combining
-// diacritics (the U+0300–U+036F block covers Latin accents), and lowercase. So
-// "Café" and "cafe" match. Uses the combining-marks range rather than the
-// `\p{Diacritic}` property escape for broad RN engine compatibility.
-const foldText = (value: string): string =>
-  value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-
-// Split a raw query into folded terms for multi-word (AND) matching.
-const foldQueryTerms = (query: string): string[] =>
-  foldText(query).split(/\s+/).filter(Boolean);
-
-// Fold a string while tracking, for each folded character, the original index
-// it came from. Lets the snippet highlight map a match found in folded space
-// back onto the original (accented/cased) text. `map[k]` is the original UTF-16
-// index of folded char `k`; the trailing entry maps to the string end.
-function foldWithMap(text: string): { folded: string; map: number[] } {
-  const folded: string[] = [];
-  const map: number[] = [];
-  let originalIndex = 0;
-  for (const char of text) {
-    const dec = char
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase();
-    for (const f of dec) {
-      folded.push(f);
-      map.push(originalIndex);
-    }
-    originalIndex += char.length;
-  }
-  map.push(text.length);
-  return { folded: folded.join(""), map };
-}
-
-// A short preview of a matched message, windowed around the earliest matching
-// term so the hit is visible (and can be emphasised) in the row — accent- and
-// case-insensitively, mapping the folded match back onto the original text.
-function buildSearchSnippet(
-  text: string,
-  query: string,
-): { before: string; match: string; after: string } {
-  const terms = foldQueryTerms(query);
-  const { folded, map } = foldWithMap(text);
-  let foldIdx = -1;
-  let termLen = 0;
-  for (const term of terms) {
-    const at = folded.indexOf(term);
-    if (at >= 0 && (foldIdx < 0 || at < foldIdx)) {
-      foldIdx = at;
-      termLen = term.length;
-    }
-  }
-  if (foldIdx < 0) {
-    return {
-      before: text.slice(0, 120),
-      match: "",
-      after: text.length > 120 ? "…" : "",
-    };
-  }
-  const matchStart = map[foldIdx] ?? 0;
-  const matchEnd = map[foldIdx + termLen] ?? text.length;
-  const start = Math.max(0, matchStart - 28);
-  const before = (start > 0 ? "…" : "") + text.slice(start, matchStart);
-  const match = text.slice(matchStart, matchEnd);
-  const tailEnd = matchEnd + 90;
-  const after =
-    text.slice(matchEnd, tailEnd) + (tailEnd < text.length ? "…" : "");
-  return { before, match, after };
-}
-
-type ChatSearchResult = { message: ChatMessage; index: number };
-
-const searchResultKey = (result: ChatSearchResult) => result.message.id;
-
-const SearchResultRow = memo(function SearchResultRow({
-  message,
-  index,
-  query,
-  styles,
-  colors,
-  onPress,
-}: {
-  message: ChatMessage;
-  index: number;
-  query: string;
-  styles: ChatStyles;
-  colors: Colors;
-  onPress: (index: number) => void;
-}) {
-  const handlePress = useCallback(() => onPress(index), [index, onPress]);
-  const snippet = useMemo(
-    () => buildSearchSnippet(message.text, query),
-    [message.text, query],
-  );
-  return (
-    <Pressable
-      onPress={handlePress}
-      accessibilityRole="button"
-      accessibilityLabel={`Jump to message: ${message.text.slice(0, 80)}`}
-      style={({ pressed }) => [
-        styles.searchResultRow,
-        pressed && styles.searchResultRowPressed,
-      ]}
-    >
-      <Text
-        style={styles.searchResultText}
-        numberOfLines={2}
-        maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-      >
-        {snippet.before}
-        <Text style={styles.searchResultMatch}>{snippet.match}</Text>
-        {snippet.after}
-      </Text>
-      <Icon name="chevron-right" size={16} color={colors.textMuted} />
-    </Pressable>
-  );
-});
-
 // ---------------------------------------------------------------------------
 // ChatPane — full chat screen surface (list + composer + scroll model).
 // Used by both the chat and the computer chat so both render visually
 // identically; the parent just owns message state and submission.
 // ---------------------------------------------------------------------------
 
-export type ChatPaneProps = {
-  /** Visible message list (parent-owned). */
-  messages: ChatMessage[];
-  /** True while a reply is streaming — controls composer stop button. */
-  streaming: boolean;
-  /**
-   * Live working-indicator props derived from the run (active state + the
-   * dynamic, tool-aware label), mirroring the desktop indicator.
-   */
-  workingIndicator?: WorkingIndicatorState;
-  /** Shows a quiet offline notice above the composer. */
-  offline?: boolean;
-  /** Empty-state body. Rendered centered when there are no messages. */
-  emptyContent: ReactNode;
+/** Durable pages adjacent to the bounded in-memory message window. */
+export type ChatPaneHistory = {
   /**
    * True while history is still hydrating (e.g. AsyncStorage load on mount or
    * an unknown pairing state). Suppresses the empty state so it doesn't flash
    * during tab transitions before the real messages arrive.
    */
-  historyLoading?: boolean;
-  /** Durable pages adjacent to the bounded in-memory message window. */
-  hasOlderHistory?: boolean;
-  hasNewerHistory?: boolean;
-  historyPageLoading?: boolean;
-  onLoadOlderHistory?: () => Promise<void> | void;
-  onLoadNewerHistory?: () => Promise<void> | void;
+  loading?: boolean;
+  hasOlder?: boolean;
+  hasNewer?: boolean;
+  pageLoading?: boolean;
+  onLoadOlder?: () => Promise<void> | void;
+  onLoadNewer?: () => Promise<void> | void;
+};
 
+export type ChatPaneComposer = {
   /**
    * The composer text. Only the input subscribes to the full value, so a
    * keystroke re-renders the input rather than this whole pane.
    */
   draftStore: ChatDraftStore;
   /** Whether the composer accepts text (typing + sending). */
-  composerEnabled?: boolean;
+  enabled?: boolean;
   /**
    * Optional paired-computer model control. When pinned, it keeps the composer
    * expanded and renders a compact model picker in the toolbar.
    */
-  composerModelPicker?: ComposerModelPickerConfig;
+  modelPicker?: ComposerModelPickerConfig;
   /** Visible placeholder when not transcribing. */
   placeholder: string;
-
   /** Owner-approved intervention pinned immediately above the composer. */
-  composerIntervention?: ReactNode;
-
+  intervention?: ReactNode;
   /**
    * Everything except content that gates sending (uploads settled, hydrated,
    * online, authority ready). The pane adds the content check itself: typed
@@ -3179,56 +345,87 @@ export type ChatPaneProps = {
    * bubbles) for both the local chat stream and computer-chat round trip.
    */
   onStop?: () => void;
+};
 
+/** Photo and file attachments. Omitted when this transport takes none. */
+export type ChatPaneAttachments = {
+  /** Current attachments. */
+  items?: ComposerAttachment[];
+  /** Hands picked files to the owner, which uploads them and reports overflow. */
+  onAdd?: (picked: readonly PickedAttachment[]) => {
+    rejected: number;
+  };
+  onRemove?: (id: string) => void;
+  /** Retries one failed upload. Absent means a failed chip can only be removed. */
+  onRetry?: (id: string) => void;
+  /**
+   * Optional overall cap for this transport. Picker-level limits reset per
+   * launch, so the chat supplies its backend request limit here.
+   */
+  max?: number;
+};
+
+/**
+ * Quoted-text chips pending in the composer — added by the message menu's
+ * "Quote" and assistant selection's "Ask Stella", rendered as removable chips
+ * above the input, and folded into the sent message by `useChatThread`. When
+ * `onAdd` is absent those actions fall back to inline draft text.
+ */
+export type ChatPaneQuotes = {
+  items?: ComposerQuote[];
+  onAdd?: (text: string) => void;
+  onRemove?: (id: string) => void;
+};
+
+export type ChatPaneDictation = {
+  anonymous: boolean;
+  /** Headers passed to the dictation upload (e.g. mobile device id for guests). */
+  headers?: Record<string, string>;
+};
+
+export type ChatPaneRealtimeVoice = {
   /** Stable id of the text chat to which realtime voice is attached. */
-  realtimeVoiceConversationId?: string | null;
+  conversationId?: string | null;
   /** Where voice-request actions should execute. */
-  realtimeVoiceExecution?: "phone" | "computer";
+  execution?: "phone" | "computer";
   /** Paired desktop credentials used only by Computer realtime voice. */
-  realtimeVoiceDesktopAccess?: StoredPhoneAccess | null;
+  desktopAccess?: StoredPhoneAccess | null;
+  /** Show sign-in before starting capture for an anonymous cloud user. */
+  signInRequired?: boolean;
+  /** Dispatches one action request into the attached text chat. */
+  onAction?: (request: string) => Promise<RealtimeVoiceActionDispatch>;
+};
+
+// The pane is not memoized, and every group is destructured into scalars
+// before it reaches a hook dependency or a memoized child, so callers may pass
+// these groups inline.
+export type ChatPaneProps = {
+  /** Visible message list (parent-owned). */
+  messages: ChatMessage[];
+  /** True while a reply is streaming — controls composer stop button. */
+  streaming: boolean;
+  /**
+   * Live working-indicator props derived from the run (active state + the
+   * dynamic, tool-aware label), mirroring the desktop indicator.
+   */
+  workingIndicator?: WorkingIndicatorState;
+  /** Shows a quiet offline notice above the composer. */
+  offline?: boolean;
+  /** Empty-state body. Rendered centered when there are no messages. */
+  emptyContent: ReactNode;
+  history?: ChatPaneHistory;
+  composer: ChatPaneComposer;
+  /** Omitted hides the photo/file actions of the `+` sheet. */
+  attachments?: ChatPaneAttachments;
+  quotes?: ChatPaneQuotes;
+  dictation: ChatPaneDictation;
+  realtimeVoice?: ChatPaneRealtimeVoice;
   /**
    * Paired desktop used to open computer-owned files in the transcript. Kept
    * separate from the voice route so a cloud voice selection does not hide
    * files produced by an earlier computer turn.
    */
   desktopAccess?: StoredPhoneAccess | null;
-  /** Show sign-in before starting capture for an anonymous cloud user. */
-  realtimeVoiceSignInRequired?: boolean;
-  /** Dispatches one action request into the attached text chat. */
-  onRealtimeVoiceAction?: (
-    request: string,
-  ) => Promise<RealtimeVoiceActionDispatch>;
-
-  /** Show a small `+` menu entry for attaching photos and files. */
-  enableAttachments: boolean;
-  /** Current attachments — only meaningful when `enableAttachments`. */
-  attachments?: ComposerAttachment[];
-  /** Hands picked files to the owner, which uploads them and reports overflow. */
-  onAddAttachments?: (picked: readonly PickedAttachment[]) => {
-    rejected: number;
-  };
-  onRemoveAttachment?: (id: string) => void;
-  /** Retries one failed upload. Absent means a failed chip can only be removed. */
-  onRetryAttachment?: (id: string) => void;
-  /**
-   * Optional overall cap for this transport. Picker-level limits reset per
-   * launch, so the chat supplies its backend request limit here.
-   */
-  maxAttachments?: number;
-
-  /**
-   * Quoted-text chips pending in the composer — added by the message menu's
-   * "Quote" and assistant selection's "Ask Stella", rendered as removable chips
-   * above the input, and folded into the sent message by `useChatThread`. When
-   * `onAddQuote` is absent those actions fall back to inline draft text.
-   */
-  quotes?: ComposerQuote[];
-  onAddQuote?: (text: string) => void;
-  onRemoveQuote?: (id: string) => void;
-
-  /** Headers passed to the dictation upload (e.g. mobile device id for guests). */
-  dictationAnonymous: boolean;
-  dictationHeaders?: Record<string, string>;
 
   /** Opens a desktop artifact linked from an assistant message. */
   onOpenArtifact?: (
@@ -3271,25 +468,49 @@ export type ChatPaneProps = {
   catchingUp?: boolean;
 };
 
-export type ComposerModelPickerConfig = {
-  pinned: boolean;
-  label: string;
-  loading?: boolean;
-  saving?: boolean;
-  effortLabel: string;
-  effortOptions: readonly {
-    id: string;
-    label: string;
-    selected: boolean;
-  }[];
-  recentModels: readonly {
-    id: string;
-    label: string;
-    selected: boolean;
-  }[];
-  onOpen: () => void;
-  onSelectEffort: (id: string) => void;
-  onSelectModel: (id: string) => void;
+const NO_HISTORY: ChatPaneHistory = {};
+const NO_ATTACHMENTS: ChatPaneAttachments = {};
+const NO_QUOTES: ChatPaneQuotes = {};
+const NO_REALTIME_VOICE: ChatPaneRealtimeVoice = {};
+
+const INLINE_ASK_RECORD_PREFIX = "inline-ask-record:";
+
+const askRecordSignature = (record: UserAskRecord): string =>
+  record.answers.map((answer) => answer.question).join("\u0000");
+
+const withInlineAskRecords = (
+  messages: ChatMessage[],
+  sessionRecords: readonly UserAskRecord[],
+): ChatMessage[] => {
+  if (sessionRecords.length === 0) return messages;
+  const shown = new Set<string>();
+  for (const message of messages) {
+    for (const record of message.askRecords ?? []) {
+      shown.add(record.toolCallId ?? record.id);
+      shown.add(askRecordSignature(record));
+    }
+  }
+  const out = [...messages];
+  for (const record of sessionRecords) {
+    if (shown.has(record.toolCallId ?? record.id) || shown.has(askRecordSignature(record))) {
+      continue;
+    }
+    const item: ChatMessage = {
+      id: `${INLINE_ASK_RECORD_PREFIX}${record.id}`,
+      role: "assistant",
+      text: "",
+      createdAt: record.createdAt,
+      askRecords: [record],
+    };
+    const before = out.findIndex(
+      (message) =>
+        (message.canonicalCreatedAt ?? message.createdAt ?? Number.POSITIVE_INFINITY) >
+        record.createdAt,
+    );
+    if (before < 0) out.push(item);
+    else out.splice(before, 0, item);
+  }
+  return out;
 };
 
 export function ChatPane({
@@ -3298,37 +519,13 @@ export function ChatPane({
   workingIndicator,
   offline = false,
   emptyContent,
-  historyLoading = false,
-  hasOlderHistory = false,
-  hasNewerHistory = false,
-  historyPageLoading = false,
-  onLoadOlderHistory,
-  onLoadNewerHistory,
-  draftStore,
-  composerEnabled = true,
-  composerModelPicker,
-  placeholder,
-  composerIntervention,
-  sendReady,
-  onSubmit,
-  onStop,
-  realtimeVoiceConversationId = null,
-  realtimeVoiceExecution = "phone",
-  realtimeVoiceDesktopAccess = null,
+  history = NO_HISTORY,
+  composer,
+  attachments: attachmentsGroup,
+  quotes: quotesGroup = NO_QUOTES,
+  dictation: { anonymous: dictationAnonymous, headers: dictationHeaders },
+  realtimeVoice = NO_REALTIME_VOICE,
   desktopAccess: desktopAccessProp = null,
-  realtimeVoiceSignInRequired = false,
-  onRealtimeVoiceAction,
-  enableAttachments,
-  attachments,
-  onAddAttachments,
-  onRemoveAttachment,
-  onRetryAttachment,
-  maxAttachments,
-  quotes,
-  onAddQuote,
-  onRemoveQuote,
-  dictationAnonymous,
-  dictationHeaders,
   onOpenArtifact,
   conversationId = null,
   activityTasks,
@@ -3336,6 +533,44 @@ export function ChatPane({
   catchingUp = false,
   topInset: topInsetProp,
 }: ChatPaneProps) {
+  const {
+    loading: historyLoading = false,
+    hasOlder: hasOlderHistory = false,
+    hasNewer: hasNewerHistory = false,
+    pageLoading: historyPageLoading = false,
+    onLoadOlder: onLoadOlderHistory,
+    onLoadNewer: onLoadNewerHistory,
+  } = history;
+  const {
+    draftStore,
+    enabled: composerEnabled = true,
+    modelPicker: composerModelPicker,
+    placeholder,
+    intervention: composerIntervention,
+    sendReady,
+    onSubmit,
+    onStop,
+  } = composer;
+  const enableAttachments = attachmentsGroup !== undefined;
+  const {
+    items: attachments,
+    onAdd: onAddAttachments,
+    onRemove: onRemoveAttachment,
+    onRetry: onRetryAttachment,
+    max: maxAttachments,
+  } = attachmentsGroup ?? NO_ATTACHMENTS;
+  const {
+    items: quotes,
+    onAdd: onAddQuote,
+    onRemove: onRemoveQuote,
+  } = quotesGroup;
+  const {
+    conversationId: realtimeVoiceConversationId = null,
+    execution: realtimeVoiceExecution = "phone",
+    desktopAccess: realtimeVoiceDesktopAccess = null,
+    signInRequired: realtimeVoiceSignInRequired = false,
+    onAction: onRealtimeVoiceAction,
+  } = realtimeVoice;
   // Transcript file links open on the preferred paired computer even when the
   // voice route itself is the phone's cloud session.
   const desktopAccess = desktopAccessProp ?? realtimeVoiceDesktopAccess;
@@ -3442,20 +677,26 @@ export function ChatPane({
   const assistantIdRef = useRef<string | null>(null);
   // Hidden tool/activity rows still own reply relationships and agent state.
   // Project those from the complete transcript before filtering list cells.
-  const replyContexts = useMemo(() => mobileReplyContexts(messages), [messages]);
+  const replyContexts = useMemo(
+    () => mobileReplyContexts(messages),
+    [messages],
+  );
   const visibleMessages = useMemo(
-    () => visibleChatMessages(messages, {
-      contextMessageIds: replyContexts.contexts,
-      canOpenArtifacts: Boolean(onOpenArtifact),
-    }),
+    () =>
+      visibleChatMessages(messages, {
+        contextMessageIds: replyContexts.contexts,
+        canOpenArtifacts: Boolean(onOpenArtifact),
+      }),
     [messages, replyContexts, onOpenArtifact],
   );
-  const quoteCarry = useMemo(() => carryCompletionQuotes(visibleMessages), [visibleMessages]);
+  const quoteCarry = useMemo(
+    () => carryCompletionQuotes(visibleMessages),
+    [visibleMessages],
+  );
   const { questions: openQuestionAsks } = useConversationUserAsks(conversationId);
   const sessionAskRecords = useConversationUserAskRecords(conversationId);
   const listMessages = useMemo(
-    () =>
-      withInlineAskRecords(visibleMessages, sessionAskRecords),
+    () => withInlineAskRecords(visibleMessages, sessionAskRecords),
     [sessionAskRecords, visibleMessages],
   );
   const hiddenAgentChipIds = useMemo(() => {
@@ -3483,16 +724,6 @@ export function ChatPane({
     return hidden;
   }, [listMessages, replyContexts]);
   const questionActive = openQuestionAsks.length > 0;
-  const composerReveal = useSharedValue(questionActive ? 0 : 1);
-  useEffect(() => {
-    composerReveal.value = questionActive
-      ? 0
-      : withSpring(1, { damping: 22, stiffness: 220, mass: 0.9 });
-  }, [composerReveal, questionActive]);
-  const composerRevealStyle = useAnimatedStyle(() => ({
-    opacity: composerReveal.value,
-    transform: [{ translateY: (1 - composerReveal.value) * 18 }],
-  }));
   // A conversation first observed empty mounts its list on the optimistic
   // send. Our post-send owner already places that row; starting Legend's
   // footer-preserving end bootstrap as well would move it a second time.
@@ -3510,8 +741,13 @@ export function ChatPane({
     setReportRef(null);
   }, [conversationId]);
   const contextStatusFor = useCallback(
-    (contexts: MobileReplyContexts, ref: ReplyRef | undefined): ReplyAgentStatus | undefined =>
-      ref?.kind === "agent" ? contexts.agentStates.get(ref.threadId) : undefined,
+    (
+      contexts: MobileReplyContexts,
+      ref: ReplyRef | undefined,
+    ): ReplyAgentStatus | undefined =>
+      ref?.kind === "agent"
+        ? contexts.agentStates.get(ref.threadId)
+        : undefined,
     [],
   );
   const lastMessage = visibleMessages[visibleMessages.length - 1];
@@ -3570,7 +806,14 @@ export function ChatPane({
     if (!pending) return;
     // onSubmit can return before its optimistic row reaches this list. Starting
     // placement against the previous tail discards the anchor before onLayout.
-    if (!canStartPostSendPlacement(pending.userMessageId, visibleMessages.map((message) => message.id), 0)) return;
+    if (
+      !canStartPostSendPlacement(
+        pending.userMessageId,
+        visibleMessages.map((message) => message.id),
+        0,
+      )
+    )
+      return;
     pendingSendNudgeRef.current = null;
     scroll.nudgeAfterSend(pending.userMessageId);
   }, [visibleMessages, scroll.nudgeAfterSend]);
@@ -3675,7 +918,6 @@ export function ChatPane({
     void speakReply(latestAssistant.text, latestAssistant.id);
   }, [visibleMessages, readAloud.enabled, streaming]);
 
-  const [expanded, setExpanded] = useState(false);
   const [realtimeVoiceOpen, setRealtimeVoiceOpen] = useState(false);
   const [voiceEnabled, setVoiceEnabledLocal] = useState(() =>
     getVoiceEnabled(),
@@ -3689,46 +931,6 @@ export function ChatPane({
   // every keystroke.
   const draftEmpty = useChatDraftSelector(draftStore, isDraftEmpty);
   const hasText = useChatDraftSelector(draftStore, draftHasText);
-
-  // When the parent clears draft after send, collapse back to pill shape.
-  useEffect(() => {
-    if (expanded && draftEmpty) {
-      LayoutAnimation.configureNext(LAYOUT_SPRING);
-      setExpanded(false);
-    }
-  }, [draftEmpty, expanded]);
-
-  // Expansion is one-way while the user is typing: the pill and expanded
-  // shapes give the text different widths, so a 2-line pill can re-flow to
-  // 1 line in expanded shape — flipping back to pill would re-wrap and
-  // oscillate forever. Collapse happens only when the parent clears the
-  // draft (see the `useEffect` above) or via dedicated dictation handlers.
-  // Trigger expand purely on measured content height crossing the threshold.
-  // We used to gate on a `hasMounted` ref to skip the first event, but on
-  // screens where the composer's host re-renders shortly after mount (e.g.
-  // Computer tab settling `paired: null → true`) the *useful* first event —
-  // the one that already exceeds the threshold — could be the one that got
-  // swallowed, leaving the pill stuck at one line forever.
-  const handleContentSizeChange = useCallback(
-    (e: { nativeEvent: { contentSize: { height: number } } }) => {
-      if (expanded) return;
-      // Ignore measurements once the draft is empty. On send the draft clears
-      // and the collapse effect drops us back to the pill, but the native
-      // TextInput can still emit one more `onContentSizeChange` carrying the
-      // *old* tall height before it renders the cleared value. Acting on that
-      // would re-expand an empty composer, the collapse effect would collapse
-      // it again, and the two LayoutAnimation springs ping-pong — the composer
-      // (and the working indicator stacked above it) shake violently. An empty
-      // composer is never expanded, so there is nothing to grow for here.
-      if (draftStore.get().length === 0) return;
-      const h = e.nativeEvent.contentSize.height;
-      if (h > EXPAND_THRESHOLD) {
-        LayoutAnimation.configureNext(LAYOUT_SPRING);
-        setExpanded(true);
-      }
-    },
-    [expanded, draftStore],
-  );
 
   const submit = useCallback(() => {
     tapMedium();
@@ -3784,6 +986,16 @@ export function ChatPane({
     onTranscript: appendTranscript,
   });
 
+  // The hook returns a fresh object each render; its callbacks are stable, so
+  // handlers depend on them (not the object) to keep the memoized composer's
+  // props steady.
+  const {
+    status: dictationStatus,
+    start: startDictation,
+    stop: stopDictation,
+    cancel: cancelDictation,
+    toggle: toggleDictation,
+  } = dictation;
   const isListening = dictation.isRecording;
   // Dictation flips the shell between pill and expanded shapes from inside
   // the hook, so configure the spring on the render that carries the flip.
@@ -3794,17 +1006,25 @@ export function ChatPane({
   }
 
   const toggleVoice = useCallback(async () => {
-    if (dictation.status === "idle") {
+    if (dictationStatus === "idle") {
       // No tap here: `useDictation` fires on the real transition, once the
       // mic is actually live. Buzzing on the press as well double-tapped the
       // start and lied whenever consent or the mic permission refused.
       // In-flight progressive TTS can otherwise apply Expo's playback audio
       // mode after recording starts. On iOS that mode stops every recorder.
-      await startAfterStoppingReadAloud(() => dictation.start());
+      await startAfterStoppingReadAloud(() => startDictation());
       return;
     }
-    await dictation.toggle();
-  }, [dictation]);
+    await toggleDictation();
+  }, [dictationStatus, startDictation, toggleDictation]);
+  const cancelDictationInput = useCallback(
+    () => void cancelDictation(),
+    [cancelDictation],
+  );
+  const confirmDictationInput = useCallback(
+    () => void stopDictation(),
+    [stopDictation],
+  );
 
   const realtimeVoiceOpeningRef = useRef(false);
   const openRealtimeVoice = useCallback(async () => {
@@ -3870,8 +1090,7 @@ export function ChatPane({
     pendingVoiceSendRef.current = true;
     voiceSendTargetRef.current = null;
     voiceSendResultReadyRef.current = false;
-    void dictation
-      .stop()
+    void stopDictation()
       .then((transcript) => {
         if (!pendingVoiceSendRef.current) return;
         // Never send a stale typed prefix when recording/transcription failed.
@@ -3890,7 +1109,7 @@ export function ChatPane({
         pendingVoiceSendRef.current = false;
         voiceSendTargetRef.current = null;
       });
-  }, [dictation]);
+  }, [stopDictation]);
 
   useEffect(() => {
     const target = voiceSendTargetRef.current;
@@ -3910,7 +1129,13 @@ export function ChatPane({
     voiceSendResultReadyRef.current = false;
     voiceSendTargetRef.current = null;
     submit();
-  }, [dictation.status, draftStore, attachments, submit, voiceSendResultVersion]);
+  }, [
+    dictation.status,
+    draftStore,
+    attachments,
+    submit,
+    voiceSendResultVersion,
+  ]);
 
   const attachmentLimit = maxAttachments ?? CHAT_ATTACHMENT_MAX_COUNT;
   const acceptPicked = useCallback(
@@ -4050,8 +1275,11 @@ export function ChatPane({
   const catchUpVisible = useCatchUpIndicatorVisible(catchingUp);
 
   // Discard a previous conversation's gesture even if this pane stays mounted.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const historyPaging = useMemo(() => new ChatHistoryPaging(), [conversationId]);
+  const historyPaging = useMemo(
+    () => new ChatHistoryPaging(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [conversationId],
+  );
   const requestHistoryNearPosition = useCallback(
     ({ contentOffset, contentSize, layoutMeasurement }: NativeScrollEvent) => {
       const page = historyPaging.takePage({
@@ -4097,25 +1325,28 @@ export function ChatPane({
     );
     // No effort options means the selection's effort is backend-owned
     // (Stella-managed models), so the thinking entry is hidden entirely.
-    const thinkingOptions: PlusMenuOption[] = composerModelPicker.effortOptions.length === 0 ? [] : [
-      {
-        id: "model-thinking",
-        label: t("app.chat.miniModelPicker.reasoningEffortLabel"),
-        icon: "sparkles",
-        trailingLabel: composerModelPicker.effortLabel,
-        disabled: composerModelPicker.loading,
-        submenuTitle: t("app.chat.miniModelPicker.reasoningEffortLabel"),
-        submenu: composerModelPicker.effortOptions.map((effort) => ({
-          id: `model-effort-${effort.id}`,
-          label: effort.label,
-          icon: "sparkles",
-          selected: effort.selected,
-          disabled,
-          onSelect: () => composerModelPicker.onSelectEffort(effort.id),
-        })),
-        onSelect: () => undefined,
-      },
-    ];
+    const thinkingOptions: PlusMenuOption[] =
+      composerModelPicker.effortOptions.length === 0
+        ? []
+        : [
+            {
+              id: "model-thinking",
+              label: t("app.chat.miniModelPicker.reasoningEffortLabel"),
+              icon: "sparkles",
+              trailingLabel: composerModelPicker.effortLabel,
+              disabled: composerModelPicker.loading,
+              submenuTitle: t("app.chat.miniModelPicker.reasoningEffortLabel"),
+              submenu: composerModelPicker.effortOptions.map((effort) => ({
+                id: `model-effort-${effort.id}`,
+                label: effort.label,
+                icon: "sparkles",
+                selected: effort.selected,
+                disabled,
+                onSelect: () => composerModelPicker.onSelectEffort(effort.id),
+              })),
+              onSelect: () => undefined,
+            },
+          ];
     const options: PlusMenuOption[] = [
       ...thinkingOptions,
       ...composerModelPicker.recentModels.map((model) => ({
@@ -4256,14 +1487,11 @@ export function ChatPane({
   const viewportTouchRef = useRef<{ x: number; y: number; at: number } | null>(
     null,
   );
-  const handleViewportTouchStart = useCallback(
-    (e: GestureResponderEvent) => {
-      if (selectingMessageIdRef.current == null) return;
-      const { pageX, pageY } = e.nativeEvent;
-      viewportTouchRef.current = { x: pageX, y: pageY, at: Date.now() };
-    },
-    [],
-  );
+  const handleViewportTouchStart = useCallback((e: GestureResponderEvent) => {
+    if (selectingMessageIdRef.current == null) return;
+    const { pageX, pageY } = e.nativeEvent;
+    viewportTouchRef.current = { x: pageX, y: pageY, at: Date.now() };
+  }, []);
   const handleViewportTouchEnd = useCallback(
     (e: GestureResponderEvent) => {
       const start = viewportTouchRef.current;
@@ -4366,6 +1594,37 @@ export function ChatPane({
       scrollLayoutRef.current.onLatestUserLayout(id, event),
     [],
   );
+  // One handler object for every row (transcript and focused chain), so a
+  // row's memo compares a single stable reference.
+  const rowStyles = useMemo(() => makeMessageRowStyles(colors), [colors]);
+  const rowActions = useMemo<MessageRowActions>(
+    () => ({
+      onOpenArtifact,
+      onOpenStellaFile,
+      onOpenMessageMenu: setMessageMenu,
+      onEndSelecting: stopSelectingMessage,
+      onAskStella: quoteMessage,
+      onOpenAgentActivity: onOpenActivity,
+      onOpenReply: setReplyFocus,
+      onOpenReport: setReportRef,
+    }),
+    [
+      onOpenArtifact,
+      onOpenStellaFile,
+      stopSelectingMessage,
+      quoteMessage,
+      onOpenActivity,
+    ],
+  );
+  // The long-press menu's lifted copy is inert: no file, reply or report taps.
+  const menuCloneRowActions = useMemo<MessageRowActions>(
+    () => ({
+      onOpenMessageMenu: setMessageMenu,
+      onEndSelecting: stopSelectingMessage,
+      onAskStella: quoteMessage,
+    }),
+    [stopSelectingMessage, quoteMessage],
+  );
   const renderItem = useCallback(
     ({ item }: LegendListRenderItemProps<ChatMessage>) => {
       if (item.id.startsWith(INLINE_ASK_RECORD_PREFIX) && item.askRecords) {
@@ -4407,21 +1666,17 @@ export function ChatPane({
             item={item}
             conversationId={conversationId ?? ""}
             animate={animate && item.id === lastMessage?.id && !historyLoading}
-            styles={styles}
+            styles={rowStyles}
             colors={colors}
             menuActive={item.id === activeMenuMessageId}
             isSelecting={item.id === selectingMessageId}
             anySelecting={selectingMessageId != null}
-            onOpenArtifact={onOpenArtifact}
-            onOpenStellaFile={onOpenStellaFile}
-            onOpenMessageMenu={setMessageMenu}
-            onEndSelecting={stopSelectingMessage}
-            onAskStella={quoteMessage}
-            onOpenAgentActivity={onOpenActivity}
-            onOpenReply={setReplyFocus}
-            onOpenReport={setReportRef}
+            actions={rowActions}
             contextRef={replyContexts.contexts.get(item.id)}
-            contextStatus={contextStatusFor(replyContexts, replyContexts.contexts.get(item.id))}
+            contextStatus={contextStatusFor(
+              replyContexts,
+              replyContexts.contexts.get(item.id),
+            )}
             desktopAccess={desktopAccess}
             receiptLabel={receipt?.id === item.id ? receipt.label : null}
             carriedQuotes={quoteCarry.carried.get(item.id)}
@@ -4441,18 +1696,15 @@ export function ChatPane({
       lastMessage?.id,
       historyLoading,
       styles,
+      rowStyles,
       colors,
-      onOpenArtifact,
-      onOpenStellaFile,
+      rowActions,
       latestUserMessageId,
       onLatestUserLayout,
       onActiveAssistantLayout,
       activeAssistantId,
       activeMenuMessageId,
       selectingMessageId,
-      stopSelectingMessage,
-      quoteMessage,
-      onOpenActivity,
       desktopAccess,
       conversationId,
     ],
@@ -4471,9 +1723,7 @@ export function ChatPane({
   );
   const getItemType = useCallback(
     (item: ChatMessage) =>
-      item.id.startsWith(INLINE_ASK_RECORD_PREFIX)
-          ? "ask-record"
-          : item.role,
+      item.id.startsWith(INLINE_ASK_RECORD_PREFIX) ? "ask-record" : item.role,
     [],
   );
 
@@ -4502,37 +1752,11 @@ export function ChatPane({
   const searchOpen = search.isOpen;
   const searchQuery = search.query.trim();
   const searchActive = searchQuery.length > 0;
-  // Fold each message once (recomputed only when messages change) so each
-  // keystroke just filters precomputed strings instead of re-normalizing the
-  // whole history. Gated on the search being open: during streaming,
-  // `visibleMessages` gets a new identity every frame, and folding the full
-  // transcript per frame is pure waste while the results are unread.
-  const foldedMessages = useMemo(() => {
-    if (!searchOpen) {
-      return [] as { message: ChatMessage; index: number; folded: string }[];
-    }
-    return visibleMessages.map((message, index) => ({
-      message,
-      index,
-      folded: foldText(message.text),
-    }));
-  }, [searchOpen, visibleMessages]);
-  const searchResults = useMemo(() => {
-    if (!searchActive) return [] as ChatSearchResult[];
-    const terms = foldQueryTerms(searchQuery);
-    if (terms.length === 0) {
-      return [] as ChatSearchResult[];
-    }
-    const out: ChatSearchResult[] = [];
-    // Newest first; a message matches when every term appears somewhere in it.
-    for (let i = foldedMessages.length - 1; i >= 0; i -= 1) {
-      const entry = foldedMessages[i];
-      if (terms.every((term) => entry.folded.includes(term))) {
-        out.push({ message: entry.message, index: entry.index });
-      }
-    }
-    return out;
-  }, [foldedMessages, searchActive, searchQuery]);
+  const searchResults = useChatSearchResults(
+    visibleMessages,
+    searchOpen,
+    searchQuery,
+  );
 
   const jumpToMessage = useCallback(
     (index: number) => {
@@ -4549,20 +1773,6 @@ export function ChatPane({
     [search, scroll.listRef, topInset],
   );
 
-  const renderSearchResult = useCallback(
-    ({ item }: ListRenderItemInfo<ChatSearchResult>) => (
-      <SearchResultRow
-        message={item.message}
-        index={item.index}
-        query={searchQuery}
-        styles={styles}
-        colors={colors}
-        onPress={jumpToMessage}
-      />
-    ),
-    [searchQuery, styles, colors, jumpToMessage],
-  );
-
   const empty = listMessages.length === 0;
   const composerHasContent =
     !draftEmpty || (attachments?.length ?? 0) > 0 || (quotes?.length ?? 0) > 0;
@@ -4570,7 +1780,6 @@ export function ChatPane({
     sendReady &&
     (hasText || (attachments?.length ?? 0) > 0 || (quotes?.length ?? 0) > 0);
   const dictationInline = isListening && !hasText;
-  const dictationBelow = isListening && hasText;
 
   useEffect(() => {
     if (!composerModelPicker?.pinned || dictationInline) {
@@ -4578,95 +1787,21 @@ export function ChatPane({
     }
   }, [composerModelPicker?.pinned, dictationInline]);
 
-  const isExpandedComposed = resolveComposerExpanded({
-    expanded,
-    dictationBelow,
-    dictationInline,
-    modelPickerPinned: Boolean(composerModelPicker?.pinned),
-    hasAttachments: (attachments?.length ?? 0) > 0,
-    hasQuotes: (quotes?.length ?? 0) > 0,
-  });
-
-  const hasPlusMenu = composerEnabled;
-
-  // While dictating, the recording bar's leading slot carries cancel instead.
-  // Withheld here rather than only in the inline branch so the other dictation
-  // layout (recording bar below a composer that already has text) does not end
-  // up showing a + and an X at once — one leading control, one meaning.
-  const plusButton = hasPlusMenu && !isListening ? (
-    <View collapsable={false}>
-      <Pressable
-        style={styles.addButton}
-        hitSlop={4}
-        accessibilityRole="button"
-        accessibilityLabel="Open add menu"
-        onPress={onPressPlus}
-      >
-        <Icon
-          name="plus"
-          size={17}
-          color={colors.textMuted}
-          weight="semibold"
-        />
-      </Pressable>
-    </View>
-  ) : null;
-
-  // Shared mic / dictation control. Reused across the collapsed pill and the
-  // expanded toolbar. It is intentionally NOT gated on `streaming`: dictation
-  // stays available mid-run so a voice message can steer the active turn,
-  // exactly like typing + sending while busy. The branches that render it are
-  // mutually exclusive per render, so reusing the same element is safe.
-  const micButton = (
-    <Pressable
-      onPress={() => void toggleVoice()}
-      accessibilityRole="button"
-      accessibilityState={{ disabled: dictation.isTranscribing }}
-      accessibilityLabel={
-        isListening ? "Stop voice input" : "Start voice input"
-      }
-      disabled={dictation.isTranscribing}
-      style={[styles.micButton, isListening && styles.micButtonActive]}
-      hitSlop={4}
-    >
-      <Icon
-        name={isListening ? "mic-off" : "mic"}
-        size={20}
-        color={isListening ? colors.accentForeground : colors.textMuted}
-        filled={isListening}
-      />
-    </Pressable>
-  );
-
-  // Realtime voice is a distinct live-conversation mode, not dictation. Keep
-  // it immediately to the right of the mic only while the composer is empty;
-  // once text or an attachment exists, send remains the unambiguous action.
-  const realtimeVoiceButton =
+  // Realtime voice sits beside the mic only while the composer is empty.
+  const showRealtimeVoice = Boolean(
     voiceEnabled &&
-    realtimeVoiceConversationId &&
-    (onRealtimeVoiceAction || realtimeVoiceDesktopAccess) &&
-    composerEnabled &&
-    !offline &&
-    !composerHasContent &&
-    dictation.status === "idle" ? (
-      <Pressable
-        onPress={() => void openRealtimeVoice()}
-        accessibilityRole="button"
-        accessibilityLabel="Start realtime voice conversation"
-        style={({ pressed }) => [
-          styles.realtimeVoiceButton,
-          pressed && styles.realtimeVoiceButtonPressed,
-        ]}
-        hitSlop={4}
-      >
-        <Icon name="waveform" size={19} color={colors.text} weight="semibold" />
-      </Pressable>
-    ) : null;
-
-  const showAttachmentStrip =
-    enableAttachments && (attachments?.length ?? 0) > 0;
-  const quoteChips = quotes ?? [];
-  const showQuoteStrip = quoteChips.length > 0;
+      realtimeVoiceConversationId &&
+      (onRealtimeVoiceAction || realtimeVoiceDesktopAccess) &&
+      composerEnabled &&
+      !offline &&
+      !composerHasContent &&
+      dictationStatus === "idle",
+  );
+  // Focusing the composer (keyboard opening) exits any active message text
+  // selection. Reads the ref so the memoized composer keeps one handler.
+  const onComposerFocus = useCallback(() => {
+    if (selectingMessageIdRef.current != null) stopSelectingMessage();
+  }, [stopSelectingMessage]);
 
   const listContentContainerStyle = useMemo(
     () => [
@@ -4738,72 +1873,71 @@ export function ChatPane({
           // state never flashes during a tab transition.
           <View style={emptyStateStyle} />
         ) : empty ? (
-          <Pressable
-            style={emptyStateStyle}
-            onPress={() => Keyboard.dismiss()}
-          >
+          <Pressable style={emptyStateStyle} onPress={() => Keyboard.dismiss()}>
             {emptyContent}
           </Pressable>
         ) : (
           <>
             <Reanimated.View style={[styles.messageList, listKeyboardStyle]}>
-            <LegendList<ChatMessage>
-              ref={scroll.listRef}
-              pointerEvents={replyFocus ? "none" : "auto"}
-              accessibilityElementsHidden={Boolean(replyFocus)}
-              importantForAccessibility={replyFocus ? "no-hide-descendants" : "auto"}
-              style={styles.messageList}
-              contentContainerStyle={listContentContainerStyle}
-              data={listMessages}
-              extraData={listExtraData}
-              // Short transcript rows measure roughly 44–70 pt. Reserve
-              // enough containers for those runs; measured heights still
-              // determine layout for longer replies and artifacts.
-              estimatedItemSize={64}
-              renderItem={renderItem}
-              keyExtractor={keyExtractor}
-              getItemType={getItemType}
-              ItemSeparatorComponent={renderSeparator}
-              ListFooterComponent={listFooter}
-              onScroll={handleListScroll}
-              onScrollBeginDrag={handleListScrollBeginDrag}
-              onScrollEndDrag={handleListScrollEndDrag}
-              onMomentumScrollBegin={handleListMomentumScrollBegin}
-              onMomentumScrollEnd={handleListMomentumScrollEnd}
-              onContentSizeChange={handleListContentSizeChange}
-              scrollEventThrottle={16}
-              showsVerticalScrollIndicator={false}
-              keyboardDismissMode="on-drag"
-              fadingEdgeLength={EDGE_FADE}
-              // Open at the latest message every time the tab mounts, instead
-              // of landing at the top of history. Short conversations that
-              // don't fill the viewport read top-down (no `alignItemsAtEnd`)
-              // so the first message sits at the top rather than the bottom.
-              initialScrollAtEnd={initialScrollAtEndRef.current === true}
-              // Keep the visible message anchored when the data array changes
-              // (e.g. messages syncing in from the desktop) so the list never
-              // snaps back to the top.
-              maintainVisibleContentPosition={maintainVisibleContentPosition}
-              // Pin to the tail only when new/synced messages arrive while the
-              // user is already near the bottom. Scoped to data changes so it
-              // doesn't fight the custom streaming-follow target updates,
-              // which own item-layout/size growth.
-              //
-              // While streaming, every token mutates the data array, so a
-              // dataChange-pinned tail would fire `scrollToEnd` on each token —
-              // overriding the custom "freeze once the message reaches the top"
-              // target and snapping the user back down whenever they try to
-              // scroll up. The custom follow loop already keeps the tail in view
-              // during streaming, so disable the built-in pin for that window.
-              // Position ownership is exclusive: history anchoring wins while
-              // follow is released, the custom loop owns streams/post-send
-              // placement, and this pin owns only ordinary live-tail appends.
-              maintainScrollAtEnd={
-                dataChangeScrollOwner === "legend-tail"
-                  ? LEGEND_TAIL_SCROLL_AT_END
-                  : false
-              }
-            />
+              <LegendList<ChatMessage>
+                ref={scroll.listRef}
+                pointerEvents={replyFocus ? "none" : "auto"}
+                accessibilityElementsHidden={Boolean(replyFocus)}
+                importantForAccessibility={
+                  replyFocus ? "no-hide-descendants" : "auto"
+                }
+                style={styles.messageList}
+                contentContainerStyle={listContentContainerStyle}
+                data={listMessages}
+                extraData={listExtraData}
+                // Short transcript rows measure roughly 44–70 pt. Reserve
+                // enough containers for those runs; measured heights still
+                // determine layout for longer replies and artifacts.
+                estimatedItemSize={64}
+                renderItem={renderItem}
+                keyExtractor={keyExtractor}
+                getItemType={getItemType}
+                ItemSeparatorComponent={renderSeparator}
+                ListFooterComponent={listFooter}
+                onScroll={handleListScroll}
+                onScrollBeginDrag={handleListScrollBeginDrag}
+                onScrollEndDrag={handleListScrollEndDrag}
+                onMomentumScrollBegin={handleListMomentumScrollBegin}
+                onMomentumScrollEnd={handleListMomentumScrollEnd}
+                onContentSizeChange={handleListContentSizeChange}
+                scrollEventThrottle={16}
+                showsVerticalScrollIndicator={false}
+                keyboardDismissMode="on-drag"
+                fadingEdgeLength={EDGE_FADE}
+                // Open at the latest message every time the tab mounts, instead
+                // of landing at the top of history. Short conversations that
+                // don't fill the viewport read top-down (no `alignItemsAtEnd`)
+                // so the first message sits at the top rather than the bottom.
+                initialScrollAtEnd={initialScrollAtEndRef.current === true}
+                // Keep the visible message anchored when the data array changes
+                // (e.g. messages syncing in from the desktop) so the list never
+                // snaps back to the top.
+                maintainVisibleContentPosition={maintainVisibleContentPosition}
+                // Pin to the tail only when new/synced messages arrive while the
+                // user is already near the bottom. Scoped to data changes so it
+                // doesn't fight the custom streaming-follow target updates,
+                // which own item-layout/size growth.
+                //
+                // While streaming, every token mutates the data array, so a
+                // dataChange-pinned tail would fire `scrollToEnd` on each token —
+                // overriding the custom "freeze once the message reaches the top"
+                // target and snapping the user back down whenever they try to
+                // scroll up. The custom follow loop already keeps the tail in view
+                // during streaming, so disable the built-in pin for that window.
+                // Position ownership is exclusive: history anchoring wins while
+                // follow is released, the custom loop owns streams/post-send
+                // placement, and this pin owns only ordinary live-tail appends.
+                maintainScrollAtEnd={
+                  dataChangeScrollOwner === "legend-tail"
+                    ? LEGEND_TAIL_SCROLL_AT_END
+                    : false
+                }
+              />
             </Reanimated.View>
             {/* Top taper — fades the list into the surface at the top edge so
                 messages scrolling under the top bar dissolve instead of
@@ -4818,27 +1952,42 @@ export function ChatPane({
             {topTaper}
           </>
         )}
-        {replyFocus && <ReplyFocus
-          key={`${conversationId}:${replyFocus.kind === "agent" ? replyFocus.threadId : replyFocus.id}`}
-          topInset={topInset}
-          bottomInset={footerHeight + keyboardExtra}
-          root={replyFocus} messages={visibleMessages}
-          colors={colors} onClose={closeReplyFocus}
-          hasOlder={hasOlderHistory} onLoadOlder={onLoadOlderHistory}
-          // Inside focus the chain is already open, so rows carry no reply
-          // count; a quote still appears for a link to *other* work.
-          renderMessage={(item, contexts) => <ChatMessageRow item={item} conversationId={conversationId ?? ""} animate={false} styles={styles} colors={colors}
-            menuActive={false} isSelecting={false} anySelecting={false}
-            onOpenArtifact={onOpenArtifact} onOpenStellaFile={onOpenStellaFile}
-            onOpenMessageMenu={setMessageMenu} onEndSelecting={stopSelectingMessage}
-            onAskStella={quoteMessage}
-            onOpenReply={setReplyFocus} onOpenReport={setReportRef}
-            carriedQuotes={quoteCarry.carried.get(item.id)}
-            quotesForwarded={quoteCarry.forwarded.has(item.id)}
-            contextRef={contexts.contexts.get(item.id)}
-            contextStatus={contextStatusFor(contexts, contexts.contexts.get(item.id))}
-            desktopAccess={desktopAccess} />}
-        />}
+        {replyFocus && (
+          <ReplyFocus
+            key={`${conversationId}:${replyFocus.kind === "agent" ? replyFocus.threadId : replyFocus.id}`}
+            topInset={topInset}
+            bottomInset={footerHeight + keyboardExtra}
+            root={replyFocus}
+            messages={visibleMessages}
+            colors={colors}
+            onClose={closeReplyFocus}
+            hasOlder={hasOlderHistory}
+            onLoadOlder={onLoadOlderHistory}
+            // Inside focus the chain is already open, so rows carry no reply
+            // count; a quote still appears for a link to *other* work.
+            renderMessage={(item, contexts) => (
+              <ChatMessageRow
+                item={item}
+                conversationId={conversationId ?? ""}
+                animate={false}
+                styles={rowStyles}
+                colors={colors}
+                menuActive={false}
+                isSelecting={false}
+                anySelecting={false}
+                actions={rowActions}
+                carriedQuotes={quoteCarry.carried.get(item.id)}
+                quotesForwarded={quoteCarry.forwarded.has(item.id)}
+                contextRef={contexts.contexts.get(item.id)}
+                contextStatus={contextStatusFor(
+                  contexts,
+                  contexts.contexts.get(item.id),
+                )}
+                desktopAccess={desktopAccess}
+              />
+            )}
+          />
+        )}
         {reportRef && conversationId ? (
           <AgentReportSheet
             key={reportRef.threadId}
@@ -4862,13 +2011,15 @@ export function ChatPane({
             them and, being glass over glass, render them clear. */}
         <View
           pointerEvents={replyFocus ? "none" : "box-none"}
-          style={[StyleSheet.absoluteFill, replyFocus ? styles.hiddenWhileFocused : null]}
+          style={[
+            StyleSheet.absoluteFill,
+            replyFocus ? styles.hiddenWhileFocused : null,
+          ]}
         >
           {!searchOpen ? (
             <CatchUpPill
               visible={catchUpVisible}
               top={topInset + CATCH_UP_PILL_GAP}
-              styles={styles}
               colors={colors}
             />
           ) : null}
@@ -4881,7 +2032,6 @@ export function ChatPane({
                 visible={scroll.awayFromBottom}
                 hasUnread={unread}
                 onPress={scroll.scrollToBottom}
-                styles={styles}
                 colors={colors}
                 bottomOffset={footerHeight + FLOATING_CONTROL_LIFT - 24}
               />
@@ -4889,43 +2039,13 @@ export function ChatPane({
           ) : null}
         </View>
         {searchOpen && searchActive ? (
-          <View
-            style={[
-              styles.searchDropdown,
-              {
-                maxHeight: Math.max(160, screenHeight * 0.5),
-                top: topInset + SEARCH_DROPDOWN_GAP,
-              },
-            ]}
-          >
-            <GlassSurface
-              glass="regular"
-              legible
-              radius={14}
-              pointerEvents="none"
-              style={StyleSheet.absoluteFill}
-            />
-            {searchResults.length === 0 ? (
-              <Text style={styles.searchDropdownEmpty}>
-                No messages match “{searchQuery}”
-              </Text>
-            ) : (
-              <FlatList<ChatSearchResult>
-                data={searchResults}
-                renderItem={renderSearchResult}
-                keyExtractor={searchResultKey}
-                extraData={searchQuery}
-                initialNumToRender={8}
-                maxToRenderPerBatch={8}
-                windowSize={3}
-                style={styles.searchDropdownList}
-                contentContainerStyle={styles.searchDropdownContent}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
-                showsVerticalScrollIndicator={false}
-              />
-            )}
-          </View>
+          <ChatSearchResults
+            results={searchResults}
+            query={searchQuery}
+            topInset={topInset}
+            colors={colors}
+            onSelect={jumpToMessage}
+          />
         ) : null}
       </View>
 
@@ -4949,306 +2069,39 @@ export function ChatPane({
             </Text>
           </View>
         ) : null}
-        <View
-          style={[styles.composerWrap, { paddingBottom: composerBottomPad }]}
-        >
-          {composerIntervention}
-          <Reanimated.View
-            style={[
-              styles.composerReveal,
-              composerRevealStyle,
-              questionActive && styles.composerHidden,
-            ]}
-            pointerEvents={questionActive ? "none" : "box-none"}
-          >
-          <Pressable
-            accessible={false}
-            style={styles.composerFocusTarget}
-            disabled={!composerEnabled || dictationInline || dictationBelow}
-            onPress={() => inputRef.current?.focus()}
-          >
-            <GlassSurface
-              glass="regular"
-              // Interactive so a touch on the composer draws Apple's glow inside
-              // the glass, the way every other Liquid Glass control answers a
-              // tap. It does not take the touches: the input and buttons inside
-              // keep receiving them.
-              interactive
-              // Softer than the menu tint: enough contrast for the input text
-              // while keeping the composer visibly glassy over scrolling chat.
-              tintColor={fadeHex(colors.surface, 0.5)}
-              radius={isExpandedComposed ? 20 : 999}
-              fallbackColor={colors.surface}
-              style={styles.shell}
-            >
-              {showQuoteStrip ? (
-                <View style={styles.composerQuoteStrip}>
-                  {quoteChips.map((quote) => (
-                    <View key={quote.id} style={styles.composerQuote}>
-                      <Icon
-                        name="reply"
-                        size={14}
-                        color={colors.textMuted}
-                        weight="regular"
-                      />
-                      <Text
-                        style={styles.composerQuoteText}
-                        numberOfLines={2}
-                        maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-                      >
-                        {quote.text}
-                      </Text>
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.composerQuoteRemove,
-                          pressed && styles.composerQuoteRemovePressed,
-                        ]}
-                        accessibilityRole="button"
-                        accessibilityLabel="Remove quoted text"
-                        onPress={() => onRemoveQuote?.(quote.id)}
-                        hitSlop={10}
-                      >
-                        <Icon
-                          name="x"
-                          size={10}
-                          color={colors.textMuted}
-                          weight="bold"
-                        />
-                      </Pressable>
-                    </View>
-                  ))}
-                </View>
-              ) : null}
-              {showAttachmentStrip ? (
-                // Pending attachments sit inside the composer, above the text,
-                // in a horizontal rail so any number of them stays one row.
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  keyboardShouldPersistTaps="handled"
-                  style={styles.attachmentStrip}
-                  contentContainerStyle={styles.attachmentStripContent}
-                >
-                  {(attachments ?? []).map((attachment) => (
-                    <View key={attachment.id} style={styles.attachmentThumb}>
-                      {attachment.kind === "image" ? (
-                        <Image
-                          source={{ uri: attachment.uri }}
-                          style={styles.attachmentImage}
-                          contentFit="cover"
-                        />
-                      ) : (
-                        <View style={styles.attachmentFile}>
-                          <Icon
-                            name="file-text"
-                            size={18}
-                            color={colors.textMuted}
-                          />
-                          <Text style={styles.attachmentFileName} numberOfLines={2}>
-                            {attachment.name}
-                          </Text>
-                        </View>
-                      )}
-                      {attachment.status !== "ready" && (
-                        <Pressable
-                          style={styles.attachmentStatusScrim}
-                          disabled={attachment.status === "uploading"}
-                          accessibilityRole="button"
-                          accessibilityLabel={
-                            attachment.status === "uploading"
-                              ? t("chat.attachments.uploading")
-                              : t("chat.attachments.retryUpload")
-                          }
-                          onPress={() => onRetryAttachment?.(attachment.id)}
-                        >
-                          {attachment.status === "uploading" ? (
-                            <ActivityIndicator size="small" color="#ffffff" />
-                          ) : (
-                            <Icon
-                              name="refresh-cw"
-                              size={16}
-                              color="#ffffff"
-                              weight="bold"
-                            />
-                          )}
-                        </Pressable>
-                      )}
-                      <Pressable
-                        style={styles.attachmentRemove}
-                        accessibilityLabel={t("chat.attachments.remove")}
-                        onPress={() => onRemoveAttachment?.(attachment.id)}
-                        hitSlop={4}
-                      >
-                        <Icon
-                          name="x"
-                          size={12}
-                          // The button's scrim is a fixed dark wash (it sits over
-                          // arbitrary photo content), so the glyph has to be a
-                          // fixed light colour too — `accentForeground` inverts
-                          // with the theme and goes near-black in every dark one.
-                          color="#ffffff"
-                          weight="bold"
-                        />
-                      </Pressable>
-                    </View>
-                  ))}
-                </ScrollView>
-              ) : null}
-              {dictationInline ? (
-                // Dictation into an empty composer keeps the expanded shape:
-                // the live transcript takes the text area and the waveform
-                // row sits where the toolbar normally is.
-                <View style={styles.dictationInlineBlock}>
-                  <DictationRecordingBar
-                    placeholder={"Listening\u2026"}
-                    transcriptStyle={styles.dictationInlineTranscript}
-                    transcriptMaxHeight={DICTATION_INLINE_MAX_HEIGHT}
-                    onCancel={() => void dictation.cancel()}
-                    onConfirm={() => void dictation.stop()}
-                    onSend={stopAndSendVoice}
-                  />
-                </View>
-              ) : (
-                // Single TextInput, stable JSX position across pill ⇄ expanded so
-                // React reuses the same native UITextView when the shape swaps.
-                // Swapping between two separate <TextInput> instances dropped
-                // focus, which collapsed and re-summoned the keyboard on every
-                // expand — visible as a flicker whenever a line wrapped.
-                <View>
-                  <View
-                    style={
-                      isExpandedComposed
-                        ? styles.expandedInputBlock
-                        : styles.formPill
-                    }
-                  >
-                    {isExpandedComposed ? null : plusButton}
-                    <ComposerTextInput
-                      ref={inputRef}
-                      draftStore={draftStore}
-                      multiline
-                      scrollEnabled={isExpandedComposed}
-                      onContentSizeChange={handleContentSizeChange}
-                      onFocus={() => {
-                        // Focusing the composer (keyboard opening) exits any
-                        // active message text selection.
-                        if (selectingMessageId != null) stopSelectingMessage();
-                      }}
-                      blurOnSubmit={false}
-                      placeholder={
-                        isExpandedComposed
-                          ? placeholder
-                          : dictation.isTranscribing
-                            ? "Transcribing\u2026"
-                            : placeholder
-                      }
-                      placeholderTextColor={fadeHex(colors.textMuted, 0.35)}
-                      selectionColor={colors.accent}
-                      underlineColorAndroid="transparent"
-                      style={
-                        isExpandedComposed
-                          ? [styles.inputExpanded, draftEmpty && styles.inputExpandedEmpty]
-                          : styles.inputPill
-                      }
-                      editable={composerEnabled}
-                    />
-                    {isExpandedComposed ? null : canSubmit ? (
-                      <AnimatedSubmitButton
-                        canSubmit={canSubmit}
-                        onPress={submit}
-                        styles={styles}
-                        colors={colors}
-                        accessibilityLabel="Send message"
-                      />
-                    ) : streaming && onStop ? (
-                      // Busy with an empty composer: keep the mic available so a
-                      // dictated message can steer the active turn, and keep Stop
-                      // reachable alongside it (mirrors the expanded toolbar,
-                      // which always shows the mic).
-                      <View style={styles.pillTrailingCluster}>
-                        {micButton}
-                        {realtimeVoiceButton}
-                        <StopButton
-                          onPress={onStop}
-                          styles={styles}
-                          colors={colors}
-                        />
-                      </View>
-                    ) : (
-                      <View style={styles.pillTrailingCluster}>
-                        {micButton}
-                        {realtimeVoiceButton}
-                      </View>
-                    )}
-                  </View>
-                  {isExpandedComposed && !dictationBelow ? (
-                    <View style={styles.toolbar}>
-                      <View style={styles.toolbarLeft}>{plusButton}</View>
-                      <View style={styles.toolbarRight}>
-                        {composerModelPicker?.pinned ? (
-                          <View ref={modelPickerAnchorRef} collapsable={false}>
-                            <Pressable
-                              onPress={onPressModelPicker}
-                              disabled={composerModelPicker.loading}
-                              accessibilityRole="button"
-                              accessibilityLabel={t("app.chat.miniModelPicker.triggerLabel", { model: composerModelPicker.label })}
-                              style={({ pressed }) => [
-                                styles.miniModelPickerTrigger,
-                                pressed && styles.miniModelPickerTriggerPressed,
-                              ]}
-                            >
-                              <Text
-                                style={styles.miniModelPickerLabel}
-                                numberOfLines={1}
-                              >
-                                {composerModelPicker.loading
-                                  ? "Loading…"
-                                  : composerModelPicker.label}
-                              </Text>
-                              <Icon
-                                name="chevron-down"
-                                size={13}
-                                color={colors.textMuted}
-                              />
-                            </Pressable>
-                          </View>
-                        ) : null}
-                        {micButton}
-                        {realtimeVoiceButton}
-                        {streaming && onStop && !hasText ? (
-                          <StopButton
-                            onPress={onStop}
-                            styles={styles}
-                            colors={colors}
-                          />
-                        ) : (
-                          <AnimatedSubmitButton
-                            canSubmit={canSubmit}
-                            onPress={submit}
-                            styles={styles}
-                            colors={colors}
-                            accessibilityLabel="Send message"
-                          />
-                        )}
-                      </View>
-                    </View>
-                  ) : null}
-                  {dictationBelow ? (
-                    <View style={styles.dictationRow}>
-                      <DictationRecordingBar
-                        transcriptMaxHeight={DICTATION_BELOW_MAX_HEIGHT}
-                        onCancel={() => void dictation.cancel()}
-                        onConfirm={() => void dictation.stop()}
-                        onSend={stopAndSendVoice}
-                      />
-                    </View>
-                  ) : null}
-                </View>
-              )}
-            </GlassSurface>
-          </Pressable>
-          </Reanimated.View>
-        </View>
+        <Composer
+          colors={colors}
+          inputRef={inputRef}
+          draftStore={draftStore}
+          enabled={composerEnabled}
+          placeholder={placeholder}
+          intervention={composerIntervention}
+          hidden={questionActive}
+          bottomPad={composerBottomPad}
+          draftEmpty={draftEmpty}
+          hasText={hasText}
+          canSubmit={canSubmit}
+          streaming={streaming}
+          onSubmit={submit}
+          onStop={onStop}
+          onInputFocus={onComposerFocus}
+          onPressPlus={onPressPlus}
+          dictationStatus={dictationStatus}
+          onToggleVoice={toggleVoice}
+          onCancelDictation={cancelDictationInput}
+          onConfirmDictation={confirmDictationInput}
+          onStopAndSendVoice={stopAndSendVoice}
+          showRealtimeVoice={showRealtimeVoice}
+          onOpenRealtimeVoice={openRealtimeVoice}
+          modelPicker={composerModelPicker}
+          modelPickerAnchorRef={modelPickerAnchorRef}
+          onPressModelPicker={onPressModelPicker}
+          quotes={quotes}
+          onRemoveQuote={onRemoveQuote}
+          attachments={attachments}
+          onRemoveAttachment={onRemoveAttachment}
+          onRetryAttachment={onRetryAttachment}
+        />
       </Reanimated.View>
       <AddContextSheet
         visible={addSheetOpen}
@@ -5282,14 +2135,12 @@ export function ChatPane({
               item={messageMenu.message}
               conversationId={conversationId ?? ""}
               animate={false}
-              styles={styles}
+              styles={rowStyles}
               colors={colors}
               menuActive={false}
               isSelecting={false}
               anySelecting={false}
-              onOpenMessageMenu={setMessageMenu}
-              onEndSelecting={stopSelectingMessage}
-              onAskStella={quoteMessage}
+              actions={menuCloneRowActions}
               menuClone
             />
           }
@@ -5335,7 +2186,6 @@ const makeStyles = (colors: Colors) =>
       marginHorizontal: -SHELL_CONTENT_PADDING,
       position: "relative",
     },
-
     // Anchored at the bottom of the screen, above the message list. The list
     // gets matching bottom inset (via `footerHeight`) so content can still be
     // scrolled fully into view; the transparent gutters around the composer
@@ -5346,7 +2196,6 @@ const makeStyles = (colors: Colors) =>
       position: "absolute",
       right: 0,
     },
-
     viewport: { flex: 1, minHeight: 0, position: "relative" },
     hiddenWhileFocused: { display: "none" },
     messageList: { flex: 1 },
@@ -5355,83 +2204,6 @@ const makeStyles = (colors: Colors) =>
       position: "absolute",
       right: 0,
       top: 0,
-    },
-    scrollToBottomFab: {
-      bottom: 8,
-      height: 32,
-      position: "absolute",
-      left: "50%",
-      marginLeft: -16,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.06,
-      shadowRadius: 5,
-      elevation: 2,
-      width: 32,
-    },
-    scrollToBottomFabInner: { flex: 1 },
-    scrollToBottomFabGlass: {
-      alignItems: "center",
-      borderRadius: 16,
-      flex: 1,
-      justifyContent: "center",
-      overflow: "hidden",
-      width: 32,
-    },
-    // Hairline definition rendered as a fading overlay (not on the glass view
-    // itself) so it dissolves with the material instead of lingering as a
-    // visible outline once the button is hidden on Liquid Glass.
-    scrollToBottomFabRing: {
-      borderColor: fadeHex(colors.border, 0.6),
-      borderRadius: 16,
-      borderWidth: StyleSheet.hairlineWidth,
-    },
-    scrollToBottomFabPressed: { opacity: 0.88 },
-    // "Catching up" pill — top-center, overlaid (no layout participation).
-    catchUpPill: {
-      alignSelf: "center",
-      elevation: 2,
-      position: "absolute",
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.06,
-      shadowRadius: 5,
-    },
-    catchUpPillGlass: {
-      alignItems: "center",
-      borderRadius: 15,
-      height: 30,
-      justifyContent: "center",
-      overflow: "hidden",
-      paddingHorizontal: 12,
-    },
-    // See scrollToBottomFabRing: fading overlay so the hairline dissolves with
-    // the material instead of lingering as an outline.
-    catchUpPillRing: {
-      borderColor: fadeHex(colors.border, 0.6),
-      borderRadius: 15,
-      borderWidth: StyleSheet.hairlineWidth,
-    },
-    catchUpPillRow: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: 7,
-    },
-    catchUpPillText: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 12.5,
-    },
-    scrollToBottomDot: {
-      backgroundColor: colors.accent,
-      borderColor: colors.surface,
-      borderRadius: 4,
-      borderWidth: 1.5,
-      height: 8,
-      position: "absolute",
-      right: 4,
-      top: 4,
-      width: 8,
     },
     list: {
       paddingHorizontal: CHAT_HORIZONTAL_INSET,
@@ -5447,89 +2219,13 @@ const makeStyles = (colors: Colors) =>
       paddingTop: MESSAGE_LIST_GAP + ASSISTANT_ROW_PAD_VERTICAL,
       justifyContent: "flex-start",
     },
-
     emptyState: {
       alignItems: "center",
       flex: 1,
       justifyContent: "center",
     },
-    // Compact results popover that drops in just below the search field,
-    // floating over the chat (which stays visible). Matches the `+` menu
-    // surface so it reads as a menu, not a takeover.
-    searchDropdown: {
-      borderColor: fadeHex(colors.border, 0.6),
-      borderRadius: 14,
-      borderWidth: StyleSheet.hairlineWidth,
-      elevation: 4,
-      left: 8,
-      overflow: "hidden",
-      position: "absolute",
-      right: 8,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.08,
-      shadowRadius: 12,
-    },
-    searchDropdownList: {
-      flexGrow: 0,
-    },
-    searchDropdownContent: {
-      paddingVertical: 4,
-    },
-    searchDropdownEmpty: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 14,
-      paddingHorizontal: 16,
-      paddingVertical: 18,
-      textAlign: "center",
-    },
-    searchResultRow: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: 10,
-      paddingHorizontal: 14,
-      paddingVertical: 11,
-    },
-    searchResultRowPressed: {
-      backgroundColor: fadeHex(colors.text, 0.06),
-    },
-    searchResultText: {
-      color: colors.textMuted,
-      flex: 1,
-      fontFamily: fonts.sans.regular,
-      fontSize: 14,
-      lineHeight: 19,
-    },
-    searchResultMatch: {
-      color: colors.text,
-      fontFamily: fonts.sans.semiBold,
-    },
     hiddenFooter: {
       display: "none",
-    },
-
-    userRow: { flexDirection: "row", justifyContent: "flex-end" },
-    userColumn: { alignItems: "flex-end", maxWidth: "92%" },
-    // iMessage bubbles: one continuous (squircle) radius on every corner. The
-    // radius is desktop's fixed `--radius-3xl` (18) rather than something at or
-    // past half a one-line bubble's height, which is what kept very short
-    // messages from collapsing into a round blob there.
-    userBubble: {
-      backgroundColor: colors.userBubbleFill,
-      borderRadius: 18,
-      borderCurve: "continuous",
-      paddingHorizontal: 14,
-      paddingVertical: 6,
-    },
-    bubbleHidden: { opacity: 0 },
-    receipt: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 12,
-      letterSpacing: -0.1,
-      marginRight: 6,
-      marginTop: 4,
     },
     timestampHeader: {
       alignSelf: "center",
@@ -5539,22 +2235,6 @@ const makeStyles = (colors: Colors) =>
       letterSpacing: -0.1,
       paddingBottom: 10,
       paddingTop: 14,
-    },
-    stoppedTag: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.medium,
-      fontSize: 11,
-      letterSpacing: 0.4,
-      marginTop: 6,
-      textTransform: "uppercase",
-    },
-    cloudTag: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 12,
-      letterSpacing: -0.1,
-      marginTop: 6,
-      opacity: 0.8,
     },
     offlineNotice: {
       alignItems: "center",
@@ -5569,413 +2249,5 @@ const makeStyles = (colors: Colors) =>
       fontFamily: fonts.sans.medium,
       fontSize: 12,
       letterSpacing: -0.1,
-    },
-
-    userText: {
-      color: colors.userBubbleText,
-      fontFamily: fonts.sans.regular,
-      fontSize: 17,
-      letterSpacing: 0.03 * 17,
-      lineHeight: 17 * 1.52,
-    },
-    userToggle: {
-      alignSelf: "flex-end",
-      // Muted version of the bubble's own text color (desktop: 68% alpha).
-      color: fadeHex(colors.userBubbleText, 0.68),
-      fontFamily: fonts.sans.medium,
-      fontSize: 13,
-      letterSpacing: -0.1,
-      lineHeight: 16,
-      marginTop: 6,
-    },
-    userTogglePressed: {
-      color: colors.text,
-    },
-    userThumbStrip: {
-      alignSelf: "flex-start",
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 6,
-    },
-    userThumbsAbove: { marginBottom: 8 },
-    userThumbImage: {
-      backgroundColor: colors.muted,
-      borderRadius: 8,
-      height: 84,
-      width: 84,
-    },
-    userDocumentStrip: {
-      alignSelf: "flex-start",
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 6,
-    },
-    userAttachmentPlaceholder: {
-      flex: 1,
-      alignItems: "center",
-      justifyContent: "center",
-      padding: 6,
-      gap: 5,
-    },
-    userDocumentChip: {
-      alignItems: "center",
-      backgroundColor: fadeHex(colors.textMuted, 0.14),
-      borderRadius: 999,
-      flexDirection: "row",
-      gap: 4,
-      maxWidth: 200,
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-    },
-    userDocumentName: {
-      color: colors.textMuted,
-      flexShrink: 1,
-      fontFamily: fonts.sans.regular,
-      fontSize: 12,
-      letterSpacing: -0.1,
-    },
-
-    assistantRow: { paddingVertical: ASSISTANT_ROW_PAD_VERTICAL },
-    /**
-     * Mirror of `userBubble`, flipped: same radius family with the tightened
-     * corner on the bottom LEFT, the quieter elevated surface (`card`) instead
-     * of the accent tint, and a hairline `border` rather than `borderStrong` so
-     * the assistant reads as the calmer of the two speakers.
-     *
-     * Vertical padding is asymmetric on purpose: markdown blocks carry their
-     * own trailing margin (a paragraph's is 10 — see `buildNodeStyles` in
-     * AssistantMarkdown), so a small `paddingBottom` plus that margin lands at
-     * the same ~10-12pt optical inset as the top, with no negative margins that
-     * could clip a trailing code block.
-     */
-    askRecordAbove: { marginBottom: 6 },
-    composerHidden: { display: "none" },
-    composerReveal: { alignSelf: "stretch" },
-    assistantBubble: {
-      alignSelf: "flex-start",
-      overflow: "hidden",
-      borderRadius: 18,
-      borderCurve: "continuous",
-      maxWidth: "100%",
-      paddingBottom: 0,
-      paddingHorizontal: 14,
-      paddingTop: 9,
-    },
-    // The long-press target hugs the bubble so its measured frame is the
-    // bubble's own (the menu redraws the bubble at exactly that frame).
-    assistantBubbleSlot: { alignSelf: "flex-start", maxWidth: "100%" },
-    assistantBubbleSlotFill: { alignSelf: "stretch" },
-    assistantSelectBubble: {
-      backgroundColor: colors.assistantBubbleFillBottom,
-      paddingBottom: 10,
-    },
-    // Yoga stretches block Markdown to the measured list-cell width in the
-    // same layout pass, giving nested list/scroller children a definite bound.
-    // Plain text keeps the intrinsic hugging style above.
-    assistantBlockBubble: { alignSelf: "stretch" },
-    // Schedule tool receipt — a plain text line in the conversation flow
-    // (desktop parity: no chip or card), slightly quieter than reply prose.
-    scheduleReceipt: {
-      color: colors.text,
-      fontFamily: fonts.sans.regular,
-      fontSize: 14,
-      letterSpacing: -0.1,
-      lineHeight: 20,
-      marginTop: 6,
-    },
-    artifactGroup: { gap: 10 },
-    bubbleFilePills: { marginTop: 2, marginBottom: 12 },
-    bubbleEvidence: { marginTop: 0, marginBottom: 12 },
-    mediaBelowBubble: { marginTop: 6 },
-    artifactGroupSpaced: { marginTop: 10 },
-    assistantText: {
-      color: colors.assistantBubbleText,
-      fontFamily: fonts.sans.regular,
-      fontSize: 17,
-      fontWeight: "400",
-      letterSpacing: 0.03 * 17,
-      lineHeight: 17 * 1.52,
-    },
-
-    composerWrap: {
-      alignItems: "center",
-      flexShrink: 0,
-      gap: 8,
-      paddingBottom: 6,
-      paddingHorizontal: CHAT_HORIZONTAL_INSET,
-      paddingTop: 12,
-    },
-
-    // Attachment rail inside the shell: sized by its content so the input
-    // below keeps its own height, scrolling sideways once thumbs overflow.
-    attachmentStrip: {
-      flexGrow: 0,
-      flexShrink: 0,
-    },
-    attachmentStripContent: {
-      flexDirection: "row",
-      gap: 8,
-      paddingBottom: 2,
-      paddingHorizontal: 12,
-      paddingTop: 12,
-    },
-    composerQuoteStrip: {
-      gap: 6,
-      paddingHorizontal: 10,
-      paddingTop: 10,
-    },
-    composerQuote: {
-      alignItems: "center",
-      backgroundColor: fadeHex(colors.textMuted, 0.1),
-      borderCurve: "continuous",
-      borderRadius: 12,
-      flexDirection: "row",
-      gap: 10,
-      paddingLeft: 8,
-      paddingRight: 8,
-      paddingVertical: 8,
-    },
-    composerQuoteText: {
-      color: colors.textMuted,
-      flex: 1,
-      fontFamily: fonts.sans.regular,
-      fontSize: 14,
-      letterSpacing: -0.15,
-      lineHeight: 19,
-    },
-    composerQuoteRemove: {
-      alignItems: "center",
-      backgroundColor: fadeHex(colors.textMuted, 0.16),
-      borderRadius: 999,
-      height: 20,
-      justifyContent: "center",
-      width: 20,
-    },
-    composerQuoteRemovePressed: {
-      backgroundColor: fadeHex(colors.textMuted, 0.28),
-    },
-    quoteChip: {
-      alignItems: "center",
-      alignSelf: "flex-start",
-      backgroundColor: colors.surface,
-      borderColor: colors.border,
-      borderRadius: 12,
-      borderWidth: StyleSheet.hairlineWidth,
-      flexDirection: "row",
-      gap: 6,
-      maxWidth: "100%",
-      paddingLeft: 10,
-      paddingRight: 6,
-      paddingVertical: 6,
-    },
-    quoteChipIcon: { opacity: 0.8 },
-    quoteChipText: {
-      color: colors.textMuted,
-      flexShrink: 1,
-      fontFamily: fonts.sans.regular,
-      fontSize: 13,
-      letterSpacing: -0.1,
-    },
-    // Sent-message variant of the quote chip: right-aligned above the user
-    // bubble (matching the bubble's trailing edge) with a little breathing room.
-    userQuoteChip: {
-      alignSelf: "flex-end",
-      marginBottom: 6,
-    },
-    attachmentThumb: {
-      borderRadius: 10,
-      height: 64,
-      overflow: "hidden",
-      position: "relative",
-      width: 64,
-    },
-    attachmentImage: { borderRadius: 10, height: 64, width: 64 },
-    // A document has no preview to show, so the tile becomes its name.
-    attachmentFile: {
-      alignItems: "center",
-      backgroundColor: fadeHex(colors.textMuted, 0.12),
-      borderRadius: 10,
-      gap: 2,
-      height: 64,
-      justifyContent: "center",
-      paddingHorizontal: 4,
-      width: 64,
-    },
-    attachmentFileName: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 9,
-      letterSpacing: -0.1,
-      textAlign: "center",
-    },
-    // Covers the whole tile while an upload is in flight or broken, so a chip
-    // never reads as ready when it is not.
-    attachmentStatusScrim: {
-      alignItems: "center",
-      backgroundColor: "rgba(0,0,0,0.45)",
-      borderRadius: 10,
-      bottom: 0,
-      justifyContent: "center",
-      left: 0,
-      position: "absolute",
-      right: 0,
-      top: 0,
-    },
-    attachmentRemove: {
-      alignItems: "center",
-      backgroundColor: "rgba(0,0,0,0.55)",
-      borderRadius: 10,
-      height: 20,
-      justifyContent: "center",
-      position: "absolute",
-      right: 3,
-      top: 3,
-      width: 20,
-    },
-
-    shell: {
-      borderColor: colors.panelSurfaceBorder,
-      borderWidth: StyleSheet.hairlineWidth,
-      overflow: "hidden",
-      width: "100%",
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.08,
-      shadowRadius: 24,
-      elevation: 8,
-    },
-
-    composerFocusTarget: { width: "100%" },
-    formPill: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: 8,
-      minHeight: 56,
-      paddingHorizontal: 8,
-      paddingVertical: 11,
-    },
-    expandedInputBlock: { flexDirection: "column" },
-
-    inputPill: {
-      color: colors.text,
-      flex: 1,
-      fontFamily: fonts.sans.regular,
-      fontSize: 16,
-      letterSpacing: -0.2,
-      lineHeight: 22,
-      maxHeight: 32,
-      paddingHorizontal: 4,
-      paddingVertical: 0,
-      ...(Platform.OS === "android"
-        ? { textAlignVertical: "center" as const }
-        : {}),
-    },
-    inputExpanded: {
-      color: colors.text,
-      fontFamily: fonts.sans.regular,
-      fontSize: 16,
-      letterSpacing: -0.2,
-      lineHeight: 24,
-      maxHeight: COMPOSER_INPUT_MAX_HEIGHT,
-      minHeight: 46,
-      paddingHorizontal: 16,
-      paddingTop: 14,
-      paddingBottom: 2,
-    },
-    // A pinned model picker keeps the same scrollable UITextView expanded
-    // after send. Its old intrinsic content height can survive clearing value;
-    // an empty draft has a known resting height, independent of that cache.
-    inputExpandedEmpty: { height: 46 },
-
-    toolbar: {
-      alignItems: "center",
-      flexDirection: "row",
-      justifyContent: "space-between",
-      paddingBottom: 6,
-      paddingHorizontal: 8,
-      paddingTop: 2,
-    },
-    toolbarLeft: { flexDirection: "row", alignItems: "center", gap: 4 },
-    toolbarRight: { flexDirection: "row", alignItems: "center", gap: 8 },
-    miniModelPickerTrigger: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: 4,
-      height: 30,
-      maxWidth: 154,
-      paddingHorizontal: 10,
-    },
-    miniModelPickerTriggerPressed: {
-      opacity: 0.55,
-    },
-    miniModelPickerLabel: {
-      color: colors.textMuted,
-      flexShrink: 1,
-      fontFamily: fonts.sans.medium,
-      fontSize: 13,
-      letterSpacing: -0.15,
-    },
-    pillTrailingCluster: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-    },
-
-    dictationRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      paddingBottom: 8,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: fadeHex(colors.border, 0.5),
-    },
-    // Insets so the transcript lands where expanded input text sits
-    // (`inputExpanded`: 16 across, 14 down) and the waveform row where the
-    // toolbar sits, with the same resting height as an empty expanded shell.
-    dictationInlineBlock: {
-      paddingHorizontal: 12,
-      paddingTop: 13,
-      paddingBottom: 8,
-    },
-    dictationInlineTranscript: { minHeight: 30 },
-
-    addButton: {
-      alignItems: "center",
-      backgroundColor: fadeHex(colors.text, 0.06),
-      borderRadius: 16,
-      height: 32,
-      justifyContent: "center",
-      width: 32,
-    },
-    submitButton: {
-      alignItems: "center",
-      backgroundColor: colors.accent,
-      borderRadius: 16,
-      height: 32,
-      justifyContent: "center",
-      width: 32,
-    },
-    micButton: {
-      alignItems: "center",
-      backgroundColor: "transparent",
-      borderRadius: 16,
-      height: 32,
-      justifyContent: "center",
-      width: 32,
-    },
-    micButtonActive: { backgroundColor: colors.accent },
-    realtimeVoiceButton: {
-      alignItems: "center",
-      backgroundColor: "transparent",
-      borderRadius: 16,
-      height: 32,
-      justifyContent: "center",
-      width: 32,
-    },
-    realtimeVoiceButtonPressed: {
-      opacity: 0.55,
-      transform: [{ scale: 0.96 }],
     },
   } as const);

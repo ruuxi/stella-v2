@@ -10,7 +10,6 @@
 
 import {
   app,
-  ipcMain,
   type BrowserWindow,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
@@ -30,6 +29,7 @@ import {
   applyUiStateLocaleChanges,
   bindUiStateLocale,
 } from "../services/i18n-service.js";
+import { onIpc } from "./typed-ipc.js";
 
 export type UiStateKvHandlersOptions = {
   stellaDataDirPath: string;
@@ -70,7 +70,7 @@ export const registerUiStateKvHandlers = (
     }
   };
 
-  ipcMain.on(IPC_UI_STATE_KV_SNAPSHOT, (event) => {
+  onIpc(IPC_UI_STATE_KV_SNAPSHOT, (event) => {
     if (!options.assertPrivilegedSender(event, IPC_UI_STATE_KV_SNAPSHOT)) {
       event.returnValue = {};
       return;
@@ -78,14 +78,14 @@ export const registerUiStateKvHandlers = (
     event.returnValue = store.snapshot();
   });
 
-  ipcMain.on(IPC_UI_STATE_KV_APPLY, (event, rawChanges: unknown) => {
+  onIpc(IPC_UI_STATE_KV_APPLY, (event, rawChanges: unknown) => {
     if (!options.assertPrivilegedSender(event, IPC_UI_STATE_KV_APPLY)) return;
     const changes = sanitizeUiStateChanges(rawChanges);
     if (!changes) return;
     broadcast(store.apply(changes), event.sender.id);
   });
 
-  ipcMain.on(IPC_UI_STATE_KV_CLEAR, (event) => {
+  onIpc(IPC_UI_STATE_KV_CLEAR, (event) => {
     if (!options.assertPrivilegedSender(event, IPC_UI_STATE_KV_CLEAR)) return;
     broadcast(store.clear(), event.sender.id);
   });

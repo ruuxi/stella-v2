@@ -461,12 +461,14 @@ describe("InAppBrowserService", () => {
     const seedsAfterConnect = harness.cookieSet.mock.calls.length;
     // createTab's loadURL emits did-navigate, which triggers a throttled reseed.
     await harness.service.createTab({ url: "https://example.com" });
-    await vi.waitFor(() =>
-      expect(harness.exportAllCookies.mock.calls.length).toBeGreaterThan(1),
-    );
-    expect(harness.cookieSet.mock.calls.length).toBeGreaterThan(
-      seedsAfterConnect,
-    );
+    // The reseed is non-blocking: the export, then the cookie writes, land
+    // after createTab resolves.
+    await vi.waitFor(() => {
+      expect(harness.exportAllCookies.mock.calls.length).toBeGreaterThan(1);
+      expect(harness.cookieSet.mock.calls.length).toBeGreaterThan(
+        seedsAfterConnect,
+      );
+    });
   });
 
   it("keeps mirroring on a cadence and never latches, then stops on dispose (staleness fix)", async () => {

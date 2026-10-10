@@ -492,7 +492,7 @@ export const describeToolCatalogEntry = (
  * contract everywhere.
  */
 export const DEMOTED_WORKFLOW_TEXT =
-  'Some tools are demoted from your direct tool list and callable only here via tools.<name>(args). The compact catalog below lists names, signatures, and descriptions. When it is marked COMPLETE, call simple listed tools directly. When PARTIAL, first run await tools.$search({ query: "<intent + key nouns>" }) for ranked compact matches. For an unfamiliar or complex match, optionally run await tools.$describe(name) to load exactly that tool\'s complete schema, then invoke tools.<name>(args). Do not guess tool names.';
+  'Some tools are callable only here, as tools.<name>(args); they are listed below. Do not guess tool names.';
 
 /** Workflow paragraph + budgeted signature catalog; "" for an empty set. */
 export const buildDemotedCodeSuffix = (

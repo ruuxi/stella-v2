@@ -1,4 +1,4 @@
-import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import type {
   OnboardingStarter,
   OnboardingSynthesisRequest,
@@ -10,6 +10,8 @@ import type {
 } from "@stella/contracts/protocol";
 import { STELLA_DEFAULT_MODEL } from "@stella/contracts/stella-api";
 import { readRuntimePrompt } from "@stella/runtime/kernel/prompts/home-prompts";
+import { IPC_ONBOARDING_SYNTHESIZE } from "@stella/contracts/desktop/ipc-channels";
+import { handleIpc } from "./typed-ipc.js";
 
 type OneShotRunner = {
   runOneShotCompletion(
@@ -118,9 +120,9 @@ const synthesize = async (
     userText: string,
     options: { systemPrompt?: string; maxOutputTokens?: number } = {},
   ): Promise<string> =>
+    // Pinned to Stella's default so a per-agent model override can't
+    // send the user's raw browsing data somewhere unexpected.
     (
-      // Pinned to Stella's default so a per-agent model override can't
-      // send the user's raw browsing data somewhere unexpected.
       await runner.runOneShotCompletion({
         agentType,
         userText,
@@ -133,7 +135,8 @@ const synthesize = async (
   const analyses = await Promise.all(
     sections.map(async ([category, data]) => {
       const systemPrompt = config.categoryAnalysisSystemPrompts?.[category];
-      if (!systemPrompt || !analysisTemplate) return { category, analysis: data };
+      if (!systemPrompt || !analysisTemplate)
+        return { category, analysis: data };
       const userText = analysisTemplate
         .replace("{{categoryLabel}}", CATEGORY_LABELS[category] ?? category)
         .replace("{{data}}", data);
@@ -186,12 +189,10 @@ const synthesize = async (
 export const registerOnboardingHandlers = (
   options: OnboardingHandlersOptions,
 ) => {
-  ipcMain.handle(
-    "onboarding:synthesizeCoreMemory",
+  handleIpc(
+    IPC_ONBOARDING_SYNTHESIZE,
     async (event, payload: OnboardingSynthesisRequest) => {
-      if (
-        !options.assertPrivilegedSender(event, "onboarding:synthesizeCoreMemory")
-      ) {
+      if (!options.assertPrivilegedSender(event, IPC_ONBOARDING_SYNTHESIZE)) {
         throw new Error(
           "Blocked untrusted onboarding:synthesizeCoreMemory request.",
         );

@@ -9,37 +9,22 @@
  * Desktop UI and runtime use backend calls (`devices.*`, `phone.*`) instead.
  */
 
-import { verifyCaller } from "../owner-store/routes.js";
+import { readJsonObject } from "../http/body.js";
+import { requireCaller } from "../http/caller.js";
+import { fail, failRpcError } from "../http/response.js";
 
 const MOBILE_PREFIX = "/api/mobile/";
 const MAX_BODY_BYTES = 64 * 1024;
 
-const json = (body: unknown, status = 200) =>
-  Response.json(body, { status, headers: { "cache-control": "no-store" } });
-
-const readBody = async (request: Request): Promise<Record<string, unknown> | null> => {
-  if (request.method !== "POST") return {};
-  const text = await request.text();
-  if (text.length > MAX_BODY_BYTES) return null;
-  if (!text) return {};
-  try {
-    const body = JSON.parse(text) as unknown;
-    return body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
-  } catch {
-    return null;
-  }
-};
-
 const mobileRoute = async (request: Request, env: Cloudflare.Env, url: URL): Promise<Response> => {
-  if (request.method !== "GET" && request.method !== "POST") return json({ error: "Method not allowed" }, 405);
-  const header = request.headers.get("authorization") ?? "";
-  const verified = await verifyCaller(env, header.startsWith("Bearer ") ? header.slice(7).trim() : "");
-  if (!verified.ok) {
-    return json({ error: verified.error.message }, verified.error.code === "UNAUTHENTICATED" ? 401 : 503);
-  }
-  if (verified.caller.isAnonymous) return json({ error: "Sign in with an account to use this." }, 403);
-  const body = await readBody(request);
-  if (!body) return json({ error: "Request body must be a JSON object" }, 400);
+  if (request.method !== "GET" && request.method !== "POST") return fail(405, "Method not allowed");
+  const verified = await requireCaller(request, env, { allowAnonymous: false });
+  if (!verified.ok) return failRpcError(verified.error);
+  const body =
+    request.method === "POST"
+      ? await readJsonObject(request, MAX_BODY_BYTES, { allowEmpty: true })
+      : ({ ok: true, value: {} } as const);
+  if (!body.ok) return fail(body.status, body.error);
   const headers: Record<string, string> = {};
   request.headers.forEach((value, name) => {
     if (name.startsWith("x-stella-mobile-")) headers[name] = value;
@@ -48,7 +33,7 @@ const mobileRoute = async (request: Request, env: Cloudflare.Env, url: URL): Pro
     route: `${request.method} ${url.pathname.slice(MOBILE_PREFIX.length)}`,
     caller: verified.caller,
     query: Object.fromEntries(url.searchParams),
-    body,
+    body: body.value,
     headers,
   });
   return new Response(result.json, {

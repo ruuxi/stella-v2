@@ -23,7 +23,7 @@ import {
   type CloudMemoryReimportIssueCode,
   type CloudMemoryReimportRequestFence,
 } from "./cloud-memory-reimport";
-import { followsOwnerGeneration } from "./cloud-memory-preference";
+import { followsOwnerGeneration } from "@stella/contracts/cloud-memory-preference";
 import { decodeCloudMemoryWipeStatus } from "./cloud-memory-wipe";
 
 type RetryPlan =

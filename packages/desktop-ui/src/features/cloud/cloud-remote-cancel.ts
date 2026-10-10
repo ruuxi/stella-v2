@@ -1,4 +1,4 @@
-import type { TurnPhase } from "./conversation-protocol";
+import type { TurnPhase } from "@stella/contracts/conversation-protocol";
 
 export type TurnPhaseObservation = {
   turnId: string;

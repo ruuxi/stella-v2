@@ -5,6 +5,7 @@ import {
   gateHomeControl,
   type CloudSkillUploadFile,
 } from "./cloud-home-store.js";
+import { json } from "./http/response.js";
 
 type CloudHomeRouteEnv = Pick<Cloudflare.Env, "AGENT_HOME" | "OWNER_GATES">;
 
@@ -14,12 +15,6 @@ export type CloudHomeLeaseRunner = <T>(
   activityId: string,
   operation: (assertExternalWrite: () => Promise<void>) => Promise<T>,
 ) => Promise<T>;
-
-const json = (body: unknown, status = 200): Response =>
-  Response.json(body, {
-    status,
-    headers: { "cache-control": "no-store" },
-  });
 
 const routeError = (error: unknown): Response => {
   if (error instanceof CloudHomeProtocolError) {

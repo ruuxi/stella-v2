@@ -4,8 +4,8 @@ import {
   messageText,
   type JournalMessageRecord,
   type JournalRecord,
-} from "./cloud-conversation-protocol";
-import { lifecycleWakeTask } from "./mobile-reply-context";
+} from "@stella/contracts/conversation-protocol";
+import { lifecycleWakeTask } from "@stella/contracts/conversation-journal-projection";
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value)

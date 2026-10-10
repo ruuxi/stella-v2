@@ -2,7 +2,7 @@ import type { ChatMessage } from "../types";
 import {
   hasToolCalls,
   type JournalRecord,
-} from "./cloud-conversation-protocol";
+} from "@stella/contracts/conversation-protocol";
 import type { ConversationState } from "./cloud-conversation-store";
 import { cloudTurnActivity } from "./cloud-journal-projection";
 

@@ -1,17 +1,17 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type {
   CloudConversationCacheSnapshot,
   CloudConversationCacheVersion,
 } from "@stella/contracts/cloud-conversation-cache";
-import type { JournalRecord } from "../../../src/features/cloud/conversation-protocol";
+import type { JournalRecord } from "@stella/contracts/conversation-protocol";
 import type { ConversationSocketEvent } from "../../../src/features/cloud/conversation-socket";
 import {
   activateCloudConversationClientAuthority,
   conversationStore,
   retireCloudConversationClientAuthority,
-  type CloudConversationOutboxAuthority,
   type ConversationStore,
 } from "../../../src/features/cloud/conversation-store";
+import type { CloudConversationOutboxAuthority } from "../../../src/features/cloud/conversation-outbox";
 import {
   setCloudConversationCacheApiForTests,
   type CloudConversationCacheRendererApi,
@@ -19,11 +19,33 @@ import {
 
 const stores = new Set<ConversationStore>();
 
+beforeEach(() => {
+  // Cache writes wait for an idle renderer. This test renderer is always idle,
+  // so a scheduled write runs on the next macrotask.
+  vi.stubGlobal("requestIdleCallback", (callback: () => void) =>
+    setTimeout(callback, 0),
+  );
+  vi.stubGlobal("cancelIdleCallback", (handle: ReturnType<typeof setTimeout>) =>
+    clearTimeout(handle),
+  );
+});
+
 afterEach(() => {
   for (const store of stores) store.retireAuthority();
   stores.clear();
   setCloudConversationCacheApiForTests(undefined);
+  vi.unstubAllGlobals();
 });
+
+/** Points the store's cache writer at an earlier in-process CAS token. */
+const setCacheVersion = (
+  store: ConversationStore,
+  version: CloudConversationCacheVersion,
+): void => {
+  (
+    store as unknown as { cache: { version: CloudConversationCacheVersion } }
+  ).cache.version = version;
+};
 
 const authority = (suffix: string): CloudConversationOutboxAuthority => ({
   accountScope: `account:cache:${suffix}`,
@@ -320,9 +342,7 @@ describe("cloud conversation renderer derived cache", () => {
     await vi.waitFor(() => expect(api.read).toHaveBeenCalled());
 
     // Simulate an older in-process CAS token whose SQLite file disappeared.
-    (
-      store as unknown as { cacheVersion: CloudConversationCacheVersion }
-    ).cacheVersion = currentVersion;
+    setCacheVersion(store, currentVersion);
     dispatch(store, ready(conversationId, 8, 0));
     dispatch(store, { type: "records", records: [message(0)] });
 
@@ -366,9 +386,7 @@ describe("cloud conversation renderer derived cache", () => {
     stores.add(store);
     await vi.waitFor(() => expect(api.read).toHaveBeenCalled());
 
-    (
-      store as unknown as { cacheVersion: CloudConversationCacheVersion }
-    ).cacheVersion = staleVersion;
+    setCacheVersion(store, staleVersion);
     dispatch(store, ready(conversationId, 8, 0));
     dispatch(store, {
       type: "records",

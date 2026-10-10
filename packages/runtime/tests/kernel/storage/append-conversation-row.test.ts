@@ -18,7 +18,11 @@ import {
 // seq claim (new entry) or a touch (existing entry). These pin that the row
 // ends up exactly as the upsert left it.
 
-type TestContext = { rootPath: string; db: SqliteDatabase; store: SessionStore };
+type TestContext = {
+  rootPath: string;
+  db: SqliteDatabase;
+  store: SessionStore;
+};
 
 const activeContexts = new Set<TestContext>();
 
@@ -70,14 +74,14 @@ describe("appendEvent conversation row", () => {
     const derivedId = "derived-append-creates";
     expect(readConversation(db, chatId)).toBeUndefined();
 
-    const event = store.appendEvent({
+    const event = store.chat.appendEvent({
       conversationId: chatId,
       eventId: "first",
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "hello" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: derivedId,
       eventId: "derived-first",
       type: "assistant_message",
@@ -102,14 +106,14 @@ describe("appendEvent conversation row", () => {
   it("keeps updated_at monotonic across new and updated entries", () => {
     const { db, store } = createContext();
     const id = "local_append-monotonic";
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: id,
       eventId: "a",
       type: "user_message",
       timestamp: 2_000,
       payload: { text: "a" },
     });
-    const older = store.appendEvent({
+    const older = store.chat.appendEvent({
       conversationId: id,
       eventId: "b",
       type: "assistant_message",
@@ -121,7 +125,7 @@ describe("appendEvent conversation row", () => {
 
     // Re-appending an existing id updates the entry in place and still
     // bumps the conversation, without claiming a new seq.
-    const updated = store.appendEvent({
+    const updated = store.chat.appendEvent({
       conversationId: id,
       eventId: "b",
       type: "assistant_message",
@@ -143,7 +147,7 @@ describe("appendEvent conversation row", () => {
       `INSERT INTO conversation (id, kind, title, status, next_seq, created_at, updated_at)
        VALUES (?, 'derived', '', 'active', 1, 10, 10)`,
     ).run(id);
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: id,
       eventId: "kind-a",
       type: "user_message",
@@ -153,7 +157,7 @@ describe("appendEvent conversation row", () => {
     expect(readConversation(db, id)?.kind).toBe("chat");
 
     db.prepare("UPDATE conversation SET kind = 'derived' WHERE id = ?").run(id);
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: id,
       eventId: "kind-a",
       type: "user_message",
@@ -170,17 +174,17 @@ describe("appendEvent conversation row", () => {
     const { db, store } = createContext();
     const first = "local_append-first";
     const second = "local_append-second";
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: first,
       eventId: "moving",
       type: "user_message",
       timestamp: 100,
       payload: { text: "moving" },
     });
-    expect(store.deleteConversation(first)).toBe(true);
+    expect(store.chat.deleteConversation(first)).toBe(true);
     expect(readConversation(db, first)).toBeUndefined();
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: first,
       eventId: "after-delete",
       type: "user_message",
@@ -192,14 +196,14 @@ describe("appendEvent conversation row", () => {
       updatedAt: 200,
     });
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: first,
       eventId: "moved",
       type: "user_message",
       timestamp: 300,
       payload: { text: "moved" },
     });
-    const moved = store.appendEvent({
+    const moved = store.chat.appendEvent({
       conversationId: second,
       eventId: "moved",
       type: "user_message",
@@ -212,8 +216,8 @@ describe("appendEvent conversation row", () => {
       nextSeq: 2,
       updatedAt: 400,
     });
-    expect(store.hasEvent(first, "moved")).toBe(false);
-    expect(store.hasEvent(second, "moved")).toBe(true);
+    expect(store.chat.hasEvent(first, "moved")).toBe(false);
+    expect(store.chat.hasEvent(second, "moved")).toBe(true);
   });
 });
 
@@ -241,7 +245,9 @@ describe("cachedStatements", () => {
     try {
       initializeDesktopDatabase(db);
       const cache = cachedStatements(db);
-      const statement = cache.prepare("SELECT COUNT(*) AS count FROM conversation");
+      const statement = cache.prepare(
+        "SELECT COUNT(*) AS count FROM conversation",
+      );
       expect(statement.get()).toEqual({ count: 0 });
       db.close();
       expect(() => statement.get()).toThrow();

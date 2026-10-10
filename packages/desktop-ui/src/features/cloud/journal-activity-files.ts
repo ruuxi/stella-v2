@@ -1,6 +1,9 @@
 import type { EventRecord } from "@stella/contracts/local-chat";
 import { eventContributesFiles } from "@/features/workspace-display/agent-files";
-import { messageText, type JournalRecord } from "./conversation-protocol";
+import {
+  messageText,
+  type JournalRecord,
+} from "@stella/contracts/conversation-protocol";
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value)

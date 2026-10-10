@@ -7,80 +7,30 @@ import type {
 import { isPiAgentText } from "@stella/contracts/pi-chat";
 import { journalAgentTitles } from "@stella/contracts/agent-titles";
 import { groupEventsIntoMessages } from "@/features/chat/lib/group-events-into-messages";
-import type { JournalRecord } from "./conversation-protocol";
-import { messageText } from "./conversation-protocol";
 import { withAttachmentPreamble } from "./cloud-composer-store";
 import { driveAttachmentRef } from "./drive-attachment-previews";
 import {
-  splitReplyRefs,
-  toReplyPreview,
-  type RawReplyRef,
-  type ReplyRef,
-} from "@stella/contracts/reply-refs";
-
-type JournalMessageRecord = Extract<JournalRecord, { kind: "message" }>;
+  messageText,
+  type JournalMessageRecord,
+  type JournalRecord,
+} from "@stella/contracts/conversation-protocol";
+import {
+  journalMessageTimestamp,
+  journalTerminalNotice,
+  lifecycleWakeOutcome,
+  lifecycleWakeTask,
+  resolveJournalReplyRefs,
+} from "@stella/contracts/conversation-journal-projection";
+import { splitReplyRefs, type ReplyRef } from "@stella/contracts/reply-refs";
 
 const userEventId = (record: JournalMessageRecord): string =>
   record.clientMsgId ?? `cloud:${record.turnId}:message:${record.seq}`;
 
-const LIFECYCLE_THREAD_RE =
-  /^\[(?:Agent completed|Task failed|Task canceled|Subagent paused)\][\s\S]*?^thread_id:\s*(\S+)/m;
-const LIFECYCLE_DESCRIPTION_RE =
-  /^\[(?:Agent completed|Task failed|Task canceled|Subagent paused)\][\s\S]*?^description:\s*(.+)$/m;
-
-/**
- * The task named by a hidden lifecycle wake prompt (`[Agent completed]`
- * and friends): its thread id and, when the prompt carries one, its
- * description. A locally executed turn mirrored into the journal has no
- * lifecycle card, so this prompt is where the task's title comes from.
- */
-export const lifecycleWakeTask = (
-  text: string,
-): { threadId: string; description?: string } | null => {
-  const threadId = LIFECYCLE_THREAD_RE.exec(text)?.[1]?.trim();
-  if (!threadId) return null;
-  const description = LIFECYCLE_DESCRIPTION_RE.exec(text)?.[1]?.trim();
-  return description ? { threadId, description } : { threadId };
-};
-
-const LIFECYCLE_KIND_RE =
-  /^\[(Agent completed|Task failed|Task canceled|Subagent paused)\]/m;
-const LIFECYCLE_TRAILER_RE = /^(?:agent_state|presentation|routing|error):/;
-
-/**
- * The `result:` body of an `[Agent completed]` wake prompt (the lines after
- * `result:` up to the runtime's trailing instructions), or the `error:`
- * line of a failed / canceled one.
- */
-export const lifecycleWakeOutcome = (
-  text: string,
-): { kind: "completed" | "failed" | "canceled"; body: string } | null => {
-  const kind = LIFECYCLE_KIND_RE.exec(text)?.[1];
-  if (!kind) return null;
-  const lines = text.split(/\r?\n/);
-  const startIndex = lines.findIndex((line) =>
-    kind === "Agent completed" ? line.startsWith("result:") : line.startsWith("error:"),
-  );
-  let body = "";
-  if (startIndex !== -1) {
-    const first = lines[startIndex]!.replace(/^(?:result|error):\s?/, "");
-    const rest: string[] = [];
-    for (const line of lines.slice(startIndex + 1)) {
-      if (LIFECYCLE_TRAILER_RE.test(line)) break;
-      rest.push(line);
-    }
-    body = [first, ...rest].join("\n").trim();
-  }
-  return {
-    kind:
-      kind === "Agent completed"
-        ? "completed"
-        : kind === "Task failed"
-          ? "failed"
-          : "canceled",
-    body,
-  };
-};
+/** The id this projection renders a journal message record under. */
+const messageEventId = (record: JournalMessageRecord): string =>
+  record.role === "user"
+    ? userEventId(record)
+    : `cloud:${record.turnId}:message:${record.seq}`;
 
 const lifecycleAgentIdsOnTurn = (
   turnRecords: readonly JournalRecord[],
@@ -143,7 +93,7 @@ const mirroredLifecycleEvents = (
   let wake: EventRecord | null = null;
   for (const record of turnRecords) {
     if (record.kind !== "message") continue;
-    const timestamp = timestampOf(record.payload, record.createdAtMs);
+    const timestamp = journalMessageTimestamp(record);
     if (record.role === "user" && record.hidden) {
       const text = messageText(record.payload);
       const task = lifecycleWakeTask(text);
@@ -190,82 +140,12 @@ const mirroredLifecycleEvents = (
   return { spawns, wake };
 };
 
-/**
- * Resolve the citations an assistant journal record carried against the
- * loaded journal window. The cloud journal has no `entry_ref` index, so this
- * is the client-side twin of the runtime's `resolveReplyRefs`: message
- * citations map to the record with that journal `seq`, agent citations keep
- * their thread id (the live title comes from thread activity), and a
- * lifecycle turn that cited nothing attaches to the agent named in its hidden
- * prompt. The message directly above the reply is never a reference.
- */
-export const resolveJournalReplyRefs = (args: {
-  raw: readonly RawReplyRef[];
-  recordsBySeq: ReadonlyMap<number, JournalMessageRecord>;
-  turnUserRecord: JournalMessageRecord | undefined;
-  agentTitles?: ReadonlyMap<string, string>;
-}): ReplyRef[] => {
-  const refs: ReplyRef[] = [];
-  const seen = new Set<string>();
-  const push = (ref: ReplyRef) => {
-    const key = ref.kind === "message" ? `m:${ref.id}` : `a:${ref.threadId}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    refs.push(ref);
-  };
-  for (const ref of args.raw) {
-    if (ref.kind === "agent") {
-      push({
-        kind: "agent",
-        threadId: ref.threadId,
-        title: args.agentTitles?.get(ref.threadId) ?? "",
-      });
-      continue;
-    }
-    const record = args.recordsBySeq.get(ref.sequence);
-    if (!record || record.hidden) continue;
-    if (record.role !== "user" && record.role !== "assistant") continue;
-    if (args.turnUserRecord && record.seq === args.turnUserRecord.seq) continue;
-    const text = messageText(record.payload);
-    push({
-      kind: "message",
-      sequence: ref.sequence,
-      id:
-        record.role === "user"
-          ? userEventId(record)
-          : `cloud:${record.turnId}:message:${record.seq}`,
-      role: record.role,
-      preview: toReplyPreview(
-        record.role === "assistant" ? splitReplyRefs(text).text : text,
-      ),
-    });
-  }
-  if (refs.length === 0 && args.turnUserRecord?.hidden) {
-    const wake = lifecycleWakeTask(messageText(args.turnUserRecord.payload));
-    if (wake)
-      push({
-        kind: "agent",
-        threadId: wake.threadId,
-        title: args.agentTitles?.get(wake.threadId) ?? wake.description ?? "",
-      });
-  }
-  return refs;
-};
-
 type AgentMessagePayload = Record<string, unknown>;
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-
-const timestampOf = (
-  payload: AgentMessagePayload,
-  fallback: number,
-): number => {
-  const value = payload.timestamp;
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-};
 
 const contentBlocks = (
   payload: AgentMessagePayload,
@@ -439,43 +319,6 @@ const textPayload = (
   };
 };
 
-/**
- * Raw socket windows are record-count bounded and can therefore begin in the
- * middle of a tool-heavy turn. Do not project that leading fragment until its
- * prompt has been backfilled; otherwise assistants have no stable user owner
- * and the originating desktop briefly renders both cache and cloud copies.
- */
-export const hasIncompleteLeadingJournalTurn = (
-  records: readonly JournalRecord[],
-  hasOlder: boolean,
-): boolean => {
-  if (!hasOlder || records.length === 0) return false;
-  const leadingTurnId = records[0]!.turnId;
-  const leadingTurn = records.filter(
-    (record) => record.turnId === leadingTurnId,
-  );
-  const hasPrompt = leadingTurn.some(
-    (record) => record.kind === "message" && record.role === "user",
-  );
-  if (hasPrompt) return false;
-  return leadingTurn.some(
-    (record) =>
-      (record.kind === "message" && record.role !== "user") ||
-      record.kind === "turn",
-  );
-};
-
-export const completeJournalWindowRecords = (
-  records: readonly JournalRecord[],
-  hasOlder: boolean,
-): JournalRecord[] => {
-  if (!hasIncompleteLeadingJournalTurn(records, hasOlder)) {
-    return [...records];
-  }
-  const incompleteTurnId = records[0]!.turnId;
-  return records.filter((record) => record.turnId !== incompleteTurnId);
-};
-
 export const activeCloudUserMessageIds = (
   records: readonly JournalRecord[],
 ): Set<string> => {
@@ -506,38 +349,23 @@ export const activeCloudUserMessageIds = (
 };
 
 /**
- * A turn that ended any way but `completed` carries its user-facing notice
- * on the terminal `turn` record. Render it as the turn's closing reply row
- * (the same inline assistant row a rejected local delivery leaves), unless
- * the turn already wrote that text as a reply. Without it a failed turn
- * shows only the user's bubble. Mobile projects the same row.
+ * A failed turn's notice renders as the turn's closing reply row (the same
+ * inline assistant row a rejected local delivery leaves). Mobile projects the
+ * same row.
  */
 const terminalNoticeEvent = (
   turnId: string,
   turnRecords: readonly JournalRecord[],
   userMessageId: string | undefined,
 ): EventRecord | null => {
-  let terminal: Extract<JournalRecord, { kind: "turn" }> | undefined;
-  for (const record of turnRecords) {
-    if (record.kind === "turn" && record.phase !== "started") terminal = record;
-  }
-  if (!terminal || terminal.phase === "completed" || !terminal.notice) {
-    return null;
-  }
-  const notice = terminal.notice;
-  const alreadyReplied = turnRecords.some(
-    (record) =>
-      record.kind === "message" &&
-      record.role === "assistant" &&
-      messageText(record.payload) === notice,
-  );
-  if (alreadyReplied) return null;
+  const terminal = journalTerminalNotice(turnRecords);
+  if (!terminal) return null;
   return {
     _id: `cloud:${turnId}:notice:${terminal.seq}`,
     timestamp: terminal.createdAtMs,
     type: "assistant_message",
     payload: {
-      text: notice,
+      text: terminal.notice,
       ...(userMessageId ? { userMessageId } : {}),
       source: "cloud-turn-notice",
     },
@@ -580,7 +408,7 @@ export const journalRecordsToMessageRecords = (
         continue;
       }
       if (record.kind !== "message") continue;
-      const timestamp = timestampOf(record.payload, record.createdAtMs);
+      const timestamp = journalMessageTimestamp(record);
       if (record.role === "user") {
         turnUserRecord = record;
         userMessageId =
@@ -635,6 +463,7 @@ export const journalRecordsToMessageRecords = (
                 recordsBySeq,
                 turnUserRecord,
                 agentTitles,
+                messageId: messageEventId,
               }),
             ),
           });

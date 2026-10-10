@@ -1401,7 +1401,6 @@
         "enableFailedTitle": "לא ניתן להפעיל את המחשב",
         "enableLabel": "הפעלת {name}",
         "enabling": "מפעיל…",
-        "ownSignIn": "{name} משתמש בהתחברות משלו ל-{engine}.",
         "pairingCode": "שימוש בקוד צימוד",
         "sectionLabel": "איפה Stella עובדת",
         "statusAwaitingConsent": "ממתין לאישור באותו מחשב",

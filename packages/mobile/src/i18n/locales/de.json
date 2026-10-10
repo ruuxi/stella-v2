@@ -1391,7 +1391,6 @@
         "enableFailedTitle": "Computer konnte nicht aktiviert werden",
         "enableLabel": "{name} aktivieren",
         "enabling": "Wird aktiviert…",
-        "ownSignIn": "{name} verwendet seine eigene {engine}-Anmeldung.",
         "pairingCode": "Kopplungscode verwenden",
         "sectionLabel": "Wo Stella arbeitet",
         "statusAwaitingConsent": "Warten auf Bestätigung an diesem Computer",

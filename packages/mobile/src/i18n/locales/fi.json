@@ -1391,7 +1391,6 @@
         "enableFailedTitle": "Tietokonetta ei voitu ottaa käyttöön",
         "enableLabel": "Ota {name} käyttöön",
         "enabling": "Otetaan käyttöön…",
-        "ownSignIn": "{name} käyttää omaa {engine}-kirjautumistaan.",
         "pairingCode": "Käytä pariliitoskoodia",
         "sectionLabel": "Missä Stella työskentelee",
         "statusAwaitingConsent": "Odotetaan lupaa kyseisellä tietokoneella",

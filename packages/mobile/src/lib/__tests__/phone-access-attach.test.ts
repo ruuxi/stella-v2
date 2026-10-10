@@ -49,7 +49,6 @@ mock.module("../http", () => ({
 
 const {
   attachPhoneAccess,
-  completePhonePairing,
   ensurePhoneAccess,
   getPreferredPhoneAccess,
   getStoredPhoneAccess,
@@ -90,24 +89,6 @@ describe("attaching this phone to a computer without a pairing code", () => {
       pairSecret: "attached-secret",
       approvedAt: 42,
     });
-  });
-
-  test("stores the credential exactly the way a redeemed code does", async () => {
-    await attachPhoneAccess("desktop-fresh");
-    const attached = new Map(store);
-
-    store.clear();
-    store.set(MOBILE_ID_KEY, "phone-a");
-    posts = [];
-    await completePhonePairing({ pairingCode: "ABCD1234" });
-
-    expect(posts[0]!.path).toBe("/api/mobile/pairing/complete");
-    expect([...store.entries()].sort()).toEqual([...attached.entries()].sort());
-    expect(store.get(PAIRED_IDS_KEY)).toBe(JSON.stringify(["desktop-fresh"]));
-    expect(store.get(PREFERRED_KEY)).toBe("desktop-fresh");
-    expect(store.has(`${ACCESS_PREFIX}desktop-fresh`)).toBe(true);
-    const preferred = await getPreferredPhoneAccess();
-    expect(preferred?.pairSecret).toBe("attached-secret");
   });
 
   test("grants reach and says nothing about remote execution", async () => {

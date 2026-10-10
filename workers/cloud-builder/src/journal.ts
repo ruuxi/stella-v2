@@ -61,8 +61,6 @@ import {
   transcriptSearchDdl,
 } from "./transcript-search.js";
 
-export { collapseWhitespace, extractMessageText } from "./transcript-search.js";
-
 /**
  * A payload the activity fold can read. A spilled payload is a stub pointing at
  * R2, and the fold runs where there is no await to spend resolving one — but a
@@ -965,23 +963,6 @@ export class Journal {
     );
   }
 
-  conversationEditReceipt<T>(operationId: string, kind: string): T | null {
-    const row = this.sql
-      .exec<{ result_json: string }>(
-        `SELECT result_json FROM conversation_edit_receipts
-          WHERE operation_id = ? AND kind = ?`,
-        operationId,
-        kind,
-      )
-      .toArray()[0];
-    if (!row) return null;
-    try {
-      return JSON.parse(row.result_json) as T;
-    } catch {
-      return null;
-    }
-  }
-
   putAppendReceipt(input: {
     writerKey: string;
     fingerprint: string;
@@ -1789,8 +1770,13 @@ export class Journal {
    * support in DO SQLite is unverified, and pass 1 already reads three small
    * columns. A micro-optimisation is not worth an unverified dependency.
    */
-  selectWindow(excludeTurnId: string, budgetTokens: number, afterSeq = -1): WindowSelection {
-    const meta = this.meta();
+  /**
+   * Where the context window opens: the oldest of the newest messages that
+   * fit `budgetTokens`, on a user message. A transcript any host keeps of
+   * this conversation is seeded from here (`journalImportAfter`). The next
+   * seq when no message qualifies. Reads metadata only.
+   */
+  contextStartSeq(excludeTurnId: string, budgetTokens: number, afterSeq = -1): number {
     const scan = this.sql
       .exec<{ seq: number; tokens: number; role: string | null }>(
         `SELECT seq, tokens, role FROM journal
@@ -1801,15 +1787,6 @@ export class Journal {
         CONTEXT_SCAN_ROW_CAP,
       )
       .toArray();
-    if (scan.length === 0) {
-      return {
-        messages: [],
-        rows: [],
-        startSeq: meta.next_seq,
-        endSeq: meta.next_seq - 1,
-        spilled: [],
-      };
-    }
     scan.reverse(); // oldest-first
     let used = 0;
     let start = scan.length;
@@ -1821,7 +1798,13 @@ export class Journal {
     // Never open the window on an orphaned toolResult: the provider rejects a
     // result with no preceding call. Same rule pruneAgentHistory applies.
     while (start < scan.length && scan[start]!.role !== "user") start += 1;
-    if (start >= scan.length) {
+    return start < scan.length ? scan[start]!.seq : this.meta().next_seq;
+  }
+
+  selectWindow(excludeTurnId: string, budgetTokens: number, afterSeq = -1): WindowSelection {
+    const meta = this.meta();
+    const startSeq = this.contextStartSeq(excludeTurnId, budgetTokens, afterSeq);
+    if (startSeq >= meta.next_seq) {
       return {
         messages: [],
         rows: [],
@@ -1830,7 +1813,6 @@ export class Journal {
         spilled: [],
       };
     }
-    const startSeq = scan[start]!.seq;
     const rows = this.sql
       .exec<WindowRow>(
         `SELECT seq, role, hidden, tool_call_id, payload_json, spill_key FROM journal
@@ -2006,10 +1988,9 @@ export class Journal {
    * object lifetime and then carried forward by whatever rows were appended
    * since. An eviction drops the field and the next reader pays for one scan.
    *
-   * `epoch` is part of the identity, not just `throughSeq`: an edit or fork
-   * rewinds the tail and bumps the epoch, and a rewind that has already grown
-   * back past the old head is invisible to a seq comparison alone — folding
-   * forward across it would keep agents alive that the rewind removed.
+   * `epoch` is part of the identity, not just `throughSeq`: a journal
+   * recreated under the same name starts a new epoch, and folding its rows
+   * onto the old one's activity would keep agents alive that it never had.
    */
   private agentActivity: {
     state: AgentActivityState;
@@ -2138,101 +2119,6 @@ export class Journal {
       toSeq,
       limit,
     );
-  }
-
-  /**
-   * Imports one contiguous logical prefix page into a fresh fork target.
-   *
-   * Exact seq values are retained so a rendered source boundary maps to the
-   * same logical boundary in the fork. Writer keys are namespaced by the fork
-   * operation: they remain idempotent across page retries without making a
-   * delayed writer from the source authoritative in the target.
-   */
-  importForkRows(
-    rows: JournalRow[],
-    operationId: string,
-    ownerId: string,
-  ): { firstSeq: number; lastSeq: number } | null {
-    if (rows.length === 0) return null;
-    return this.transactionSync(() => {
-      const meta = this.meta();
-      let expected = meta.next_seq;
-      for (const row of rows) {
-        if (row.seq !== expected) {
-          throw new Error(
-            "Fork page is not contiguous with the target journal.",
-          );
-        }
-        const writerKey = `fork:${operationId}:${row.writer_key}`;
-        this.sql.exec(
-          `INSERT INTO journal (
-             seq, kind, turn_id, writer, writer_key, created_at, bytes, role,
-             hidden, model_skip, tool_call_id, open_calls, tokens, stream_id,
-             client_msg_id, phase, lane, source, notice, payload_json, spill_key
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          row.seq,
-          row.kind,
-          row.turn_id,
-          `fork:${row.writer}`,
-          writerKey,
-          row.created_at,
-          row.bytes,
-          row.role,
-          row.hidden,
-          row.model_skip,
-          row.tool_call_id,
-          row.open_calls,
-          row.tokens,
-          row.stream_id,
-          row.client_msg_id,
-          row.phase,
-          row.lane,
-          row.source,
-          row.notice,
-          row.payload_json,
-          row.spill_key,
-        );
-        if (row.kind === "message") this.indexStoredMessage(row);
-        const terminal =
-          row.kind === "turn" &&
-          (row.phase === "completed" ||
-            row.phase === "failed" ||
-            row.phase === "canceled" ||
-            row.phase === "timeout");
-        this.sql.exec(
-          `INSERT INTO turns (
-             turn_id, session_id, owner_id, lane, source, client_msg_id, state,
-             terminal_kind, first_seq, last_seq, created_at, updated_at
-           ) VALUES (?, 'fork', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(turn_id) DO UPDATE SET
-             lane = COALESCE(turns.lane, excluded.lane),
-             source = COALESCE(turns.source, excluded.source),
-             client_msg_id = COALESCE(turns.client_msg_id, excluded.client_msg_id),
-             state = CASE WHEN excluded.state = 'terminal' THEN 'terminal' ELSE turns.state END,
-             terminal_kind = COALESCE(excluded.terminal_kind, turns.terminal_kind),
-             first_seq = MIN(turns.first_seq, excluded.first_seq),
-             last_seq = MAX(turns.last_seq, excluded.last_seq),
-             updated_at = MAX(turns.updated_at, excluded.updated_at)`,
-          row.turn_id,
-          ownerId,
-          row.lane,
-          row.source,
-          row.client_msg_id,
-          terminal ? "terminal" : "running",
-          terminal ? row.phase : null,
-          row.seq,
-          row.seq,
-          row.created_at,
-          row.created_at,
-        );
-        expected += 1;
-      }
-      this.sql.exec(`UPDATE meta SET next_seq = ? WHERE id = 0`, expected);
-      return {
-        firstSeq: rows[0]!.seq,
-        lastSeq: rows[rows.length - 1]!.seq,
-      };
-    });
   }
 
   // -------------------------------------------------------------------------
@@ -2588,125 +2474,6 @@ export class Journal {
       .toArray();
   }
 
-  segmentsAfter(seq: number): SegmentRow[] {
-    return this.sql
-      .exec<SegmentRow>(
-        `SELECT first_seq, last_seq, rows, bytes, r2_key, state, created_at
-           FROM segments
-          WHERE state = 'committed' AND last_seq > ?
-          ORDER BY first_seq ASC`,
-        seq,
-      )
-      .toArray();
-  }
-
-  residentRowsAfter(seq: number): JournalRow[] {
-    return this.selectRows(`WHERE seq > ? ORDER BY seq ASC`, seq);
-  }
-
-  /**
-   * Atomically makes a rewind visible. R2 objects are prepared before this
-   * transaction; their old keys are only queued for deletion here, after the
-   * manifest stops naming them. A stale socket can therefore observe either
-   * the old epoch or the complete new prefix, never a half-truncated journal.
-   */
-  async applyTruncate(input: {
-    operationId: string;
-    throughSeq: number;
-    expectedEpoch: number;
-    expectedLastSeq: number;
-    replacementSegment?: SegmentRow;
-    removedSegmentFirstSeqs: number[];
-    purgeKeys: string[];
-    retiredWriterKeys: string[];
-    retiredTurnIds: string[];
-    retiredAt: number;
-    resultJson: string;
-  }): Promise<{ previousEpoch: number; nextEpoch: number; lastSeq: number }> {
-    const result = this.transactionSync(() => {
-      const meta = this.meta();
-      if (
-        meta.epoch !== input.expectedEpoch ||
-        meta.next_seq - 1 !== input.expectedLastSeq
-      ) {
-        throw new JournalHeadConflictError(meta.epoch, meta.next_seq - 1);
-      }
-      if (input.throughSeq < -1 || input.throughSeq > input.expectedLastSeq) {
-        throw new Error("Invalid rewind boundary.");
-      }
-      const nextEpoch = meta.epoch + 1;
-      const suffix = this.residentRowsAfter(input.throughSeq);
-      for (const writerKey of [
-        ...suffix.map((row) => row.writer_key),
-        ...input.retiredWriterKeys,
-      ]) {
-        this.sql.exec(
-          `INSERT OR IGNORE INTO retired_writers (writer_key, epoch, retired_at)
-           VALUES (?, ?, ?)`,
-          writerKey,
-          meta.epoch,
-          input.retiredAt,
-        );
-      }
-      for (const turnId of [
-        ...suffix.map((row) => row.turn_id),
-        ...input.retiredTurnIds,
-      ]) {
-        this.sql.exec(
-          `INSERT OR IGNORE INTO retired_turns (turn_id, epoch, retired_at)
-           VALUES (?, ?, ?)`,
-          turnId,
-          meta.epoch,
-          input.retiredAt,
-        );
-      }
-      this.sql.exec(`DELETE FROM journal WHERE seq > ?`, input.throughSeq);
-      this.sql.exec(
-        `DELETE FROM turns
-          WHERE first_seq > ? OR last_seq > ?`,
-        input.throughSeq,
-        input.throughSeq,
-      );
-      this.transcriptSearch.removeAbove(input.throughSeq);
-      for (const firstSeq of input.removedSegmentFirstSeqs) {
-        this.sql.exec(`DELETE FROM segments WHERE first_seq = ?`, firstSeq);
-      }
-      if (input.replacementSegment) {
-        this.insertSegment(input.replacementSegment);
-        this.sql.exec(
-          `DELETE FROM purge_queue WHERE r2_key = ?`,
-          input.replacementSegment.r2_key,
-        );
-      }
-      this.enqueuePurge(input.purgeKeys, input.retiredAt);
-      this.sql.exec(
-        `UPDATE meta
-            SET epoch = ?, next_seq = ?, hot_min_seq = MIN(hot_min_seq, ?),
-                index_synced_seq = -1
-          WHERE id = 0`,
-        nextEpoch,
-        input.throughSeq + 1,
-        input.throughSeq + 1,
-      );
-      this.sql.exec(
-        `INSERT INTO conversation_edit_receipts (
-           operation_id, kind, result_json, created_at
-         ) VALUES (?, 'rewind', ?, ?)
-         ON CONFLICT(operation_id) DO NOTHING`,
-        input.operationId,
-        input.resultJson,
-        input.retiredAt,
-      );
-      return {
-        previousEpoch: meta.epoch,
-        nextEpoch,
-        lastSeq: input.throughSeq,
-      };
-    });
-    await this.ctx.storage.put(EPOCH_WITNESS_KEY, result.nextEpoch);
-    return result;
-  }
-
   allSegmentKeys(): string[] {
     return this.sql
       .exec<{ r2_key: string }>(`SELECT r2_key FROM segments`)
@@ -2856,9 +2623,8 @@ export class Journal {
   purgeDone(keys: string[]): void {
     for (const key of keys) {
       this.sql.exec(`DELETE FROM purge_queue WHERE r2_key = ?`, key);
-      // Rewind uses the same deletion debt as full purge, but keeps the
-      // database. Once R2 confirmed deletion, retaining a spill locator would
-      // over-count storage forever and make the removed suffix look live.
+      // Once R2 confirmed deletion, retaining a spill locator would
+      // over-count storage forever.
       this.sql.exec(`DELETE FROM spills WHERE r2_key = ?`, key);
     }
   }
@@ -2892,15 +2658,5 @@ export class StaleJournalWriterError extends Error {
   constructor() {
     super("This journal writer belongs to a retired conversation epoch.");
     this.name = "StaleJournalWriterError";
-  }
-}
-
-export class JournalHeadConflictError extends Error {
-  constructor(
-    readonly epoch: number,
-    readonly lastSeq: number,
-  ) {
-    super("The conversation changed before this edit could be applied.");
-    this.name = "JournalHeadConflictError";
   }
 }

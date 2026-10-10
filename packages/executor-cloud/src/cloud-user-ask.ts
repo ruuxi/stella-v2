@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { Effect } from "effect";
 import {
   USER_ASK_DEFAULT_TIMEOUT_MS,
   USER_ASK_MAX_TIMEOUT_MS,
@@ -38,11 +39,8 @@ type AnswerRead = {
   answeredAt?: number;
 };
 
-const sleep = async (milliseconds: number): Promise<void> =>
-  await new Promise((resolve) => {
-    const timer = setTimeout(resolve, milliseconds);
-    timer.unref?.();
-  });
+const sleep = (milliseconds: number): Promise<void> =>
+  Effect.runPromise(Effect.sleep(milliseconds));
 
 const normalizeTimeout = (value: number | undefined): number =>
   Math.min(

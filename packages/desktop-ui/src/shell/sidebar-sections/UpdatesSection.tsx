@@ -9,11 +9,15 @@ import {
   useAppSourceState,
 } from "@/features/app-source/app-source-store";
 import {
+  addOffer,
   ago,
+  deviceLabel,
   subjectOf,
   useAppSourceAction,
   useNow,
 } from "@/features/app-source/AppSourceCards";
+import { EmptyState } from "@/ui/empty-state/EmptyState";
+import { Check } from "@/ui/icons";
 import "./updates-section.css";
 
 /**
@@ -38,9 +42,6 @@ const reverted = (subject: string): { inner: string; depth: number } => {
   const deeper = reverted(inner);
   return { inner: deeper.inner, depth: deeper.depth + 1 };
 };
-
-/** "Rahuls-MacBook-Air" reads as "Rahuls MacBook Air". */
-const deviceLabel = (device: string) => device.replace(/[-_]+/g, " ").trim();
 
 const WaitingItem = ({
   offer,
@@ -185,26 +186,29 @@ export function UpdatesSection() {
   const state = useAppSourceState();
   const api = appSourceApi();
   const { pending, run } = useAppSourceAction();
-  if (!state || !api) {
+  if (
+    !state ||
+    !api ||
+    (state.waiting.length === 0 &&
+      state.skipped.length === 0 &&
+      state.recent.length === 0)
+  ) {
     return (
-      <div className="sidebar-section__empty">{t("shell.appSource.updates.upToDate")}</div>
+      <EmptyState
+        motif="updates"
+        title={t("shell.appSource.updates.upToDateTitle")}
+        body={t("shell.appSource.updates.upToDateBody")}
+      />
     );
   }
   const blocked =
     state.busy || pending !== null || updateProgress(state)?.state === "merging";
-  const add = (offer: AppSourceWaiting) => {
-    if (offer.kind === "version") {
-      const draft = offer.draft;
-      return draft ? api.apply(draft) : api.applyUpstream();
-    }
-    if (offer.kind === "other-computer") return api.applyRemote();
-    return api.apply(offer.name);
-  };
   return (
     <div className="updates-section sidebar-section__scroll" data-testid="updates-section">
       <h2 className="updates-section__heading">{t("shell.appSource.updates.waiting")}</h2>
       {state.waiting.length === 0 ? (
         <div className="updates-section__quiet">
+          <Check size={14} strokeWidth={2} aria-hidden="true" />
           {t("shell.appSource.updates.upToDate")}
         </div>
       ) : (
@@ -215,7 +219,7 @@ export function UpdatesSection() {
               offer={offer}
               pending={pending === offer.key}
               blocked={blocked}
-              onAdd={() => void run(offer.key, () => add(offer))}
+              onAdd={() => void run(offer.key, () => addOffer(offer))}
               onSkip={() => void run(`skip:${offer.key}`, () => api.skip(offer.key))}
             />
           ))}
@@ -231,7 +235,7 @@ export function UpdatesSection() {
                 offer={offer}
                 pending={pending === offer.key}
                 blocked={blocked}
-                onAdd={() => void run(offer.key, () => add(offer))}
+                onAdd={() => void run(offer.key, () => addOffer(offer))}
               />
             ))}
           </ul>

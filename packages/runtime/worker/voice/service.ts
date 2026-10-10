@@ -68,7 +68,6 @@ type VoiceRunner = {
     decorateUserTimestampTag?: boolean;
     timezone?: string;
   }) => void;
-  notifyOrchestratorHistoryChanged: (conversationId: string) => void;
   appendCloudJournal: CloudTranscriptWriter["append"];
   beginVoiceToolCallReceipt: RuntimeStore["beginVoiceToolCallReceipt"];
   completeVoiceToolCallReceipt: RuntimeStore["completeVoiceToolCallReceipt"];
@@ -276,9 +275,6 @@ export class VoiceRuntimeService {
           }
         : {}),
     });
-    this.ensureRunner().notifyOrchestratorHistoryChanged(
-      payload.conversationId,
-    );
     const chatStore = this.options.getChatStore?.();
     if (chatStore) {
       const timestamp = Date.now();
@@ -631,7 +627,6 @@ export class VoiceRuntimeService {
         `args: ${stringifyBounded(payload.args, THREAD_VISIBLE_JSON_MAX_CHARS)}`,
       ].join("\n"),
     });
-    runner.notifyOrchestratorHistoryChanged(payload.conversationId);
     this.appendLocalToolEvent({
       conversationId: payload.conversationId,
       type: "tool_request",
@@ -667,7 +662,6 @@ export class VoiceRuntimeService {
       role: "user",
       content,
     });
-    runner.notifyOrchestratorHistoryChanged(payload.conversationId);
     this.appendLocalToolEvent({
       conversationId: payload.conversationId,
       type: "tool_result",

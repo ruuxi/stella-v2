@@ -16,13 +16,15 @@ import {
 } from "react-native";
 import { WebView } from "react-native-webview";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { AppBackdrop } from "./AppBackdrop";
+import { EmptyState } from "./EmptyState";
+import { startChatWith } from "../lib/ask-stella";
 import { publishBackOverride } from "../lib/main-shell-store";
 import { useT } from "../i18n";
 import { MainDetailSurface, useShellTopInset } from "./MainScreenSurface";
 import { useColors } from "../theme/theme-context";
 import { getAuthTokenForSubject } from "../lib/auth-token";
-import { fonts } from "../theme/fonts";
 import { authClient } from "../lib/auth-client";
 import { env } from "../config/env";
 import {
@@ -113,6 +115,7 @@ function AppsHost({
   const insets = useSafeAreaInsets();
   const topInset = useShellTopInset();
   const t = useT();
+  const router = useRouter();
   const [apps, setApps] = useState<WorkspaceApp[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
@@ -339,35 +342,30 @@ function AppsHost({
       <AppBackdrop />
       <View style={{ flex: 1, display: frame ? "none" : "flex" }}>
         <MainDetailSurface>
+          {apps?.length === 0 && !error ? (
+            <EmptyState
+              motif="apps"
+              message={t("mobile.apps.empty")}
+              paused={!visible || !active}
+              action={{
+                label: t("mobile.apps.emptyAction"),
+                onPress: () => startChatWith(router, t("mobile.apps.emptyActionPrompt")),
+              }}
+            />
+          ) : (
           <ScrollView
             style={{ display: frame ? "none" : "flex" }}
             contentContainerStyle={{
               gap: 16,
               paddingBottom: insets.bottom + 24,
-              paddingTop: 4,
+              paddingTop: 8,
             }}
             showsVerticalScrollIndicator={false}
           >
-            <Text
-              accessibilityRole="header"
-              style={{
-                color: colors.text,
-                fontFamily: fonts.display.regular,
-                fontSize: 32,
-                letterSpacing: -1.2,
-              }}
-            >
-              {t("mobile.nav.apps")}
-            </Text>
             {apps === null && !error ? <ActivityIndicator /> : null}
             {error ? (
               <Text accessibilityRole="alert" style={{ color: colors.text }}>
                 {error}
-              </Text>
-            ) : null}
-            {apps?.length === 0 && !error ? (
-              <Text style={{ color: colors.text }}>
-                Ask Stella to create an app.
               </Text>
             ) : null}
             {apps?.map((app) => (
@@ -394,6 +392,7 @@ function AppsHost({
               </Pressable>
             ))}
           </ScrollView>
+          )}
         </MainDetailSurface>
       </View>
       {/* No KeyboardAvoidingView: the WebView already scrolls a focused field

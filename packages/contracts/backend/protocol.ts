@@ -73,11 +73,21 @@ export const rpcErrorStatus = (code: BackendErrorCode): number => {
   }
 };
 
+/**
+ * The keepalive OwnerGate answers without waking: its one hibernation
+ * auto-response pair. The live socket and the device presence socket both
+ * land on that object, so both send exactly these bytes. Bare strings, not
+ * JSON, because the platform matches the request byte for byte.
+ */
+export const SOCKET_KEEPALIVE_PING = "ping";
+export const SOCKET_KEEPALIVE_PONG = "pong";
+
 export type LiveClientFrame =
   | { t: "sub"; id: string; view: string; args: unknown }
   | { t: "unsub"; id: string }
   /** A fresh JWT for a socket whose token is about to expire. */
   | { t: "auth"; token: string }
+  /** Older clients' keepalive; current ones send `SOCKET_KEEPALIVE_PING`. */
   | { t: "ping" };
 
 export type LiveServerFrame =

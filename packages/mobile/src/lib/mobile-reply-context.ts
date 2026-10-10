@@ -6,6 +6,7 @@ import {
   type ReplyContextProjection,
   type ReplyContextRow,
 } from "@stella/contracts/reply-context";
+import { journalAgents } from "@stella/contracts/agent-titles";
 import type { ChatMessage, ChatArtifact } from "../types";
 import type { JournalFile, JournalRecord } from "./cloud-conversation-protocol";
 import { cloudFileArtifact } from "./cloud-file-payload";
@@ -50,16 +51,6 @@ export function summaryExcerpt(result: string): string {
   return `${cut.trimEnd()}…`;
 }
 
-const wakeText = (record: JournalRecord): string => {
-  if (record.kind !== "message") return "";
-  const content = record.payload.content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((block) => (block && typeof block === "object" && "text" in block && typeof block.text === "string" ? block.text : ""))
-    .join("\n");
-};
-
 /**
  * Lifecycle cards onto transcript rows, matching desktop:
  *   - the turn that spawned a task carries the spawn card, which settles
@@ -72,12 +63,9 @@ const wakeText = (record: JournalRecord): string => {
  * particular reply existing at the moment a card is read.
  */
 export function projectMobileLifecycle(messages: ChatMessage[], records: readonly JournalRecord[], conversationId: string): ChatMessage[] {
+  const journal = journalAgents(records);
   const titles = new Map<string, string>();
-  for (const record of records) {
-    if (record.kind !== "message" || record.role !== "user" || !record.hidden) continue;
-    const task = lifecycleWakeTask(wakeText(record));
-    if (task?.description && !titles.has(task.threadId)) titles.set(task.threadId, task.description);
-  }
+  for (const [threadId, agent] of journal) if (agent.title) titles.set(threadId, agent.title);
   const messagesById = new Map(messages.map(message => [message.id, message]));
   const assistantsByTurn = new Map<string, Array<{ seq: number; message: ChatMessage }>>();
   for (const record of records) {
@@ -179,8 +167,22 @@ export function projectMobileLifecycle(messages: ChatMessage[], records: readonl
     (ref.title && ref.title !== ref.threadId ? ref.title : "") ||
     descriptions.find(description => titleNamesThread(description, ref.threadId)) ||
     ref.title;
+  const stateFor = (threadId: string): MobileAgentState | undefined => {
+    const status = journal.get(threadId)?.status;
+    if (!status) return undefined;
+    return status === "running" ? "running" : status === "completed" ? "completed" : "error";
+  };
+  const statesFor = (refs: readonly ReplyRef[]) => {
+    const states: Record<string, MobileAgentState> = {};
+    for (const ref of refs) {
+      const state = ref.kind === "agent" ? stateFor(ref.threadId) : undefined;
+      if (ref.kind === "agent" && state) states[ref.threadId] = state;
+    }
+    return Object.keys(states).length ? { agentStates: states } : {};
+  };
   return messages.map(message => ({ ...message, ...(message.replyRefs ? {
     replyRefs: message.replyRefs.map(ref => ref.kind === "agent" ? { ...ref, title: titleFor(ref) } : ref),
+    ...statesFor(message.replyRefs),
   } : {}) }));
 }
 
@@ -249,6 +251,7 @@ export function mobileOwnedAgentIds(messages: readonly ChatMessage[]): (message:
 
 export function mobileReplyContexts(messages: readonly ChatMessage[]): MobileReplyContexts {
   const agentStates = new Map<string, MobileAgentState>();
+  const latestStates = new Map<string, MobileAgentState>();
   const ownedAgents = mobileOwnedAgentIds(messages);
   const rows: ReplyContextRow[] = messages.map(message => {
     const aliasIds = message.canonicalId ? [message.canonicalId] : undefined;
@@ -258,6 +261,7 @@ export function mobileReplyContexts(messages: readonly ChatMessage[]): MobileRep
       const state: MobileAgentState = artifact.payload.state === "running" ? "running" : artifact.payload.failed ? "error" : "completed";
       for (const id of artifact.payload.agentIds ?? []) agentStates.set(id, state);
     }
+    for (const [id, state] of Object.entries(message.agentStates ?? {})) latestStates.set(id, state);
     const ownsAgentIds = ownedAgents(message);
     return {
       id: message.id,
@@ -269,6 +273,7 @@ export function mobileReplyContexts(messages: readonly ChatMessage[]): MobileRep
     };
   });
   const projection = projectReplyContexts(rows);
+  for (const [id, state] of latestStates) agentStates.set(id, state);
   return { ...projection, agentStates };
 }
 

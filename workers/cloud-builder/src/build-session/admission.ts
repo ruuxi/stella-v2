@@ -15,13 +15,6 @@ import {
 
 import type { ExactTurnCancellation } from "../execution-placement-turn-cancellation.js";
 import {
-  parseTurnComputePlan,
-  runGeneralAgentTurn,
-  turnComputePlan,
-  turnComputePlanKey,
-  type TurnComputePlan,
-} from "../general-agent-turn.js";
-import {
   snapshotAllowsCloudSandbox,
   snapshotAllowsExecutionEngine,
 } from "../owner-gate.js";
@@ -37,9 +30,7 @@ import {
   AGENT_TURN_HEARTBEAT_MS,
   AGENT_WATCHDOG_DEADLINE_KEY,
   CLOUD_TURN_SOURCES,
-  OBSERVED_BROWSER_SUSPENSION_KEY,
   OWNER_GATE_REFUSAL_STATUS,
-  PENDING_BROWSER_SUSPENSION_KEY,
   agentExecutionMarkerKey,
   builderFallbackTranscriptKey,
   errorMessage,
@@ -51,10 +42,7 @@ import {
 import { storeOrchestratorCliSpec } from "../orchestrator-cli-turn-store.js";
 import type {
   AgentExecutionMarker,
-  AgentTurnRunOptions,
   BuilderFallbackTranscript,
-  ObservedBrowserSuspension,
-  PendingBrowserSuspension,
   PendingTerminal,
   TurnRequest,
 } from "./shared/types.js";
@@ -68,7 +56,6 @@ export type AdmissionHost = Pick<
   | "builderFallbackRecoveries"
 
   | "exactTurnCancellations"
-  | "residentAgentAborts"
   | "acknowledgeExactAgentTurnCancellation"
   | "agentTurnAccepted"
   | "deleteTurnStoragePreservingExactCancellations"
@@ -83,7 +70,6 @@ export type AdmissionHost = Pick<
   | "releaseOwnerGate"
   | "runAgentTurn"
   | "runContainerAgentTurn"
-  | "runResidentAgentTurn"
   | "startAgentTurn"
   | "terminateCurrentAgentSession"
   | "trackTurn"
@@ -115,9 +101,6 @@ export const turnRequestFromAgentStart = (
   ...(start.originConversationId
     ? { originConversationId: start.originConversationId }
     : {}),
-  ...(start.browserResume !== undefined
-    ? { browserResume: start.browserResume as TurnRequest["browserResume"] }
-    : {}),
   ...(start.agentRole === "orchestrator" && start.orchestratorCli
     ? { agentRole: start.agentRole, orchestratorCli: start.orchestratorCli }
     : {}),
@@ -127,35 +110,25 @@ export const startAgentTurn = (
   host: AdmissionHost,
   turn: TurnRequest,
   sandboxId: string | undefined,
-  options: AgentTurnRunOptions = {},
 ): Promise<void> => {
   const existing = host.agentTurnExecutions.get(turn.turnId);
   if (existing) return existing.settled;
   const execution = startTurnExecution({
-    work: (context) => host.runAgentTurn(turn, sandboxId, context, options),
+    work: (context) => host.runAgentTurn(turn, sandboxId, context),
     // Cleanup is part of fiber interruption and is bounded by the Effect
     // facade. A Stop ACK therefore means the exact command session and
     // container teardown completed (or the cancellation failed visibly).
-    //
-    // The resident loop is aborted first, the way `OrchestratorSession`
-    // stops its own: the sweeps below cannot make an in-flight provider call
-    // or tool return, and leaving the Agent running would let it start
-    // container work behind a teardown that already ran.
-    onInterrupt: () => {
-      abortResidentAgent(host, turn);
-      return host.builderFallbackRecoveries.has(turn.turnId)
+    onInterrupt: () =>
+      host.builderFallbackRecoveries.has(turn.turnId)
         ? host.quiesceCurrentAgentSession(turn)
-        : host.terminateCurrentAgentSession(turn);
-    },
+        : host.terminateCurrentAgentSession(turn),
     // createSession() may ignore AbortSignal and resolve after the immediate
     // destroy. Sweep again after the underlying turn promise has unwound so
     // Stop can never ACK while that late session/container remains live.
-    afterInterrupt: () => {
-      abortResidentAgent(host, turn);
-      return host.builderFallbackRecoveries.has(turn.turnId)
+    afterInterrupt: () =>
+      host.builderFallbackRecoveries.has(turn.turnId)
         ? host.quiesceCurrentAgentSession(turn)
-        : host.terminateCurrentAgentSession(turn);
-    },
+        : host.terminateCurrentAgentSession(turn),
   });
   host.agentTurnExecutions.set(turn.turnId, execution);
   const tracked = host.trackTurn(turn.turnId, execution.settled);
@@ -166,63 +139,6 @@ export const startAgentTurn = (
   };
   void tracked.then(clear, clear);
   return tracked;
-};
-
-const abortResidentAgent = (host: AdmissionHost, turn: TurnRequest): void => {
-  const abort = host.residentAgentAborts.get(turn.turnId);
-  if (!abort) return;
-  try {
-    abort();
-  } catch (error) {
-    log("error", "resident_agent_abort_failed", {
-      turnId: turn.turnId,
-      message: errorMessage(error),
-    });
-  }
-};
-
-export const admittedResidentPlacement = async (
-  host: AdmissionHost,
-  turn: TurnRequest,
-): Promise<boolean> => {
-  if (
-    turn.kind !== "agent" ||
-    !Number.isSafeInteger(turn.attemptGeneration) ||
-    turn.attemptGeneration! < 1
-  ) {
-    return false;
-  }
-  const identity = {
-    turnId: turn.turnId,
-    attemptGeneration: turn.attemptGeneration!,
-  };
-  const admitted = parseTurnComputePlan(
-    await host.ctx.storage.get(
-      turnComputePlanKey(identity.turnId, identity.attemptGeneration),
-    ),
-    identity,
-  );
-  return admitted?.plan.kind === "resident_stella";
-};
-
-const admittedComputePlan = (
-  host: AdmissionHost,
-  turn: TurnRequest,
-): TurnComputePlan | undefined => {
-  if (!turn.execution || !Number.isSafeInteger(turn.attemptGeneration)) {
-    return undefined;
-  }
-  return turnComputePlan({
-    turnId: turn.turnId,
-    attemptGeneration: turn.attemptGeneration!,
-    execution: turn.execution,
-    browserResume: turn.browserResume !== undefined,
-    // D1: resident is the default for Stella. An operator turns the ladder
-    // off by setting this to "0", which demotes every Stella turn to the
-    // eager container path without touching the loop.
-    residentDisabled: host.env.RESIDENT_GENERAL_AGENT_TURNS === "0",
-    now: Date.now(),
-  });
 };
 
 export const admitAgentTurnThroughOwnerGate = async (
@@ -467,7 +383,7 @@ export const acceptAgentTurn = async (
           }
         }
         const currentAttempt = current.attemptGeneration;
-        const [executionMarker, fallbackJournal, observedSuspension] =
+        const [executionMarker, fallbackJournal] =
           Number.isSafeInteger(currentAttempt)
             ? await Promise.all([
                 host.ctx.storage.get<AgentExecutionMarker>(
@@ -476,23 +392,10 @@ export const acceptAgentTurn = async (
                 host.ctx.storage.get<BuilderFallbackTranscript>(
                   builderFallbackTranscriptKey(current.turnId, currentAttempt!),
                 ),
-                host.ctx.storage.get<ObservedBrowserSuspension>(
-                  OBSERVED_BROWSER_SUSPENSION_KEY,
-                ),
               ])
-            : [undefined, undefined, undefined];
-        const pendingBrowserSuspension =
-          await host.ctx.storage.get<PendingBrowserSuspension>(
-            PENDING_BROWSER_SUSPENSION_KEY,
-          );
+            : [undefined, undefined];
         const locallyRunning = host.agentTurnExecutions.has(current.turnId);
-        if (
-          locallyRunning ||
-          executionMarker ||
-          fallbackJournal ||
-          observedSuspension ||
-          pendingBrowserSuspension
-        ) {
+        if (locallyRunning || executionMarker || fallbackJournal) {
           if (!locallyRunning) {
             await host.ctx.storage.setAlarm(Date.now() + 1_000);
           }
@@ -536,11 +439,7 @@ export const acceptAgentTurn = async (
           ownsStorage,
         };
       }
-      const computePlan = admittedComputePlan(host, turn);
-      const resident = computePlan?.plan.kind === "resident_stella";
-      // A resident turn still starts without compute. If it attaches, it
-      // uses the same agent container as the eager path.
-      const sandboxId = resident ? undefined : agentContainerId;
+      const sandboxId = agentContainerId;
       // A predecessor whose terminal state was never delivered left it
       // here. Taking over the DO takes the alarm with it, so this is its last
       // chance; the stale delivery below cannot mutate this successor.
@@ -564,12 +463,6 @@ export const acceptAgentTurn = async (
       }
       await host.ctx.storage.put({
         ...(sandboxId ? { sandboxId } : {}),
-        ...(computePlan
-          ? {
-              [turnComputePlanKey(turn.turnId, turn.attemptGeneration!)]:
-                computePlan,
-            }
-          : {}),
         turn: durableTurnRecord(turn),
         turnId: turn.turnId,
         terminal: false,
@@ -579,8 +472,6 @@ export const acceptAgentTurn = async (
       });
       await host.ctx.storage.delete([
         "pendingTerminal",
-        PENDING_BROWSER_SUSPENSION_KEY,
-        OBSERVED_BROWSER_SUSPENSION_KEY,
         AGENT_RECOVERY_PENDING_KEY,
       ]);
       return {
@@ -673,35 +564,10 @@ export const runAgentTurn = async (
   turn: TurnRequest,
   sandboxId: string | undefined,
   execution: TurnExecutionContext,
-  options: AgentTurnRunOptions = {},
 ): Promise<void> => {
-  const identity = {
-    turnId: turn.turnId,
-    attemptGeneration: turn.attemptGeneration ?? 0,
-  };
-  const admitted = parseTurnComputePlan(
-    await host.ctx.storage.get(
-      turnComputePlanKey(identity.turnId, identity.attemptGeneration),
-    ),
-    identity,
-  );
-  await runGeneralAgentTurn({
-    plan:
-      admitted?.plan ??
-      ({
-        kind: "native_sandbox",
-        ...(turn.execution ? { execution: turn.execution } : {}),
-        reason: "unplaced",
-      } as const),
-    context: execution,
-    resident: (plan) =>
-      host.runResidentAgentTurn(turn, plan, execution, options),
-    native: async () => {
-      // Admission mints the id for every plan that keeps the container
-      // path, so an absent one here means this isolate is running a turn
-      // whose reservation another attempt owns.
-      if (!sandboxId) throw new AgentTurnAuthorityLostError();
-      await host.runContainerAgentTurn(turn, sandboxId, execution);
-    },
-  });
+  execution.assertActive();
+  // Admission mints the id, so an absent one here means this isolate is
+  // running a turn whose reservation another attempt owns.
+  if (!sandboxId) throw new AgentTurnAuthorityLostError();
+  await host.runContainerAgentTurn(turn, sandboxId, execution);
 };

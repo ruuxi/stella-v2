@@ -109,10 +109,6 @@ export class TranscriptSearchIndex {
     );
   }
 
-  removeAbove(seq: number): void {
-    this.sql.exec(`DELETE FROM ${this.table} WHERE rowid > ?`, seq);
-  }
-
   remove(seq: number): void {
     this.sql.exec(`DELETE FROM ${this.table} WHERE rowid = ?`, seq);
   }

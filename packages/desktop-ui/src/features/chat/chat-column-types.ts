@@ -150,6 +150,12 @@ export type ChatColumnScroll = {
    * without a custom thumb just don't attach it.
    */
   thumbRef: (el: HTMLDivElement | null) => void;
+  /**
+   * True while a just-opened conversation is still pinning to its bottom.
+   * The timeline is laid out but hidden then, so it first appears already
+   * at the bottom. Surfaces that don't pin on open leave it unset.
+   */
+  isOpeningScroll?: boolean;
 };
 
 export type ChatColumnProps = {

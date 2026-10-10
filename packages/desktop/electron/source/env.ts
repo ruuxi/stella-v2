@@ -74,6 +74,11 @@ export const applyDesktopIdentityEnv = (uiRoot: string, mode: string): void => {
     if (trimmed && !process.env[key]?.trim()) process.env[key] = trimmed;
   };
   adopt("STELLA_WEB_URL", process.env.VITE_STELLA_WEB_URL ?? files.VITE_STELLA_WEB_URL);
+  // Main fetches canvas-share links opened in the app (canvas-share-service).
+  adopt(
+    "CANVAS_SHARE_BASE_URL",
+    process.env.VITE_CANVAS_SHARE_BASE_URL ?? files.VITE_CANVAS_SHARE_BASE_URL,
+  );
   for (const [key, value] of Object.entries(files)) {
     if (MAIN_PROCESS_ENV_KEY.test(key)) adopt(key, value);
   }

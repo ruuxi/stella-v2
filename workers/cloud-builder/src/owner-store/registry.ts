@@ -17,10 +17,6 @@ import type {
 } from "@stella/contracts/backend/api";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import type { MemoryPolicyChange } from "@stella/contracts/turn-plane/memory-policy";
-import type {
-  ConversationEditRequest,
-  ConversationEditResult,
-} from "../conversation-edit-protocol.js";
 import type { Parser } from "./args.js";
 
 /** The verified user behind a request. `null` for jobs and internal calls. */
@@ -78,13 +74,15 @@ export type OwnerHost = {
   dispatchDeviceAgentTurn(input: DeviceAgentTurnDispatch): Promise<{ dispatchId: string }>;
   /**
    * New input, or a framed message from another agent, for a cloud agent's
-   * running attempt; false when none is running.
+   * running attempt; false when none is running. Refused, retryably, while
+   * a container agent is starting up or finishing.
    */
   steerAgentTurn(input: {
     threadId: string;
+    conversationId: string;
+    ownerGeneration: string;
     messageId: string;
     text: string;
-    kind?: "input" | "message";
   }): Promise<boolean>;
   /** New input for a device attempt that is running. */
   steerDeviceAgentTurn(input: {
@@ -114,6 +112,7 @@ export type OwnerHost = {
   /** Stop one exact running attempt. `changed` means it is no longer that attempt. */
   cancelAgentTurn(input: {
     threadId: string;
+    conversationId: string;
     turnId: string;
     attemptGeneration: number;
     ownerGeneration: string;
@@ -126,11 +125,6 @@ export type OwnerHost = {
     sourceTurnId: string;
     card: unknown;
   }): Promise<void>;
-  /**
-   * One bounded pass of a fork or rewind across the orchestrators, under an
-   * owner activity lease. Throws `RpcError` when an orchestrator refuses.
-   */
-  runConversationEdit(request: ConversationEditRequest): Promise<ConversationEditResult>;
   /**
    * The owner's cloud home content moved to `revision` under
    * `ownerGeneration`, so cached home context must be rebuilt.
@@ -195,8 +189,6 @@ export type AgentTurnDispatch = {
   originConversationId?: string;
   /** The cloud agent that started the thread, which its report returns to. */
   parentThreadId?: string;
-  /** Resume a hosted-browser wait with this answer. */
-  browserResume?: import("@stella/contracts/cloud-browser").CloudBrowserResumeReceipt;
 };
 
 export type DeviceAgentTurnDispatch = {
@@ -225,8 +217,6 @@ export type AgentCompletionDelivery = {
   ownerGeneration: string;
   conversationId: string;
   threadId: string;
-  /** The cloud agent that spawned it; absent when the conversation did. */
-  parentThreadId?: string;
   attemptGeneration: number;
   description: string;
   status: "completed" | "failed" | "canceled";

@@ -10,6 +10,7 @@ import { ConversationEvents } from "@/app/chat/ConversationEvents";
 import { X } from "@/ui/icons";
 import { Modal } from "@/ui/modal";
 import { useT } from "@/shared/i18n";
+import { EmptyState } from "@/ui/empty-state/EmptyState";
 import { useChatScrollManagement } from "@/shell/use-chat-scroll-management";
 import {
   closeConversationFocus,
@@ -23,6 +24,7 @@ import {
 } from "@/features/chat/lib/message-turn-display";
 import { toReplyPreview } from "@stella/contracts/reply-refs";
 import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-model-configs";
+import { useAgentTitle } from "@/features/cloud/use-agent-title";
 import "./conversation-focus-overlay.css";
 
 const FOCUS_CONTENT_STYLE = {
@@ -74,6 +76,11 @@ function FocusPanel({
     [root],
   );
   const activity = useThreadActivityRecords(conversationId, agentThreadIds);
+  const agentTitle = useAgentTitle(
+    conversationId,
+    root.kind === "agent" ? root.threadId : "",
+    root.kind === "agent" ? [activity.get(root.threadId)?.description, title] : [],
+  );
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const scroll = useChatScrollManagement({
@@ -88,11 +95,7 @@ function FocusPanel({
 
   const heading = useMemo(() => {
     if (root.kind === "agent") {
-      return (
-        activity.get(root.threadId)?.description?.trim() ||
-        title?.trim() ||
-        t("app.chat.focus.agentFallback")
-      );
+      return agentTitle || t("app.chat.focus.agentFallback");
     }
     const rootMessage = lineage.messages.find(
       (message) => message._id === root.id,
@@ -106,7 +109,7 @@ function FocusPanel({
       if (preview) return preview;
     }
     return title?.trim() || t("app.chat.focus.messageFallback");
-  }, [activity, lineage.messages, root, t, title]);
+  }, [agentTitle, lineage.messages, root, t, title]);
 
   return (
     <Modal
@@ -128,9 +131,11 @@ function FocusPanel({
       <div className="conversation-focus__body">
         <div className="conversation-focus__surface">
           {lineage.error ? (
-            <div className="conversation-focus__error" role="alert">
-              {t("app.chat.focus.error")}
-            </div>
+            <EmptyState
+              motif="unavailable"
+              title={t("app.chat.focus.errorTitle")}
+              body={t("app.chat.focus.errorBody")}
+            />
           ) : (
             <ConversationEvents
               messages={lineage.messages}

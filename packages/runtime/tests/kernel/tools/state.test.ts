@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MODELS } from "@stella/contracts/models.generated";
-import { registerModel, unregisterModel } from "@stella/runtime/ai/models";
-import type { Model } from "@stella/runtime/ai/types";
+import type { Model } from "@earendil-works/pi-ai";
+import { setManagedProviderModels } from "@stella/runtime/kernel/model-catalog";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import {
   createStateContext,
@@ -100,6 +100,7 @@ describe("state tools", () => {
     validateSpawnModelWithMetadata?: Parameters<typeof createStateContext>[3],
   ) => {
     const created: AgentToolRequest[] = [];
+    const dispatched: unknown[] = [];
     const ctx = createStateContext(
       "/tmp",
       {
@@ -109,11 +110,15 @@ describe("state tools", () => {
         },
         getAgent: async () => null,
         cancelAgent: async () => ({ canceled: false }),
+        cloudDispatch: async (request) => {
+          dispatched.push(request);
+          throw new Error("cloud dispatch is not exercised here");
+        },
       },
       validateSpawnModel,
       validateSpawnModelWithMetadata,
     );
-    return { ctx, created };
+    return { ctx, created, dispatched };
   };
 
   const orchestratorToolContext = {
@@ -226,7 +231,7 @@ describe("state tools", () => {
 
   it("lets a registered model ending in an effort word win over suffix parsing", () => {
     const modelReference = "spawn-test/future-model:high";
-    registerModel("spawn-test", {
+    setManagedProviderModels("spawn-test", [{
       id: "future-model:high",
       name: "Future Model",
       api: "openai-completions",
@@ -237,14 +242,14 @@ describe("state tools", () => {
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       contextWindow: 1,
       maxTokens: 1,
-    } as Model<any>);
+    } as Model<any>]);
     try {
       expect(parseSpawnAgentModel(modelReference)).toEqual({
         kind: "model",
         model: modelReference,
       });
     } finally {
-      unregisterModel("spawn-test", "future-model:high");
+      setManagedProviderModels("spawn-test", []);
     }
   });
 
@@ -262,25 +267,22 @@ describe("state tools", () => {
     }
 
     const validated: string[] = [];
-    const { ctx, created } = createSpawnContext((modelName) => {
+    const { ctx } = createSpawnContext((modelName) => {
       validated.push(modelName);
     });
     for (const model of references) {
       await handleSpawnAgent(
         ctx,
-        { description: "Gateway task", prompt: "Do it.", model },
+        {
+          description: "Gateway task",
+          prompt: "Do it.",
+          model,
+          destination: "cloud",
+        },
         orchestratorToolContext,
       );
     }
     expect(validated).toEqual(references);
-    expect(created).toHaveLength(references.length);
-    for (const [index, model] of references.entries()) {
-      expect(created[index]).toMatchObject({
-        model,
-        spawnEngine: { engine: "default" },
-      });
-      expect(created[index]?.spawnReasoningEffort).toBeUndefined();
-    }
   });
 
   it("parses effort suffixes after all model and engine forms", () => {
@@ -368,16 +370,13 @@ describe("state tools", () => {
   });
 
   it("keeps effort scoped to only the spawn that requested it", async () => {
-    const { ctx, created } = createSpawnContext((modelName) => {
-      if (modelName === "stella/grok-4.5") return;
-      throw new Error(`Unknown model: ${modelName}`);
-    });
+    const { ctx, created } = createSpawnContext();
     await handleSpawnAgent(
       ctx,
       {
         description: "Reasoning task",
         prompt: "Do it.",
-        model: "stella/grok-4.5:high",
+        model: "claude-code/opus:high",
       },
       orchestratorToolContext,
     );
@@ -386,7 +385,7 @@ describe("state tools", () => {
       {
         description: "Normal task",
         prompt: "Do it.",
-        model: "stella/grok-4.5",
+        model: "claude-code/opus",
       },
       orchestratorToolContext,
     );
@@ -412,6 +411,7 @@ describe("state tools", () => {
         description: "Sol task",
         prompt: "Do it.",
         model: "stella/gpt-5.6-sol:high",
+        destination: "cloud",
       },
       orchestratorToolContext,
     );
@@ -421,51 +421,17 @@ describe("state tools", () => {
     expect(created).toHaveLength(0);
   });
 
-  it("forwards a plain model override through validation", async () => {
-    const validated: string[] = [];
-    const { ctx, created } = createSpawnContext((modelName) => {
-      validated.push(modelName);
-    });
-
-    const result = await handleSpawnAgent(
-      ctx,
-      {
-        description: "Bulk file processing",
-        prompt: "Process the files.",
-        model: "openrouter/moonshotai/kimi-k2.5",
-      },
-      orchestratorToolContext,
-    );
-
-    expect(result).toMatchObject({ result: { thread_id: "thread-1" } });
-    expect(validated).toEqual(["openrouter/moonshotai/kimi-k2.5"]);
-    expect(created[0]?.model).toBe("openrouter/moonshotai/kimi-k2.5");
-    expect(created[0]?.spawnEngine).toEqual({ engine: "default" });
-  });
-
-  it("forces the Stella engine for an explicit Stella model pin", async () => {
-    const { ctx, created } = createSpawnContext(() => {});
-
-    await handleSpawnAgent(
-      ctx,
-      {
-        description: "Sol task",
-        prompt: "Do it.",
-        model: "stella/gpt-5.6-sol",
-      },
-      orchestratorToolContext,
-    );
-
-    expect(created[0]?.model).toBe("stella/gpt-5.6-sol");
-    expect(created[0]?.spawnEngine).toEqual({ engine: "default" });
-  });
-
   it("fails a plain model override when no validator is wired instead of dying mid-run", async () => {
-    const { ctx, created } = createSpawnContext();
+    const { ctx, dispatched } = createSpawnContext();
 
     const result = await handleSpawnAgent(
       ctx,
-      { description: "Cheap task", prompt: "Do it.", model: "stella/light" },
+      {
+        description: "Cheap task",
+        prompt: "Do it.",
+        model: "stella/light",
+        destination: "cloud",
+      },
       orchestratorToolContext,
     );
 
@@ -473,7 +439,7 @@ describe("state tools", () => {
       error:
         'Cannot honor model "stella/light": model routing is not available in this runtime. Omit the model parameter to use the configured default.',
     });
-    expect(created).toHaveLength(0);
+    expect(dispatched).toHaveLength(0);
   });
 
   it("matches engine ids case-insensitively", async () => {
@@ -484,7 +450,7 @@ describe("state tools", () => {
       {
         description: "Repo work",
         prompt: "Fix the bug.",
-        model: "Codex/gpt-5.4-codex",
+        model: "CLAUDE-CODE/opus",
       },
       orchestratorToolContext,
     );
@@ -495,8 +461,8 @@ describe("state tools", () => {
     );
 
     expect(created[0]?.spawnEngine).toEqual({
-      engine: "codex_cli",
-      model: "gpt-5.4-codex",
+      engine: "claude_code_local",
+      model: "opus",
     });
     expect(created[1]?.spawnEngine).toEqual({ engine: "claude_code_local" });
   });
@@ -529,32 +495,13 @@ describe("state tools", () => {
 
     await handleSpawnAgent(
       ctx,
-      { description: "Repo work", prompt: "Fix the bug.", model: "codex" },
+      { description: "Repo work", prompt: "Fix the bug.", model: "claude-code" },
       orchestratorToolContext,
     );
 
     expect(validated).toEqual([]);
     expect(created[0]?.model).toBeUndefined();
-    expect(created[0]?.spawnEngine).toEqual({ engine: "codex_cli" });
-  });
-
-  it("pins an engine-native model via engine/<model>", async () => {
-    const { ctx, created } = createSpawnContext();
-
-    await handleSpawnAgent(
-      ctx,
-      {
-        description: "Repo work",
-        prompt: "Fix the bug.",
-        model: "codex/gpt-5.4-codex",
-      },
-      orchestratorToolContext,
-    );
-
-    expect(created[0]?.spawnEngine).toEqual({
-      engine: "codex_cli",
-      model: "gpt-5.4-codex",
-    });
+    expect(created[0]?.spawnEngine).toEqual({ engine: "claude_code_local" });
   });
 
   it("selects claude-code per-spawn, with and without a pinned model", async () => {
@@ -587,7 +534,12 @@ describe("state tools", () => {
 
     const result = await handleSpawnAgent(
       ctx,
-      { description: "Do work", prompt: "Do it.", model: "banana/split" },
+      {
+        description: "Do work",
+        prompt: "Do it.",
+        model: "banana/split",
+        destination: "cloud",
+      },
       orchestratorToolContext,
     );
 
@@ -655,7 +607,7 @@ describe("state tools", () => {
     expect(created).toHaveLength(0);
   });
 
-  it("allows parent-owned General subagents on every external engine", async () => {
+  it("allows parent-owned General subagents on Claude Code", async () => {
     const { ctx, created } = createSpawnContext();
     const parentContext = {
       conversationId: "conversation-1",
@@ -669,11 +621,6 @@ describe("state tools", () => {
 
     await handleSpawnAgent(
       ctx,
-      { description: "Codex task", prompt: "Do it.", model: "codex" },
-      parentContext,
-    );
-    await handleSpawnAgent(
-      ctx,
       {
         description: "Claude Code task",
         prompt: "Do it.",
@@ -683,11 +630,6 @@ describe("state tools", () => {
     );
 
     expect(created).toMatchObject([
-      {
-        agentType: AGENT_IDS.GENERAL,
-        parentAgentId: "parent-1",
-        spawnEngine: { engine: "codex_cli" },
-      },
       {
         agentType: AGENT_IDS.GENERAL,
         parentAgentId: "parent-1",

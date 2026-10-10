@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import { Effect } from "effect";
 import type { BackendClient } from "@stella/contracts/backend/client";
 import {
   createExecutionContextSnapshot,
@@ -45,28 +46,39 @@ const readMediaPlan = async (
   client: BackendClient | null,
 ): Promise<MediaAccess["stella"] | null> => {
   if (!client) return null;
-  return await new Promise((resolve) => {
-    let stop: (() => void) | null = null;
-    let settled = false;
-    const settle = (value: MediaAccess["stella"] | null) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(value);
-      // The first value can arrive before `watch` returns.
-      queueMicrotask(() => stop?.());
-    };
-    const timer = setTimeout(() => settle(null), 3_000);
-    stop = client.watch(
-      "billing.status",
-      {},
-      (status) => {
-        if (!status.authenticated) return settle(null);
-        settle(status.isAnonymous ? "sign_in" : mediaAccessForAudience(status.plan));
-      },
-      () => settle(null),
-    );
-  });
+  // The watch is the callback's canceler: a timeout interrupts the wait and
+  // stops the subscription, the same as the old timer settling with null.
+  return await Effect.runPromise(
+    Effect.callback<MediaAccess["stella"] | null>((resume) => {
+      let stop: (() => void) | null = null;
+      let settled = false;
+      const settle = (value: MediaAccess["stella"] | null) => {
+        if (settled) return;
+        settled = true;
+        resume(Effect.succeed(value));
+        // The first value can arrive before `watch` returns.
+        queueMicrotask(() => stop?.());
+      };
+      stop = client.watch(
+        "billing.status",
+        {},
+        (status) => {
+          if (!status.authenticated) return settle(null);
+          settle(status.isAnonymous ? "sign_in" : mediaAccessForAudience(status.plan));
+        },
+        () => settle(null),
+      );
+      return Effect.sync(() => {
+        settled = true;
+        stop?.();
+      });
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: 3_000,
+        orElse: () => Effect.succeed(null),
+      }),
+    ),
+  );
 };
 
 /** What media the user can generate: their plan, and `image_gen`'s own-key setting. */

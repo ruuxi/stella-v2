@@ -19,7 +19,6 @@ import {
   maybeCompactRuntimeThread,
   parseThreadCheckpoint,
 } from "@stella/runtime/kernel/thread-runtime";
-import { withForcedThreadCompaction } from "@stella/runtime/kernel/agent-runtime/context-budget";
 
 type TestContext = {
   rootPath: string;
@@ -57,7 +56,7 @@ afterEach(async () => {
 });
 
 describe("session-store", () => {
-  it("keeps private history and forks local and excludes both from cloud migration", () => {
+  it("keeps private history local and excludes it from cloud migration", () => {
     const { store } = createTestContext();
     const id = "local_private-history";
     store.setActiveDefaultConversationId(id);
@@ -81,12 +80,6 @@ describe("session-store", () => {
         .listConversationSummaries({})
         .conversations.some((item) => item.conversationId === id),
     ).toBe(true);
-    const fork = store.forkConversationBeforeEvent(id, "second");
-    expect(fork?.conversationId).toMatch(/^local_/);
-    expect(store.listMessages(fork!.conversationId, {}).messages).toHaveLength(
-      1,
-    );
-    expect(store.listMessages(id, {}).messages).toHaveLength(2);
     expect(store.listLegacyChatCloudImportCandidates()).toEqual([]);
   });
 
@@ -3117,60 +3110,6 @@ describe("session-store", () => {
       )
       .get(threadId) as { count: number };
     expect(compactionRows.count).toBe(1);
-
-    store.appendThreadMessage({
-      threadKey: threadId,
-      timestamp: 6_040,
-      role: "toolResult",
-      content: "same image again",
-      toolCallId: "duplicate-image-call",
-      payload: {
-        role: "toolResult",
-        toolCallId: "duplicate-image-call",
-        toolName: "screenshot",
-        content: [images[0]!],
-        isError: false,
-        timestamp: 6_040,
-      },
-    });
-    for (let index = 0; index < 3; index += 1) {
-      store.appendThreadMessage({
-        threadKey: threadId,
-        timestamp: 6_041 + index,
-        role: "user",
-        content: `follow-up ${index}`,
-        payload: {
-          role: "user",
-          content: `follow-up ${index}`,
-          timestamp: 6_041 + index,
-        },
-      });
-    }
-    await withForcedThreadCompaction(threadId, () =>
-      maybeCompactRuntimeThread({
-        store,
-        threadKey: threadId,
-        resolvedLlm: {
-          route: "stella",
-          model: { id: "test/model", contextWindow: 128_000 },
-          getApiKey: async () => "unused",
-        } as never,
-        agentType: "orchestrator",
-        overrideSummary: "Successor checkpoint.",
-        stellaDataDir: rootPath,
-      }),
-    );
-    const successor = store.loadThreadMessages(threadId)[0]!;
-    const successorMatch = successor.content.match(
-      /<image-receipts version="1">\n(.+)\n<\/image-receipts>/,
-    );
-    const successorReceipts = JSON.parse(successorMatch![1]!) as Array<{
-      id: string;
-    }>;
-    expect(successorReceipts).toHaveLength(10);
-    expect(new Set(successorReceipts.map((receipt) => receipt.id)).size).toBe(
-      10,
-    );
   });
 
   it("preserves exact oversized payloads for an evictable working set", () => {

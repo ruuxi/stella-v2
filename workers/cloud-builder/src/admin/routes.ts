@@ -8,6 +8,7 @@
  *   POST /api/admin/billing/plan                {ownerId, plan?, usageMode? | unlimited?, resetUsage?}
  *   POST /api/admin/delete                      {kind: "feedback", id} | {kind: "media_job", ownerId, id}
  *   POST /api/admin/test-accounts/session       {email?, plan?, usageMode?} → a signed-in test user (dev only)
+ *   POST /api/admin/test-accounts/conversation-restart  {conversationId} → restart that conversation's object (dev only)
  *
  * Owners are addressed by id only.
  */
@@ -16,7 +17,7 @@ import { OWNER_ENFORCEMENT_STATUSES, type OwnerEnforcementStatus } from "@stella
 import { rpcErrorStatus, type RpcResponse } from "@stella/contracts/backend/protocol";
 import { fixedWorkSha256SecretEqual } from "../service-bearer.js";
 
-type AdminEnv = Pick<Cloudflare.Env, "OWNER_GATES" | "DB" | "WORLDS">;
+type AdminEnv = Pick<Cloudflare.Env, "OWNER_GATES" | "DB" | "WORLDS" | "ORCHESTRATOR_SESSIONS">;
 
 const OWNER_ID_MAX = 512;
 const TOP_DEFAULT_LIMIT = 50;
@@ -327,6 +328,20 @@ const claudeLoginProbeRoute = async (request: Request, env: AdminEnv): Promise<R
   return json(await claudeLoginProbe(env as unknown as Cloudflare.Env, ownerId, action));
 };
 
+/**
+ * Restart one conversation's Durable Object the way an eviction or a deploy
+ * does, so verification can prove a turn survives one without redeploying
+ * over everyone else's turns. Dev only, like test accounts.
+ */
+const conversationRestart = async (request: Request, env: AdminEnv): Promise<Response> => {
+  const { testAccountsEnabled } = await import("../auth/auth.js");
+  if (!testAccountsEnabled(env)) return fail(404, "Test accounts disabled.", { env: "STELLA_TEST_ACCOUNTS" });
+  const body = await readBody(request);
+  const conversationId = typeof body?.conversationId === "string" ? body.conversationId.trim() : "";
+  if (!/^[A-Za-z0-9._-]{8,128}$/.test(conversationId)) return fail(400, "conversationId is required.");
+  return json(await env.ORCHESTRATOR_SESSIONS.getByName(conversationId).restartForVerification());
+};
+
 // ── Routing ──────────────────────────────────────────────────────────────
 
 const ROUTES: Record<string, { method: "GET" | "POST"; run: (request: Request, url: URL, env: AdminEnv) => Promise<Response> }> = {
@@ -337,6 +352,10 @@ const ROUTES: Record<string, { method: "GET" | "POST"; run: (request: Request, u
   "/api/admin/billing/plan": { method: "POST", run: (request, _url, env) => billingPlan(request, env) },
   "/api/admin/delete": { method: "POST", run: (request, _url, env) => remove(request, env) },
   "/api/admin/test-accounts/session": { method: "POST", run: (request, _url, env) => testAccountSession(request, env) },
+  "/api/admin/test-accounts/conversation-restart": {
+    method: "POST",
+    run: (request, _url, env) => conversationRestart(request, env),
+  },
   "/api/admin/test-accounts/claude-login-probe": {
     method: "POST",
     run: (request, _url, env) => claudeLoginProbeRoute(request, env),

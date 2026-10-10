@@ -1,15 +1,15 @@
 /**
- * Hosted-browser handoffs. A cloud agent's browser command suspends its turn
- * on a sign-in or device-code page; the BuildSession reports the wait as a
- * nonterminal `waiting_for_user` turn event, and `recordBrowserSuspension`
- * records it here as an interaction (`browser.pending`).
+ * Hosted-browser handoffs. A cloud agent's browser command hands a sign-in or
+ * device-code page to the user; the agent's conversation records the wait
+ * here as an interaction (`browser.handoffOpen`, listed by `browser.pending`)
+ * and holds the agent's `code` call open until it ends.
  *
  * Everything secret stays in the private Browser Gateway (the login URL, the
  * Live View, the session itself); the calls below fetch it on demand over the
  * `BROWSER_GATEWAY` binding with the interaction's exact turn authority.
  * `browser.decide` (or the `browser.expire` job at the deadline) takes the
- * gateway's resume receipt and resumes the parked agent thread as its next
- * attempt, which leaves the interaction in a final state.
+ * gateway's resume receipt and leaves the interaction in a final state, which
+ * the waiting conversation reads (`browser.handoffState`) to answer the call.
  */
 
 import type { BrowserCalls } from "@stella/contracts/backend/browser";
@@ -23,12 +23,10 @@ import {
   type CloudBrowserResumeReceipt,
   type CloudBrowserSessionTransferCapability,
 } from "@stella/contracts/cloud-browser";
-import type { TurnEventEvent } from "@stella/contracts/turn-plane/owner-events";
 import { empty, literal, number, object, string } from "../args.js";
 import { RpcError } from "../errors.js";
 import { enforceOwnerRateLimit } from "../rate-limit.js";
 import type { OwnerContext, OwnerDbReader, OwnerDomain } from "../registry.js";
-import { cancelWaitingAgentThread, resumeWaitingAgentThread } from "./agent-threads.js";
 
 const PROFILE_ID = "default";
 const MAX_ACTIVE = 24;
@@ -39,7 +37,7 @@ const EXPIRE_JOB = "browser.expire";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ACTIVE_STATES = "('pending', 'human_control')";
 
-export const BROWSER_MIGRATION = {
+const BROWSER_MIGRATION = {
   id: "browser.1-init",
   statements: [
     `CREATE TABLE browser_interactions (
@@ -66,6 +64,45 @@ export const BROWSER_MIGRATION = {
        created_at INTEGER NOT NULL,
        updated_at INTEGER NOT NULL
      )`,
+    "CREATE INDEX browser_interactions_state ON browser_interactions (state, created_at DESC)",
+  ],
+};
+
+/**
+ * An agent's run is one turn and can hand the browser to the user more than
+ * once, so a turn no longer names one interaction: the table is rebuilt
+ * without `turn_id`'s uniqueness (SQLite cannot drop a column constraint).
+ */
+const BROWSER_RUN_HANDOFFS_MIGRATION = {
+  id: "browser.2-run-handoffs",
+  statements: [
+    `CREATE TABLE browser_interactions_next (
+       interaction_id TEXT PRIMARY KEY,
+       owner_generation TEXT NOT NULL,
+       conversation_id TEXT NOT NULL,
+       thread_id TEXT NOT NULL,
+       turn_id TEXT NOT NULL,
+       attempt_generation INTEGER NOT NULL,
+       tool_call_id TEXT NOT NULL,
+       request_digest TEXT NOT NULL,
+       profile_epoch INTEGER NOT NULL,
+       kind TEXT NOT NULL,
+       state TEXT NOT NULL,
+       display_origin TEXT NOT NULL,
+       display_title TEXT,
+       revision INTEGER NOT NULL,
+       expires_at INTEGER NOT NULL,
+       decision TEXT,
+       decision_request_id TEXT,
+       decision_base_revision INTEGER,
+       resolution TEXT,
+       safe_message TEXT,
+       created_at INTEGER NOT NULL,
+       updated_at INTEGER NOT NULL
+     )`,
+    "INSERT INTO browser_interactions_next SELECT * FROM browser_interactions",
+    "DROP TABLE browser_interactions",
+    "ALTER TABLE browser_interactions_next RENAME TO browser_interactions",
     "CREATE INDEX browser_interactions_state ON browser_interactions (state, created_at DESC)",
   ],
 };
@@ -129,86 +166,6 @@ const expireJobId = (interactionId: string): string => `${EXPIRE_JOB}:${interact
 
 const log = (event: string, fields: Record<string, unknown>): void =>
   console.error(JSON.stringify({ service: "owner-browser", event, ...fields }));
-
-// ── Recording a wait ──────────────────────────────────────────────────────
-
-/**
- * A `waiting_for_user` turn event. Never throws: a malformed or replayed
- * event is logged and dropped, since its producer would redeliver it forever.
- */
-export const recordBrowserSuspension = (
-  ctx: Pick<OwnerContext, "db" | "jobs" | "now">,
-  event: TurnEventEvent,
-): void => {
-  const suspension = (event.payload as { suspension?: unknown } | null)?.suspension;
-  if (!isCloudBrowserSuspension(suspension) || suspension.interactionRevision !== 1) {
-    log("browser_suspension_invalid", { turnId: event.turnId });
-    return;
-  }
-  if (readRow(ctx.db, suspension.interactionId)) return;
-  const turn = ctx.db.one<{
-    thread_id: string | null;
-    conversation_id: string | null;
-    attempt_generation: number | null;
-    owner_generation: string | null;
-  }>(
-    "SELECT thread_id, conversation_id, attempt_generation, owner_generation FROM agent_turns WHERE turn_id = ?",
-    event.turnId,
-  );
-  if (
-    !turn?.thread_id ||
-    !turn.conversation_id ||
-    turn.attempt_generation === null ||
-    (event.attemptGeneration !== undefined && event.attemptGeneration !== turn.attempt_generation)
-  ) {
-    log("browser_suspension_unknown_turn", { turnId: event.turnId });
-    return;
-  }
-  if (suspension.expiresAt <= ctx.now || suspension.expiresAt > ctx.now + MAX_LIFETIME_MS) {
-    log("browser_suspension_expired", { turnId: event.turnId });
-    return;
-  }
-  if (ctx.db.one("SELECT 1 AS found FROM browser_interactions WHERE turn_id = ?", event.turnId)) {
-    log("browser_suspension_turn_reused", { turnId: event.turnId });
-    return;
-  }
-  const active =
-    ctx.db.one<{ n: number }>(`SELECT COUNT(*) AS n FROM browser_interactions WHERE state IN ${ACTIVE_STATES}`)
-      ?.n ?? 0;
-  if (active >= MAX_ACTIVE) {
-    log("browser_suspension_too_many", { turnId: event.turnId });
-    return;
-  }
-  ctx.db.run(
-    `INSERT INTO browser_interactions
-       (interaction_id, owner_generation, conversation_id, thread_id, turn_id, attempt_generation,
-        tool_call_id, request_digest, profile_epoch, kind, state, display_origin, display_title,
-        revision, expires_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
-    suspension.interactionId,
-    turn.owner_generation ?? event.ownerGeneration,
-    turn.conversation_id,
-    turn.thread_id,
-    event.turnId,
-    turn.attempt_generation,
-    suspension.toolCallId,
-    suspension.requestDigest,
-    suspension.profileEpoch,
-    suspension.interactionKind,
-    suspension.displayOrigin,
-    suspension.displayTitle || null,
-    suspension.interactionRevision,
-    suspension.expiresAt,
-    ctx.now,
-    ctx.now,
-  );
-  ctx.jobs.schedule(
-    EXPIRE_JOB,
-    suspension.expiresAt,
-    { interactionId: suspension.interactionId },
-    { id: expireJobId(suspension.interactionId) },
-  );
-};
 
 // ── The gateway ───────────────────────────────────────────────────────────
 
@@ -482,9 +439,8 @@ const finalState = (result: ResumeResult): CloudBrowserInteractionState =>
   result === "approved" ? "completed" : result === "canceled" ? "canceled" : result === "expired" ? "expired" : "failed";
 
 /**
- * Resume the parked thread with `receipt` and close the interaction. When
- * the thread is no longer waiting, the interaction still closes (as failed)
- * so it leaves the pending list.
+ * Close the interaction with `receipt`: it leaves the pending list, and the
+ * agent waiting on it reads how it ended (`browser.handoffState`).
  */
 const resolve = (
   ctx: OwnerContext,
@@ -492,20 +448,12 @@ const resolve = (
   receipt: CloudBrowserResumeReceipt,
   decision: { decision: Decision; requestId: string },
 ): void => {
-  const resumed = resumeWaitingAgentThread(ctx, {
-    threadId: row.thread_id,
-    attemptGeneration: row.attempt_generation,
-    ownerGeneration: row.owner_generation,
-    clientMsgId: decision.requestId,
-    browserResume: receipt,
-  });
-  if (!resumed) log("browser_resume_thread_changed", { threadId: row.thread_id });
   ctx.db.run(
     `UPDATE browser_interactions SET
        state = ?, revision = revision + 1, decision = ?, decision_request_id = ?,
        decision_base_revision = ?, resolution = ?, safe_message = ?, updated_at = ?
      WHERE interaction_id = ?`,
-    resumed ? finalState(receipt.result) : "failed",
+    finalState(receipt.result),
     decision.decision,
     decision.requestId,
     row.revision,
@@ -648,22 +596,116 @@ const resetProfile = async (
       row.interaction_id,
     );
     ctx.jobs.cancel(expireJobId(row.interaction_id));
-    cancelWaitingAgentThread(ctx, {
-      threadId: row.thread_id,
-      attemptGeneration: row.attempt_generation,
-      message,
-    });
   }
   return { schemaVersion: 1, profileId: PROFILE_ID, profileEpoch, reset: true };
 };
 
 const interactionId = string({ min: 1, max: 256 });
+
+// ── An agent's wait ───────────────────────────────────────────────────────
+
+const SAFE_ID = /^[A-Za-z0-9._~:-]{1,512}$/u;
+const safeId = string({ min: 1, max: 512, pattern: SAFE_ID });
+
+const handoffOpenArgs = object({
+  conversationId: safeId,
+  threadId: safeId,
+  turnId: safeId,
+  attemptGeneration: number({ int: true, min: 1 }),
+  toolCallId: string({ min: 1, max: 256 }),
+  suspension: (value: unknown) => value,
+});
+
+/**
+ * An agent's browser command handed the profile to the user: record it as a
+ * pending interaction under the exact authority the command ran with, so the
+ * user's clients list it and the gateway calls below match the handoff.
+ * Opening the same handoff again returns it.
+ */
+const handoffOpen = async (ctx: OwnerContext, args: unknown): Promise<CloudBrowserInteractionSummary> => {
+  const input = handoffOpenArgs(args, "args");
+  const suspension = input.suspension;
+  if (!isCloudBrowserSuspension(suspension) || suspension.interactionRevision !== 1) {
+    throw new RpcError("BAD_REQUEST", "The browser handoff is malformed.");
+  }
+  const existing = readRow(ctx.db, suspension.interactionId);
+  if (existing) return summary(existing);
+  if (suspension.expiresAt <= ctx.now || suspension.expiresAt > ctx.now + MAX_LIFETIME_MS) {
+    throw new RpcError("BAD_REQUEST", "The browser handoff has already expired.");
+  }
+  const active =
+    ctx.db.one<{ n: number }>(`SELECT COUNT(*) AS n FROM browser_interactions WHERE state IN ${ACTIVE_STATES}`)
+      ?.n ?? 0;
+  if (active >= MAX_ACTIVE) {
+    throw new RpcError("RATE_LIMITED", "Too many browser requests are waiting for you. Finish or cancel one first.");
+  }
+  const { ownerGeneration } = await ctx.host.snapshot();
+  ctx.db.run(
+    `INSERT INTO browser_interactions
+       (interaction_id, owner_generation, conversation_id, thread_id, turn_id, attempt_generation,
+        tool_call_id, request_digest, profile_epoch, kind, state, display_origin, display_title,
+        revision, expires_at, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
+    suspension.interactionId,
+    ownerGeneration,
+    input.conversationId,
+    input.threadId,
+    input.turnId,
+    input.attemptGeneration,
+    input.toolCallId,
+    suspension.requestDigest,
+    suspension.profileEpoch,
+    suspension.interactionKind,
+    suspension.displayOrigin,
+    suspension.displayTitle || null,
+    suspension.interactionRevision,
+    suspension.expiresAt,
+    ctx.now,
+    ctx.now,
+  );
+  ctx.jobs.schedule(
+    EXPIRE_JOB,
+    suspension.expiresAt,
+    { interactionId: suspension.interactionId },
+    { id: expireJobId(suspension.interactionId) },
+  );
+  log("browser_handoff_opened", { interactionId: suspension.interactionId, kind: suspension.interactionKind });
+  return summary(readRow(ctx.db, suspension.interactionId)!);
+};
+
+const handoffArgs = object({ interactionId });
+
+/** Where a handoff stands, and once it ended, how (the gateway's resume receipt). */
+const handoffState = (
+  ctx: OwnerContext,
+  args: unknown,
+): { state: CloudBrowserInteractionState; result?: ResumeResult; safeMessage?: string } => {
+  const row = readRow(ctx.db, handoffArgs(args, "args").interactionId);
+  if (!row) throw gone();
+  return {
+    state: row.state,
+    ...(row.resolution ? { result: row.resolution as ResumeResult } : {}),
+    ...(row.safe_message ? { safeMessage: row.safe_message } : {}),
+  };
+};
+
+/** The waiting agent stopped: the profile goes back to agents, as if the user canceled. */
+const handoffCancel = async (ctx: OwnerContext, args: unknown): Promise<void> => {
+  const row = readRow(ctx.db, handoffArgs(args, "args").interactionId);
+  if (!row || (row.state !== "pending" && row.state !== "human_control")) return;
+  await decide(ctx, {
+    interactionId: row.interaction_id,
+    expectedRevision: row.revision,
+    requestId: crypto.randomUUID(),
+    decision: "cancel",
+  });
+};
 const expectedRevision = number({ int: true, min: 1 });
 const requestId = string({ pattern: UUID_PATTERN, max: 64 });
 
 export const browserDomain = {
   name: "browser",
-  migrations: [BROWSER_MIGRATION],
+  migrations: [BROWSER_MIGRATION, BROWSER_RUN_HANDOFFS_MIGRATION],
   calls: {
     "browser.detail": {
       scope: "owner",
@@ -727,6 +769,11 @@ export const browserDomain = {
   },
   jobs: {
     [EXPIRE_JOB]: { run: expire },
+  },
+  internal: {
+    "browser.handoffOpen": handoffOpen,
+    "browser.handoffState": handoffState,
+    "browser.handoffCancel": handoffCancel,
   },
   purge: (ctx: OwnerContext) => {
     for (const { interaction_id } of ctx.db.all<{ interaction_id: string }>(

@@ -47,7 +47,7 @@ if it hangs, force-quit and reopen Docker Desktop).
 
 Order: **D1 migrations → cloud-builder → model-gateway → the rest.** The gateway
 prices models from cloud-builder's catalog, so a new model must reach
-cloud-builder first. A deploy kills in-flight resident cloud turns.
+cloud-builder first. A deploy kills in-flight container agent turns.
 
 ```bash
 # dev

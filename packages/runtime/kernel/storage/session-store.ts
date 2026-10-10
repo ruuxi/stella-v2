@@ -30,7 +30,6 @@ import { MessageWindowReader } from "./message-window.js";
 import { OutboxRepo } from "./outbox-repo.js";
 import { ThreadLog } from "./thread-log.js";
 import { AgentRegistry, type AgentRecordInput } from "./agent-registry.js";
-import { RunTaskStore } from "./run-task.js";
 import {
   AGENT_ASSISTANT_UPDATE_LIMITS,
   EAGER_TOOL_EVENT_LIMIT,
@@ -275,7 +274,6 @@ export class SessionStore {
   private readonly journalOutbox: OutboxRepo<CloudJournalOutboxRecord>;
   private readonly computerAgentOutbox: OutboxRepo<ComputerAgentCloudOutboxRecord>;
   private threadSummaryStoreInstance: ThreadSummaryStore | null = null;
-  private runTaskStoreInstance: RunTaskStore | null = null;
   private inTransaction = false;
   /**
    * Cloud turns keep their provider transcript in process memory until the
@@ -336,26 +334,6 @@ export class SessionStore {
       this.threadSummaryStoreInstance = new ThreadSummaryStore(this.db);
     }
     return this.threadSummaryStoreInstance;
-  }
-
-  /** Durable runs + tool intents (`run_task`, `tool_intent`). */
-  get runTasks(): RunTaskStore {
-    if (!this.runTaskStoreInstance) {
-      this.runTaskStoreInstance = new RunTaskStore(this.db, {
-        transaction: (work) => this.withImmediateTransaction(work),
-      });
-    }
-    return this.runTaskStoreInstance;
-  }
-
-  /**
-   * Commit a run's durable progress atomically with whatever thread writes
-   * `work` makes (pi-durable's commit callback): e.g. a turn's assistant/tool
-   * group lands in `thread_entry` in the same transaction that clears the
-   * run's pending checkpoint. Nested calls join the outer transaction.
-   */
-  commitRun<T>(work: (runTasks: RunTaskStore) => T): T {
-    return this.withImmediateTransaction(() => work(this.runTasks));
   }
 
   /* ------------------------------------------------------------------ */

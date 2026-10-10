@@ -6,7 +6,6 @@ import os from "os";
 import path from "path";
 import { extractAttachImageBlocks } from "../agent-runtime/tool-adapters.js";
 import { executeToolWithInactivityBound } from "./tool-inactivity.js";
-import { SAFETY_ABORT_FABLE_ATTEMPTS } from "../agent-runtime/provider-abort-containment.js";
 import { sanitizeSensitiveData } from "@stella/contracts/sensitive-data";
 import {
   CLAUDE_CODE_MODEL_ALIASES,
@@ -23,10 +22,17 @@ import { getClaudeCodeConfig } from "../storage/local-llm-credential-access.js";
 const CLAUDE_CODE_MODEL_PREFIX = "claude-code/";
 /**
  * Model the fable fallback policy switches a turn to after the configured
- * fable model exhausts its attempts (matches the stella engine's
- * safety-swap target in provider-abort-containment.ts).
+ * fable model exhausts its attempts.
  */
 const CLAUDE_CODE_FALLBACK_MODEL = "claude-opus-4-8";
+/**
+ * Total consecutive attempts the configured fable model gets on a safety
+ * refusal before the turn swaps to CLAUDE_CODE_FALLBACK_MODEL (1 initial +
+ * 2 retries). Refusals are stochastic enough that a plain retry often clears
+ * them; the swap is the last resort, and the configured model comes back
+ * next turn.
+ */
+const SAFETY_ABORT_FABLE_ATTEMPTS = 3;
 /**
  * CLI error text for a model-side refusal (safety / Usage Policy stop) or
  * an exhausted-overload failure — the two failures where retrying the

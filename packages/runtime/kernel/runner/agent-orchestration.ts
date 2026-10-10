@@ -5,9 +5,11 @@ import {
 } from "../model-routing.js";
 import { withStellaModelCatalogMetadata } from "../stella-model-catalog.js";
 import {
+  getAgentRuntimeEngine,
   getMaxAgentConcurrency,
   getModelOverride,
 } from "../preferences/local-preferences.js";
+import { desktopPiChatEnabled } from "@stella/contracts/pi-chat";
 import { runSubagentTask, shutdownSubagentRuntimes } from "../agent-runtime.js";
 import { createAgentLifecycleResponseTarget } from "../agent-runtime/response-target.js";
 import { persistThreadCustomMessage } from "../agent-runtime/thread-memory.js";
@@ -30,10 +32,7 @@ import type { AgentMessageDeviceOutcome } from "@stella/contracts/turn-plane/pla
 import { buildAgentEventPrompt } from "./shared.js";
 import type { LocalChatEventRecord } from "../storage/shared.js";
 import type { ThreadActivityRecord } from "@stella/contracts/local-chat";
-import {
-  createRunnerImageDescriptionService,
-  createRunnerSiteConfig,
-} from "./model-selection.js";
+import { createRunnerSiteConfig } from "./model-selection.js";
 import { RUNTIME_PRIVATE_TASK_LIFECYCLE_CUSTOM_TYPE } from "../storage/shared.js";
 import type { ComputerAgentCloudRecords } from "./computer-agent-cloud-records.js";
 import {
@@ -522,27 +521,52 @@ export const createAgentOrchestration = (
       ) {
         return;
       }
-      await deps.sendMessage({
-        conversationId: event.conversationId,
-        text: orchestratorPrompt,
-        uiVisibility: "hidden",
-        agentType: AGENT_IDS.ORCHESTRATOR,
-        deliverAs: "steer",
-        callbackRunId: event.rootRunId,
-        customType: "runtime.task_lifecycle",
-        ...(event.ownerGeneration
-          ? { ownerGeneration: event.ownerGeneration }
-          : {}),
-        ...(deliveryEventId ? { eventId: deliveryEventId } : {}),
-        display: false,
-        responseTarget: createAgentLifecycleResponseTarget({
-          agentId: event.agentId,
-          eventType: event.type,
-          ...(event.type === "agent-completed" && event.eventId
-            ? { completionEventId: event.eventId }
+      if (desktopPiChatEnabled(getAgentRuntimeEngine(context.stellaDataDir))) {
+        const deliver = context.state.piReportDelivery;
+        if (!deliver) {
+          throw new Error(
+            "Stella's chat is not ready to take this agent report yet.",
+          );
+        }
+        await deliver({
+          conversationId: event.conversationId,
+          requestId: `agent-report:${
+            deliveryEventId ??
+            `${event.agentId}:${event.attemptGeneration ?? 0}:${event.type}`
+          }`,
+          text: orchestratorPrompt,
+        });
+        persistThreadCustomMessage(context.runtimeStore, {
+          threadKey: orchestratorThreadKey,
+          customType: TASK_LIFECYCLE_CUSTOM_TYPE,
+          content: [{ type: "text", text: orchestratorPrompt }],
+          display: false,
+          timestamp: Date.now(),
+          ...(deliveryEventId ? { eventId: deliveryEventId } : {}),
+        });
+      } else {
+        await deps.sendMessage({
+          conversationId: event.conversationId,
+          text: orchestratorPrompt,
+          uiVisibility: "hidden",
+          agentType: AGENT_IDS.ORCHESTRATOR,
+          deliverAs: "steer",
+          callbackRunId: event.rootRunId,
+          customType: "runtime.task_lifecycle",
+          ...(event.ownerGeneration
+            ? { ownerGeneration: event.ownerGeneration }
             : {}),
-        }),
-      });
+          ...(deliveryEventId ? { eventId: deliveryEventId } : {}),
+          display: false,
+          responseTarget: createAgentLifecycleResponseTarget({
+            agentId: event.agentId,
+            eventType: event.type,
+            ...(event.type === "agent-completed" && event.eventId
+              ? { completionEventId: event.eventId }
+              : {}),
+          }),
+        });
+      }
     } finally {
       if (deliveryEventId) inFlightLifecycleEventIds.delete(deliveryEventId);
     }
@@ -618,8 +642,6 @@ export const createAgentOrchestration = (
         settled: attempt.settled,
       }),
     runSubagent: async ({
-      durableRunId,
-      resume,
       conversationId,
       userMessageId,
       agentType,
@@ -633,19 +655,14 @@ export const createAgentOrchestration = (
       persistToCloud,
       ownerGeneration,
       abortSignal,
-      subagentSession,
+      steering,
       onProgress,
       onStatus,
       onToolStart,
       onToolEnd,
       toolExecutor,
     }: Record<string, any>) => {
-      // Manager attempts run durably under the id the manager minted (or,
-      // resuming, the dead run's id); ephemeral workflow agents do not.
-      const runId =
-        typeof durableRunId === "string" && durableRunId
-          ? durableRunId
-          : `local:sub:${crypto.randomUUID()}`;
+      const runId = `local:sub:${crypto.randomUUID()}`;
       const site = createRunnerSiteConfig(context);
       const resolvedLlm =
         agentContext.resolvedLlm ??
@@ -682,15 +699,6 @@ export const createAgentOrchestration = (
       const composedUserPrompt = `${taskDescription}\n\n${taskPrompt}`;
 
       const result = await runSubagentTask({
-        ...(typeof durableRunId === "string" && durableRunId
-          ? {
-              durable: {
-                launch: { kind: "agent", threadId: agentId },
-                background: true,
-              },
-            }
-          : {}),
-        ...(resume ? { resume } : {}),
         executionHost: "device",
         conversationId,
         storageMode: persistToCloud ? "cloud" : "local",
@@ -716,10 +724,6 @@ export const createAgentOrchestration = (
         deviceId: context.deviceId,
         stellaDataDir: context.stellaDataDir,
         resolvedLlm,
-        describeImages: createRunnerImageDescriptionService(
-          context,
-          resolvedLlm,
-        ),
         store: context.runtimeStore,
         abortSignal,
         stellaAppDir: context.stellaAppDir,
@@ -732,7 +736,7 @@ export const createAgentOrchestration = (
             settled: resource.settled,
           }),
         ...(toolWorkspaceRoot ? { toolWorkspaceRoot } : {}),
-        ...(subagentSession ? { subagentSession } : {}),
+        ...(steering ? { steering } : {}),
         compactionScheduler: context.state.compactionScheduler,
         onProgress,
         ...(context.appendLocalChatEvent
@@ -889,54 +893,6 @@ export const createAgentOrchestration = (
       context.runtimeStore.listAgentRecordsByStatus?.(status) ?? [],
     persistBootInterruptionSnapshot: (threads: any) =>
       writeRestartInterruptedSnapshot(context.stellaDataDir, threads),
-    // Durable agent runs (`run-task.ts`): a thread still running at boot
-    // whose run the recovery plan kept resumable resumes instead of being
-    // canceled; aborts are marked before they signal; a graceful stop
-    // suspends live runs instead of canceling them.
-    findResumableAgentRun: (record: { threadId: string }) => {
-      const row = context.runtimeStore.runTasks?.resumableForThread(
-        record.threadId,
-      );
-      return row && row.checkpoint.launch?.kind === "agent"
-        ? { runId: row.runId }
-        : null;
-    },
-    claimAgentResume: (runId: string) => {
-      const runTasks = context.runtimeStore.runTasks;
-      if (!runTasks?.isResumable(runId)) return null;
-      const record = runTasks.get(runId);
-      if (!record) return null;
-      const resumeCount = runTasks.markResumed(runId);
-      return {
-        record: { ...record, resumeCount },
-        intents: runTasks.listIntents(runId),
-      };
-    },
-    abandonAgentRun: (runId: string) => {
-      context.runtimeStore.runTasks?.abandon(runId);
-    },
-    abandonUnclaimedAgentRuns: (claimedRunIds: string[]) => {
-      const runTasks = context.runtimeStore.runTasks;
-      if (!runTasks) return;
-      const claimed = new Set(claimedRunIds);
-      for (const row of runTasks.recoveryPlan().resumable) {
-        if (row.checkpoint.launch?.kind !== "agent") continue;
-        if (claimed.has(row.runId)) continue;
-        runTasks.abandon(row.runId);
-      }
-    },
-    requestRunAbort: (runId: string) => {
-      context.runtimeStore.runTasks?.requestAbort(runId);
-    },
-    finishAgentRun: (runId: string, status: "failed" | "canceled") => {
-      context.runtimeStore.runTasks?.finish(runId, status);
-    },
-    isRunSuspended: (runId: string) =>
-      context.runtimeStore.runTasks?.isSuspended(runId) ?? false,
-    isCloudAgentAdmissionReady: () =>
-      context.state.hasConnectedAccount === true &&
-      Boolean(context.state.authToken?.trim()) &&
-      Boolean(context.backend.client()),
     // The persisted terminal-receipt replay is off the boot critical path: it
     // parks until the runtime has started and initialized, so the wake it
     // repairs can actually be admitted (a parent wake needs the installed

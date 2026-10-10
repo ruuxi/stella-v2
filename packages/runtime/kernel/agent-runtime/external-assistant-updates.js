@@ -19,7 +19,6 @@ const EMPTY_USAGE = {
 const persistAssistantUpdate = (args, preamble) => {
   const text = preamble.trim();
   if (!text) return;
-  const claude = args.engine === "claude_code";
   persistThreadPayloadMessage(args.store, {
     threadKey: args.threadKey,
     ...(args.runId ? { runId: args.runId } : {}),
@@ -29,9 +28,9 @@ const persistAssistantUpdate = (args, preamble) => {
     payload: {
       role: "assistant",
       content: [{ type: "text", text }],
-      api: claude ? "anthropic-messages" : "chatgpt-responses",
-      provider: claude ? "anthropic" : "chatgpt",
-      model: claude ? "claude-code" : "codex",
+      api: "anthropic-messages",
+      provider: "anthropic",
+      model: "claude-code",
       usage: EMPTY_USAGE,
       stopReason: "toolUse",
       timestamp: now(),

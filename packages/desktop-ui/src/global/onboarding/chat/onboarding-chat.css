@@ -223,6 +223,11 @@
   gap: 8px;
 }
 
+.obc-phone-app {
+  align-items: center;
+  padding: 4px 0;
+}
+
 .obc-card__settled-icon {
   display: inline-flex;
   align-items: center;

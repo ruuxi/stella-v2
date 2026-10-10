@@ -3,8 +3,7 @@ import {
   parseCloudTurnAttemptDirectory,
 } from "@stella/contracts/cloud-turn-attempt";
 import { loadModelRegistry } from "@stella/contracts/model-registry";
-import { registerBuiltInApiProviders } from "@stella/runtime/ai/providers/register-builtins.js";
-import "@stella/runtime/ai/utils/http-proxy.js";
+import "@stella/runtime/kernel/shared/http-proxy.js";
 import { forkAbortTimer } from "@stella/runtime/kernel/tools/effect-runtime.js";
 import { Effect } from "effect";
 import { readFile, rm, writeFile } from "node:fs/promises";
@@ -19,10 +18,8 @@ import {
   writeAttachedToolDaemonIdentity,
 } from "./attached-tool-host.js";
 import { attachedToolPathsForDirectory } from "./attached-tool-protocol.js";
-import { runStubTurn } from "./stub-turn.js";
 
 await loadModelRegistry();
-registerBuiltInApiProviders();
 
 // The daemon and the one-call client never produce a turn result, so they exit
 // before the turn-result plumbing below.
@@ -79,34 +76,24 @@ if (process.argv.includes("--attached-tool-client")) {
   process.exit(0);
 }
 
-const agentTurn = process.argv.includes("--agent-turn");
+if (!process.argv.includes("--agent-turn")) {
+  throw new Error("executor-cloud requires a supported command.");
+}
 const attemptFlag = process.argv.indexOf(CLOUD_TURN_ATTEMPT_DIRECTORY_FLAG);
-const attempt = agentTurn
-  ? parseCloudTurnAttemptDirectory(
-      attemptFlag >= 0 ? process.argv[attemptFlag + 1] : undefined,
-    )
-  : null;
-if (agentTurn && !attempt) {
+const attempt = parseCloudTurnAttemptDirectory(
+  attemptFlag >= 0 ? process.argv[attemptFlag + 1] : undefined,
+);
+if (!attempt) {
   throw new Error(
     `Agent turn requires ${CLOUD_TURN_ATTEMPT_DIRECTORY_FLAG} <attempt directory>.`,
   );
 }
-const result = process.argv.includes("--stub")
-  ? await Effect.runPromise(
-      runStubTurn(process.env.STELLA_CLOUD_WORKSPACE_ROOT ?? "/workspace"),
-    )
-  : attempt
-    ? await Effect.runPromise(runAgentTurn(attempt))
-    : (() => {
-        throw new Error("executor-cloud requires a supported command.");
-      })();
+const result = await Effect.runPromise(runAgentTurn(attempt));
 const serialized = JSON.stringify(result);
-if (attempt) {
-  await writeFile(attempt.result, `${serialized}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-}
+await writeFile(attempt.result, `${serialized}\n`, {
+  encoding: "utf8",
+  mode: 0o600,
+});
 // Keep stdout for compatibility and diagnostics, but never let a lost pipe ACK
 // hold the one-shot executor past Builder's durable-recovery alarm. Agent turns
 // already flushed the authoritative root-only result above.

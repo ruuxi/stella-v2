@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Couldn't load this thread",
+        "errorBody": "Close it and open it again in a moment."
       },
       "generatedImage": {
         "generating": "Generating...",
@@ -182,13 +184,10 @@
       "messageActions": {
         "copied": "Copied",
         "copy": "Copy",
-        "fork": "Fork to new chat",
         "more": "More actions",
         "quote": "Quote",
         "readAloud": "Read aloud",
         "reply": "Reply",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Stop reading"
@@ -622,7 +621,7 @@
       "confirmBody": "Stella will ask you to sign in again next time.",
       "confirmTitle": "Sign out of all sites?",
       "defaultProfile": "Saved sign-ins",
-      "description": "Sites Stella has signed in to for you. Reset to sign out of all of them.",
+      "description": "Sites Stella has signed in to for you.",
       "reset": "Reset",
       "resetComplete": "Signed out of all sites.",
       "resetFailed": "Couldn't sign out. Try again.",
@@ -833,7 +832,6 @@
     },
     "integrations": {
       "connectStellaApp": "Connect to Stella App",
-      "connectStellaAppSub": "Pair the Stella app on your phone with this computer",
       "connectTitle": "Connect",
       "connected": "Connected",
       "credential": {
@@ -849,11 +847,16 @@
         "saving": "Saving...",
         "title": "Connect {provider}"
       },
-      "heroTagline": "Message Stella from any platform you like — chat naturally, or ask it to get things done right on your computer.",
       "phoneTitle": "Your phone",
       "signInHeadline": "Sign in to get started",
       "signInSub": "Sign in to your Stella account to connect {provider}.",
-      "signInToConnect": "Sign in to Stella to connect"
+      "signInToConnect": "Sign in to Stella to connect",
+      "getApp": {
+        "appStoreQrAlt": "Scan to download Stella from the App Store",
+        "platformLabel": "Choose a mobile platform",
+        "playStoreQrAlt": "Scan to download Stella from Google Play",
+        "title": "Get the app"
+      }
     },
     "legal": {
       "privacy": {
@@ -905,9 +908,16 @@
         "title": "This conversation"
       },
       "files": {
-        "empty": "No files yet. Anything Stella produces shows up here.",
+        "empty": "Files from Stella show up here.",
         "emptyFiltered": "No files match.",
-        "searchPlaceholder": "Search files"
+        "filterAll": "All files",
+        "filterLabel": "Filter and sort files",
+        "searchPlaceholder": "Search files",
+        "sortName": "Name",
+        "sortNewest": "Newest first",
+        "sortOldest": "Oldest first",
+        "sourceCloud": "Cloud",
+        "sourceUpload": "Sent by you"
       },
       "schedule": {
         "actionFailed": "That didn’t go through.",
@@ -915,7 +925,9 @@
         "customCadence": "Custom schedule",
         "deleteConfirm": "“{title}” will stop running.",
         "deleteSchedule": "Delete schedule",
-        "empty": "No schedules yet. Ask Stella on your computer to run something regularly and it shows up here.",
+        "empty": "Nothing scheduled yet.",
+        "emptyAction": "Schedule something",
+        "emptyActionPrompt": "Remind me to ",
         "lastRunFailed": "Last run failed: {error}",
         "loadFailed": "Couldn’t load schedules.",
         "next": "Next {when}",
@@ -940,6 +952,11 @@
         "stopped": "Stopped",
         "working": "Working in background"
       }
+    },
+    "apps": {
+      "empty": "Apps Stella builds for you live here.",
+      "emptyAction": "Build an app",
+      "emptyActionPrompt": "Build me an app that "
     },
     "authCallback": {
       "backToSignIn": "Back to sign in",
@@ -1006,7 +1023,6 @@
       "disconnectedLabel": "Computer disconnected",
       "guestHeroBody": "Ask Stella to do things on your computer — browse the web, manage files, run tasks, and more.",
       "guestHeroTitle": "Your computer, at your fingertips",
-      "pairLabel": "Pair a computer",
       "statusAsleep": "Asleep",
       "statusChecking": "Checking…",
       "statusConnected": "Connected"
@@ -1014,20 +1030,11 @@
     "desktop": {
       "connecting": "Connecting to desktop",
       "deviceUnreachable": "Your {platform} isn't reachable",
-      "enterCode": "Enter the code shown on your computer.",
-      "guestBody": "See your Stella desktop app right on your phone. After pairing, your phone will reconnect automatically.",
       "guestSignInPrompt": "Sign in to get started.",
       "limitedCapabilities": "Some things need your computer",
       "linkInterrupted": "The link to your computer was interrupted.",
-      "pairAnother": "Pair another computer",
-      "pairTitle": "Pair your phone",
-      "pairing": "Pairing this phone",
       "reconnecting": "Reconnecting...",
-      "repairNeeded": "This phone needs to be paired with your computer again.",
       "retryLabel": "Try connecting again",
-      "startPairingLabel": "Start pairing a computer",
-      "unavailableBodyPaired": "Make sure Stella is open on your computer and connected to the internet. Once connected, your desktop app will appear right here on your phone.",
-      "unavailableBodyUnpaired": "See your Stella desktop app right on your phone. Scan the QR code shown in Stella on your computer to get started — after that, your phone will reconnect automatically.",
       "unreachable": "Can't reach your desktop"
     },
     "engineAccounts": {
@@ -1140,26 +1147,28 @@
         "signInBody": "Keep your conversation, settings and connected computer on every device.",
         "signInTitle": "Sign in to Stella",
         "skip": "Skip for now",
-        "subscriptionsBody": "Already pay for Claude or ChatGPT? Connect it and I'll use it in the cloud. Your computers use their own sign-ins.",
+        "subscriptionsBody": "Use your existing Claude or ChatGPT subscription?",
         "subscriptionsLabel": "Optional"
       },
       "composerPlaceholder": "Or just ask me something",
       "computer": {
-        "body": "Pair this phone with Stella on your computer and I can run tasks there while you're out.",
-        "connectedBody": "Ask from anywhere and I'll do the work on your computer.",
+        "body": "Sign in on your computer and it connects automatically.",
         "connectedTo": "Connected to {name}",
-        "guestHint": "Pairing is tied to your Stella account, so sign in first. I'll pick up right here.",
-        "hint": "On your computer, open Stella and choose Pair phone.",
+        "getDesktop": "Get Stella for desktop",
         "later": "Later",
-        "pair": "Pair my computer",
-        "point1": "Find a file and send it to you",
-        "point2": "Finish an export or a download",
-        "point3": "Use the apps you already have",
-        "settledConnectedDesc": "I can run tasks there from your phone.",
-        "settledSkippedDesc": "You can pair one any time in Settings.",
         "settledSkippedTitle": "No computer yet",
-        "signInToPair": "Sign in to pair",
-        "title": "Your computer, from your pocket"
+        "title": "Stella on your computer"
+      },
+      "gmail": {
+        "body": "Find emails, catch up on threads, and draft replies, just by asking.",
+        "connect": "Connect Gmail",
+        "connected": "Connected",
+        "error": "Couldn't connect Gmail. Try again, or skip for now.",
+        "settledSkippedTitle": "No Gmail for now",
+        "settledTitle": "Gmail connected",
+        "skip": "Not now",
+        "title": "Connect Gmail",
+        "waiting": "Waiting for Google…"
       },
       "hello": {
         "cta": "Show me",
@@ -1183,6 +1192,7 @@
         "account": "Want to keep all of this? A Stella account follows you to every device.",
         "accountSignedIn": "You're signed in, so everything follows you between devices. One optional extra:",
         "computer": "If you have a Mac or PC, I can work on it too.",
+        "gmail": "So much of life runs through email. Connect Gmail and I can help with yours.",
         "hello": "Hi, I'm Stella.\n\nI'm not a chatbot. Tell me what you need and I get it done, in the background, while you get on with your day.",
         "ready": "That's it. I'll get to know you as we go.\n\nWhat should we do first?",
         "showcase": "Here's what that looks like.",
@@ -1216,6 +1226,8 @@
         "accountSkipped": "Skip for now.",
         "computerDone": "Connected!",
         "computerSkipped": "Maybe later.",
+        "gmailDone": "Done.",
+        "gmailSkipped": "Not now.",
         "helloDone": "Show me.",
         "showcaseDone": "Got it.",
         "themeDone": "That one.",
@@ -1364,7 +1376,6 @@
         "enableFailedTitle": "Couldn't enable that computer",
         "enableLabel": "Enable {name}",
         "enabling": "Enabling…",
-        "pairingCode": "Use a pairing code",
         "sectionLabel": "Where Stella works",
         "statusAwaitingConsent": "Waiting for permission on that computer",
         "statusDeclined": "Declined on that computer",
@@ -1380,10 +1391,6 @@
       "deleteConfirmTitle": "Delete account",
       "deleteFailedTitle": "Could not delete account",
       "deletingAccount": "Deleting account…",
-      "forget": "Forget",
-      "forgetConfirmBody": "This phone will stop reconnecting to that computer until you pair it again.",
-      "forgetConfirmTitle": "Forget {name}?",
-      "forgetLabel": "Forget {name}",
       "hideEmailLabel": "Hide email",
       "loadingSession": "Loading session…",
       "notificationsSection": "Notifications",
@@ -1393,9 +1400,6 @@
       "paired": {
         "unnamedComputer": "Computer · {id}"
       },
-      "pairedEmpty": "No computers paired yet.",
-      "pairedOn": "Paired {date}",
-      "pairedSection": "Paired computers",
       "privacyPolicy": "Privacy Policy",
       "pushToggleA11y": "Toggle push notifications",
       "pushToggleLabel": "Allow push notifications",
@@ -1546,6 +1550,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "Find emails, catch up on threads, and draft replies, just by asking.",
+        "connect": "Connect Gmail",
+        "connected": "Connected",
+        "connecting": "Waiting for Google…",
+        "error": "Couldn't connect Gmail. Try again, or skip for now.",
+        "settledDesc": "Manage it any time in Connectors.",
+        "settledSkippedTitle": "No Gmail for now",
+        "settledTitle": "Gmail connected",
+        "skip": "Not now",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1559,7 +1575,9 @@
       "messages": {
         "capabilities": "Hi, I'm Stella.\n\nI'm not a chatbot. I use this computer to actually get things done for you, in the background, while you keep going.\n\nHere's what that looks like.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "So much of life runs through email. Connect Gmail and I can help with yours.",
         "memory": "One more thing that makes me different.",
+        "phone": "I'm on your phone too.",
         "quickstart": "That's everything. One last thing, and it's optional: a quickstart.",
         "quickstartDone": "Done. Here's what I picked up, and a few things we could start with.",
         "quickstartFailed": "I couldn't finish reading your browser this time. We can start anyway, and I'll learn as we go.",
@@ -1617,6 +1635,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "Done.",
+        "gmailSkipped": "Not now.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Very cool.",
@@ -1720,24 +1740,24 @@
           "syncing": "Syncing…"
         },
         "memory": {
-          "error": "Couldn't sync just now. Stella will try again.",
-          "heldOtherAccount": "This computer's memory syncs with a different Stella account, so it stays out of this one.",
-          "heldWiped": "Paused. Cloud memory was erased, and this computer still has memory from before. Choose below what happens to it.",
-          "lastSynced": "Last synced {time}.",
-          "merging": "Changed here and in the cloud at the same time. A background agent is merging the two.",
-          "off": "Memory is off, so nothing syncs.",
-          "refused": "Too long to sync, so kept on this computer only: {files}",
-          "signedOut": "Sign in to keep memory the same on this computer and in the cloud.",
-          "synced": "Kept the same on this computer and in the cloud. A change on either side syncs to the other.",
-          "syncing": "Syncing with the cloud…"
+          "error": "Couldn't sync. Retrying soon.",
+          "heldOtherAccount": "Synced with a different Stella account.",
+          "heldWiped": "Paused after cloud Memory was erased. Choose below.",
+          "lastSynced": "Synced {time}",
+          "merging": "Merging changes from both sides…",
+          "off": "Memory is off.",
+          "refused": "Too large to sync: {files}",
+          "signedOut": "Sign in to sync.",
+          "synced": "Synced",
+          "syncing": "Syncing…"
         },
         "skillsLabel": "Skills",
         "summary": {
-          "attention": "Cloud Home kept existing cloud copies where local data differed. Review the details below.",
-          "checking": "Checking this computer's skills…",
-          "current": "Cloud Home is current. Skill packages uploaded: {skillCount}.",
-          "intro": "Stella securely uploads this computer's custom skills to your cloud account.",
-          "unavailable": "Cloud Home sync is currently unavailable."
+          "attention": "Some skills differ from the cloud copies.",
+          "checking": "Checking…",
+          "current": "Up to date · {skillCount} uploaded",
+          "intro": "Uploads this computer's custom skills.",
+          "unavailable": "Unavailable right now."
         },
         "title": "Cloud Home"
       },
@@ -1769,7 +1789,7 @@
         "view": "View"
       },
       "signOut": {
-        "action": "Sign Out",
+        "action": "Sign out",
         "description": "Sign out of Stella on this device.",
         "label": "Sign out"
       },
@@ -1847,10 +1867,10 @@
       "microphoneDeviceFallback": "Microphone {index}",
       "recovery": {
         "closing": "Closing…",
-        "manageDescription": "If the microphone permission ever gets stuck, you can reset it and ask macOS to prompt again.",
+        "manageDescription": "Reset the mic permission if it gets stuck.",
         "manageLabel": "Manage microphone access",
         "openSettings": "Open Settings",
-        "recoverDescription": "Once you've said no, macOS won't ask again on its own. Reset the permission, then quit and reopen Stella.",
+        "recoverDescription": "macOS won’t ask again. Reset it, then reopen Stella.",
         "recoverLabel": "Recover microphone access",
         "reset": "Reset & Restart"
       },
@@ -1863,22 +1883,22 @@
       },
       "speakerDeviceFallback": "Speaker {index}",
       "superFast": {
-        "description": "Keep the microphone warm so dictation starts with less delay.",
+        "description": "Keep the mic warm so dictation starts faster.",
         "label": "Super Fast dictation"
       },
       "systemDefault": "System default",
       "wakeWord": {
-        "description": "Listen for \"Hey Stella\" in the background and start a voice conversation. When off, mic stays idle until you press dictate.",
+        "description": "Say “Hey Stella” to start a voice conversation.",
         "label": "Hey Stella wake word"
       }
     },
     "browserExtension": {
       "action": "Get extension",
-      "description": "Lets Stella see the page you're on and take actions in your browser.",
+      "description": "Let Stella see and act in your browser.",
       "title": "Stella for Chrome"
     },
     "chatStorage": {
-      "description": "Access your chats across devices. Turn off to keep a separate chat history only on this computer. Switching back won’t upload those chats. AI providers still process your messages.",
+      "description": "Sync chats across devices. Off keeps them on this computer.",
       "endVoice": "End your voice conversation to change chat storage.",
       "error": "Couldn’t change chat storage. Try again.",
       "title": "Save chat history in the cloud"
@@ -1897,13 +1917,13 @@
       "upgrade": "Upgrade"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "A small Stella floating over your desktop.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "API key",
-      "empty": "No providers connected yet. Pick a non-Stella option in the model picker above to add an API key or sign in.",
+      "empty": "No providers yet. Add one from the model picker above.",
       "removeKey": "Remove key",
       "removingKey": "Removing…",
       "signOut": "Sign out",
@@ -1922,7 +1942,7 @@
       "addClaude": "Add Claude account",
       "addInCloud": "In the cloud",
       "addOnComputer": "On this computer",
-      "cardIntro": "Use the Claude or ChatGPT plan you already pay for. A sign-in stays where it was made: this computer, or your cloud.",
+      "cardIntro": "Use the Claude or ChatGPT plan you already pay for.",
       "cardTitle": "Claude & ChatGPT accounts",
       "chatgptBrowserWaiting": "Finish signing in to ChatGPT in your browser.",
       "chatgptCloudSignedIn": "Your cloud is signed in to ChatGPT.",
@@ -1943,7 +1963,7 @@
         "whereComputer": "Signing in to Claude Code on this computer."
       },
       "claudeTitle": "Claude",
-      "cliMissing": "Claude Code isn't installed on this computer. Install it to use Claude here.",
+      "cliMissing": "Install Claude Code on this computer to use Claude here.",
       "connecting": "Connecting…",
       "defaultSignedOut": "Claude Code on this computer isn't signed in.",
       "enablePlanUsage": "Enable ChatGPT plan use",
@@ -1954,14 +1974,14 @@
       "needsChatgptCloud": "Sign in to ChatGPT in the cloud first",
       "needsClaudeCloud": "Sign in to Claude in the cloud first",
       "openChatgptAgain": "Open ChatGPT again",
-      "pasteHintChatgpt": "After you approve, ChatGPT sends you to a page that doesn't load. Copy that page's full address and paste it here.",
+      "pasteHintChatgpt": "Copy the address of the page ChatGPT opens and paste it here.",
       "pastePlaceholderUrl": "Paste the address here",
       "placeCloud": "Cloud",
       "placeComputer": "This computer",
       "placeOtherComputer": "Another computer",
       "placeSignedIn": "{place}: signed in",
       "placeSignedOut": "{place}: not signed in",
-      "planUsageOffBody": "Stella can't use your ChatGPT plan until you allow it. Choose “Enable ChatGPT plan use” on the account, or use another model.",
+      "planUsageOffBody": "Choose “Enable ChatGPT plan use” on the account, or pick another model.",
       "planUsageOffTitle": "Signed in, but ChatGPT plan use isn't enabled",
       "remove": "Remove",
       "removed": "Removed.",
@@ -2018,7 +2038,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "How hard Stella tries to reach you when it needs an answer.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2053,16 +2073,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2076,16 +2091,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Choose the language Stella uses across the app and when responding to you.",
+      "description": "For the app and Stella’s replies.",
       "title": "Language"
     },
     "lockedComputerUse": {
-      "description": "Let Stella continue computer-use tasks after this Mac locks. Requires an administrator prompt and covers the screen while Stella works.",
+      "description": "Keep computer-use tasks running after this Mac locks.",
       "title": "Locked computer use",
       "unsupported": "Locked computer use is only available on macOS."
     },
     "memory": {
-      "description": "Include saved memories and your profile in Stella’s model context. Your computers and the cloud keep the same memory, encrypted in transit and at rest. Turning this off pauses that and leaves memory out of future turns, but doesn’t delete it.",
+      "description": "Use saved memories in replies. Turning off doesn’t delete them.",
       "title": "Memory"
     },
     "modelPicker": {
@@ -2119,7 +2134,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Use any local OpenAI-compatible server. Ollama usually runs at the URL below.",
+        "hint": "Any local OpenAI-compatible server, like Ollama.",
         "modelNameAriaLabel": "Local model name",
         "serverUrlAriaLabel": "Local server URL"
       },
@@ -2163,7 +2178,7 @@
       "title": "Motion"
     },
     "nativeFontSmoothing": {
-      "description": "Render text the way macOS apps do, with grayscale anti-aliasing.",
+      "description": "Grayscale anti-aliasing, like native macOS apps.",
       "title": "Native font smoothing"
     },
     "notifications": {
@@ -2172,18 +2187,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Run onboarding again. Your data stays.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Lets Stella read selected text and open from the ⌘+right-click shortcut anywhere on your computer.",
+        "description": "Read selected text and open with ⌘+right-click.",
         "label": "Accessibility"
       },
       "enable": "Enable",
       "granted": "Granted",
       "microphone": {
-        "description": "Used for voice and dictation. Reset if Stella was previously denied and macOS won't prompt again.",
+        "description": "For voice and dictation.",
         "label": "Microphone"
       },
       "opening": "Opening…",
@@ -2192,55 +2207,14 @@
       "restart": {
         "action": "Restart",
         "closing": "Closing…",
-        "description": "Screen capture was just turned on. Quit and reopen Stella to finish setting it up.",
+        "description": "Reopen Stella to finish turning on screen capture.",
         "label": "Restart Stella"
       },
       "screen": {
-        "description": "Lets Stella see your screen so it can help with what you're looking at. You may need to quit and reopen Stella after turning this on.",
+        "description": "Let Stella see what’s on your screen.",
         "label": "Screen Capture"
       },
       "title": "Permissions"
-    },
-    "phoneAccess": {
-      "copy": "Copy",
-      "deviceFallback": "Phone",
-      "errors": {
-        "createPairing": "Unable to create a pairing code."
-      },
-      "expired": "Expired",
-      "getCode": "Get Code",
-      "intro": {
-        "headline": "Connect your phone to your computer"
-      },
-      "pairedCount": {
-        "one": "{count} phone paired",
-        "other": "{count} phones paired"
-      },
-      "pairing": {
-        "body": "Open the Stella app on your phone and scan the QR code, or type in the code below. You only need to do this once.",
-        "headline": "Scan or enter this code",
-        "qrAlt": "Scan to pair your phone"
-      },
-      "preparing": "Preparing...",
-      "remove": "Remove",
-      "removing": "Removing...",
-      "signedOut": {
-        "body": "Sign in to your Stella account to pair with the mobile app.",
-        "headline": "Sign in to get started"
-      },
-      "steps": {
-        "appStoreQrAlt": "Scan to download Stella from the App Store",
-        "connect": "Connect your phone",
-        "download": "Download the app",
-        "platformSelectorLabel": "Choose a mobile platform",
-        "playStoreQrAlt": "Scan to download Stella from Google Play"
-      },
-      "timeLeft": "{time} left",
-      "toasts": {
-        "codeCopied": "Code copied to clipboard",
-        "phoneRemoved": "Phone removed",
-        "removeFailed": "Failed to remove phone"
-      }
     },
     "power": {
       "description": "Stop your computer from sleeping while Stella is open.",
@@ -2253,7 +2227,7 @@
         "description": "Route Stella’s chat assistant through {provider}.",
         "label": "Assistant"
       },
-      "description": "{provider} can power more than one part of Stella. Pick where you’d like it to take over — Stella keeps doing the rest.",
+      "description": "Choose what {provider} should power.",
       "errors": {
         "apply": "Failed to apply provider settings."
       },
@@ -2282,7 +2256,7 @@
     },
     "resetCustomizations": {
       "action": "Restore defaults",
-      "description": "Remove your skill customizations and personality edits so Stella's shipped defaults apply. Anything removed is kept in ~/.stella/.trash in case you want it back.",
+      "description": "Restore default skills and personality. Old files go to ~/.stella/.trash.",
       "done": "Defaults restored. Your previous customizations were moved to ~/.stella/.trash.",
       "error": "Could not restore defaults.",
       "none": "You're already using Stella's defaults.",
@@ -2316,7 +2290,7 @@
       "change": "Change",
       "clear": "Clear",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Press to start dictating, press again to finish."
       },
       "errors": {
         "load": "Failed to load shortcuts.",
@@ -2354,7 +2328,7 @@
       "defaultOption": "Stella's default",
       "delete": "Delete",
       "deleted": "Prompt deleted.",
-      "description": "Stella's default prompt always updates with the app. Save your own prompt to use instead — it's kept separately, so updates never overwrite it.",
+      "description": "Use your own prompt instead of Stella’s default.",
       "duplicate": "Duplicate",
       "edit": "Edit",
       "error": "Something went wrong.",
@@ -2371,11 +2345,12 @@
       "account": "Account & Legal",
       "audio": "Audio",
       "general": "General",
-      "shortcuts": "Shortcuts"
+      "shortcuts": "Shortcuts",
+      "privacy": "Privacy"
     },
     "title": "Settings",
     "voiceAgent": {
-      "description": "Show the voice and call controls so you can talk to Stella out loud. Dictation keeps working either way.",
+      "description": "Show voice and call controls. Dictation works either way.",
       "error": "Couldn't update the voice setting.",
       "title": "Voice conversations"
     },
@@ -2397,6 +2372,13 @@
         "openai": "OpenAI voices",
         "xai": "Grok voices"
       }
+    },
+    "groups": {
+      "app": "App",
+      "personal": "Personal"
+    },
+    "nav": {
+      "more": "More"
     }
   },
   "shell": {
@@ -2417,6 +2399,7 @@
       "undoneAgo": "Undone {ago}",
       "undoneJustNow": "Undone just now",
       "update": "Update",
+      "updateAvailable": "Update available",
       "updatedAgo": "Updated {ago}",
       "updatedJustNow": "Updated just now",
       "updates": {
@@ -2430,18 +2413,17 @@
         "justNow": "Just now",
         "newVersion": "New version of Stella",
         "newVersionDetail": "Improvements and fixes from the Stella team",
-        "pill": {
-          "one": "{count} update",
-          "other": "{count} updates"
-        },
         "readyChange": "A change ready to add",
         "removed": "Removed: {change}",
         "skip": "Skip",
         "skipped": "Skipped",
         "undoing": "Undoing…",
         "upToDate": "Nothing waiting",
-        "waiting": "Waiting"
-      }
+        "waiting": "Waiting",
+        "upToDateTitle": "You're up to date",
+        "upToDateBody": "New versions of Stella show up here."
+      },
+      "updating": "Updating…"
     },
     "audioPlayer": {
       "pause": "Pause",
@@ -2469,7 +2451,9 @@
       "noMatches": "No connectors match that search.",
       "searchLabel": "Search connectors",
       "searchPlaceholder": "Search",
-      "title": "Connectors"
+      "title": "Connectors",
+      "noMatchesTitle": "No matches",
+      "noMatchesBody": "Try a different name."
     },
     "display": {
       "agentThread": {
@@ -2523,11 +2507,19 @@
       },
       "canvasShare": {
         "copyLink": "Copy link",
-        "empty": "No active shares yet. Publish a canvas to get a public link.",
+        "empty": "No public canvases yet. Make a canvas public to share its link.",
         "expires": "Expires {date}",
         "links": "Links",
         "live": "Canvas is live",
         "loadFailed": "Couldn't load your shares.",
+        "makePrivate": "Make private",
+        "makePublic": "Make public",
+        "noLink": "This canvas has no link yet. Make it public to get one anyone can open.",
+        "openInBrowser": "Open in browser",
+        "privateHint": "Only you can open this link.",
+        "privateLink": "Private link",
+        "public": "Public",
+        "publicHint": "Anyone with the link can view.",
         "publicLink": "Public canvas link",
         "publishFailed": "Couldn't publish this canvas. Please try again.",
         "publishing": "Publishing canvas…",
@@ -2539,8 +2531,12 @@
         "toasts": {
           "copyFailed": "Couldn't copy the link",
           "linkCopied": "Share link copied",
+          "madePrivate": "Link is private now",
+          "madePublic": "Link is public now",
+          "openFailed": "Couldn't open the link",
           "revokeFailed": "Couldn't revoke this share",
-          "revoked": "Share revoked"
+          "revoked": "Share revoked",
+          "visibilityFailed": "Couldn't change who can open this link"
         },
         "untitled": "Untitled canvas"
       },
@@ -2549,7 +2545,10 @@
         "codeChanges": "Code changes",
         "desktopRequired": "Code preview requires the Stella desktop app.",
         "empty": "No file changes yet. When an agent edits code, the changes appear here.",
-        "noChanges": "No changes found."
+        "noChanges": "No changes found.",
+        "emptyTitle": "No changes yet",
+        "emptyBody": "When an agent edits code, the changes show up here.",
+        "noChangesTitle": "No changes"
       },
       "filePreview": {
         "copy": "Copy",
@@ -2584,7 +2583,11 @@
         "revealInFinder": "Reveal in Finder",
         "save": "Save",
         "saveFailed": "Could not save",
-        "saved": "Saved"
+        "saved": "Saved",
+        "zoom": "Zoom image",
+        "imageUnavailable": "Image unavailable",
+        "videoUnavailable": "Video unavailable",
+        "audioUnavailable": "Audio unavailable"
       },
       "office": {
         "frameTitle": "{kind} preview: {title}",
@@ -2610,7 +2613,11 @@
       },
       "preview": {
         "limited": "Preview limited. Save or open the original file to view all content.",
-        "unavailable": "Unable to prepare this preview."
+        "unavailable": "Unable to prepare this preview.",
+        "failedTitle": "Can't show a preview",
+        "failedBody": "Try again, or save the file to open it elsewhere.",
+        "unavailableTitle": "File unavailable",
+        "emptyTitle": "This file is empty"
       },
       "spreadsheet": {
         "column": "Column {index}",
@@ -2632,7 +2639,9 @@
         "pendingPurge": "Pending purge",
         "refresh": "Refresh",
         "title": "Trash",
-        "trashedAgo": "Trashed {time} ago"
+        "trashedAgo": "Trashed {time} ago",
+        "emptyTitle": "Trash is empty",
+        "emptyBody": "Deleted things wait here for 24 hours."
       },
       "url": {
         "eyebrow": "Live preview",

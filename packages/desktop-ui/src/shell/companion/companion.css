@@ -335,6 +335,7 @@
 }
 
 .companion-composer[data-recording] {
+  --composer-dictation-transcript-max-height: 140px;
   border-radius: 22px;
   padding: 8px 10px;
 }

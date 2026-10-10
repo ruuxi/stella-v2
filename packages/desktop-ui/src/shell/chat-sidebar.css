@@ -236,6 +236,7 @@
  * instead of replacing the textarea. */
 .chat-sidebar-form .composer-dictation-row {
   display: none;
+  --composer-dictation-transcript-max-height: calc(3lh + 1px);
 }
 
 .chat-sidebar-form.expanded .composer-dictation-row {

@@ -72,12 +72,12 @@ const piLocalLog = (
   conversationId: string,
 ): import("@stella/agent/host/desktop-local-log").DesktopLocalLog => ({
   read: async (afterSeq, limit) => {
-    const page = session.storage.chatStore.listMessagesAfterSeq(conversationId, afterSeq, limit);
+    const page = session.storage.chatStore.chat.listMessagesAfterSeq(conversationId, afterSeq, limit);
     return { ...page, messages: page.messages.filter((message) => !message.id.startsWith(PI_LOG_ROW)) };
   },
   write: async (message) => {
     const eventId = `${PI_LOG_ROW}${conversationId}:${message.key}`;
-    if (session.storage.chatStore.hasEvent(conversationId, eventId)) return;
+    if (session.storage.chatStore.chat.hasEvent(conversationId, eventId)) return;
     const type = message.role === "user" ? "user_message" : "assistant_message";
     const userMessageId = message.replyTo ? `${PI_LOG_ROW}${conversationId}:${message.replyTo}` : undefined;
     session.storage.appendChatEventAndNotify({
@@ -190,7 +190,7 @@ export const piChatsFor = (
         },
       }),
       localSessions: () =>
-        session.storage.runtimeStore
+        session.storage.runtimeStore.chat
           .listConversationSummaries({ limit: AGENT_DIRECTORY_SESSIONS })
           .conversations.map(({ conversationId, title, updatedAt }) => ({ conversationId, title, updatedAt })),
       agentThreads: {
@@ -428,7 +428,7 @@ export const piPlacementCanceled = (
   session: OpenSession,
   kind: PlacementLocalExecutionKind,
   executionId: string,
-): string | null => getPlacementCancellation({ store: session.storage.runtimeStore, kind, executionId });
+): string | null => getPlacementCancellation({ store: session.storage.runtimeStore.chat, kind, executionId });
 
 /** Keep a placement's cancel, before anything awaits (`piPlacementCanceled`). */
 const persistPiCancel = (
@@ -436,7 +436,7 @@ const persistPiCancel = (
   kind: PlacementLocalExecutionKind,
   executionId: string,
   reason?: string,
-) => persistPlacementCancellation({ store: session.storage.runtimeStore, kind, executionId, ...(reason ? { reason } : {}) });
+) => persistPlacementCancellation({ store: session.storage.runtimeStore.chat, kind, executionId, ...(reason ? { reason } : {}) });
 
 /** Stop a placed chat pi is answering; false when pi has no such run. */
 export const cancelPiPlacement = async (session: OpenSession, placementRunId: string, reason?: string): Promise<boolean> => {

@@ -1,4 +1,5 @@
 import type { EvidenceCard } from "@stella/contracts/chat-evidence";
+import { fileDisplayName } from "@stella/contracts/file-display-name";
 import { Archive, FileSpreadsheet, FileText, Folder, Globe } from "@/ui/icons";
 import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
 import { buildPayloadFromBarePath } from "@/features/chat/lib/derive-turn-resource";
@@ -32,9 +33,8 @@ export const AttachmentPill = ({ card }: { card: EvidenceCard }) => (
     <span className="attachment-pill__glyph" aria-hidden="true">
       <GlyphFor card={card} />
     </span>
-    <span className="attachment-pill__title">{card.title}</span>
-    {card.subtitle ? (
-      <span className="attachment-pill__meta">{card.subtitle}</span>
-    ) : null}
+    <span className="attachment-pill__title">
+      {card.sourcePaths[0] ? fileDisplayName(card.sourcePaths[0]) : card.title}
+    </span>
   </button>
 );

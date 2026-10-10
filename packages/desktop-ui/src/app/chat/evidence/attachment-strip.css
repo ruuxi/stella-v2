@@ -263,13 +263,14 @@
   gap: 6px;
   max-width: 100%;
   padding: 4px 10px 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--foreground) 28%, transparent);
+  border: none;
   border-radius: 999px;
-  background: transparent;
-  color: var(--foreground);
+  background: color-mix(in srgb, var(--chat-text-color, var(--text-strong)) 12%, transparent);
+  color: var(--chat-text-color, var(--text-strong));
   cursor: default;
   font: inherit;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-base);
+  font-weight: var(--weight-medium);
   line-height: 1.4;
   transition:
     background 120ms ease,
@@ -277,49 +278,21 @@
 }
 
 .attachment-pill:hover {
-  border-color: color-mix(in srgb, var(--foreground) 44%, transparent);
-  background: var(--surface-inset);
-}
-
-.event-item.assistant .attachment-pill {
-  border-color: color-mix(in oklch, var(--interactive) 22%, transparent);
-  background: color-mix(in oklch, var(--interactive) 16%, transparent);
-  color: var(--text-strong);
-  font-size: var(--font-size-base);
-  font-weight: var(--weight-medium);
-}
-
-.event-item.assistant .attachment-pill:hover {
-  border-color: color-mix(in oklch, var(--interactive) 34%, transparent);
-  background: color-mix(in oklch, var(--interactive) 24%, transparent);
-}
-
-.event-item.assistant .attachment-pill__glyph {
-  color: var(--interactive);
-}
-
-.event-item.assistant .attachment-pill__meta {
-  font-size: var(--font-size-xs);
-  font-weight: var(--weight-regular, 400);
+  background: color-mix(in srgb, var(--chat-text-color, var(--text-strong)) 18%, transparent);
 }
 
 .attachment-pill__glyph {
   display: grid;
   flex-shrink: 0;
   place-items: center;
-  color: var(--muted-foreground);
+  color: inherit;
+  opacity: 0.8;
 }
 
 .attachment-pill__title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.attachment-pill__meta {
-  flex-shrink: 0;
-  color: var(--muted-foreground);
-  font-size: 10.5px;
 }
 
 .attachment-strip__more {

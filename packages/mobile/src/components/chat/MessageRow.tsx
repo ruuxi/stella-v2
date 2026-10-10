@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { fileDisplayName } from "@stella/contracts/file-display-name";
 import {
   ActivityIndicator,
   Animated,
@@ -99,14 +100,6 @@ export type MessageRowActions = {
   onOpenReply?: (ref: ReplyRef) => void;
   onOpenReport?: (ref: AgentReplyRef) => void;
 };
-
-const describePastedText = (pasted: {
-  lines: number;
-  chars: number;
-}): string =>
-  pasted.lines > 1
-    ? `${pasted.lines.toLocaleString()} lines`
-    : `${pasted.chars.toLocaleString()} chars`;
 
 /**
  * How long a finger must rest on a message before its press shrink starts.
@@ -813,13 +806,17 @@ export const ChatMessageRow = memo(function ChatMessageRow({
           >
             {documentNames.map((name) => (
               <View key={name} style={styles.userDocumentChip}>
-                <Icon name="file-text" size={12} color={colors.textMuted} />
+                <Icon
+                  name="file-text"
+                  size={14}
+                  color={fadeHex(colors.userBubbleText, 0.8)}
+                />
                 <Text
-                  style={styles.userDocumentName}
+                  style={styles.userDocumentChipName}
                   numberOfLines={1}
                   maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
                 >
-                  {name}
+                  {fileDisplayName(name)}
                 </Text>
               </View>
             ))}
@@ -832,15 +829,19 @@ export const ChatMessageRow = memo(function ChatMessageRow({
               <View
                 key={`pasted-${index}`}
                 style={styles.userPasteChip}
-                accessibilityLabel={`Pasted text, ${describePastedText(pasted)}`}
+                accessibilityLabel="Pasted text"
               >
-                <Icon name="file-text" size={13} color={colors.userBubbleText} />
+                <Icon
+                  name="file-text"
+                  size={14}
+                  color={fadeHex(colors.userBubbleText, 0.8)}
+                />
                 <Text
                   style={styles.userPasteText}
                   numberOfLines={1}
                   maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
                 >
-                  {`Pasted text · ${describePastedText(pasted)}`}
+                  Pasted text
                 </Text>
               </View>
             ))}
@@ -1285,21 +1286,25 @@ export const makeMessageRowStyles = (colors: Colors) =>
     },
     userPasteChip: {
       alignItems: "center",
-      backgroundColor: fadeHex(colors.userBubbleText, 0.16),
-      borderColor: fadeHex(colors.userBubbleText, 0.28),
-      borderRadius: 10,
-      borderWidth: StyleSheet.hairlineWidth,
+      backgroundColor: fadeHex(colors.userBubbleText, 0.12),
+      borderRadius: 999,
       flexDirection: "row",
       gap: 5,
       maxWidth: 240,
-      paddingHorizontal: 9,
-      paddingVertical: 5,
+      paddingHorizontal: 11,
+      paddingVertical: 6,
     },
     userPasteText: {
       color: colors.userBubbleText,
       flexShrink: 1,
       fontFamily: fonts.sans.medium,
-      fontSize: 13,
+      fontSize: 14,
+    },
+    userDocumentChipName: {
+      color: colors.userBubbleText,
+      flexShrink: 1,
+      fontFamily: fonts.sans.medium,
+      fontSize: 14,
     },
     userThumbImage: {
       backgroundColor: colors.muted,
@@ -1322,13 +1327,13 @@ export const makeMessageRowStyles = (colors: Colors) =>
     },
     userDocumentChip: {
       alignItems: "center",
-      backgroundColor: fadeHex(colors.textMuted, 0.14),
+      backgroundColor: fadeHex(colors.userBubbleText, 0.12),
       borderRadius: 999,
       flexDirection: "row",
-      gap: 4,
-      maxWidth: 200,
-      paddingHorizontal: 8,
-      paddingVertical: 4,
+      gap: 5,
+      maxWidth: 240,
+      paddingHorizontal: 11,
+      paddingVertical: 6,
     },
     userDocumentName: {
       color: colors.textMuted,

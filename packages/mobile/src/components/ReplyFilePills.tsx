@@ -3,6 +3,7 @@
  * and name, tap to open, at most `FILE_PILL_CAP` before a "+N more" pill
  * expands the rest (desktop `FilePills` parity).
  */
+import { fileDisplayName } from "@stella/contracts/file-display-name";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
 import type { Colors } from "../theme/colors";
@@ -42,14 +43,14 @@ export function ReplyFilePills({
           <Icon
             name={artifactIconName(artifact.payload) as IconName}
             size={14}
-            color={colors.accent}
+            color={fadeHex(colors.assistantBubbleText, 0.8)}
           />
           <Text
             style={styles.pillLabel}
             numberOfLines={1}
             maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
           >
-            {artifactTitle(artifact.payload)}
+            {fileDisplayName(artifactTitle(artifact.payload))}
           </Text>
         </Pressable>
       ))}
@@ -83,15 +84,13 @@ const makeStyles = (colors: Colors) =>
       gap: 5,
       maxWidth: "100%",
       borderRadius: 999,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: fadeHex(colors.accent, 0.22),
-      backgroundColor: fadeHex(colors.accent, 0.16),
+      backgroundColor: fadeHex(colors.assistantBubbleText, 0.12),
       paddingHorizontal: 11,
       paddingVertical: 6,
     },
     pillPressed: { opacity: 0.72 },
     pillLabel: {
-      color: colors.text,
+      color: colors.assistantBubbleText,
       flexShrink: 1,
       fontFamily: fonts.sans.medium,
       fontSize: 14,

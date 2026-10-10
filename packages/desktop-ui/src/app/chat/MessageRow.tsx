@@ -29,7 +29,6 @@ import {
 } from "react";
 
 import {
-  describePastedText,
   pastedTextPreview,
   type PastedTextDescriptor,
 } from "@/features/chat/lib/paste-context";
@@ -227,7 +226,6 @@ function UserPastedTextChip({
 }) {
   const t = useT();
   const { triggerRef, open, previewProps } = useHoverPreview<HTMLSpanElement>();
-  const stats = describePastedText(descriptor);
   const preview = pastedTextPreview(descriptor);
   return (
     <span className="event-window-badge-hovercard">
@@ -237,7 +235,6 @@ function UserPastedTextChip({
         label={t("app.chat.messageRow.pastedTextLabel")}
         data-has-preview={preview ? "true" : undefined}
         tabIndex={preview ? 0 : undefined}
-        title={t("app.chat.messageRow.pastedTextTitle", { stats })}
       />
       {preview && (
         <ChipPreviewPortal

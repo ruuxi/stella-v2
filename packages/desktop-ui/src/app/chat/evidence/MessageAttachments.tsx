@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { fileDisplayName } from "@stella/contracts/file-display-name";
 import {
   EVIDENCE_TILE_WIDTH,
   isEvidenceMediaKind,
@@ -105,7 +106,7 @@ const useRowWidth = (
 };
 
 const fileNameOf = (card: EvidenceCard): string =>
-  card.sourcePaths[0]?.split(/[\\/]/).pop() || card.title;
+  card.sourcePaths[0] ? fileDisplayName(card.sourcePaths[0]) : card.title;
 
 const openFile = (filePath: string) => {
   const payload = buildPayloadFromBarePath(filePath, Date.now());

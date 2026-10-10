@@ -6,6 +6,7 @@ import {
   type Ref,
   type SetStateAction,
 } from "react";
+import { fileDisplayName } from "@stella/contracts/file-display-name";
 import type { ChatContext, ChatContextFile } from "@/shared/types/electron";
 import { cn } from "@/shared/lib/utils";
 import { useT } from "@/shared/i18n";
@@ -591,12 +592,6 @@ function FileIcon({ category }: { category: ReturnType<typeof resolveFileCategor
   }
 }
 
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 const FILE_NAME_MAX_CHARS = 12;
 
 // Truncate to FILE_NAME_MAX_CHARS but keep the extension visible when it
@@ -660,7 +655,6 @@ type FileAttachmentChipProps = {
  */
 export function FileAttachmentChip({
   name,
-  size,
   mimeType,
   path,
   chipClassName,
@@ -696,10 +690,9 @@ export function FileAttachmentChip({
           <FileIcon category={category} />
         </div>
         <div className="chat-composer-file-info">
-          <span className="chat-composer-file-name">{truncateFileName(name)}</span>
-          {typeof size === "number" && size > 0 ? (
-            <span className="chat-composer-file-size">{formatFileSize(size)}</span>
-          ) : null}
+          <span className="chat-composer-file-name">
+            {truncateFileName(fileDisplayName(name))}
+          </span>
         </div>
       </button>
       {onRemove && removeLabel ? (

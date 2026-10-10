@@ -4,12 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { arch, platform } from "node:os";
 import { spawn } from "node:child_process";
-import {
-  app,
-  ipcMain,
-  type IpcMainEvent,
-  type IpcMainInvokeEvent,
-} from "electron";
+import { app, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import {
   IPC_OFFICE_PREVIEW_LIST,
   IPC_OFFICE_PREVIEW_START,
@@ -26,6 +21,7 @@ import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared
 import { resolveJwtOwnerScope } from "@stella/runtime/kernel/runner/computer-agent-cloud-records";
 import { resolveCanonicalConversationFilePaths } from "../services/canonical-conversation-file-paths.js";
 import type { CloudConversationFileGrants } from "../services/cloud-conversation-file-grants.js";
+import { handleIpc } from "./typed-ipc.js";
 
 type OfficePreviewHandlersOptions = {
   getStellaAppDir: () => string | null;
@@ -307,7 +303,11 @@ export const registerOfficePreviewHandlers = (
     const sessionId = randomUUID();
     const title = path.basename(sourcePath);
     const ref: OfficePreviewRef = { sessionId, title, sourcePath };
-    const sessionDir = path.join(stellaDataDir, PREVIEW_ROOT_DIRNAME, sessionId);
+    const sessionDir = path.join(
+      stellaDataDir,
+      PREVIEW_ROOT_DIRNAME,
+      sessionId,
+    );
     const startedAt = Date.now();
     await writeManifest(sessionDir, ref, format, "starting", startedAt);
 
@@ -339,16 +339,19 @@ export const registerOfficePreviewHandlers = (
     return ref;
   };
 
-  ipcMain.handle(IPC_OFFICE_PREVIEW_LIST, async (event) => {
+  handleIpc(IPC_OFFICE_PREVIEW_LIST, async (event) => {
     if (!options.assertPrivilegedSender(event, IPC_OFFICE_PREVIEW_LIST)) {
       throw new Error("Blocked untrusted office preview request.");
     }
     return await listPreviews(null);
   });
 
-  ipcMain.handle(
+  handleIpc(
     IPC_OFFICE_PREVIEW_START,
-    async (event, payload?: { filePath?: unknown }): Promise<OfficePreviewRef> => {
+    async (
+      event,
+      payload?: { filePath?: unknown },
+    ): Promise<OfficePreviewRef> => {
       if (!options.assertPrivilegedSender(event, IPC_OFFICE_PREVIEW_START)) {
         throw new Error("Blocked untrusted office preview request.");
       }

@@ -58,6 +58,7 @@ export const IPC_EXECUTION_TARGET_SET = "execution:targetSet" as const;
 export const IPC_UI_GET_STATE = "ui:getState" as const;
 export const IPC_UI_SET_STATE = "ui:setState" as const;
 export const IPC_UI_STATE = "ui:state" as const;
+export const IPC_CHAT_OPEN_SIDEBAR = "chat:openSidebar" as const;
 
 // ── Shared UI state KV (~/.stella/ui-state.json) ───────────────────────────
 
@@ -77,24 +78,32 @@ export const IPC_APP_SOURCE_STATE = "appSource:state" as const;
 export const IPC_APP_SOURCE_APPLY = "appSource:apply" as const;
 export const IPC_APP_SOURCE_UNDO = "appSource:undo" as const;
 export const IPC_APP_SOURCE_APPLY_REMOTE = "appSource:applyRemote" as const;
-export const IPC_APP_SOURCE_APPLY_UPSTREAM =
-  "appSource:applyUpstream" as const;
+export const IPC_APP_SOURCE_APPLY_UPSTREAM = "appSource:applyUpstream" as const;
 export const IPC_APP_SOURCE_SKIP = "appSource:skip" as const;
 
 // ── Capture ─────────────────────────────────────────────────────────────────
 
 export const IPC_CHAT_CONTEXT_GET = "chatContext:get" as const;
+export const IPC_CHAT_CONTEXT_SET = "chatContext:set" as const;
 export const IPC_CHAT_CONTEXT_UPDATED = "chatContext:updated" as const;
 export const IPC_CHAT_CONTEXT_ACK = "chatContext:ack" as const;
 export const IPC_CHAT_CONTEXT_REMOVE_SCREENSHOT =
   "chatContext:removeScreenshot" as const;
 export const IPC_SCREENSHOT_CAPTURE = "screenshot:capture" as const;
+export const IPC_SCREENSHOT_CAPTURE_VISION =
+  "screenshot:captureVision" as const;
 export const IPC_REGION_SELECT = "region:select" as const;
+export const IPC_REGION_PREPARE_SELECTION = "region:prepareSelection" as const;
+export const IPC_REGION_COMMIT_PREPARED = "region:commitPrepared" as const;
 export const IPC_REGION_CLICK = "region:click" as const;
 export const IPC_REGION_GET_WINDOW_CAPTURE = "region:getWindowCapture" as const;
 export const IPC_REGION_CANCEL = "region:cancel" as const;
 export const IPC_CAPTURE_PAGE_DATA_URL = "capture:pageDataUrl" as const;
 export const IPC_CAPTURE_REGION_FAILED = "capture:regionCaptureFailed" as const;
+export const IPC_CAPTURE_CURSOR_DISPLAY_INFO =
+  "capture:cursorDisplayInfo" as const;
+export const IPC_CAPTURE_BEGIN_REGION_CAPTURE =
+  "capture:beginRegionCapture" as const;
 
 // ── Overlay ─────────────────────────────────────────────────────────────────
 
@@ -115,6 +124,16 @@ export const IPC_OVERLAY_HIDE_WINDOW_HIGHLIGHT =
   "overlay:hideWindowHighlight" as const;
 export const IPC_OVERLAY_PREVIEW_WINDOW_HIGHLIGHT_AT_POINT =
   "overlay:previewWindowHighlightAtPoint" as const;
+export const IPC_OVERLAY_SHOW_SCREEN_GUIDE = "overlay:showScreenGuide" as const;
+export const IPC_OVERLAY_HIDE_SCREEN_GUIDE = "overlay:hideScreenGuide" as const;
+export const IPC_OVERLAY_SHOW_SELECTION_CHIP =
+  "overlay:showSelectionChip" as const;
+export const IPC_OVERLAY_HIDE_SELECTION_CHIP =
+  "overlay:hideSelectionChip" as const;
+export const IPC_OVERLAY_SELECTION_CHIP_CLICKED =
+  "overlay:selectionChipClicked" as const;
+export const IPC_SCREEN_GUIDE_SHOW = "screenGuide:show" as const;
+export const IPC_SCREEN_GUIDE_HIDE = "screenGuide:hide" as const;
 
 // ── Mini ────────────────────────────────────────────────────────────────────
 
@@ -139,6 +158,9 @@ export const IPC_VOICE_PERSIST_TRANSCRIPT = "voice:persistTranscript" as const;
 export const IPC_VOICE_ORCHESTRATOR_CHAT = "voice:orchestratorChat" as const;
 export const IPC_VOICE_ORCHESTRATOR_CONFIG =
   "voice:orchestratorConfig" as const;
+/** Main → overlay voice runtime: status/tool activity of a delegated run. */
+export const IPC_VOICE_ORCHESTRATOR_ACTIVITY =
+  "voice:orchestratorActivity" as const;
 export const IPC_VOICE_EXECUTE_TOOL = "voice:executeTool" as const;
 export const IPC_VOICE_WEB_SEARCH = "voice:webSearch" as const;
 export const IPC_VOICE_CREATE_OPENAI_SESSION =
@@ -154,6 +176,12 @@ export const IPC_VOICE_REPORT_SESSION_ERROR =
   "voice:reportSessionError" as const;
 /** Main → renderer (visible app window): show a voice session error toast. */
 export const IPC_VOICE_SESSION_ERROR = "voice:sessionError" as const;
+/** The last voice connection failure reason (every failure, not just toasts). */
+export const IPC_VOICE_REPORT_SESSION_ERROR_STATE =
+  "voice:reportSessionErrorState" as const;
+export const IPC_VOICE_GET_SESSION_ERROR_STATE =
+  "voice:getSessionErrorState" as const;
+export const IPC_VOICE_SESSION_ERROR_STATE = "voice:sessionErrorState" as const;
 /** Main → renderer: the effective realtime provider route changed. */
 export const IPC_VOICE_PREFERENCES_CHANGED =
   "voice:preferencesChanged" as const;
@@ -163,6 +191,18 @@ export const IPC_VOICE_PREFERENCES_CHANGED =
 export const IPC_DICTATION_TOGGLE = "dictation:toggle" as const;
 export const IPC_DICTATION_SET_SHORTCUT = "dictation:setShortcut" as const;
 export const IPC_DICTATION_GET_SHORTCUT = "dictation:getShortcut" as const;
+export const IPC_DICTATION_GET_SOUND_EFFECTS_ENABLED =
+  "dictation:getSoundEffectsEnabled" as const;
+export const IPC_DICTATION_SET_SOUND_EFFECTS_ENABLED =
+  "dictation:setSoundEffectsEnabled" as const;
+export const IPC_DICTATION_HAS_OPENROUTER_KEY =
+  "dictation:hasOpenRouterKey" as const;
+export const IPC_DICTATION_TRANSCRIBE_WITH_OPENROUTER =
+  "dictation:transcribeWithOpenRouter" as const;
+export const IPC_DICTATION_CANCEL_OPENROUTER =
+  "dictation:cancelOpenRouter" as const;
+export const IPC_DICTATION_ACTIVE_CHANGED = "dictation:activeChanged" as const;
+export const IPC_DICTATION_PLAY_SOUND = "dictation:playSound" as const;
 
 // ── Agent ───────────────────────────────────────────────────────────────────
 
@@ -194,6 +234,8 @@ export const IPC_DEVTEST_FIX_VITE_ERROR = "devtest:fixViteError" as const;
 // ── System ──────────────────────────────────────────────────────────────────
 
 export const IPC_DEVICE_GET_ID = "device:getId" as const;
+export const IPC_AUTH_SIGN_DEVICE = "auth:signDevice" as const;
+export const IPC_AUTH_GET_CHALLENGE_TOKEN = "auth:getChallengeToken" as const;
 export const IPC_HOST_CONFIGURE_RUNTIME = "host:configurePiRuntime" as const;
 export const IPC_AUTH_GET_SESSION = "auth:getSession" as const;
 export const IPC_AUTH_SIGN_IN_ANONYMOUS = "auth:signInAnonymous" as const;
@@ -283,6 +325,34 @@ export const IPC_LLM_CREDENTIALS_DELETE_OAUTH =
   "llmCredentials:deleteOAuth" as const;
 export const IPC_LLM_CREDENTIALS_SAVE = "llmCredentials:save" as const;
 export const IPC_LLM_CREDENTIALS_DELETE = "llmCredentials:delete" as const;
+export const IPC_LLM_CREDENTIALS_CANCEL_OAUTH =
+  "llmCredentials:cancelOAuth" as const;
+export const IPC_LLM_CREDENTIALS_VALIDATE_OAUTH =
+  "llmCredentials:validateOAuth" as const;
+export const IPC_CLAUDE_ACCOUNTS_LIST = "claudeAccounts:list" as const;
+export const IPC_CLAUDE_ACCOUNTS_START_LOGIN =
+  "claudeAccounts:startLogin" as const;
+export const IPC_CLAUDE_ACCOUNTS_WAIT_LOGIN =
+  "claudeAccounts:waitLogin" as const;
+export const IPC_CLAUDE_ACCOUNTS_FINISH_LOGIN =
+  "claudeAccounts:finishLogin" as const;
+export const IPC_CLAUDE_ACCOUNTS_CANCEL_LOGIN =
+  "claudeAccounts:cancelLogin" as const;
+export const IPC_CLAUDE_ACCOUNTS_SIGN_OUT = "claudeAccounts:signOut" as const;
+export const IPC_CLAUDE_ACCOUNTS_CHANGED = "claudeAccounts:changed" as const;
+export const IPC_ENGINE_ACCOUNTS_CONNECT_CHATGPT_CLOUD =
+  "engineAccounts:connectChatGptCloud" as const;
+export const IPC_ENGINE_ACCOUNTS_CANCEL_CONNECT_CHATGPT_CLOUD =
+  "engineAccounts:cancelConnectChatGptCloud" as const;
+export const IPC_CHATGPT_LIST_PROFILES = "chatgpt:listProfiles" as const;
+export const IPC_CHATGPT_SIGN_IN = "chatgpt:signIn" as const;
+export const IPC_CHATGPT_CANCEL_SIGN_IN = "chatgpt:cancelSignIn" as const;
+export const IPC_CHATGPT_SET_ACTIVE = "chatgpt:setActive" as const;
+export const IPC_CHATGPT_SIGN_OUT = "chatgpt:signOut" as const;
+export const IPC_CHATGPT_REMOVE = "chatgpt:remove" as const;
+export const IPC_CHATGPT_PROFILES_CHANGED = "chatgpt:profilesChanged" as const;
+export const IPC_SYSTEM_DETECT_TECHNICAL_USER_SIGNALS =
+  "system:detectTechnicalUserSignals" as const;
 export const IPC_APP_RESET_MESSAGES = "app:resetLocalMessages" as const;
 export const IPC_USER_ASK_OPENED = "userAsk:opened" as const;
 export const IPC_USER_ASK_UPDATED = "userAsk:updated" as const;
@@ -294,6 +364,22 @@ export const IPC_USER_ASK_OVERRIDE_SENSITIVE =
   "userAsk:overrideSensitive" as const;
 export const IPC_USER_ASK_POLICY_GET = "userAsk:policyGet" as const;
 export const IPC_USER_ASK_POLICY_SET = "userAsk:policySet" as const;
+
+// ── Connector credentials / connect prompts ────────────────────────────────
+
+export const IPC_CONNECTOR_CREDENTIAL_REQUEST =
+  "connector-credential:request" as const;
+export const IPC_CONNECTOR_CREDENTIAL_COMPLETE =
+  "connector-credential:complete" as const;
+export const IPC_CONNECTOR_CREDENTIAL_SUBMIT =
+  "connector-credential:submit" as const;
+export const IPC_CONNECTOR_CREDENTIAL_CANCEL =
+  "connector-credential:cancel" as const;
+export const IPC_CONNECTOR_CONNECT_REQUEST =
+  "connector-connect:request" as const;
+export const IPC_CONNECTOR_CONNECT_UPDATE = "connector-connect:update" as const;
+export const IPC_CONNECTOR_CONNECT_RESPOND =
+  "connector-connect:respond" as const;
 
 // ── Onboarding ──────────────────────────────────────────────────────────────
 
@@ -340,6 +426,28 @@ export const IPC_BROWSER_FETCH_JSON = "browser:fetchJson" as const;
 export const IPC_BROWSER_FETCH_TEXT = "browser:fetchText" as const;
 export const IPC_BROWSER_BRIDGE_STATUS = "browser:bridgeStatus" as const;
 
+// ── In-app browser view ─────────────────────────────────────────────────────
+
+export const IPC_BROWSER_VIEW_GET_STATE = "browserView:getState" as const;
+export const IPC_BROWSER_VIEW_CONNECT = "browserView:connect" as const;
+export const IPC_BROWSER_VIEW_SHOW = "browserView:show" as const;
+export const IPC_BROWSER_VIEW_SET_VISIBLE_OWNER =
+  "browserView:setVisibleOwner" as const;
+export const IPC_BROWSER_VIEW_SET_OWNER_SCOPE =
+  "browserView:setOwnerScope" as const;
+export const IPC_BROWSER_VIEW_SET_LAYOUT = "browserView:setLayout" as const;
+export const IPC_BROWSER_VIEW_HIDE = "browserView:hide" as const;
+export const IPC_BROWSER_VIEW_CREATE_TAB = "browserView:createTab" as const;
+export const IPC_BROWSER_VIEW_SELECT_TAB = "browserView:selectTab" as const;
+export const IPC_BROWSER_VIEW_CLOSE_TAB = "browserView:closeTab" as const;
+export const IPC_BROWSER_VIEW_NAVIGATE = "browserView:navigate" as const;
+export const IPC_BROWSER_VIEW_GO_BACK = "browserView:goBack" as const;
+export const IPC_BROWSER_VIEW_GO_FORWARD = "browserView:goForward" as const;
+export const IPC_BROWSER_VIEW_RELOAD = "browserView:reload" as const;
+export const IPC_BROWSER_VIEW_REQUEST_EXTENSION_CONNECT =
+  "browserView:requestExtensionConnect" as const;
+export const IPC_BROWSER_VIEW_STATE = "browserView:state" as const;
+
 // ── Home ────────────────────────────────────────────────────────────────────
 
 export const IPC_HOME_LIST_RECENT_APPS = "home:listRecentApps" as const;
@@ -358,6 +466,15 @@ export const IPC_MEDIA_COPY_IMAGE = "media:copyImage" as const;
 // attachment-only messages.
 export const IPC_MEDIA_COPY_ATTACHMENT = "media:copyAttachment" as const;
 
+// ── Meetings ────────────────────────────────────────────────────────────────
+
+export const IPC_MEETINGS_STATUS = "meetings:status" as const;
+export const IPC_MEETINGS_START = "meetings:start" as const;
+export const IPC_MEETINGS_PAUSE = "meetings:pause" as const;
+export const IPC_MEETINGS_RESUME = "meetings:resume" as const;
+export const IPC_MEETINGS_STOP = "meetings:stop" as const;
+export const IPC_MEETINGS_OPEN_FOLDER = "meetings:openFolder" as const;
+
 // ── Schedule ────────────────────────────────────────────────────────────────
 
 export const IPC_SCHEDULE_LIST_CRON_JOBS = "schedule:listCronJobs" as const;
@@ -370,6 +487,10 @@ export const IPC_SCHEDULE_UPDATED = "schedule:updated" as const;
 // Cron job mutations from the desktop schedule dialog.
 export const IPC_SCHEDULE_UPDATE_CRON_JOB = "schedule:updateCronJob" as const;
 export const IPC_SCHEDULE_REMOVE_CRON_JOB = "schedule:removeCronJob" as const;
+export const IPC_SCHEDULE_RUN_CRON_JOB = "schedule:runCronJob" as const;
+export const IPC_SCHEDULE_UPSERT_HEARTBEAT =
+  "schedule:upsertHeartbeat" as const;
+export const IPC_SCHEDULE_RUN_HEARTBEAT = "schedule:runHeartbeat" as const;
 
 // ── Local Chat ──────────────────────────────────────────────────────────────
 
@@ -377,6 +498,8 @@ export const IPC_LOCAL_CHAT_GET_OR_CREATE_ID =
   "localChat:getOrCreateDefaultConversationId" as const;
 export const IPC_LOCAL_CHAT_CREATE_NEW_DEFAULT_ID =
   "localChat:createNewDefaultConversationId" as const;
+export const IPC_LOCAL_CHAT_SET_ACTIVE_ID =
+  "localChat:setActiveConversationId" as const;
 export const IPC_LOCAL_CHAT_LIST_CONVERSATIONS =
   "localChat:listConversations" as const;
 export const IPC_LOCAL_CHAT_DELETE_CONVERSATION =
@@ -416,6 +539,14 @@ export const IPC_LOCAL_CHAT_PERSIST_WELCOME =
 export const IPC_LOCAL_CHAT_UPDATED = "localChat:updated" as const;
 export const IPC_LOCAL_CHAT_THREAD_ACTIVITY_UPDATED =
   "localChat:threadActivityUpdated" as const;
+
+// ── Native integrations ─────────────────────────────────────────────────────
+
+export const IPC_NATIVE_INTEGRATIONS_LIST = "nativeIntegrations:list" as const;
+export const IPC_NATIVE_INTEGRATIONS_ENABLE =
+  "nativeIntegrations:enable" as const;
+export const IPC_NATIVE_INTEGRATIONS_DISABLE =
+  "nativeIntegrations:disable" as const;
 
 // ── Derived cloud journal cache ──────────────────────────────────────────
 

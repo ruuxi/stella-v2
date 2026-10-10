@@ -11,7 +11,7 @@ let detachBridge: (() => void) | null = null;
 const listeners = new Set<() => void>();
 const answered = new Set<string>();
 
-const userAskBridge = () => getElectronApi()?.userAsk;
+const userAskBridge = () => getElectronApi()?.system.userAsk;
 
 const emit = () => {
   for (const listener of listeners) listener();
@@ -110,7 +110,9 @@ export const refreshUserAsks = async (): Promise<void> => {
   }
 };
 
-export const answerUserAsk = async (answer: UserAskAnswer): Promise<boolean> => {
+export const answerUserAsk = async (
+  answer: UserAskAnswer,
+): Promise<boolean> => {
   if (answered.has(answer.askId)) return true;
   const bridge = userAskBridge();
   if (!bridge?.answer) return false;

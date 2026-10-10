@@ -33,73 +33,21 @@ import type {
   InAppBrowserDebuggerRecovery,
   InAppBrowserDebuggerTarget,
 } from "./in-app-browser-cdp-adapter.js";
+import type { StellaBrowserBridgeStatus } from "../process-resources/browser-bridge-resource.js";
 import type {
-  StellaBrowserBridgeFailureReason,
-  StellaBrowserBridgeStatus,
-} from "../process-resources/browser-bridge-resource.js";
+  BrowserViewConnection,
+  BrowserViewLayout,
+  BrowserViewOwnerState,
+  BrowserViewState,
+  BrowserViewTabState,
+  BrowserViewUnavailableReason,
+  StellaBrowserExportedCookie,
+} from "@stella/contracts/desktop/browser-view";
 import { BROWSER_BRIDGE_MISSING_ERROR } from "../utils/register-stella-native-messaging-host.js";
 import { STELLA_BROWSER_EXTENSION_STORE_URL } from "@stella/runtime/kernel/tools/stella-browser-bridge-config";
 import { RENDERER_ORIGIN } from "../source/origin.js";
 
-export type BrowserViewConnection = "checking" | "disconnected" | "connected";
-export type BrowserViewUnavailableReason =
-  | "extension_not_installed"
-  | "extension_disconnected"
-  | StellaBrowserBridgeFailureReason;
-
-export type BrowserViewTabState = {
-  id: string;
-  ownerId: string;
-  url: string;
-  title: string;
-  faviconUrl?: string;
-  loading: boolean;
-  canGoBack: boolean;
-  canGoForward: boolean;
-};
-
-export type BrowserViewOwnerState = {
-  id: string;
-  kind: "manual" | "agent";
-  tabCount: number;
-  activeTabId?: string;
-  latest: boolean;
-};
-
-export type BrowserViewState = {
-  connection: BrowserViewConnection;
-  profileName?: string;
-  visibleOwnerId: string;
-  owners: BrowserViewOwnerState[];
-  tabs: BrowserViewTabState[];
-  activeTabId?: string;
-  error?: string;
-  unavailableReason?: BrowserViewUnavailableReason;
-};
-
-export type BrowserViewLayout = {
-  pageBounds: Rectangle;
-  surfaceBounds: Rectangle;
-};
-
-export type StellaBrowserExportedCookie = {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  secure: boolean;
-  httpOnly: boolean;
-  hostOnly: boolean;
-  session: boolean;
-  storeId: string;
-  sameSite: "unspecified" | "no_restriction" | "lax" | "strict";
-  expirationDate?: number;
-  partitionKey?: {
-    topLevelSite?: string;
-    hasCrossSiteAncestor?: boolean;
-  };
-  [key: string]: unknown;
-};
+export type { StellaBrowserExportedCookie };
 
 /**
  * A single real-browser cookie change pushed in real time by the extension.

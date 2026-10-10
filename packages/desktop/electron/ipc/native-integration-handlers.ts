@@ -1,4 +1,4 @@
-import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 
 import {
   disableNativeConnector,
@@ -21,6 +21,12 @@ import { waitForBackendIntegrationConnection } from "./backend-integration-statu
 import { loadConfig } from "@stella/runtime/kernel/google-workspace/config";
 import { SCOPES as GOOGLE_WORKSPACE_SCOPES } from "@stella/runtime/kernel/google-workspace/scopes";
 import { assertPrivilegedRequest } from "./privileged-ipc.js";
+import {
+  IPC_NATIVE_INTEGRATIONS_LIST,
+  IPC_NATIVE_INTEGRATIONS_ENABLE,
+  IPC_NATIVE_INTEGRATIONS_DISABLE,
+} from "@stella/contracts/desktop/ipc-channels";
+import { handleIpc } from "./typed-ipc.js";
 
 export type NativeIntegrationHandlersOptions = {
   getStellaAppDir: () => string | null;
@@ -202,7 +208,9 @@ const createBackendIntegrationConnectLink = async (
   ).catch(() => {
     // Distinguishes a hung/failed request from an HTTP error below; the
     // connect flow surfaces this on the card instead of hanging.
-    throw new Error("Stella's backend did not respond while creating the connection link.");
+    throw new Error(
+      "Stella's backend did not respond while creating the connection link.",
+    );
   });
   const payload = (await response.json().catch(() => null)) as {
     url?: unknown;
@@ -459,8 +467,8 @@ export const ensureNativeCredential = async (
 export const registerNativeIntegrationHandlers = (
   options: NativeIntegrationHandlersOptions,
 ) => {
-  ipcMain.handle("nativeIntegrations:list", async (event) => {
-    assertPrivilegedRequest(options, event, "nativeIntegrations:list");
+  handleIpc(IPC_NATIVE_INTEGRATIONS_LIST, async (event) => {
+    assertPrivilegedRequest(options, event, IPC_NATIVE_INTEGRATIONS_LIST);
     const configuredOAuthProviders =
       await loadConfiguredOAuthProviders(options);
     const catalog = await resolveDesktopNativeConnectorCatalog(
@@ -478,37 +486,34 @@ export const registerNativeIntegrationHandlers = (
     );
   });
 
-  ipcMain.handle(
-    "nativeIntegrations:enable",
-    async (event, payload: unknown) => {
-      assertPrivilegedRequest(options, event, "nativeIntegrations:enable");
-      const stellaAppDir = requireRoot(options);
-      const id = readId(payload);
-      await ensureNativeCredential(options, stellaAppDir, id);
-      const configuredOAuthProviders =
-        await loadConfiguredOAuthProviders(options);
-      const catalog = await resolveDesktopNativeConnectorCatalog(
-        options,
-        stellaAppDir,
-      );
-      return await enableNativeConnector(
-        stellaAppDir,
-        id,
-        "store",
-        {
-          configuredBackendProviders: configuredOAuthProviders.backend,
-          configuredExternalCallbackProviders:
-            configuredOAuthProviders.externalCallback,
-        },
-        catalog.entries,
-      );
-    },
-  );
+  handleIpc(IPC_NATIVE_INTEGRATIONS_ENABLE, async (event, payload: unknown) => {
+    assertPrivilegedRequest(options, event, IPC_NATIVE_INTEGRATIONS_ENABLE);
+    const stellaAppDir = requireRoot(options);
+    const id = readId(payload);
+    await ensureNativeCredential(options, stellaAppDir, id);
+    const configuredOAuthProviders =
+      await loadConfiguredOAuthProviders(options);
+    const catalog = await resolveDesktopNativeConnectorCatalog(
+      options,
+      stellaAppDir,
+    );
+    return await enableNativeConnector(
+      stellaAppDir,
+      id,
+      "store",
+      {
+        configuredBackendProviders: configuredOAuthProviders.backend,
+        configuredExternalCallbackProviders:
+          configuredOAuthProviders.externalCallback,
+      },
+      catalog.entries,
+    );
+  });
 
-  ipcMain.handle(
-    "nativeIntegrations:disable",
+  handleIpc(
+    IPC_NATIVE_INTEGRATIONS_DISABLE,
     async (event, payload: unknown) => {
-      assertPrivilegedRequest(options, event, "nativeIntegrations:disable");
+      assertPrivilegedRequest(options, event, IPC_NATIVE_INTEGRATIONS_DISABLE);
       const stellaAppDir = requireRoot(options);
       const id = readId(payload);
       const configuredOAuthProviders =

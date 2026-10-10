@@ -4,7 +4,14 @@ import {
   BROWSER_PROFILE_KEY,
   BROWSER_SELECTION_KEY,
 } from "@stella/contracts/discovery";
+import type {
+  BrowserViewBounds,
+  BrowserViewLayout,
+  BrowserViewState,
+  BrowserViewUnavailableReason,
+} from "@stella/contracts/desktop/browser-view";
 import { uiState } from "@/platform/ui-state";
+import type { ElectronBrowserViewApi } from "@/shared/types/electron";
 import { useChatRuntime } from "@/context/use-chat-runtime";
 import { useT } from "@/shared/i18n";
 import { useActiveSidebarSection } from "@/features/workspace-display/sidebar-sections";
@@ -22,98 +29,13 @@ import {
 } from "@/ui/icons";
 import "./browser-section.css";
 
-type BrowserConnection = "checking" | "disconnected" | "connected";
-type BrowserUnavailableReason =
-  | "extension_not_installed"
-  | "extension_disconnected"
-  | "bridge_missing"
-  | "authorization_failed"
-  | "connection_lost"
-  | "transient_failure";
 type BrowserStatusKind =
   | "checking"
   | "setup_required"
-  | Exclude<BrowserUnavailableReason, "extension_not_installed">
+  | Exclude<BrowserViewUnavailableReason, "extension_not_installed">
   | "connected"
   | "preparing"
   | "error";
-
-type BrowserTab = {
-  id: string;
-  ownerId: string;
-  url: string;
-  title: string;
-  faviconUrl?: string;
-  loading: boolean;
-  canGoBack: boolean;
-  canGoForward: boolean;
-};
-
-type BrowserOwner = {
-  id: string;
-  kind: "manual" | "agent";
-  tabCount: number;
-  activeTabId?: string;
-  latest: boolean;
-};
-
-type BrowserViewState = {
-  connection: BrowserConnection;
-  profileName?: string;
-  visibleOwnerId: string;
-  owners: BrowserOwner[];
-  tabs: BrowserTab[];
-  activeTabId?: string;
-  error?: string;
-  unavailableReason?: BrowserUnavailableReason;
-};
-
-type BrowserBounds = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-
-type BrowserLayout = {
-  pageBounds: BrowserBounds;
-  surfaceBounds: BrowserBounds;
-};
-
-type BrowserViewApi = {
-  getState: () => Promise<BrowserViewState>;
-  connect: (options: {
-    browserType?: string;
-    profileId?: string;
-  }) => Promise<BrowserViewState | void>;
-  show: (layout: BrowserLayout) => Promise<unknown> | unknown;
-  setOwnerScope: (options?: {
-    ownerId?: string;
-  }) => Promise<BrowserViewState>;
-  setLayout: (layout: BrowserLayout) => Promise<unknown> | unknown;
-  hide: () => Promise<unknown> | unknown;
-  createTab: (options: {
-    url?: string;
-    ownerId?: string;
-    activate?: boolean;
-  }) => Promise<unknown>;
-  selectTab: (options: {
-    tabId: string;
-    ownerId?: string;
-    activate?: boolean;
-  }) => Promise<unknown>;
-  closeTab: (options: { tabId: string; ownerId?: string }) => Promise<unknown>;
-  navigate: (options: {
-    tabId: string;
-    url: string;
-    ownerId?: string;
-  }) => Promise<unknown>;
-  goBack: (options: { tabId: string; ownerId?: string }) => Promise<unknown>;
-  goForward: (options: { tabId: string; ownerId?: string }) => Promise<unknown>;
-  reload: (options: { tabId: string; ownerId?: string }) => Promise<unknown>;
-  requestExtensionConnect: () => Promise<unknown>;
-  onState: (callback: (state: BrowserViewState) => void) => () => void;
-};
 
 const MANUAL_OWNER_ID = "stella:manual";
 
@@ -131,21 +53,17 @@ const EMPTY_STATE: BrowserViewState = {
   tabs: [],
 };
 
-const browserViewApi = (): BrowserViewApi | null =>
-  (
-    window.electronAPI as unknown as
-      | { browserView?: BrowserViewApi }
-      | undefined
-  )?.browserView ?? null;
+const browserViewApi = (): ElectronBrowserViewApi | null =>
+  window.electronAPI?.browserView ?? null;
 
-const toBounds = (rect: DOMRect): BrowserBounds => ({
+const toBounds = (rect: DOMRect): BrowserViewBounds => ({
   x: Math.round(rect.x),
   y: Math.round(rect.y),
   width: Math.max(0, Math.round(rect.width)),
   height: Math.max(0, Math.round(rect.height)),
 });
 
-const boundsKey = (layout: BrowserLayout) =>
+const boundsKey = (layout: BrowserViewLayout) =>
   `${layout.pageBounds.x},${layout.pageBounds.y},${layout.pageBounds.width},${layout.pageBounds.height}|` +
   `${layout.surfaceBounds.x},${layout.surfaceBounds.y},${layout.surfaceBounds.width},${layout.surfaceBounds.height}`;
 
@@ -163,7 +81,7 @@ const LAYOUT_SETTLE_FRAMES = 3;
    `.right-sidebar__resize-handle` in right-sidebar.css. */
 const SIDEBAR_RESIZE_HANDLE_WIDTH = 12;
 
-const browserPageBounds = (rect: DOMRect): BrowserBounds => {
+const browserPageBounds = (rect: DOMRect): BrowserViewBounds => {
   const bounds = toBounds(rect);
   const inset = document.documentElement.dataset.displayPanelTakeover
     ? 0
@@ -291,9 +209,7 @@ function BrowserStatus({
       <div className="browser-section__status" role="alert">
         <AlertCircle size={22} strokeWidth={1.75} aria-hidden="true" />
         <p className="browser-section__status-title">{copy.title}</p>
-        <p className="browser-section__status-body">
-          {error || copy.body}
-        </p>
+        <p className="browser-section__status-body">{error || copy.body}</p>
         <button
           type="button"
           className="pill-btn pill-btn--primary"
@@ -604,7 +520,7 @@ export function BrowserSection() {
   const runTabAction = useCallback(
     (
       action: (
-        api: BrowserViewApi,
+        api: ElectronBrowserViewApi,
         tabId: string,
         ownerId: string,
       ) => Promise<unknown>,

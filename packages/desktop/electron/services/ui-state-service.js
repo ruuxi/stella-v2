@@ -1,4 +1,7 @@
-export class UiStateService {
+
+import {
+  IPC_UI_STATE,
+} from "@stella/contracts/desktop/ipc-channels";export class UiStateService {
     state = {
         mode: 'chat',
         conversationId: null,
@@ -18,7 +21,7 @@ export class UiStateService {
             return;
         const targets = this.deps.broadcastTarget.getAllWindows();
         for (const window of targets) {
-            window.webContents.send('ui:state', this.state);
+            window.webContents.send(IPC_UI_STATE, this.state);
         }
     }
     onVoiceActiveChanged(listener) {

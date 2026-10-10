@@ -5,6 +5,12 @@ import { BootstrapLifecycleBindings } from "./lifecycle-bindings.js";
 import { ProcessRuntime } from "../process-runtime.js";
 import { createBootstrapServices } from "./bootstrap-services.js";
 import { registerBootstrapProcessCleanups } from "./cleanup.js";
+import {
+  IPC_LOCAL_CHAT_UPDATED,
+  IPC_LOCAL_CHAT_THREAD_ACTIVITY_UPDATED,
+  IPC_SCHEDULE_UPDATED,
+  IPC_BROWSER_BRIDGE_STATUS,
+} from "@stella/contracts/desktop/ipc-channels";
 export const getAllWindows = (context) => {
     return context.state.windowManager
         ? context.state.windowManager.getAllWindows()
@@ -23,16 +29,16 @@ export const broadcastToWindows = (context, channel, payload) => {
     });
 };
 export const broadcastLocalChatUpdated = (context, payload) => {
-    broadcastToWindows(context, "localChat:updated", payload ?? null);
+    broadcastToWindows(context, IPC_LOCAL_CHAT_UPDATED, payload ?? null);
 };
 export const broadcastThreadActivityUpdated = (context, payload) => {
-    broadcastToWindows(context, "localChat:threadActivityUpdated", payload);
+    broadcastToWindows(context, IPC_LOCAL_CHAT_THREAD_ACTIVITY_UPDATED, payload);
 };
 export const broadcastScheduleUpdated = (context) => {
-    broadcastToWindows(context, "schedule:updated");
+    broadcastToWindows(context, IPC_SCHEDULE_UPDATED);
 };
 export const broadcastStellaBrowserBridgeStatus = (context, status) => {
-    broadcastToWindows(context, "browser:bridgeStatus", status);
+    broadcastToWindows(context, IPC_BROWSER_BRIDGE_STATUS, status);
 };
 export const createBootstrapContext = (config) => {
     const processRuntime = new ProcessRuntime();

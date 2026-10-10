@@ -17,6 +17,11 @@ import { getMainLogger } from "../observability/main-logger.js";
 import { getLocalLlmCredential, listLocalLlmCredentials, } from "@stella/runtime/kernel/storage/llm-credentials";
 import { getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { getChatGptAccessToken, hasUsableChatGptProfile, } from "@stella/runtime/kernel/storage/chatgpt-profiles";
+import {
+  IPC_DISPLAY_UPDATE,
+  IPC_EXECUTION_REMOTE_REQUEST,
+  IPC_EXECUTION_TARGET_SET,
+} from "@stella/contracts/desktop/ipc-channels";
 // Module-level one-shot cache for the skills home reconciliation. This
 // seeding used to run on the pre-window path inside `resolveStellaDataDir`, where
 // its ~100 awaited fs ops + sha256 over hundreds of KB contended with first
@@ -262,7 +267,7 @@ export const createHostRunnerHandlers = (context, options) => ({
     displayUpdate: (payload) => {
         // Forward structured DisplayPayload objects to all windows. The renderer
         // validates them before routing to the workspace panel.
-        broadcastToWindows(context, "display:update", payload);
+        broadcastToWindows(context, IPC_DISPLAY_UPDATE, payload);
     },
     showNotification: ({ title, body, sound }) => {
         const stellaAppDir = context.state.stellaAppDir;
@@ -284,10 +289,10 @@ export const createHostRunnerHandlers = (context, options) => ({
         // Broadcast rather than await: the question belongs on this computer's
         // screen, and the renderer answers whenever its user does through
         // `execution:answerRemoteExecutionRequest`.
-        broadcastToWindows(context, "execution:remoteExecutionRequest", payload);
+        broadcastToWindows(context, IPC_EXECUTION_REMOTE_REQUEST, payload);
     },
     setExecutionTarget: (payload) => {
-        broadcastToWindows(context, "execution:targetSet", payload);
+        broadcastToWindows(context, IPC_EXECUTION_TARGET_SET, payload);
     },
     // A paired phone's request, relayed by the cloud over the presence socket.
     // The handlers carry the same remote policy the IPC handlers apply.

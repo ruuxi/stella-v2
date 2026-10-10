@@ -1,29 +1,30 @@
 import { ipcMain } from "electron";
 import { z } from "zod";
+import type { BrowserViewLayout } from "@stella/contracts/desktop/browser-view";
 import type {
-  BrowserViewLayout,
-  InAppBrowserService,
-} from "../services/in-app-browser-service.js";
+  IpcInvokeChannel,
+  IpcInvokeResult,
+} from "@stella/contracts/desktop/ipc-contract";
+import {
+  IPC_BROWSER_VIEW_CLOSE_TAB,
+  IPC_BROWSER_VIEW_CONNECT,
+  IPC_BROWSER_VIEW_CREATE_TAB,
+  IPC_BROWSER_VIEW_GET_STATE,
+  IPC_BROWSER_VIEW_GO_BACK,
+  IPC_BROWSER_VIEW_GO_FORWARD,
+  IPC_BROWSER_VIEW_HIDE,
+  IPC_BROWSER_VIEW_NAVIGATE,
+  IPC_BROWSER_VIEW_RELOAD,
+  IPC_BROWSER_VIEW_REQUEST_EXTENSION_CONNECT,
+  IPC_BROWSER_VIEW_SELECT_TAB,
+  IPC_BROWSER_VIEW_SET_LAYOUT,
+  IPC_BROWSER_VIEW_SET_OWNER_SCOPE,
+  IPC_BROWSER_VIEW_SET_VISIBLE_OWNER,
+  IPC_BROWSER_VIEW_SHOW,
+} from "@stella/contracts/desktop/ipc-channels";
+import type { InAppBrowserService } from "../services/in-app-browser-service.js";
 import { assertPrivilegedRequest } from "./privileged-ipc.js";
-
-export const IN_APP_BROWSER_CHANNELS = {
-  getState: "browserView:getState",
-  connect: "browserView:connect",
-  show: "browserView:show",
-  setVisibleOwner: "browserView:setVisibleOwner",
-  setOwnerScope: "browserView:setOwnerScope",
-  setLayout: "browserView:setLayout",
-  hide: "browserView:hide",
-  createTab: "browserView:createTab",
-  selectTab: "browserView:selectTab",
-  closeTab: "browserView:closeTab",
-  navigate: "browserView:navigate",
-  goBack: "browserView:goBack",
-  goForward: "browserView:goForward",
-  reload: "browserView:reload",
-  requestExtensionConnect: "browserView:requestExtensionConnect",
-  state: "browserView:state",
-} as const;
+import { handleIpc } from "./typed-ipc.js";
 
 type RegisterInAppBrowserHandlersOptions = {
   service: InAppBrowserService;
@@ -118,20 +119,22 @@ const parseLayout = (value: unknown): BrowserViewLayout => {
 export const registerInAppBrowserHandlers = (
   options: RegisterInAppBrowserHandlersOptions,
 ) => {
-  const channels: string[] = [];
-  const register = (
-    channel: string,
-    handler: (payload: unknown) => unknown | Promise<unknown>,
+  const channels: IpcInvokeChannel[] = [];
+  const register = <C extends IpcInvokeChannel>(
+    channel: C,
+    handler: (
+      payload: unknown,
+    ) => IpcInvokeResult<C> | Promise<IpcInvokeResult<C>>,
   ) => {
     channels.push(channel);
-    ipcMain.handle(channel, async (event, payload) => {
+    handleIpc(channel, async (event, ...args) => {
       assertPrivilegedRequest(options, event, channel);
-      return await handler(payload);
+      return await handler(args[0]);
     });
   };
 
-  register(IN_APP_BROWSER_CHANNELS.getState, () => options.service.getState());
-  register(IN_APP_BROWSER_CHANNELS.connect, async (payload) => {
+  register(IPC_BROWSER_VIEW_GET_STATE, () => options.service.getState());
+  register(IPC_BROWSER_VIEW_CONNECT, async (payload) => {
     const record = connectPayloadSchema.parse(payload);
     const state = await options.service.connect({
       ...(record.browserType !== undefined
@@ -147,24 +150,24 @@ export const registerInAppBrowserHandlers = (
     }
     return state;
   });
-  register(IN_APP_BROWSER_CHANNELS.show, (payload) =>
+  register(IPC_BROWSER_VIEW_SHOW, (payload) =>
     options.service.show(parseLayout(payload)),
   );
-  register(IN_APP_BROWSER_CHANNELS.setVisibleOwner, (payload) => {
+  register(IPC_BROWSER_VIEW_SET_VISIBLE_OWNER, (payload) => {
     const record = requireObject(payload, "Browser owner");
     return options.service.setVisibleOwner(
       requireString(record.ownerId, "ownerId"),
     );
   });
-  register(IN_APP_BROWSER_CHANNELS.setOwnerScope, (payload) => {
+  register(IPC_BROWSER_VIEW_SET_OWNER_SCOPE, (payload) => {
     const record = ownerScopePayloadSchema.parse(payload);
     return options.service.setOwnerScope(record.ownerId);
   });
-  register(IN_APP_BROWSER_CHANNELS.setLayout, (payload) =>
+  register(IPC_BROWSER_VIEW_SET_LAYOUT, (payload) =>
     options.service.setLayout(parseLayout(payload)),
   );
-  register(IN_APP_BROWSER_CHANNELS.hide, () => options.service.hide());
-  register(IN_APP_BROWSER_CHANNELS.createTab, async (payload) => {
+  register(IPC_BROWSER_VIEW_HIDE, () => options.service.hide());
+  register(IPC_BROWSER_VIEW_CREATE_TAB, async (payload) => {
     const record = createTabPayloadSchema.parse(payload);
     await options.service.createTab({
       ...(record.url !== undefined ? { url: record.url } : {}),
@@ -173,7 +176,7 @@ export const registerInAppBrowserHandlers = (
     });
     return await options.service.getState();
   });
-  register(IN_APP_BROWSER_CHANNELS.selectTab, (payload) => {
+  register(IPC_BROWSER_VIEW_SELECT_TAB, (payload) => {
     const record = requireObject(payload, "Browser tab");
     return options.service.selectTab({
       tabId: requireString(record.tabId, "tabId"),
@@ -181,14 +184,14 @@ export const registerInAppBrowserHandlers = (
       ...(record.activate === true ? { activate: true } : {}),
     });
   });
-  register(IN_APP_BROWSER_CHANNELS.closeTab, (payload) => {
+  register(IPC_BROWSER_VIEW_CLOSE_TAB, (payload) => {
     const record = requireObject(payload, "Browser tab");
     return options.service.closeTab({
       tabId: requireString(record.tabId, "tabId"),
       ...ownerField(record),
     });
   });
-  register(IN_APP_BROWSER_CHANNELS.navigate, (payload) => {
+  register(IPC_BROWSER_VIEW_NAVIGATE, (payload) => {
     const record = requireObject(payload, "Browser navigation");
     return options.service.navigate({
       tabId: requireString(record.tabId, "tabId"),
@@ -196,28 +199,28 @@ export const registerInAppBrowserHandlers = (
       ...ownerField(record),
     });
   });
-  register(IN_APP_BROWSER_CHANNELS.goBack, (payload) => {
+  register(IPC_BROWSER_VIEW_GO_BACK, (payload) => {
     const record = requireObject(payload, "Browser tab");
     return options.service.goBack({
       tabId: requireString(record.tabId, "tabId"),
       ...ownerField(record),
     });
   });
-  register(IN_APP_BROWSER_CHANNELS.goForward, (payload) => {
+  register(IPC_BROWSER_VIEW_GO_FORWARD, (payload) => {
     const record = requireObject(payload, "Browser tab");
     return options.service.goForward({
       tabId: requireString(record.tabId, "tabId"),
       ...ownerField(record),
     });
   });
-  register(IN_APP_BROWSER_CHANNELS.reload, (payload) => {
+  register(IPC_BROWSER_VIEW_RELOAD, (payload) => {
     const record = requireObject(payload, "Browser tab");
     return options.service.reload({
       tabId: requireString(record.tabId, "tabId"),
       ...ownerField(record),
     });
   });
-  register(IN_APP_BROWSER_CHANNELS.requestExtensionConnect, () =>
+  register(IPC_BROWSER_VIEW_REQUEST_EXTENSION_CONNECT, () =>
     options.service.requestExtensionConnect(),
   );
 

@@ -6,7 +6,6 @@
  * the app (`@stella/contracts/pi-chat`).
  */
 import { createHash, randomUUID } from "node:crypto";
-import { hostname } from "node:os";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
@@ -1149,27 +1148,6 @@ export function desktopChats(options: DesktopChatsOptions) {
     return true;
   };
 
-  /**
-   * The user moves Stella herself: the conversation's object records the new
-   * host, and from the next message that host answers. Not while her agents
-   * still work, whose reports would wake her where she was.
-   */
-  const moveBrain = async (conversationId: string, to: "cloud" | "here"): Promise<PiChatBrainResult> => {
-    const brain = options.brain?.(conversationId);
-    if (!brain) throw new Error("This chat is stored only on this computer, so it can only run here.");
-    if ((await brainPlacement(conversationId)).here) {
-      const working = (await (await open(conversationId)).agentRecords(context)).filter((agent) => agent.status === "running");
-      if (to === "cloud" && working.length > 0) {
-        throw new Error(`Stella's agents here are still working (${working.map((agent) => agent.description).join("; ")}). Move her once they finish, or pause them first.`);
-      }
-    }
-    const record = await brain.set(
-      to === "cloud" ? { host: "cloud" } : { host: "device", deviceId: options.deviceId ?? "this-computer", label: hostname() },
-    );
-    brains.set(conversationId, { record, at: Date.now() });
-    return await brainPlacement(conversationId);
-  };
-
   const older = async (conversationId: string, beforeEntryId: number): Promise<PiChatOlderResult> =>
     history(await open(conversationId), beforeEntryId);
 
@@ -1272,8 +1250,6 @@ export function desktopChats(options: DesktopChatsOptions) {
           return linkedFiles(request.conversationId);
         case "brain":
           return brainPlacement(request.conversationId);
-        case "moveBrain":
-          return moveBrain(request.conversationId, request.to);
       }
     },
     async close(): Promise<void> {

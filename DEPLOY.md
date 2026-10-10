@@ -27,6 +27,7 @@ a git checkout run from source by the native launchers.
 |---|---|---|
 | Backend (cloud-builder) | `stella-v2-cloud-builder-dev.fromyou.workers.dev`, `auth-dev.stella.sh` | `stella-v2-cloud-builder-prod.fromyou.workers.dev`, `auth.stella.sh` |
 | Stripe webhook (live mode; on the custom domain so a workers.dev rename can't break it) | `we_1ULz5EGxJob0lqtdxqfXfKaw` → `https://auth-dev.stella.sh/api/stripe/webhook` | `we_1UMkFSGxJob0lqtd8RWd9r1Q` → `https://auth.stella.sh/api/stripe/webhook` |
+| GitHub App `stella-agent-cloud` (one app; only prod has its secrets) | callback `https://auth-dev.stella.sh/api/cloud/projects/github/callback` | callback/setup `https://auth.stella.sh/api/cloud/projects/github/callback`, webhook `https://auth.stella.sh/api/cloud/projects/github/webhook` |
 | Model gateway | `stella-v2-model-gateway-dev` | `stella-v2-model-gateway` |
 | D1 | `stella-v2-dev` | `stella-v2-prod` |
 | App source (Artifacts) | `stella-app-dev` | `stella-app-prod` |

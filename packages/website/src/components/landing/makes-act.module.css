@@ -397,8 +397,23 @@
   }
 
   .card {
-    width: 68%;
+    width: 70%;
     height: 62%;
+  }
+
+  .video {
+    --x: 8%;
+    --y: 12%;
+  }
+
+  .musicCard {
+    --x: 15%;
+    --y: 24%;
+  }
+
+  .three {
+    --x: 21%;
+    --y: 36%;
   }
 
   .frame,

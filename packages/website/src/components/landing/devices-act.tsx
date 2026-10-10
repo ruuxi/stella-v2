@@ -29,20 +29,23 @@ export function DevicesAct() {
     if (!view) return;
     const measure = () => {
       const r = view.getBoundingClientRect();
-      const fit = Math.min(r.width / 680, r.height / 560);
+      const phone = DEVICES[device] === "phone";
+      const narrow = r.width < 700;
+      const fit = narrow && phone ? Math.min(r.width / 320, r.height / 600) : Math.min(r.width / 680, r.height / 560);
       view.style.setProperty("--fit", String(Math.max(0.4, fit)));
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(view);
+    return () => ro.disconnect();
+  }, [device]);
+
+  useEffect(() => {
     const io = new IntersectionObserver(([entry]) => setRunning(entry?.isIntersecting ?? false), {
       threshold: 0.45,
     });
     if (sectionRef.current) io.observe(sectionRef.current);
-    return () => {
-      ro.disconnect();
-      io.disconnect();
-    };
+    return () => io.disconnect();
   }, []);
 
   useEffect(() => {

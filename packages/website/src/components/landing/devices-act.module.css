@@ -79,6 +79,7 @@
   height: 600px;
   margin: -300px 0 0 -350px;
   transform: scale(var(--fit));
+  transition: transform var(--t) var(--morph);
 }
 
 .stage[data-device="computer"] {

@@ -9,7 +9,7 @@
  * Selected-tab styling uses overlapping borders with the active tab going
  * borderless/transparent so it melts into the panel below.
  */
-import { useSyncExternalStore } from "react";
+import { useRef, useSyncExternalStore } from "react";
 import {
   sidebarSections,
   useSidebarActiveTabId,
@@ -22,6 +22,7 @@ import { DisplayTabIcon } from "@/features/workspace-display/icons";
 import { cloudAppTitles } from "@/features/cloud/cloud-app-title-store";
 import { cloudAppIdFromLocation } from "@/features/cloud/open-cloud-app-panel";
 import { Plus, X } from "@/ui/icons";
+import { useTabStripCloseFreeze } from "@/shared/hooks/use-tab-strip-close-freeze";
 import { SIDEBAR_SECTION_META } from "./section-meta";
 import "./sidebar-top-nav.css";
 
@@ -35,6 +36,14 @@ export function SidebarTopNav() {
     cloudAppTitles.getSnapshot,
     cloudAppTitles.getSnapshot,
   ).titles;
+  const navRef = useRef<HTMLDivElement>(null);
+  const stripRef = useRef<HTMLDivElement>(null);
+  const { onTabCloseClick } = useTabStripCloseFreeze({
+    stripRef,
+    zoneRef: navRef,
+    tabSelector: ".sidebar-top-nav__tab",
+    tabIds: tabs.map((tab) => tab.id),
+  });
 
   const titleFor = (tab: SidebarTab): string => {
     switch (tab.kind) {
@@ -69,8 +78,13 @@ export function SidebarTopNav() {
   };
 
   return (
-    <div className="sidebar-top-nav">
-      <div className="sidebar-top-nav__tabs" role="tablist" aria-label="Sidebar">
+    <div ref={navRef} className="sidebar-top-nav">
+      <div
+        ref={stripRef}
+        className="sidebar-top-nav__tabs"
+        role="tablist"
+        aria-label="Sidebar"
+      >
         {tabs.map((tab) => {
           const active = tab.id === activeTabId;
           const title = titleFor(tab);
@@ -78,6 +92,7 @@ export function SidebarTopNav() {
             <div
               key={tab.id}
               className="sidebar-top-nav__tab"
+              data-tab-id={tab.id}
               data-active={active ? "true" : undefined}
               title={title}
             >
@@ -98,7 +113,10 @@ export function SidebarTopNav() {
                 className="sidebar-top-nav__tab-close"
                 aria-label={`Close ${title}`}
                 title={`Close ${title}`}
-                onClick={() => sidebarSections.closeTab(tab.id)}
+                onClick={(event) => {
+                  onTabCloseClick(event, tab.id);
+                  sidebarSections.closeTab(tab.id);
+                }}
               >
                 <X size={12} strokeWidth={2} aria-hidden="true" />
               </button>

@@ -330,3 +330,15 @@ export const evidenceAudioFileUri = async (
   const remote = await remoteSourceFor(request.filePath);
   return (await localSourceFor(request, remote)).uri;
 };
+
+/**
+ * The copy of a paired-computer file a preview already pulled onto this
+ * device, if there is one, so the viewer can play it without a second read.
+ */
+export const cachedEvidenceSourceUri = (filePath: string): string | null => {
+  const file = new File(
+    directoryFor("source"),
+    `${stableKey(filePath)}${extensionOf(filePath)}`,
+  );
+  return file.exists && (file.size ?? 0) > 0 ? file.uri : null;
+};

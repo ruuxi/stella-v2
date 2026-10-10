@@ -103,12 +103,7 @@ export function CloudMemoryWipeSettings() {
   return (
     <>
       <div className="settings-card" data-cloud-memory-wipe>
-        <h3 className="settings-card-title">Erase cloud Memory</h3>
-        <p className="settings-card-desc">
-          Erases this account's cloud Memory for good. Your computers keep
-          their own copies until you choose what happens to them. Turning
-          Memory off does not do this, and it cannot be undone.
-        </p>
+        <h3 className="settings-card-title">Cloud Memory</h3>
 
         {phase === "loading" ? (
           <div className="settings-row-sublabel" role="status">
@@ -128,8 +123,7 @@ export function CloudMemoryWipeSettings() {
               <div className="settings-row-sublabel">{progress}</div>
               {activeJob.lastErrorCode ? (
                 <div className="settings-row-sublabel" role="status">
-                  The last pass did not finish. Stella will retry automatically
-                  after its protected backoff.
+                  The last pass didn't finish. Retrying soon.
                 </div>
               ) : null}
             </div>
@@ -151,12 +145,6 @@ export function CloudMemoryWipeSettings() {
             <div className="settings-row-info">
               <div className="settings-row-label" role="status">
                 Memory wipe completed
-              </div>
-              <div className="settings-row-sublabel">
-                The previous Memory epoch has no reusable or recoverable Memory
-                content. A new empty epoch is open. A computer that still has
-                Memory from before pauses its Memory sync until you choose to
-                upload that Memory or erase it there.
               </div>
               <div className="settings-row-sublabel">{progress}</div>
             </div>
@@ -188,7 +176,9 @@ export function CloudMemoryWipeSettings() {
 
         <div className="settings-row">
           <div className="settings-row-info">
-            <div className="settings-row-label">Permanent deletion</div>
+            <div className="settings-row-sublabel">
+              Can't be undone. Your computers keep their copies.
+            </div>
           </div>
           <div className="settings-row-control">
             <Button

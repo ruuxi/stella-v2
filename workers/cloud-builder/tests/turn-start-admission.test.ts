@@ -135,7 +135,6 @@ const harness = (
     journal?: ReturnType<typeof journalFake>;
     gates?: ReturnType<typeof fakeOwnerGates>;
     outbox?: ReturnType<typeof fakeOwnerEvents>;
-    editLock?: unknown;
   } = {},
 ) => {
   const { values, storage, alarm } = storageFake(options.values);
@@ -167,7 +166,6 @@ const harness = (
     admittedOwnerModelGrants: new Map<string, unknown>(),
     activeTurnId: null,
     journal,
-    activeConversationEditLock: async () => options.editLock ?? null,
     bindConversation: () => undefined,
     publish: () => undefined,
     registerOwnerTurn: async (target: { ownerPurgeLeaseId?: string }) => {
@@ -680,22 +678,6 @@ describe("OrchestratorSession turn admission", () => {
     const noPrompt = await h.dispatch(start({ prompt: "   " }), USER);
     expect(noPrompt.status).toBe(400);
     expect(h.gates.admits).toHaveLength(0);
-  });
-
-  test("a conversation under edit is locked: 423, fence unregistered, gate released", async () => {
-    const h = harness({ editLock: { operationId: "edit-1" } });
-    const response = await h.dispatch(start(), USER);
-    expect(response.status).toBe(423);
-    expect(await errorOf(response)).toMatchObject({
-      code: "conversation_locked",
-      retryable: true,
-      retryAfterMs: 1_000,
-    });
-    expect(h.unregistrations()).toBe(1);
-    expect(h.gates.releases).toHaveLength(1);
-    expect([...h.values.keys()].some((key) => key.startsWith("queued:"))).toBe(
-      false,
-    );
   });
 
   test("admission completes while queue delivery is stalled, and a restart retries the persisted batch", async () => {

@@ -723,6 +723,125 @@ const doctorReport = async (run) => {
   return report;
 };
 
+const startElectron = async (run, { minted, modelGateway, fakeMic, browserBridge }) => {
+  const { runDir, dataDir, userDataDir, cdpPort, providerHomes } = run;
+  process.stderr.write("Starting Electron...\n");
+  const softwareGl = linuxSoftwareGl();
+  const electronArgs = [];
+  if (process.platform === "linux") {
+    electronArgs.push("--no-sandbox", "--disable-dev-shm-usage");
+    if (softwareGl) {
+      electronArgs.push(
+        "--disable-gpu",
+        "--disable-gpu-sandbox",
+        "--in-process-gpu",
+        "--enable-unsafe-swiftshader",
+        "--ozone-platform=x11",
+      );
+    }
+  }
+  if (fakeMic) {
+    // Chromium plays the WAV as the only microphone, looping, and grants
+    // capture without a prompt. Used to drive dictation end to end.
+    electronArgs.push(
+      "--use-fake-device-for-media-stream",
+      "--use-fake-ui-for-media-stream",
+      `--use-file-for-fake-audio-capture=${fakeMic}`,
+    );
+    if (process.platform === "darwin") {
+      electronArgs.push("--disable-features=AudioServiceSandbox");
+    }
+  }
+  electronArgs.push("--remote-allow-origins=*");
+  // Main-process inspector for evaluating in main (e.g. hot-update checks).
+  if (process.env.STELLA_VERIFY_INSPECT_MAIN) {
+    electronArgs.push(`--inspect=127.0.0.1:${process.env.STELLA_VERIFY_INSPECT_MAIN}`);
+  }
+  electronArgs.push(repoRoot, "--dev");
+  const electron = spawnLogged(electronBin(), electronArgs, {
+    cwd: repoRoot,
+    env: {
+      ...isolatedElectronEnvironment(),
+      ...(modelGateway ? { STELLA_MODEL_GATEWAY_URL: modelGateway } : {}),
+      ...(browserBridge ? { STELLA_BROWSER_BRIDGE: browserBridge } : {}),
+      ...providerHomes,
+      // The app talks to the backend the harness signs in against.
+      ...(process.env.STELLA_BACKEND_URL?.trim()
+        ? { VITE_STELLA_BACKEND_URL: resolveSiteUrl() }
+        : {}),
+      STELLA_SKIP_BROWSER_HYDRATE: "1",
+      STELLA_DATA_DIR: dataDir,
+      STELLA_V2_DEV_DATA_DIR: dataDir,
+      STELLA_DEV_HARNESS: "1",
+      STELLA_DEV_HARNESS_STORAGE_KEY: randomBytes(32).toString("base64url"),
+      ...(minted
+        ? { STELLA_DEV_HARNESS_SESSION_TOKEN: minted.sessionToken }
+        : {}),
+      STELLA_V2_DEV_USER_DATA_DIR: userDataDir,
+      STELLA_RUNTIME_IPC_DIR: path.dirname(userDataDir),
+      STELLA_REMOTE_DEBUG_PORT: String(cdpPort),
+      NODE_ENV: "development",
+      ...(softwareGl
+        ? {
+            ELECTRON_OZONE_PLATFORM_HINT: "x11",
+            LIBGL_ALWAYS_SOFTWARE: "1",
+          }
+        : {}),
+    },
+    logPath: path.join(runDir, "electron.log"),
+  });
+  run.electronPid = electron.pid;
+  writeJson(POINTER_PATH, run);
+  writeJson(path.join(runDir, "run.json"), run);
+
+  await waitForCdp(cdpPort, CDP_CONNECT_TIMEOUT_MS);
+  const deadline = Date.now() + CDP_CONNECT_TIMEOUT_MS;
+  let ready = false;
+  let lastError = "shell not ready";
+  while (Date.now() < deadline) {
+    try {
+      ready = Boolean(
+        await withCdp(run, (ws) =>
+          runtimeEvaluate(
+            ws,
+            `Boolean(document.querySelector(${JSON.stringify(READY_SELECTOR)}))`,
+          ),
+        ),
+      );
+      if (ready) break;
+      lastError = `selector ${READY_SELECTOR} missing`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await delay(400);
+  }
+  if (!ready)
+    throw new Error(
+      `Electron window came up but the shell did not: ${lastError}`,
+    );
+  // The shell can mount before the detached runtime host finishes starting.
+  // Wait for the same health contract used by doctor instead of treating its
+  // first null response as a failed launch and killing a healthy startup.
+  const hostDeadline = Date.now() + CDP_CONNECT_TIMEOUT_MS;
+  let hostReady = false;
+  let lastHostError = "runtime host not ready";
+  while (Date.now() < hostDeadline) {
+    try {
+      hostReady = Boolean(
+        await withCdp(run, (ws) => runtimeEvaluate(ws, HOST_HEALTH_EXPRESSION)),
+      );
+      if (hostReady) break;
+    } catch (error) {
+      lastHostError = error instanceof Error ? error.message : String(error);
+    }
+    if (!isAlive(run.electronPid)) break;
+    await delay(400);
+  }
+  if (!hostReady) {
+    throw new Error(`Electron shell is ready but the runtime host did not become ready: ${lastHostError}`);
+  }
+};
+
 const cmdLaunch = async (options) => {
   const existing = currentRun();
   if (
@@ -799,123 +918,14 @@ const cmdLaunch = async (options) => {
     account,
     browserBridge: browserBridge ?? "isolated",
     providerHomes,
+    modelGateway,
+    fakeMic,
   };
   writeJson(POINTER_PATH, run);
   writeJson(path.join(runDir, "run.json"), run);
 
   try {
-    process.stderr.write("Starting Electron...\n");
-    const softwareGl = linuxSoftwareGl();
-    const electronArgs = [];
-    if (process.platform === "linux") {
-      electronArgs.push("--no-sandbox", "--disable-dev-shm-usage");
-      if (softwareGl) {
-        electronArgs.push(
-          "--disable-gpu",
-          "--disable-gpu-sandbox",
-          "--in-process-gpu",
-          "--enable-unsafe-swiftshader",
-          "--ozone-platform=x11",
-        );
-      }
-    }
-    if (fakeMic) {
-      // Chromium plays the WAV as the only microphone, looping, and grants
-      // capture without a prompt. Used to drive dictation end to end.
-      electronArgs.push(
-        "--use-fake-device-for-media-stream",
-        "--use-fake-ui-for-media-stream",
-        `--use-file-for-fake-audio-capture=${fakeMic}`,
-      );
-    }
-    electronArgs.push("--remote-allow-origins=*");
-    // Main-process inspector for evaluating in main (e.g. hot-update checks).
-    if (process.env.STELLA_VERIFY_INSPECT_MAIN) {
-      electronArgs.push(`--inspect=127.0.0.1:${process.env.STELLA_VERIFY_INSPECT_MAIN}`);
-    }
-    electronArgs.push(repoRoot, "--dev");
-    const electron = spawnLogged(electronBin(), electronArgs, {
-      cwd: repoRoot,
-      env: {
-        ...isolatedElectronEnvironment(),
-        ...(modelGateway ? { STELLA_MODEL_GATEWAY_URL: modelGateway } : {}),
-        ...(browserBridge ? { STELLA_BROWSER_BRIDGE: browserBridge } : {}),
-        ...providerHomes,
-        // The app talks to the backend the harness signs in against.
-        ...(process.env.STELLA_BACKEND_URL?.trim()
-          ? { VITE_STELLA_BACKEND_URL: resolveSiteUrl() }
-          : {}),
-        STELLA_SKIP_BROWSER_HYDRATE: "1",
-        STELLA_DATA_DIR: dataDir,
-        STELLA_V2_DEV_DATA_DIR: dataDir,
-        STELLA_DEV_HARNESS: "1",
-        STELLA_DEV_HARNESS_STORAGE_KEY: randomBytes(32).toString("base64url"),
-        ...(minted
-          ? { STELLA_DEV_HARNESS_SESSION_TOKEN: minted.sessionToken }
-          : {}),
-        STELLA_V2_DEV_USER_DATA_DIR: userDataDir,
-        STELLA_RUNTIME_IPC_DIR: path.dirname(userDataDir),
-        STELLA_REMOTE_DEBUG_PORT: String(cdpPort),
-        NODE_ENV: "development",
-        ...(softwareGl
-          ? {
-              ELECTRON_OZONE_PLATFORM_HINT: "x11",
-              LIBGL_ALWAYS_SOFTWARE: "1",
-            }
-          : {}),
-      },
-      logPath: path.join(runDir, "electron.log"),
-    });
-    run.electronPid = electron.pid;
-    writeJson(POINTER_PATH, run);
-    writeJson(path.join(runDir, "run.json"), run);
-
-    await waitForCdp(cdpPort, CDP_CONNECT_TIMEOUT_MS);
-    const deadline = Date.now() + CDP_CONNECT_TIMEOUT_MS;
-    let ready = false;
-    let lastError = "shell not ready";
-    while (Date.now() < deadline) {
-      try {
-        ready = Boolean(
-          await withCdp(run, (ws) =>
-            runtimeEvaluate(
-              ws,
-              `Boolean(document.querySelector(${JSON.stringify(READY_SELECTOR)}))`,
-            ),
-          ),
-        );
-        if (ready) break;
-        lastError = `selector ${READY_SELECTOR} missing`;
-      } catch (error) {
-        lastError = error instanceof Error ? error.message : String(error);
-      }
-      await delay(400);
-    }
-    if (!ready)
-      throw new Error(
-        `Electron window came up but the shell did not: ${lastError}`,
-      );
-    // The shell can mount before the detached runtime host finishes starting.
-    // Wait for the same health contract used by doctor instead of treating its
-    // first null response as a failed launch and killing a healthy startup.
-    const hostDeadline = Date.now() + CDP_CONNECT_TIMEOUT_MS;
-    let hostReady = false;
-    let lastHostError = "runtime host not ready";
-    while (Date.now() < hostDeadline) {
-      try {
-        hostReady = Boolean(
-          await withCdp(run, (ws) => runtimeEvaluate(ws, HOST_HEALTH_EXPRESSION)),
-        );
-        if (hostReady) break;
-      } catch (error) {
-        lastHostError = error instanceof Error ? error.message : String(error);
-      }
-      if (!isAlive(run.electronPid)) break;
-      await delay(400);
-    }
-    if (!hostReady) {
-      throw new Error(`Electron shell is ready but the runtime host did not become ready: ${lastHostError}`);
-    }
+    await startElectron(run, { minted, modelGateway, fakeMic, browserBridge });
   } catch (error) {
     // STELLA_VERIFY_KEEP_ON_FAILURE=1 leaves a failed launch up to inspect.
     if (process.env.STELLA_VERIFY_KEEP_ON_FAILURE !== "1") {
@@ -926,6 +936,35 @@ const cmdLaunch = async (options) => {
     throw error;
   }
 
+  respond(run, run);
+};
+
+const cmdRelaunch = async () => {
+  const run = currentRun();
+  if (!run)
+    fail("No verification instance is recorded.", 1, {
+      errorCode: "NOT_RUNNING",
+      recovery: "Run `session launch` first.",
+    });
+  await stopPid(run.electronPid);
+  let minted = null;
+  if (run.account?.mode && run.account.mode !== "anonymous") {
+    minted = await mintTestAccount(run.runId, run.account.mode);
+  } else if (run.account?.reused !== undefined && run.account?.userId) {
+    const { session } = await ensureReusableAnonymousSession();
+    minted = { sessionToken: session.token };
+  }
+  run.cdpPort = await allocatePort();
+  run.electronPid = null;
+  run.relaunchedAt = new Date().toISOString();
+  writeJson(POINTER_PATH, run);
+  writeJson(path.join(run.runDir, "run.json"), run);
+  await startElectron(run, {
+    minted,
+    modelGateway: run.modelGateway ?? null,
+    fakeMic: run.fakeMic ?? null,
+    browserBridge: run.browserBridge === "shared" ? "shared" : null,
+  });
   respond(run, run);
 };
 
@@ -1046,9 +1085,10 @@ const dispatchKey = (run, spec) =>
       type: "keyDown",
       ...spec,
     });
+    const { commands: _commands, ...upSpec } = spec;
     await cdpSend(ws, 11, "Input.dispatchKeyEvent", {
       type: "keyUp",
-      ...spec,
+      ...upSpec,
     });
   });
 
@@ -1122,6 +1162,14 @@ const MODIFIERS = {
   Shift: 8,
 };
 
+const EDITING_COMMANDS = {
+  KeyA: "selectAll",
+  KeyC: "copy",
+  KeyV: "paste",
+  KeyX: "cut",
+  KeyZ: "undo",
+};
+
 const parseKeyChord = (value) => {
   if (!value) fail("drive press requires --key <key-or-chord>.");
   const parts = value.split("+").filter(Boolean);
@@ -1155,7 +1203,13 @@ const parseKeyChord = (value) => {
       `Unknown key ${keyName}. Use a named key, KeyA-KeyZ, Digit0-Digit9, or a chord such as Meta+KeyN.`,
     );
   }
-  return { ...spec, modifiers };
+  const editingCommand =
+    modifiers === MODIFIERS.Meta || modifiers === MODIFIERS.Control
+      ? EDITING_COMMANDS[spec.code]
+      : undefined;
+  return editingCommand
+    ? { ...spec, modifiers, commands: [editingCommand] }
+    : { ...spec, modifiers };
 };
 
 const cmdPress = async (options) => {
@@ -2089,6 +2143,9 @@ try {
       break;
     case "launch":
       await cmdLaunch(options);
+      break;
+    case "relaunch":
+      await cmdRelaunch();
       break;
     case "doctor":
       await cmdDoctor();

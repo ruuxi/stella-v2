@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { Play } from "@/ui/icons";
 import { localMediaUrl } from "@/shared/hooks/local-media-url";
+import { useLocalMediaFailure } from "@/shared/hooks/use-local-media-failure";
 
 export const VideoFrame = ({
   poster,
@@ -19,6 +20,7 @@ export const VideoFrame = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const boundsRef = useRef<{ left: number; width: number } | null>(null);
   const streamUrl = localMediaUrl(filePath);
+  const { failure, onError } = useLocalMediaFailure(filePath, "video");
 
   const scrub = useCallback(
     (clientX: number) => {
@@ -83,9 +85,15 @@ export const VideoFrame = ({
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onEnded={() => setPlaying(false)}
+          onError={onError}
         />
       ) : null}
-      {!playing ? (
+      {failure ? (
+        <span className="evidence-video__unavailable" role="status">
+          {failure}
+        </span>
+      ) : null}
+      {!playing && !failure ? (
         <span className="evidence-video__badge" aria-hidden="true">
           <Play size={11} />
         </span>

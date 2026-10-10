@@ -37,6 +37,11 @@ export type OnboardingChatHandoff = {
 
 type UseOnboardingChatArgs = {
   onFinished: (handoff: OnboardingChatHandoff) => void;
+  /**
+   * Gmail connects through a Stella account (and the desktop app), so the
+   * Gmail message is left out of the script for anyone without one.
+   */
+  skipGmail: boolean;
 };
 
 /** The user bubble lands, then Stella "reads" it before typing. */
@@ -69,6 +74,10 @@ const ANSWER_TEXT_KEYS: Record<
   signin: {
     done: "onboarding.chat.replies.signinDone",
   },
+  gmail: {
+    done: "onboarding.chat.replies.gmailDone",
+    skipped: "onboarding.chat.replies.gmailSkipped",
+  },
   theme: {
     done: "onboarding.chat.replies.themeDone",
     skipped: "onboarding.chat.replies.themeSkipped",
@@ -76,6 +85,10 @@ const ANSWER_TEXT_KEYS: Record<
   extras: {
     done: "onboarding.chat.replies.extrasDone",
     skipped: "onboarding.chat.replies.extrasSkipped",
+  },
+  phone: {
+    done: "onboarding.chat.replies.capabilitiesDone",
+    skipped: "onboarding.chat.replies.gmailSkipped",
   },
   quickstart: {},
 };
@@ -118,7 +131,10 @@ const buildResumedEntries = (
   return entries;
 };
 
-export function useOnboardingChat({ onFinished }: UseOnboardingChatArgs) {
+export function useOnboardingChat({
+  onFinished,
+  skipGmail,
+}: UseOnboardingChatArgs) {
   const t = useT();
   const [progress, setProgress] = useState<OnboardingChatProgress>(
     () => readOnboardingChatProgress() ?? { step: "capabilities", answers: {} },
@@ -135,6 +151,15 @@ export function useOnboardingChat({ onFinished }: UseOnboardingChatArgs) {
   const timersRef = useRef<number[]>([]);
   const onFinishedRef = useRef(onFinished);
   onFinishedRef.current = onFinished;
+
+  // Dropping a step the user is already on, or already answered, would strand
+  // the transcript, so the decision only applies ahead of the message.
+  const steps = useMemo(() => {
+    if (!skipGmail) return ONBOARDING_CHAT_STEPS;
+    if (progress.step === "gmail") return ONBOARDING_CHAT_STEPS;
+    if (progress.answers.gmail !== undefined) return ONBOARDING_CHAT_STEPS;
+    return ONBOARDING_CHAT_STEPS.filter((step) => step !== "gmail");
+  }, [progress.answers.gmail, progress.step, skipGmail]);
 
   const schedule = useCallback((ms: number, fn: () => void) => {
     const id = window.setTimeout(() => {
@@ -170,7 +195,7 @@ export function useOnboardingChat({ onFinished }: UseOnboardingChatArgs) {
     (step: OnboardingChatStep, kind: OnboardingChatAnswer) => {
       if (busyRef.current || finishedRef.current) return;
       if (progress.step !== step) return;
-      const next = nextOnboardingChatStep(step);
+      const next = nextOnboardingChatStep(steps, step);
       const textKey = ANSWER_TEXT_KEYS[step][kind];
       if (textKey) {
         setEntries((prev) => [
@@ -207,7 +232,7 @@ export function useOnboardingChat({ onFinished }: UseOnboardingChatArgs) {
         reveal,
       );
     },
-    [finish, progress, schedule, t],
+    [finish, progress, schedule, steps, t],
   );
 
   const indicator = useMemo(
@@ -217,6 +242,7 @@ export function useOnboardingChat({ onFinished }: UseOnboardingChatArgs) {
 
   return {
     entries,
+    steps,
     currentStep: progress.step,
     answers: progress.answers,
     indicator,

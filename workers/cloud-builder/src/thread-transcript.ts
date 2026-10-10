@@ -301,8 +301,8 @@ export const appendThreadMessages = (
 };
 
 /**
- * The thread's history, oldest first, in the exact row shape the executor and
- * the resident loop already validate. Bounded to the newest
+ * The thread's history, oldest first, in the exact row shape the executor
+ * already validates. Bounded to the newest
  * `AGENT_HISTORY_MAX_ROWS` rows, which is the same ceiling the old context
  * route enforced, so a long-lived thread degrades by dropping its oldest turns
  * rather than failing the whole preflight.

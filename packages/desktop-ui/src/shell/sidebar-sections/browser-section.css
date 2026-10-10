@@ -102,6 +102,11 @@
   animation: browser-tab-enter 160ms ease-out both;
 }
 
+.browser-section__tabs[data-tabs-frozen] .browser-section__tab-shell {
+  flex: 0 0 var(--tab-frozen-width);
+  width: var(--tab-frozen-width);
+}
+
 .browser-section__tab-shell[data-active] {
   color: var(--text-strong);
   background: var(--background);

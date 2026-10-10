@@ -84,6 +84,11 @@
   -webkit-app-region: no-drag;
 }
 
+.sidebar-top-nav__tabs[data-tabs-frozen] .sidebar-top-nav__tab {
+  flex: 0 0 var(--tab-frozen-width);
+  width: var(--tab-frozen-width);
+}
+
 .sidebar-top-nav__tab:first-child {
   border-bottom-left-radius: 6px;
 }

@@ -6,16 +6,56 @@
  * extension hooks that top-level calls get.
  */
 
+import type { JsonObject, Tool } from "@earendil-works/pi-ai";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
-import type { Tool } from "../../ai/types.js";
 import type { ToolContext, ToolResult } from "./types.js";
 
 let toolValidationModule:
-  | Promise<typeof import("../../ai/utils/validation.js")>
+  | Promise<typeof import("@earendil-works/pi-ai/utils/validation")>
   | undefined;
-// Same lazy load as the agent loop: AJV stays off the startup path.
+// Loaded on the first validated call: the validator stays off the startup path.
 const loadToolValidation = () =>
-  (toolValidationModule ??= import("../../ai/utils/validation.js"));
+  (toolValidationModule ??= import("@earendil-works/pi-ai/utils/validation"));
+
+/**
+ * A tool's schema as plain JSON Schema, once per schema. pi-ai's validator
+ * coerces model-written arguments ("5" for a number) only for plain JSON
+ * Schema; the TypeBox schemas Stella's tools declare carry a marker that
+ * makes it skip that step.
+ */
+const plainSchemas = new WeakMap<object, Record<string, unknown>>();
+const plainSchema = (schema: Record<string, unknown>): Record<string, unknown> => {
+  let plain = plainSchemas.get(schema);
+  if (!plain) {
+    plain = JSON.parse(JSON.stringify(schema)) as Record<string, unknown>;
+    plainSchemas.set(schema, plain);
+  }
+  return plain;
+};
+
+/**
+ * A `null` the model wrote for an optional boolean reads as false, as it
+ * always has here. pi-ai's validator drops an optional `null` instead, which
+ * would turn it into the tool's default: `exec_command`'s `login: null` would
+ * start a login shell rather than the plain one Stella has always run.
+ */
+const nullBooleansAsFalse = (
+  args: Record<string, unknown>,
+  schema: Record<string, unknown>,
+): Record<string, unknown> => {
+  const properties = schema.properties as
+    | Record<string, { type?: unknown }>
+    | undefined;
+  if (!properties) return args;
+  let coerced: Record<string, unknown> | undefined;
+  for (const [key, value] of Object.entries(args)) {
+    if (value === null && properties[key]?.type === "boolean") {
+      coerced ??= { ...args };
+      coerced[key] = false;
+    }
+  }
+  return coerced ?? args;
+};
 
 export type ToolCallPipelineArgs = {
   toolName: string;
@@ -52,13 +92,16 @@ export const runToolCallPipeline = async (
         {
           name: call.toolName,
           description: "",
-          parameters: call.parameters,
+          parameters: plainSchema(call.parameters),
         } as unknown as Tool,
         {
           type: "toolCall",
           id: call.context.requestId ?? "",
           name: call.toolName,
-          arguments: effectiveArgs,
+          arguments: nullBooleansAsFalse(
+            effectiveArgs,
+            call.parameters,
+          ) as JsonObject,
         },
       ) as Record<string, unknown>;
     } catch (error) {

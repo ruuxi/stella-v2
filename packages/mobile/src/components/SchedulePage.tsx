@@ -3,7 +3,8 @@ import {
   type LegendListRenderItemProps,
 } from "@legendapp/list/react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, StyleSheet, View } from "react-native";
+import { useRouter } from "expo-router";
 import { useT } from "../i18n";
 import {
   useMobileSchedules,
@@ -13,11 +14,10 @@ import {
 } from "../lib/schedules";
 import { authClient } from "../lib/auth-client";
 import { isGuest } from "../lib/guest-mode";
-import { CONTENT_MAX_FONT_SCALE } from "../lib/setup-text-defaults";
+import { startChatWith } from "../lib/ask-stella";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { Colors } from "../theme/colors";
-import { fonts } from "../theme/fonts";
 import { useColors } from "../theme/theme-context";
+import { EmptyState } from "./EmptyState";
 import { ScheduleRow, makeScheduleRowStyles } from "./schedule-rows";
 
 /**
@@ -28,7 +28,8 @@ import { ScheduleRow, makeScheduleRowStyles } from "./schedule-rows";
 export function SchedulePage() {
   const colors = useColors();
   const t = useT();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const styles = useMemo(() => makeStyles(), []);
+  const router = useRouter();
   const rowStyles = useMemo(() => makeScheduleRowStyles(colors), [colors]);
   const bottomInset = useSafeAreaInsets().bottom;
   const session = authClient.useSession();
@@ -96,13 +97,31 @@ export function SchedulePage() {
 
   const renderBody = () => {
     if (!signedIn) {
-      return <Text style={styles.empty}>{t("mobile.sidebar.signedOutHint")}</Text>;
+      return (
+        <EmptyState motif="schedule" message={t("mobile.sidebar.signedOutHint")} />
+      );
     }
     if (loading) {
       return (
         <View style={[styles.centered, { paddingBottom: bottomInset }]}>
           <ActivityIndicator color={colors.textMuted} />
         </View>
+      );
+    }
+    if (schedules.length === 0) {
+      return (
+        <EmptyState
+          motif="schedule"
+          message={t("mobile.activityHub.schedule.empty")}
+          action={{
+            label: t("mobile.activityHub.schedule.emptyAction"),
+            onPress: () =>
+              startChatWith(
+                router,
+                t("mobile.activityHub.schedule.emptyActionPrompt"),
+              ),
+          }}
+        />
       );
     }
     return (
@@ -121,14 +140,6 @@ export function SchedulePage() {
             onAction={(action) => onAction(item, action)}
           />
         )}
-        ListEmptyComponent={
-          <Text
-            style={styles.empty}
-            maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-          >
-            {t("mobile.activityHub.schedule.empty")}
-          </Text>
-        }
         ItemSeparatorComponent={() => <View style={styles.separator} />}
         showsVerticalScrollIndicator={false}
         estimatedItemSize={60}
@@ -137,48 +148,25 @@ export function SchedulePage() {
     );
   };
 
-  return (
-    <View style={styles.root}>
-      <Text style={styles.title} accessibilityRole="header">
-        {t("mobile.activityHub.tabs.schedule")}
-      </Text>
-      {renderBody()}
-    </View>
-  );
+  return <View style={styles.root}>{renderBody()}</View>;
 }
 
 const EMPTY: MobileSchedule[] = [];
 
-const makeStyles = (colors: Colors) =>
+const makeStyles = () =>
   StyleSheet.create({
     root: {
       flex: 1,
       minHeight: 0,
     },
-    title: {
-      color: colors.text,
-      fontFamily: fonts.display.regular,
-      fontSize: 32,
-      letterSpacing: -1.2,
-      marginBottom: 16,
-      marginTop: 4,
-    },
     list: {
       flex: 1,
+      marginTop: 8,
     },
     centered: {
       alignItems: "center",
       flex: 1,
       justifyContent: "center",
-    },
-    empty: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 14,
-      lineHeight: 20,
-      paddingHorizontal: 20,
-      paddingVertical: 36,
-      textAlign: "center",
     },
     separator: {
       height: 2,

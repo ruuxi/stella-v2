@@ -231,33 +231,6 @@ export const persistThreadPayloadMessage = (store, args) => {
     ...(args.preservePayloadExactly ? { preservePayloadExactly: true } : {}),
   });
 };
-export const persistThreadPayloadMessages = (store, args) => {
-  const timestamp = now();
-  const messages = args.payloads.map((rawPayload, index) => {
-    const payload =
-      rawPayload.role === "assistant"
-        ? {
-            ...rawPayload,
-            ...(args.runId ? { stellaRunId: args.runId } : {}),
-            ...(typeof args.attemptGeneration === "number"
-              ? { stellaAttemptGeneration: args.attemptGeneration }
-              : {}),
-          }
-        : rawPayload;
-    const toolCallId =
-      payload.role === "toolResult" ? payload.toolCallId : undefined;
-    return {
-      threadKey: args.threadKey,
-      timestamp: timestamp + index,
-      role: payload.role,
-      content: buildThreadMessagePreview(payload),
-      ...(toolCallId ? { toolCallId } : {}),
-      payload,
-      ...(args.preservePayloadExactly ? { preservePayloadExactly: true } : {}),
-    };
-  });
-  store.appendThreadMessages(messages);
-};
 export const persistThreadCustomMessage = (store, args) => {
   store.appendThreadCustomMessage({
     threadKey: args.threadKey,
@@ -340,10 +313,7 @@ const buildFileEditingPrompt = (context) => {
     "- Do not use shell heredocs or `cat > file` for source edits when `apply_patch` can express the change.",
   ].join("\n");
 };
-/**
- * The system prompt as named sections, in order. Sections let a resident
- * thread announce only the parts that changed (see `pi-session-core`).
- */
+/** The system prompt as named sections, in order. */
 export const buildSystemPromptSections = (context) => {
   const sections = [
     { id: "instructions", text: context.systemPrompt.trim() },

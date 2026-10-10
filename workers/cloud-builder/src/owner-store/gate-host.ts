@@ -13,23 +13,16 @@ import {
   type CloudTurnStartRequest,
 } from "@stella/contracts/turn-plane/turn-start";
 import {
+  agentCompletionPromptText,
+  agentLifecycleReport,
+  cancelCloudAgentAttempt,
   CloudAgentDispatchRefused,
   dispatchCloudAgentTurn,
   steerCloudAgent,
 } from "../cloud-agent-dispatch.js";
 import { HEADER_CONVERSATION_ID, ORCHESTRATOR_INTERNAL_ORIGIN } from "../build-session/shared/keys.js";
-import {
-  agentCompletionPromptText,
-  agentLifecycleReport,
-} from "../build-session/terminal-delivery.js";
 import { HEADER_OWNER } from "../conversation-types.js";
 import { HEADER_TURN_AUTH_KIND } from "../turn-start-request.js";
-import { OwnerPurgeFenceError } from "../build-session/shared/errors.js";
-import {
-  ConversationEditHttpError,
-  runConversationEdit,
-} from "../conversation-edit-runner.js";
-import { withOwnerActivityLease, type OwnerFenceCaller } from "../owner-activity-lease.js";
 import type { OwnerEvent } from "@stella/contracts/turn-plane/owner-events";
 import type {
   OwnerGateAdmission,
@@ -86,8 +79,6 @@ export type GateHostDependencies = {
   homeChanged: (ownerGeneration: string, revision: number) => Promise<void>;
   /** The gate's memory policy change, refusals as `RpcError`. */
   changeMemoryPolicy: OwnerHost["changeMemoryPolicy"];
-  /** This object's owner fence, called in-process. */
-  fence: OwnerFenceCaller;
   /** The gate's own `applyOwnerEvents`, called in-process. */
   applyOwnerEvents: (events: OwnerEvent[]) => Promise<void>;
   /** One reset or deletion pass across every store. */
@@ -176,14 +167,20 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
   async steerAgentTurn(input) {
     const steered = await steerCloudAgent({
       env: deps.env,
+      conversationId: input.conversationId,
+      ownerId: deps.ownerId(),
+      ownerGeneration: input.ownerGeneration,
       threadId: input.threadId,
-      message: {
-        id: input.messageId.slice(0, 256),
-        kind: input.kind ?? "input",
-        text: input.text,
-        createdAt: Date.now(),
-      },
+      messageId: input.messageId.slice(0, 256),
+      text: input.text,
     });
+    if (!steered.accepted && steered.reason === "busy") {
+      throw new RpcError(
+        "CONFLICT",
+        `${input.threadId} is starting up or just finishing in its container. Send the message again in a moment.`,
+        { retryable: true, reason: "thread_busy" },
+      );
+    }
     return steered.accepted;
   },
 
@@ -203,26 +200,6 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
 
   async deliverAgentCompletion(input) {
     const text = agentCompletionPromptText(input);
-    if (input.parentThreadId) {
-      const steered = await steerCloudAgent({
-        env: deps.env,
-        threadId: input.parentThreadId,
-        message: {
-          id: `wake:${input.threadId}:${input.attemptGeneration}`.slice(0, 256),
-          kind:
-            input.status === "completed"
-              ? "child_completed"
-              : input.status === "canceled"
-                ? "child_canceled"
-                : "child_failed",
-          text,
-          threadId: input.threadId,
-          attemptGeneration: input.attemptGeneration,
-          createdAt: input.threadUpdatedAt,
-        },
-      });
-      if (steered.accepted) return;
-    }
     const response = await startOrchestratorTurn(deps, input, {
       protocol: TURN_PLANE_PROTOCOL,
       clientMsgId: `wake:${input.threadId}:${input.attemptGeneration}`.slice(0, 64),
@@ -300,16 +277,11 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
           description: input.description,
           prompt: input.prompt,
           execution: input.execution,
-          source: input.browserResume
-            ? "browser-resume"
-            : input.originDeviceId
-              ? "desktop"
-              : "agent-thread",
+          source: input.originDeviceId ? "desktop" : "agent-thread",
           ...(input.originDeviceId ? { originDeviceId: input.originDeviceId } : {}),
           ...(input.originConversationId
             ? { originConversationId: input.originConversationId }
             : {}),
-          ...(input.browserResume ? { browserResume: input.browserResume } : {}),
         },
       });
     } catch (error) {
@@ -319,26 +291,17 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
   },
 
   async cancelAgentTurn(input) {
-    const response = await deps.env.BUILD_SESSIONS.getByName(input.threadId).fetch(
-      "https://build-session/cancel",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ownerId: deps.ownerId(),
-          ownerGeneration: input.ownerGeneration,
-          turnId: input.turnId,
-          attemptGeneration: input.attemptGeneration,
-          cancelRequestId: input.cancelRequestId,
-          reason: "Paused by orchestrator.",
-        }),
-      },
-    );
-    if (response.status === 409) return "changed";
-    if (!response.ok) {
-      throw new Error(`Stopping the agent failed (${response.status}).`);
-    }
-    return "canceled";
+    return await cancelCloudAgentAttempt({
+      env: deps.env,
+      conversationId: input.conversationId,
+      threadId: input.threadId,
+      ownerId: deps.ownerId(),
+      ownerGeneration: input.ownerGeneration,
+      turnId: input.turnId,
+      attemptGeneration: input.attemptGeneration,
+      cancelRequestId: input.cancelRequestId,
+      reason: "Paused by orchestrator.",
+    });
   },
 
   async postConversationCard(input) {
@@ -369,28 +332,6 @@ export const createGateHost = (deps: GateHostDependencies): OwnerHost => ({
         conversationId: input.conversationId,
         message: error instanceof Error ? error.message : String(error),
       });
-    }
-  },
-
-  async runConversationEdit(request) {
-    try {
-      return await withOwnerActivityLease(
-        (path, body) => deps.fence(path, { ...body, ownerId: deps.ownerId() }),
-        request.ownerGeneration,
-        `conversation-edit:${request.operationId}`,
-        async () => await runConversationEdit(deps.env, request),
-      );
-    } catch (error) {
-      if (error instanceof ConversationEditHttpError) {
-        throw new RpcError(
-          error.status === 409 ? "CONFLICT" : error.status === 404 ? "NOT_FOUND" : "UNAVAILABLE",
-          error.message,
-        );
-      }
-      if (error instanceof OwnerPurgeFenceError) {
-        throw new RpcError("CONFLICT", "Your cloud data is being reset. Try again in a moment.");
-      }
-      throw error;
     }
   },
 

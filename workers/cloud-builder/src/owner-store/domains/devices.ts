@@ -1,7 +1,7 @@
 /**
  * The owner's devices: desktops that can run work (their presence-signing
- * keys and capabilities), phones paired to a desktop, and the phones' push
- * tokens. Desktop UI and runtime calls arrive as backend calls; phones use the
+ * keys and capabilities), the credentials phones reach them with, and the
+ * phones' push tokens. Desktop UI and runtime calls arrive as backend calls; phones use the
  * `/api/mobile/*` routes, which land in `handleMobileRoute`.
  */
 
@@ -9,7 +9,6 @@ import type {
   ActivityNotificationKind,
   DeviceCalls,
   ExecutionCapability,
-  PhoneAccessState,
 } from "@stella/contracts/backend/devices";
 import { sha256Hex } from "@stella/contracts/turn-plane/pairing-proof";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
@@ -23,15 +22,10 @@ import { readOrDefault } from "../schema.js";
 const MAX_DEVICES = 64;
 const MAX_SUCCESSION_HOPS = 8;
 const MAX_TOKENS = 25;
-const PAIRING_TTL_MS = 10 * 60_000;
-const SWEEP_INTERVAL_MS = 24 * 60 * 60_000;
-const PAIRING_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const PAIRING_CODE_LENGTH = 8;
 const PAIR_SECRET_LENGTH = 48;
 const PAIR_SECRET_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
 const PUSH_QUIET_MS = 60_000;
-export const DEVICES_SWEEP_JOB = "devices.sweep";
 export const DEVICES_PUSH_DIGEST_JOB = "devices.pushDigest";
 
 export const DEVICES_MIGRATION = {
@@ -174,6 +168,19 @@ export const DEVICES_PUSH_TOKEN_SESSION_MIGRATION = {
   ],
 };
 
+/**
+ * Pairing codes are gone: a phone signed in to the account reaches its
+ * computers through `pairing/attach`. The codes, and the sweep that expired
+ * them, go with it.
+ */
+export const DEVICES_DROP_PAIRING_CODES_MIGRATION = {
+  id: "devices.6-drop-pairing-codes",
+  statements: [
+    `DROP TABLE IF EXISTS pairing_codes`,
+    `DELETE FROM owner_jobs WHERE kind = 'devices.sweep'`,
+  ],
+};
+
 type DeviceRow = {
   device_id: string;
   public_key: string | null;
@@ -233,10 +240,6 @@ export const resolveCurrentDeviceId = (db: OwnerDbReader, deviceId: string): str
     current = next;
   }
   return current;
-};
-
-const scheduleSweep = (ctx: OwnerContext): void => {
-  ctx.jobs.schedule(DEVICES_SWEEP_JOB, ctx.now + SWEEP_INTERVAL_MS, null, { id: DEVICES_SWEEP_JOB });
 };
 
 const requireAccountCaller = (caller: OwnerCaller | null): OwnerCaller => {
@@ -536,94 +539,13 @@ export const snapshotDevices = (
 
 // ── Phones ─────────────────────────────────────────────────────────────────
 
-const pairingUrl = (code: string) => `stella-mobile://stella?code=${encodeURIComponent(code)}`;
-
-const activePairing = (db: OwnerDbReader, desktopDeviceId: string, now: number) =>
-  db.one<{ code: string; created_at: number; expires_at: number }>(
-    `SELECT code, created_at, expires_at FROM pairing_codes
-     WHERE desktop_device_id = ? AND used_at IS NULL AND expires_at > ?
-     ORDER BY created_at DESC LIMIT 1`,
-    desktopDeviceId,
-    now,
-  );
-
-const readPhoneAccess = (db: OwnerDbReader, desktopDeviceId: string, now: number): PhoneAccessState => {
-  const pairing = activePairing(db, desktopDeviceId, now);
-  return {
-    activePairing: pairing
-      ? { pairingCode: pairing.code, expiresAt: pairing.expires_at, createdAt: pairing.created_at }
-      : null,
-    pairedDevices: db
-      .all<PairedPhoneRow>(
-        "SELECT * FROM paired_phones WHERE desktop_device_id = ? AND revoked_at IS NULL ORDER BY approved_at",
-        desktopDeviceId,
-      )
-      .map((row) => ({
-        mobileDeviceId: row.mobile_device_id,
-        ...(row.display_name ? { displayName: row.display_name } : {}),
-        ...(row.platform ? { platform: row.platform } : {}),
-        approvedAt: row.approved_at,
-        lastSeenAt: row.last_seen_at,
-      })),
-  };
-};
-
-const phoneAccess = (db: OwnerDbReader, desktopDeviceId: string, now: number): PhoneAccessState =>
-  readOrDefault(() => readPhoneAccess(db, desktopDeviceId, now), {
-    activePairing: null,
-    pairedDevices: [],
-  });
-
-const createPairing = (
-  ctx: OwnerContext,
-  args: DeviceCalls["phone.createPairing"]["args"],
-): DeviceCalls["phone.createPairing"]["result"] => {
-  enforceOwnerRateLimit(ctx.db, ctx.now, "phone.createPairing", { count: 6, windowMs: 60_000 }, "Too many pairing requests. Please wait a minute and try again.");
-  const existing = activePairing(ctx.db, args.desktopDeviceId, ctx.now);
-  if (existing) {
-    return {
-      pairingCode: existing.code,
-      expiresAt: existing.expires_at,
-      createdAt: existing.created_at,
-      pairingUrl: pairingUrl(existing.code),
-    };
-  }
-  let code = randomFrom(PAIRING_CODE_ALPHABET, PAIRING_CODE_LENGTH);
-  for (let attempt = 0; ctx.db.one("SELECT 1 AS taken FROM pairing_codes WHERE code = ?", code); attempt++) {
-    if (attempt >= 5) throw new RpcError("UNAVAILABLE", "Could not allocate a pairing code. Please try again.");
-    code = randomFrom(PAIRING_CODE_ALPHABET, PAIRING_CODE_LENGTH);
-  }
-  const expiresAt = ctx.now + PAIRING_TTL_MS;
-  ctx.db.run(
-    "INSERT INTO pairing_codes (code, desktop_device_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-    code,
-    args.desktopDeviceId,
-    ctx.now,
-    expiresAt,
-  );
-  scheduleSweep(ctx);
-  return { pairingCode: code, expiresAt, createdAt: ctx.now, pairingUrl: pairingUrl(code) };
-};
-
-const revokePhone = (ctx: OwnerContext, args: DeviceCalls["phone.revoke"]["args"]): null => {
-  enforceOwnerRateLimit(ctx.db, ctx.now, "phone.revoke", { count: 20, windowMs: 60_000 }, "Too many revocation requests. Please wait a minute and try again.");
-  ctx.db.run(
-    "UPDATE paired_phones SET revoked_at = ? WHERE desktop_device_id = ? AND mobile_device_id = ? AND revoked_at IS NULL",
-    ctx.now,
-    args.desktopDeviceId,
-    args.mobileDeviceId,
-  );
-  return null;
-};
-
 /**
  * Issue this phone a credential for one of the account's desktops.
  *
  * The pair secret is not an authorization step; it is the phone's *transport*
  * key. A phone has no Stella device key the cloud can verify, so this HMAC key
  * is what stands in for one on the mobile dispatch proof and on its requests
- * to the computer. Both callers below mint exactly the same row and differ
- * only in what they accepted as evidence beforehand.
+ * to the computer.
  */
 const grantPhoneAccess = async (
   ctx: OwnerContext,
@@ -660,13 +582,10 @@ const grantPhoneAccess = async (
  * A phone signed into this account asks for a credential for a desktop it can
  * already see in the device list, with no code to carry between the two.
  *
- * This is the replacement for the pairing code, and it is a demotion rather
- * than a removal: the code only ever proved that whoever held the phone could
- * also see the desktop's screen, on top of an account check both ends already
- * passed. Dropping it makes account access sufficient — the trade the owner
- * chose — and it is still only a credential to *reach* that desktop. Whether
- * the desktop will run anything is `remote_execution_state`, which this does
- * not touch.
+ * Account access is sufficient, and it is still only a credential to *reach*
+ * that desktop. Whether the desktop will run anything is
+ * `remote_execution_state`, which this does not touch. The route keeps its
+ * `pairing/` path because phones already in the field call it.
  *
  * The named desktop must be a registered device of this same owner. There is
  * no cross-account reach to check for: the row lives in the caller's own owner
@@ -691,27 +610,6 @@ const attachPhone = async (
     throw new RpcError("NOT_FOUND", "That computer is not signed in to this account.");
   }
   return await grantPhoneAccess(ctx, { ...input, desktopDeviceId });
-};
-
-/** A phone signed into this account redeems a desktop's pairing code. */
-const completePairing = async (
-  ctx: OwnerContext,
-  input: { pairingCode: string; mobileDeviceId: string; displayName?: string; platform?: string },
-) => {
-  enforceOwnerRateLimit(ctx.db, ctx.now, "phone.completePairing", { count: 30, windowMs: 60_000 }, "Too many pairing attempts. Please wait a minute and try again.");
-  const session = ctx.db.one<{ desktop_device_id: string; expires_at: number; used_at: number | null }>(
-    "SELECT desktop_device_id, expires_at, used_at FROM pairing_codes WHERE code = ?",
-    input.pairingCode,
-  );
-  if (!session || session.used_at !== null || session.expires_at <= ctx.now) {
-    throw new RpcError("BAD_REQUEST", "This pairing code is unavailable.");
-  }
-  const granted = await grantPhoneAccess(ctx, {
-    ...input,
-    desktopDeviceId: session.desktop_device_id,
-  });
-  ctx.db.run("UPDATE pairing_codes SET used_at = ? WHERE code = ?", ctx.now, input.pairingCode);
-  return granted;
 };
 
 // ── Push ───────────────────────────────────────────────────────────────────
@@ -857,12 +755,6 @@ const sendPush = async (ctx: OwnerContext, copy: { title: string; body: string }
   return null;
 };
 
-const sweep = (ctx: OwnerContext): void => {
-  ctx.db.run("DELETE FROM pairing_codes WHERE expires_at < ?", ctx.now - PAIRING_TTL_MS);
-  const remaining = ctx.db.one<{ count: number }>("SELECT COUNT(*) AS count FROM pairing_codes")?.count ?? 0;
-  if (remaining > 0) scheduleSweep(ctx);
-};
-
 // ── /api/mobile/* ──────────────────────────────────────────────────────────
 
 export type MobileRouteInput = {
@@ -931,27 +823,6 @@ export const handleMobileRoute = async (ctx: OwnerContext, input: MobileRouteInp
         throw caught;
       }
     }
-    case "POST pairing/complete": {
-      const pairingCode = text(body.pairingCode, 12).toUpperCase();
-      const mobileDeviceId = text(body.mobileDeviceId, 256);
-      if (!pairingCode || !mobileDeviceId) return error(400, "pairingCode and mobileDeviceId are required");
-      const displayName = optionalText(body.displayName, 64);
-      const platform = optionalText(body.platform, 64);
-      try {
-        return {
-          status: 200,
-          body: await completePairing(ctx, {
-            pairingCode,
-            mobileDeviceId,
-            ...(displayName ? { displayName } : {}),
-            ...(platform ? { platform } : {}),
-          }),
-        };
-      } catch (caught) {
-        if (caught instanceof RpcError && caught.code !== "RATE_LIMITED") return error(400, caught.message);
-        throw caught;
-      }
-    }
     default:
       return error(404, "Not found");
   }
@@ -967,6 +838,7 @@ export const devicesDomain = {
     DEVICES_DROP_PHONE_BRIDGE_MIGRATION,
     DEVICES_PUSH_DIGEST_MIGRATION,
     DEVICES_PUSH_TOKEN_SESSION_MIGRATION,
+    DEVICES_DROP_PAIRING_CODES_MIGRATION,
   ],
   calls: {
     "devices.identity": {
@@ -1005,18 +877,6 @@ export const devicesDomain = {
       parse: object({ previousDeviceId: deviceIdArg, deviceId: deviceIdArg }),
       handler: (ctx: OwnerContext, args: DeviceCalls["devices.adoptSuccession"]["args"]) => adoptSuccession(ctx, args),
     },
-    "phone.createPairing": {
-      scope: "owner",
-      requireAccount: true,
-      parse: object({ desktopDeviceId: deviceIdArg }),
-      handler: (ctx: OwnerContext, args: DeviceCalls["phone.createPairing"]["args"]) => createPairing(ctx, args),
-    },
-    "phone.revoke": {
-      scope: "owner",
-      requireAccount: true,
-      parse: object({ desktopDeviceId: deviceIdArg, mobileDeviceId: deviceIdArg }),
-      handler: (ctx: OwnerContext, args: DeviceCalls["phone.revoke"]["args"]) => revokePhone(ctx, args),
-    },
     "phone.notifyActivity": {
       scope: "owner",
       requireAccount: true,
@@ -1050,15 +910,7 @@ export const devicesDomain = {
       return null;
     },
   },
-  views: {
-    "phone.access": {
-      requireAccount: true,
-      parse: object({ desktopDeviceId: deviceIdArg }),
-      read: (ctx, args) => phoneAccess(ctx.db, args.desktopDeviceId, ctx.now),
-    },
-  },
   jobs: {
-    [DEVICES_SWEEP_JOB]: { run: (ctx) => sweep(ctx), maxAttempts: 10 },
     [DEVICES_PUSH_DIGEST_JOB]: { run: (ctx) => flushDigest(ctx), maxAttempts: 3 },
   },
 } satisfies OwnerDomain;

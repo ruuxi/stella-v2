@@ -19,7 +19,6 @@ const createContext = (runId = "run-1") => {
         agentType: "orchestrator",
         uiVisibility: "visible",
         threadKey: "thread-1",
-        engine: "native",
         queueUserMessageId: vi.fn(),
         queueCallbackSwitch: vi.fn(),
         queueMessage: vi.fn(),

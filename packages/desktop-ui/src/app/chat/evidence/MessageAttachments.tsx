@@ -45,7 +45,18 @@ const useOnscreenTiles = (
   return visible;
 };
 
-export const MessageAttachments = ({ filePaths }: { filePaths: string[] }) => {
+/**
+ * A reply's attached files, in two parts: `media` is the rounded row of real
+ * previews that sits directly under the bubble, `documents` the pills at the
+ * bottom of the bubble.
+ */
+export const MessageAttachments = ({
+  filePaths,
+  part,
+}: {
+  filePaths: string[];
+  part: "media" | "documents";
+}) => {
   const rowRef = useRef<HTMLDivElement | null>(null);
   const { cards, overflowCount } = useEvidenceCards(filePaths);
 
@@ -60,13 +71,12 @@ export const MessageAttachments = ({ filePaths }: { filePaths: string[] }) => {
     return { media, documents };
   }, [cards]);
 
-  const visible = useOnscreenTiles(rowRef, media.length);
+  const visible = useOnscreenTiles(rowRef, part === "media" ? media.length : 0);
 
-  if (cards.length === 0) return null;
-
-  return (
-    <div className="attachment-strip">
-      {media.length > 0 ? (
+  if (part === "media") {
+    if (media.length === 0) return null;
+    return (
+      <div className="attachment-strip attachment-strip--media">
         <div className="attachment-strip__media" ref={rowRef}>
           {media.map((card) => (
             <div
@@ -78,17 +88,22 @@ export const MessageAttachments = ({ filePaths }: { filePaths: string[] }) => {
             </div>
           ))}
         </div>
-      ) : null}
-      {documents.length > 0 || overflowCount > 0 ? (
-        <div className="attachment-strip__pills">
-          {documents.map((card) => (
-            <AttachmentPill key={card.id} card={card} />
-          ))}
-          {overflowCount > 0 ? (
-            <span className="attachment-strip__more">+{overflowCount} more</span>
-          ) : null}
-        </div>
-      ) : null}
+      </div>
+    );
+  }
+
+  if (documents.length === 0 && overflowCount === 0) return null;
+
+  return (
+    <div className="attachment-strip">
+      <div className="attachment-strip__pills">
+        {documents.map((card) => (
+          <AttachmentPill key={card.id} card={card} />
+        ))}
+        {overflowCount > 0 ? (
+          <span className="attachment-strip__more">+{overflowCount} more</span>
+        ) : null}
+      </div>
     </div>
   );
 };

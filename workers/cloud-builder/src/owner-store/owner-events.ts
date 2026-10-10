@@ -10,7 +10,6 @@ import {
   type AgentThreadEffects,
 } from "./domains/agent-threads.js";
 import { applyConversationEvent } from "./domains/conversations.js";
-import { recordBrowserSuspension } from "./domains/browser.js";
 import type { OwnerContext } from "./registry.js";
 
 /** Parents before children, so a batch never applies a child to a missing row. */
@@ -46,10 +45,6 @@ export const applyOwnerEventsToStore = (
         break;
       case "turn.event":
         applyAgentThreadEvent(db, event, effects);
-        // A hosted-browser wait becomes an interaction the owner answers.
-        if (!event.terminal && event.eventKind === "waiting_for_user") {
-          recordBrowserSuspension(ctx, event);
-        }
         break;
       case "thread.spawned":
       case "thread.completed":

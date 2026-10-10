@@ -5,7 +5,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { createRunEventRecorder } from "@stella/runtime/kernel/agent-runtime/run-events";
-import { SubagentSession } from "@stella/runtime/kernel/agent-runtime/subagent-session";
+import { AgentSteering } from "@stella/runtime/kernel/agent-runtime/agent-steering";
 import {
   buildClaudePromptFromMessages,
   buildPreambleToolBoundaryMessage,
@@ -219,22 +219,18 @@ describe("external live steering", () => {
     });
   });
 
-  it("routes durable subagent session steering into an attached external engine", () => {
-    const session = new SubagentSession(
-      "general-thread",
-      "conversation-1",
-      "general",
-    );
+  it("routes agent steering into an attached external engine", () => {
+    const steering = new AgentSteering("general-thread");
     const live = createExternalLiveAgent();
     const appendThreadMessage = vi.fn();
-    const detach = session.attachExternalLiveAgent(live.agent, {
+    const detach = steering.attach(live.agent, {
       store: { appendThreadMessage } as never,
       runId: "run-general",
       attemptGeneration: 3,
     });
 
-    expect(session.canSteer).toBe(true);
-    expect(session.steer("change the active task")).toBe(true);
+    expect(steering.canSteer).toBe(true);
+    expect(steering.steer("change the active task")).toBe(true);
     expect(live.drainSteering()).toMatchObject([
       {
         delivery: "steer",
@@ -252,7 +248,6 @@ describe("external live steering", () => {
     );
 
     detach();
-    expect(session.canSteer).toBe(false);
-    session.dispose();
+    expect(steering.canSteer).toBe(false);
   });
 });

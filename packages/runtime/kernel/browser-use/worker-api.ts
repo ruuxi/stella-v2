@@ -1,9 +1,5 @@
 import { MAX_BROWSER_CHAIN_STEPS } from "./protocol.js";
 import { sanitizeChainOptions, sanitizeChainStep } from "./worker-api/chain.js";
-import {
-  deviceCodeFixtureParams,
-  loginTakeoverParams,
-} from "./worker-api/cloud-handoff.js";
 import { createBrowserWorkerContext } from "./worker-api/context.js";
 import { createLocators } from "./worker-api/locators.js";
 import { createTabs } from "./worker-api/tabs.js";
@@ -72,24 +68,6 @@ export type BrowserWorkerScreenshotReceipt = Readonly<{
   path: string;
   format: "png" | "jpeg";
   mimeType: "image/png" | "image/jpeg";
-}>;
-
-export type BrowserWorkerLoginTakeoverOptions = Readonly<{
-  allowedOrigins: readonly string[];
-  displayOrigin: string;
-  displayTitle?: string;
-  startUrl?: string;
-  expiresInMs?: number;
-  verification: Readonly<{
-    expectedOrigin: string;
-    authenticatedSelector: string;
-    loggedOutSelector: string;
-    resumeUrl: string;
-  }>;
-}>;
-
-export type BrowserWorkerDeviceCodeFixtureOptions = Readonly<{
-  expiresInMs?: number;
 }>;
 
 export interface BrowserWorkerLocator {
@@ -282,14 +260,6 @@ export interface BrowserWorkerApi {
     steps: readonly BrowserWorkerChainStep[],
     options?: BrowserWorkerChainOptions,
   ): Promise<unknown>;
-  /** Cloud-only: suspend this code tool for private human credential entry. */
-  requestLoginTakeover(
-    options: BrowserWorkerLoginTakeoverOptions,
-  ): Promise<unknown>;
-  /** Cloud-only controlled fixture for the public device-code handoff path. */
-  requestDeviceCodeFixture(
-    options?: BrowserWorkerDeviceCodeFixtureOptions,
-  ): Promise<unknown>;
   readonly tabs: BrowserWorkerTabs;
 }
 
@@ -363,8 +333,6 @@ export function installBrowserWorkerApi(
         "locator actions",
         "low-level chain",
         "network observation",
-        "cloud login takeover",
-        "cloud device-code fixture",
       ]),
       notes: Object.freeze([
         "Prefer state reads before snapshots.",
@@ -394,20 +362,6 @@ export function installBrowserWorkerApi(
       const chainOptions = sanitizeChainOptions(rawOptions);
       return await context.sendChain(steps, chainOptions, backend);
     },
-    requestLoginTakeover: async (options: BrowserWorkerLoginTakeoverOptions) =>
-      await context.command(
-        "cloud_login_takeover",
-        loginTakeoverParams(options),
-        context.selectedBackend,
-      ),
-    requestDeviceCodeFixture: async (
-      options?: BrowserWorkerDeviceCodeFixtureOptions,
-    ) =>
-      await context.command(
-        "cloud_device_code_fixture",
-        deviceCodeFixtureParams(options),
-        context.selectedBackend,
-      ),
     tabs,
   });
 

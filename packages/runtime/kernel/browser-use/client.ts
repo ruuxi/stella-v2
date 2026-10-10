@@ -42,13 +42,11 @@ import {
 export {
   BROWSER_CHAIN_ACTIONS,
   BROWSER_PROTOCOL_ACTIONS,
-  CLOUD_BROWSER_SESSION_ACTIONS,
   MAX_BROWSER_CHAIN_STEPS,
   WORKER_BOUND_BACKEND_PARAM,
   type BrowserChainAction,
   type BrowserProtocolAction,
   type BrowserSessionAction,
-  type CloudBrowserSessionAction,
 } from "./protocol.js";
 
 const DEFAULT_BROWSER_CHAIN_WAIT_TIMEOUT_MS = 10_000;

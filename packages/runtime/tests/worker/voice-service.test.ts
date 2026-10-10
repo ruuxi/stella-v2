@@ -13,7 +13,6 @@ const makeService = () => {
     appendThreadMessage: vi.fn((message) => {
       threadMessages.push(message);
     }),
-    notifyOrchestratorHistoryChanged: vi.fn(),
     getVoiceOrchestratorConfig: vi.fn(async () => ({
       instructions: "orchestrator instructions",
       tools: [
@@ -94,9 +93,6 @@ describe("VoiceRuntimeService direct tool execution", () => {
       "tool_result",
     ]);
     expect(onLocalChatUpdated).toHaveBeenCalledTimes(2);
-    expect(runner.notifyOrchestratorHistoryChanged).toHaveBeenCalledWith(
-      "conv-1",
-    );
   });
 
   it("routes the legacy web_search alias through the unified web tool", async () => {
@@ -342,9 +338,6 @@ describe("VoiceRuntimeService direct tool execution", () => {
         content: "Please check this from voice.",
         decorateUserTimestampTag: true,
       }),
-    );
-    expect(runner.notifyOrchestratorHistoryChanged).toHaveBeenCalledWith(
-      "conv-1",
     );
     expect(localEvents[0]).toMatchObject({
       type: "user_message",

@@ -2,16 +2,18 @@
  * The `html` tool's model-visible surface, split from the executable
  * definition so workerd hosts advertise the byte-identical tool. The device
  * host writes the canvas under `~/.stella/outputs/html/`; the cloud host
- * writes it into the owner's drive.
+ * writes it into the owner's drive. Both then save it to the canvas's
+ * private link (`shares.save`) and return that URL, or only the file when the
+ * link cannot be made.
  */
 
 export const HTML_TOOL_NAME = "html";
 
 export const HTML_TOOL_DESCRIPTION =
-  "Write a complete HTML document and show it as a canvas artifact in the workspace panel. Use whenever a richer answer than markdown helps — plans, diagrams (SVG), comparisons, mockups, dashboards, structured reports, documentation, long-form writeups, side-by-side options, anything with tables/colors/illustrations. Do NOT use to build a real Stella app (that's spawn_agent). The canvas runs sandboxed: inline scripts and styles work, and scripts, styles and fonts load from cdn.jsdelivr.net, unpkg.com, cdnjs.cloudflare.com, cdn.tailwindcss.com, esm.sh and Google Fonts (Tailwind, Chart.js, D3, three.js, icon sets); images load from any https URL. Nothing else on the network is reachable. Returns immediately once the file is written.";
+  "Write a complete HTML document and show it as a canvas artifact in the workspace panel. Use whenever a richer answer than markdown helps — plans, diagrams (SVG), comparisons, mockups, dashboards, structured reports, documentation, long-form writeups, side-by-side options, anything with tables/colors/illustrations. Do NOT use to build a real Stella app (that's spawn_agent). The canvas runs sandboxed: inline scripts and styles work, and scripts, styles and fonts load from cdn.jsdelivr.net, unpkg.com, cdnjs.cloudflare.com, cdn.tailwindcss.com, esm.sh and Google Fonts (Tailwind, Chart.js, D3, three.js, icon sets); images load from any https URL. Nothing else on the network is reachable. Returns the canvas's link: private, so only the user can open it, until they make it public from the canvas's Share menu. Rewriting the same slug keeps the same link. If the link can't be made it returns the saved file instead.";
 
 export const HTML_TOOL_PROMPT_SNIPPET =
-  "Write a self-contained HTML doc to ~/.stella/outputs/html/<slug>.html and show it in the Canvas tab";
+  "Write a self-contained HTML doc, show it in the Canvas tab, and get its private link";
 
 export const HTML_TOOL_PARAMETERS: Record<string, unknown> = {
   type: "object",

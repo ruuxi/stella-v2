@@ -253,6 +253,10 @@ export const Lock = createIcon("lock", <>
     <rect x="4.75" y="10.5" width="14.5" height="9.75" rx="3"/>
     <path d="M8.25 10.5V7.75a3.75 3.75 0 0 1 7.5 0v2.75"/>
   </>);
+export const Keyboard = createIcon("keyboard", <>
+    <rect x="3.25" y="6.25" width="17.5" height="11.5" rx="2.75"/>
+    <path d="M7.25 10.25h.01M10.4 10.25h.01M13.6 10.25h.01M16.75 10.25h.01M8.5 14h7"/>
+  </>);
 export const Pin = createIcon("pin", <>
     <path d="M8.95 3.5h6.1l-.75 5.45 2.65 2.6c.9.88.27 2.4-.99 2.4H7.04c-1.26 0-1.89-1.52-.99-2.4l2.65-2.6Z"/>
     <path d="M12 13.95V20.5"/>

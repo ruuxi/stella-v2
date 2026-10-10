@@ -8,6 +8,7 @@
 import { generateCapabilityKeyPair } from "@stella/contracts/gateway/jwt";
 import type { OwnerEvent } from "@stella/contracts/turn-plane/owner-events";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
+import type { IdentityLevel } from "@stella/contracts/gateway/api";
 import type {
   OwnerGateAdmission,
   OwnerGateAdmissionWithLease,
@@ -15,6 +16,12 @@ import type {
   OwnerGateFenceLeaseRequest,
   OwnerGateSnapshotWithLease,
 } from "../../src/owner-gate.js";
+
+/**
+ * The gate's `OWNER_AGENT_CONTAINER_LIMIT`, restated: importing the value
+ * would load `cloudflare:workers` into every test that uses these fakes.
+ */
+const OWNER_AGENT_CONTAINER_LIMIT = 6;
 
 export const sampleOwnerSnapshot = (
   overrides: Partial<OwnerSnapshot> = {},
@@ -54,6 +61,14 @@ export type FakeOwnerGates = {
       }) => Promise<OwnerGateSnapshotWithLease>;
       invalidate: () => Promise<void>;
       applyOwnerEvents: (events: OwnerEvent[]) => Promise<void>;
+      noteIdentity: (input: {
+        isAnonymous: boolean;
+        identityLevel?: IdentityLevel;
+      }) => Promise<void>;
+      acquireAgentContainer: (input: {
+        sandboxId: string;
+      }) => Promise<{ ok: boolean; running: number; limit: number }>;
+      releaseAgentContainer: (input: { sandboxId: string }) => Promise<void>;
     };
   };
   admits: Array<{ ownerId: string; input: OwnerGateAdmitInput }>;
@@ -66,6 +81,8 @@ export type FakeOwnerGates = {
     outcome: OwnerGateSnapshotWithLease["lease"];
   }>;
   invalidations: string[];
+  /** Agent container slots currently held, per owner, in acquisition order. */
+  agentContainers: Map<string, string[]>;
 };
 
 export const fakeOwnerGates = (
@@ -91,6 +108,7 @@ export const fakeOwnerGates = (
   const snapshots: string[] = [];
   const fenceLeases: FakeOwnerGates["fenceLeases"] = [];
   const invalidations: string[] = [];
+  const agentContainers = new Map<string, string[]>();
   const defaultSnapshotWithFenceLease = (
     _ownerId: string,
     lease: OwnerGateFenceLeaseRequest,
@@ -179,6 +197,29 @@ export const fakeOwnerGates = (
           invalidations.push(ownerId);
         },
         applyOwnerEvents: async (events) => await ownerEvents.apply(events),
+        noteIdentity: async () => undefined,
+        // Mirrors the gate: a container holds at most one slot, and an owner
+        // runs at most OWNER_AGENT_CONTAINER_LIMIT of them.
+        acquireAgentContainer: async ({ sandboxId }) => {
+          const held = agentContainers.get(ownerId) ?? [];
+          const ok =
+            held.includes(sandboxId) ||
+            held.length < OWNER_AGENT_CONTAINER_LIMIT;
+          if (ok && !held.includes(sandboxId)) held.push(sandboxId);
+          agentContainers.set(ownerId, held);
+          return {
+            ok,
+            running: held.length,
+            limit: OWNER_AGENT_CONTAINER_LIMIT,
+          };
+        },
+        releaseAgentContainer: async ({ sandboxId }) => {
+          const held = agentContainers.get(ownerId) ?? [];
+          agentContainers.set(
+            ownerId,
+            held.filter((id) => id !== sandboxId),
+          );
+        },
       }),
     },
     admits,
@@ -186,6 +227,7 @@ export const fakeOwnerGates = (
     snapshots,
     fenceLeases,
     invalidations,
+    agentContainers,
   };
 };
 

@@ -9,6 +9,10 @@ import {
   WORLD_CHANGE_LOG_MAX_ROWS,
 } from "../src/world/types.js";
 import { sha256BytesHex } from "../src/hash.js";
+import {
+  AGENT_CONTAINER_LARGE_KEY,
+  agentContainerSize,
+} from "../src/build-session/shared/keys.js";
 import { handleEdit, handleRead } from "@stella/runtime/kernel/tools/file.js";
 import { handleGrep } from "@stella/runtime/kernel/tools/search.js";
 import { handleApplyPatch } from "@stella/runtime/kernel/tools/apply-patch.js";
@@ -113,14 +117,22 @@ afterEach(() => {
   for (const store of stores.splice(0)) store.close();
 });
 
-describe("WorldSqlStore", () => {
-  test("remembers the container size and lets OOM escalation replace it", () => {
-    const world = createWorld();
-    expect(world.selectContainerSize("small")).toBe("small");
-    expect(world.selectContainerSize("large")).toBe("small");
-    world.rememberContainerSize("large");
-    expect(world.selectContainerSize("small")).toBe("large");
+// Container size is no longer the world's: each agent thread remembers its
+// own OOM escalation, so the size lives in that thread's storage.
+describe("agent container size", () => {
+  test("remembers the container size and lets OOM escalation replace it", async () => {
+    const values = new Map<string, unknown>();
+    const storage = {
+      get: async <T>(key: string) => values.get(key) as T | undefined,
+    } as Pick<DurableObjectStorage, "get">;
+    expect(await agentContainerSize(storage, "small")).toBe("small");
+    expect(await agentContainerSize(storage, "large")).toBe("large");
+    values.set(AGENT_CONTAINER_LARGE_KEY, true);
+    expect(await agentContainerSize(storage, "small")).toBe("large");
   });
+});
+
+describe("WorldSqlStore", () => {
 
   test("putBlobs rejects a sha mismatch without recording either digest", async () => {
     const world = createWorld();

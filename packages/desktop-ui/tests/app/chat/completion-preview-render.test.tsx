@@ -3,11 +3,12 @@
  * Rendered-output contract for a relayed task completion.
  *
  * The reply that relays a task's result quotes the task the iMessage way:
- * one muted bubble above the reply with the status glyph, the task title,
- * a Replies action, and the task's produced files as pills INSIDE the bubble.
- * There is no separate completion row under the reply, no card chrome, no
- * result excerpt in the stream. These tests pin that shape:
- *   - the bubble carries glyph, title, Replies, and the pills;
+ * one muted single-line bubble above the reply with the status glyph and
+ * the task title. The task's produced files ride at the bottom of the reply
+ * bubble itself as pills (`FilePills`), not in the quote. There is no
+ * separate completion row under the reply, no card chrome, no result
+ * excerpt in the stream. These tests pin that shape:
+ *   - the bubble carries glyph and title, and no files;
  *   - pills cap at PILL_CAP with a "+N more" overflow and open the file;
  *   - a bare citation of the same thread is not drawn twice;
  *   - the excerpt never renders;
@@ -15,7 +16,6 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
-import type React from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { withI18n } from "../../helpers/i18n";
 
@@ -30,20 +30,9 @@ vi.mock("@/features/chat/services/conversation-focus-store", () => ({
 vi.mock("@/features/chat/hooks/use-thread-activity-records", () => ({
   useThreadActivityRecords: () => new Map(),
 }));
-vi.mock("@/features/cloud/use-cloud-agent-report", () => ({
-  useCloudAgentReport: () => null,
-}));
-// The report popover is out of scope; keep its trigger, which wraps the
-// glyph and title the bubble passes in.
-vi.mock("@/app/chat/TaskReportButton", () => ({
-  TaskReportButton: ({ children }: { children?: React.ReactNode }) => (
-    <button type="button" className="reply-preview__agent-head">
-      {children}
-    </button>
-  ),
-}));
 
 import { ReplyPreview } from "@/app/chat/ReplyPreview";
+import { FilePills } from "@/app/chat/FilePills";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
 import type { ConversationFileEntry } from "@/features/workspace-display/derive-conversation-files";
 
@@ -99,7 +88,12 @@ describe("relayed completion preview", () => {
       );
     });
 
-  it("quotes the task above the reply with its files inside the bubble", async () => {
+  const renderPills = (files: ConversationFileEntry[]) =>
+    act(() => {
+      root.render(withI18n(<FilePills files={files} variant="bubble" />));
+    });
+
+  it("quotes the task above the reply as a single line without its files", async () => {
     await render([section([file("/Users/me/evening-memo.md")])]);
     const bubble = container.querySelector(".reply-preview__bubble--agent")!;
     expect(bubble).not.toBeNull();
@@ -107,13 +101,8 @@ describe("relayed completion preview", () => {
       "write evening memo",
     );
     expect(bubble.querySelector(".reply-preview__agent-icon")).not.toBeNull();
-    expect(bubble.querySelector(".reply-preview__report-toggle")?.textContent).toBe(
-      "Replies",
-    );
-    const pills = bubble.querySelectorAll(".agent-activity-files__pill");
-    expect(pills).toHaveLength(1);
-    expect(pills[0]?.textContent).toContain("evening-memo.md");
-    expect(bubble.querySelector(".agent-activity-files--inline")).not.toBeNull();
+    // The files ride in the reply bubble, not the quote.
+    expect(container.querySelector(".agent-activity-files")).toBeNull();
     // No completion row, no excerpt, anywhere in the output.
     expect(container.querySelector(".agent-activity-row")).toBeNull();
     expect(container.textContent).not.toContain("This excerpt must never render");
@@ -121,9 +110,7 @@ describe("relayed completion preview", () => {
   });
 
   it("caps the pills and folds the rest behind '+N more'", async () => {
-    await render([
-      section(Array.from({ length: 7 }, (_, i) => file(`/out/file-${i}.md`))),
-    ]);
+    await renderPills(Array.from({ length: 7 }, (_, i) => file(`/out/file-${i}.md`)));
     const visible = container.querySelectorAll(
       ".agent-activity-files__pills:not(.agent-activity-files__pills--overflow) .agent-activity-files__pill",
     );
@@ -139,7 +126,7 @@ describe("relayed completion preview", () => {
   });
 
   it("opens the file from its pill", async () => {
-    await render([section([file("/Users/me/evening-memo.md")])]);
+    await renderPills([file("/Users/me/evening-memo.md")]);
     const open = container.querySelector<HTMLButtonElement>(
       ".agent-activity-files__pill-open",
     )!;
@@ -172,6 +159,5 @@ describe("relayed completion preview", () => {
     const bubble = container.querySelector(".reply-preview__bubble--agent")!;
     expect(bubble.getAttribute("data-reply-ref-thread-id")).toBe("a1");
     expect(bubble.getAttribute("data-completion-event-id")).toBe("evt-c1");
-    expect(bubble.getAttribute("data-artifact-ids")).toBe("/out/a.md,/out/b.md");
   });
 });

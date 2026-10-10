@@ -28,7 +28,6 @@ import {
 import { ChatLog, type ChatMessageWindow } from "./chat-log.js";
 import { ThreadLog } from "./thread-log.js";
 import { AgentRegistry, type AgentRecordInput } from "./agent-registry.js";
-import { RunTaskStore } from "./run-task.js";
 import {
   AGENT_ASSISTANT_UPDATE_LIMITS,
   EAGER_TOOL_EVENT_LIMIT,
@@ -246,7 +245,6 @@ export class SessionStore {
   private readonly threads: ThreadLog;
   private readonly agents: AgentRegistry;
   private threadSummaryStoreInstance: ThreadSummaryStore | null = null;
-  private runTaskStoreInstance: RunTaskStore | null = null;
   private inTransaction = false;
   /**
    * Cloud turns keep their provider transcript in process memory until the
@@ -281,26 +279,6 @@ export class SessionStore {
       this.threadSummaryStoreInstance = new ThreadSummaryStore(this.db);
     }
     return this.threadSummaryStoreInstance;
-  }
-
-  /** Durable runs + tool intents (`run_task`, `tool_intent`). */
-  get runTasks(): RunTaskStore {
-    if (!this.runTaskStoreInstance) {
-      this.runTaskStoreInstance = new RunTaskStore(this.db, {
-        transaction: (work) => this.withImmediateTransaction(work),
-      });
-    }
-    return this.runTaskStoreInstance;
-  }
-
-  /**
-   * Commit a run's durable progress atomically with whatever thread writes
-   * `work` makes (pi-durable's commit callback): e.g. a turn's assistant/tool
-   * group lands in `thread_entry` in the same transaction that clears the
-   * run's pending checkpoint. Nested calls join the outer transaction.
-   */
-  commitRun<T>(work: (runTasks: RunTaskStore) => T): T {
-    return this.withImmediateTransaction(() => work(this.runTasks));
   }
 
   /* ------------------------------------------------------------------ */
@@ -1754,26 +1732,6 @@ export class SessionStore {
     );
   }
 
-  truncateConversationAtEvent(
-    conversationIdInput: unknown,
-    eventIdInput: string,
-  ): { removed: number } {
-    return this.chat.truncateConversationAtEvent(
-      this.sanitizeConversationId(conversationIdInput),
-      eventIdInput,
-    );
-  }
-
-  forkConversationBeforeEvent(
-    conversationIdInput: unknown,
-    eventIdInput: string,
-  ): { conversationId: string } | null {
-    return this.chat.forkConversationBeforeEvent(
-      this.sanitizeConversationId(conversationIdInput),
-      eventIdInput,
-    );
-  }
-
   openEventWindow(conversationIdInput: unknown, maxItems: number) {
     return this.chat.openEventWindow(
       this.sanitizeConversationId(conversationIdInput),
@@ -1836,6 +1794,18 @@ export class SessionStore {
     return this.chat.listSyncMessages(
       this.sanitizeConversationId(conversationIdInput),
       maxMessages,
+    );
+  }
+
+  listMessagesAfterSeq(
+    conversationIdInput: unknown,
+    afterSeq: number,
+    limit: number,
+  ) {
+    return this.chat.listMessagesAfterSeq(
+      this.sanitizeConversationId(conversationIdInput),
+      afterSeq,
+      limit,
     );
   }
 

@@ -49,6 +49,7 @@ export const createBootstrapContext = (config) => {
         isQuitting: false,
         localChatUpdateUnsubscribe: null,
         threadActivityUpdateUnsubscribe: null,
+        piChatEventsUnsubscribe: null,
         overlayController: null,
         companionController: null,
         meetingCaptureController: null,

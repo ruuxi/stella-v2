@@ -239,6 +239,7 @@ export type ComposerQuote = {
 export type ChatMessage = {
   /** Durable reply relationships; UI hides adjacent context. */
   replyRefs?: ReplyRef[];
+  agentStates?: Record<string, "running" | "completed" | "error">;
   /**
    * Agent threads this row's `spawn_agent` / `send_message` calls started, from
    * the tool result details. Feeds reply context (the exchange owns the

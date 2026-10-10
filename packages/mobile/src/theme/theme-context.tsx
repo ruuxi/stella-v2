@@ -78,7 +78,7 @@ const fallbackContext = (() => {
 })();
 
 const ThemeContext = createContext<ThemeContextValue>({
-  preference: "system",
+  preference: "dark",
   setPreference: () => {},
   theme: fallbackContext.theme,
   selectedThemeId: "default",
@@ -98,7 +98,7 @@ const ThemeContext = createContext<ThemeContextValue>({
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const systemScheme = useColorScheme();
-  const [preference, setPreferenceState] = useState<ThemePreference>("system");
+  const [preference, setPreferenceState] = useState<ThemePreference>("dark");
   const [themeId, setThemeIdState] = useState(defaultTheme.id);
   const [customBase, setCustomBaseState] = useState<string | null>(null);
   const [gradientPreference, setGradientPreferenceState] =

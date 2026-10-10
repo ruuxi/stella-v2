@@ -3,6 +3,7 @@ import { useOfficePreview } from "@/features/chat/office-preview-store";
 import { useFilePreviewActions } from "@/features/chat/hooks/use-file-preview-actions";
 import { FilePreviewCardShell } from "./FilePreviewCardShell";
 import { useT } from "@/shared/i18n";
+import { PreviewProblem } from "@/shell/display/preview-states";
 import "./office-preview-card.css";
 
 const statusLabelKey = (status?: string) => {
@@ -52,9 +53,10 @@ export function OfficePreviewCard({
       onCopy={handleCopy}
     >
       {snapshot?.status === "error" ? (
-        <div className="file-preview-card__placeholder file-preview-card__placeholder--error office-preview-card__placeholder">
-          {snapshot.error?.trim() || t("app.chat.officePreview.sessionError")}
-        </div>
+        <PreviewProblem
+          size="compact"
+          error={snapshot.error?.trim() || t("app.chat.officePreview.sessionError")}
+        />
       ) : snapshot?.html ? (
         <iframe
           className="office-preview-card__frame"

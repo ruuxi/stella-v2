@@ -2,7 +2,8 @@
  * Live browser screenshot acceptance for the complete model-facing path.
  *
  * This intentionally runs outside Vitest and uses the production BrowserSession,
- * trusted local Node kernel, public code tool, and Pi tool adapter. It creates one
+ * trusted local Node kernel, public code tool, and the model tool adapter the
+ * pi-durable harness runs Stella's tools through (`executeModelToolCall`). It creates one
  * task-owned external-browser tab, captures it, and finalizes that owner before
  * reporting. Run while the Stella browser bridge and extension are connected:
  *
@@ -12,7 +13,10 @@ import { randomUUID } from "node:crypto";
 import { access } from "node:fs/promises";
 import path from "node:path";
 
-import { createPiTools } from "../kernel/agent-runtime/tool-adapters.js";
+import {
+  executeModelToolCall,
+  type ModelToolCallOptions,
+} from "../kernel/agent-runtime/tool-adapters.js";
 import {
   BrowserSession,
   type BrowserChainOptions,
@@ -35,6 +39,7 @@ import type {
   ToolResult,
   ToolUpdateCallback,
 } from "../kernel/tools/types.js";
+import type { AgentToolUpdateCallback } from "../kernel/agent-core/types.js";
 
 const assert: (condition: unknown, message: string) => asserts condition = (
   condition,
@@ -161,7 +166,7 @@ const registry = new CodeKernelRegistry({
 });
 const codeTool = createCodeTool({ registry });
 
-const [modelTool] = createPiTools({
+const toolCallOptions: ModelToolCallOptions = {
   executionHost: "device",
   runId,
   rootRunId: runId,
@@ -172,14 +177,7 @@ const [modelTool] = createPiTools({
   stellaDataDir: process.env.STELLA_DATA_DIR,
   toolWorkspaceRoot: process.cwd(),
   agentDepth: 1,
-  toolsAllowlist: ["code"],
-  toolCatalog: [
-    {
-      name: "code",
-      description: codeTool.description,
-      parameters: codeTool.parameters,
-    },
-  ],
+  allowedToolNames: ["code"],
   // This acceptance dispatches only code, whose production adapter does
   // not touch durable runtime storage. Keep the store deliberately inert so
   // the browser/REPL path remains the only exercised surface.
@@ -197,9 +195,23 @@ const [modelTool] = createPiTools({
       ...(onUpdate ? { onUpdate } : {}),
     });
   },
-});
+};
 
-assert(modelTool, "code was not registered in the model tool adapter");
+const modelTool = {
+  execute: (
+    toolCallId: string,
+    params: unknown,
+    signal: AbortSignal | undefined,
+    onUpdate: AgentToolUpdateCallback | undefined,
+  ) =>
+    executeModelToolCall(toolCallOptions, {
+      toolName: "code",
+      toolCallId,
+      params,
+      ...(signal ? { signal } : {}),
+      ...(onUpdate ? { onUpdate } : {}),
+    }),
+};
 
 try {
   const resetErrorResult = await modelTool.execute(

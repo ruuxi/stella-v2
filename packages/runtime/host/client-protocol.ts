@@ -16,6 +16,8 @@ export const RUNTIME_HOST_CALLS = [
   "cancelChat",
   "resumeRunEvents",
   "sendAgentInput",
+  /** The pi-durable chat: `PiChatRequest` in, its result out. */
+  "piChat",
   "runAutomationTurn",
   "runBlockingLocalAgent",
   "createBackgroundAgent",

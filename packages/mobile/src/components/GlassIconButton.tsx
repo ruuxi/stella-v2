@@ -7,6 +7,7 @@ import {
   type StyleProp,
   type ViewStyle,
 } from "react-native";
+import Animated, { type AnimatedStyle } from "react-native-reanimated";
 import { GlassSurface } from "./glass";
 import { Icon, type IconName } from "./Icon";
 import type { Colors } from "../theme/colors";
@@ -34,6 +35,8 @@ export type GlassIconButtonProps = {
   disabled?: boolean;
   hitSlop?: number;
   style?: StyleProp<ViewStyle>;
+  iconStyle?: StyleProp<AnimatedStyle<StyleProp<ViewStyle>>>;
+  accessibilityHidden?: boolean;
 };
 
 /**
@@ -53,6 +56,8 @@ export function GlassIconButton({
   disabled = false,
   hitSlop = 6,
   style,
+  iconStyle,
+  accessibilityHidden = false,
 }: GlassIconButtonProps) {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -60,6 +65,11 @@ export function GlassIconButton({
 
   return (
     <Pressable
+      accessible={!accessibilityHidden}
+      accessibilityElementsHidden={accessibilityHidden}
+      importantForAccessibility={
+        accessibilityHidden ? "no-hide-descendants" : "auto"
+      }
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       accessibilityState={{ disabled }}
@@ -87,12 +97,14 @@ export function GlassIconButton({
           {loading ? (
             <ActivityIndicator size="small" color={colors.textMuted} />
           ) : (
-            <Icon
-              name={icon}
-              size={iconSize}
-              color={muted ? colors.textMuted : colors.text}
-              weight={muted ? "regular" : "semibold"}
-            />
+            <Animated.View style={iconStyle}>
+              <Icon
+                name={icon}
+                size={iconSize}
+                color={muted ? colors.textMuted : colors.text}
+                weight={muted ? "regular" : "semibold"}
+              />
+            </Animated.View>
           )}
           {dot ? (
             <View style={[styles.dot, { backgroundColor: dot }]} />

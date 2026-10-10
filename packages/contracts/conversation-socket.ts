@@ -75,6 +75,7 @@ export type ConversationSocketEvent =
   | { type: "reset"; reason: string }
   | { type: "gap"; fromSeq: number; toSeq: number }
   | Extract<ServerFrame, { type: "tool" }>
+  | Extract<ServerFrame, { type: "agents" }>
   | SocketStatusEvent;
 
 /** Connect milestones a platform may time; see `onReadiness`. */
@@ -700,6 +701,7 @@ export class ConversationSocket {
         this.resetStream(frame.reason);
         return;
       case "tool":
+      case "agents":
         this.options.onEvent(frame);
         return;
       case "auth.expiring":

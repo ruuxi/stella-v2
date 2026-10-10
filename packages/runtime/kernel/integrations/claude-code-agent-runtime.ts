@@ -7,7 +7,7 @@ import type {
   ThinkingContent,
   Tool,
   ToolCall,
-} from "../../ai/types.js";
+} from "@earendil-works/pi-ai";
 import {
   DEFAULT_CLAUDE_CODE_MODEL,
   getAgentRuntimeEngine,

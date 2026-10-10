@@ -10,6 +10,7 @@ import {
   storedJournalReplyRefs,
 } from "@stella/contracts/conversation-journal-projection";
 import { isMapRouteArtifact } from "@stella/contracts/map-artifact";
+import { isPiAgentText } from "@stella/contracts/pi-chat";
 import type { ToolStep } from "./tool-activity";
 import {
   hasToolCalls,
@@ -284,6 +285,7 @@ export const projectCloudConversationMessages = (args: {
   const records = completeJournalWindowRecords(
     args.records,
     args.hasOlder === true,
+    { dropCardOnly: true },
   );
   const recordsBySeq = new Map(args.records.map(record => [record.seq, record]));
   const byTurn = new Map<string, JournalRecord[]>();
@@ -327,11 +329,16 @@ export const projectCloudConversationMessages = (args: {
         turnUserRecord = record;
         userMessageId = projectedMessageId(record);
         // A prompt with nothing to show (older desktop turns mirrored their
-        // lifecycle wake as an empty, unflagged user record) is a hidden one.
+        // lifecycle wake as an empty, unflagged user record) is a hidden one,
+        // and so is one an agent sent (a note stored before it was flagged).
         const display = userDisplayContext(record.payload);
         const hasDisplayContext =
           display.pastedTexts.length > 0 || Boolean(display.quotedText);
-        if (record.hidden || (isBlankUserRecord(record) && !hasDisplayContext)) {
+        if (
+          record.hidden ||
+          (isBlankUserRecord(record) && !hasDisplayContext) ||
+          isPiAgentText(display.displayText ?? messageText(record.payload))
+        ) {
           continue;
         }
         const presentation = userAttachmentPresentation(record.payload);

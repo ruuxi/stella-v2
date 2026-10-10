@@ -5,9 +5,6 @@
  * its native preview and, if that preview cannot be made — too large, offline,
  * a codec the device will not read — the file drops into the pill row rather
  * than showing a fake thumbnail.
- *
- * A before/after pair becomes one drag-to-compare frame only once both images
- * have reported identical pixel dimensions, which is the desktop rule.
  */
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -21,11 +18,9 @@ import {
 } from "@stella/contracts/chat-evidence";
 import {
   describeEvidenceSources,
-  evidencePairCandidates,
   evidencePlaybackMimeType,
   evidenceTitleFor,
   isMediaSourceKind,
-  pairCardTitle,
   pillCardFor,
   EVIDENCE_MEDIA_CAP,
   EVIDENCE_PILL_CAP,
@@ -63,21 +58,6 @@ const imageCard = (
   subtitle: `${preview.width} × ${preview.height}`,
   sourcePaths: [source.filePath],
   thumbnail: preview.uri,
-});
-
-const pairCard = (
-  before: EvidenceSource,
-  after: EvidenceSource,
-  beforePreview: Extract<EvidencePreview, { kind: "image" }>,
-  afterPreview: Extract<EvidencePreview, { kind: "image" }>,
-): EvidenceCard => ({
-  id: `pair:${before.filePath}`,
-  kind: "image-pair",
-  title: pairCardTitle({ before, after, pairingKey: "" }),
-  subtitle: `Drag to compare · ${beforePreview.width} × ${beforePreview.height}`,
-  sourcePaths: [before.filePath, after.filePath],
-  thumbnail: beforePreview.uri,
-  thumbnailAfter: afterPreview.uri,
 });
 
 const videoCard = (
@@ -182,32 +162,11 @@ export const useChatEvidence = (args: {
 
   return useMemo(() => {
     if (sources.length === 0) return EMPTY;
-    const readyImage = (source: EvidenceSource) => {
-      const state = previews[source.filePath];
-      return state?.status === "ready" && state.preview.kind === "image"
-        ? state.preview
-        : null;
-    };
-    const paired = new Map<string, EvidenceCard>();
-    const consumed = new Set<string>();
-    for (const candidate of evidencePairCandidates(sources)) {
-      const before = readyImage(candidate.before);
-      const after = readyImage(candidate.after);
-      if (!before || !after) continue;
-      if (before.width !== after.width || before.height !== after.height) continue;
-      consumed.add(candidate.after.filePath);
-      paired.set(
-        candidate.before.filePath,
-        pairCard(candidate.before, candidate.after, before, after),
-      );
-    }
-
     const media: EvidenceCard[] = [];
     const pills: EvidenceCard[] = [];
     let overflowCount = 0;
 
     for (const source of sources) {
-      if (consumed.has(source.filePath)) continue;
       if (!isMediaSourceKind(source.kind)) {
         if (pills.length >= EVIDENCE_PILL_CAP) {
           overflowCount += 1;
@@ -218,11 +177,6 @@ export const useChatEvidence = (args: {
       }
       if (media.length >= EVIDENCE_MEDIA_CAP) {
         overflowCount += 1;
-        continue;
-      }
-      const pair = paired.get(source.filePath);
-      if (pair) {
-        media.push(pair);
         continue;
       }
       const state = previews[source.filePath];

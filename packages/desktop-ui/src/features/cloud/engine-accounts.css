@@ -1,11 +1,25 @@
 .engine-account-badge {
-  padding: 1px 8px;
-  border: 1px solid var(--border-weak);
-  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: var(--font-size-xs);
+  font-weight: var(--weight-semibold);
   line-height: 1.6;
-  color: var(--text-base);
+  color: var(--select-text);
   white-space: nowrap;
+}
+
+/* Account rows sit in a list without hairlines; the account in use carries
+   the canonical selected fill so it reads at a glance. */
+.settings-row.engine-account-row {
+  padding: 8px 10px;
+  margin: 0 -10px;
+  border-radius: 12px;
+}
+
+.settings-row.engine-account-row[data-active] {
+  background: var(--select-fill);
+  box-shadow: inset 0 0 0 1px var(--select-border);
 }
 
 .engine-account-identity {

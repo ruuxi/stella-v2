@@ -36,7 +36,7 @@ export type CloudTranscriptBeginRequest = {
   /**
    * Replay the durable begin a previous process left for this exact turn id
    * (its stored payload, byte for byte) instead of writing a new one: a
-   * resumed turn reacquires the lease its dead process held. Rejects when
+   * resumed pi turn reacquires the lease its dead process held. Rejects when
    * that begin no longer exists.
    */
   adoptExisting?: boolean;
@@ -155,7 +155,7 @@ export type CloudTranscriptWriterOptions = {
     fields: Record<string, unknown>,
   ) => void;
   /**
-   * True for a local turn the runtime resumes this boot (`run-task.ts`). Its
+   * True for a local turn that resumes this boot (a pi-durable turn). Its
    * orphaned begin is left for that resume to replay instead of being
    * recovered as an interrupted (canceled) finish.
    */

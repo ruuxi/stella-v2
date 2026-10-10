@@ -4,10 +4,8 @@
  * Injected system reminders (connector availability, and any future
  * reminder types) should not repeat while a copy already sits in the
  * orchestrator's model-facing window. Hook-injected reminders are
- * ephemeral prompt messages — they are NOT persisted into the thread
- * store (`run-execution` only persists `user` and `bootstrap.*` prompt
- * messages) — so presence can't be detected by scanning the window
- * text. Instead the gate keeps tiny side-state per (threadKey, key):
+ * ephemeral prompt messages, so presence can't be detected by scanning
+ * the window text. Instead the gate keeps tiny side-state per (threadKey, key):
  * the timestamp a reminder was last injected.
  *
  * "Active context window" is the runtime's own definition: everything

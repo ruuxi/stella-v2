@@ -52,14 +52,6 @@
   text-align: center;
 }
 
-.canvas-tab__frame-state--error {
-  color: color-mix(
-    in oklch,
-    var(--destructive) 70%,
-    var(--text-base) 30%
-  );
-}
-
 .canvas-tab__illustration-spot {
   flex: 1;
   width: 100%;

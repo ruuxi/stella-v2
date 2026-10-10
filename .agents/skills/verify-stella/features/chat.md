@@ -49,5 +49,7 @@ Preconditions:
 - `chat ready` can report `ready: false` for a few seconds after launch while the conversation id resolves; retry before reporting a failure.
 - `chat send` works from Home (it fills the Home composer and watches the chat surface). `composerCleared` can read false right after a Home send because the composer it sampled is the one being swapped out; check `inspect state` instead.
 - Enter sends and Shift+Enter inserts a newline. `drive press` accepts chords such as `Shift+Enter` and `Control+KeyT` on Linux or `Meta+KeyT` on macOS.
+- `drive press --key Meta+KeyV` (or `Control+KeyV`) runs Chromium's real paste command from the system clipboard; plain synthetic key events never reach the native Edit menu. Copy, cut, select-all and undo chords map the same way.
+- The `--fake-mic` WAV is the only microphone: the instance never hears the room. On macOS the harness lifts Chromium's audio sandbox so the WAV can be read; a log line `Failed to read … as input to the fake device` means silence and a flat waveform.
 - A live assistant reply depends on configured providers. The user turn or explicit error is sufficient for the submission path.
 - Do not assert a conversation title immediately. Cloud history and title generation can update asynchronously.

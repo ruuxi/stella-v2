@@ -537,9 +537,12 @@ export class AppSourceService {
         "--verify",
         `${UPSTREAM_REF}^{commit}`,
       ]);
+      // Another computer may already have merged this update into the
+      // user's changes: take that merge rather than resolving the same
+      // conflict again here, and differently.
       return await this.take(cwd, {
         kind: "upstream",
-        ref: UPSTREAM_REF,
+        ref: (await this.mergedElsewhere(cwd, tip)) ?? UPSTREAM_REF,
         emptyMessage: "No update is available.",
         subject: `Merge the published Stella update ${tip.slice(0, 12)}`,
         trustIdenticalTree: true,
@@ -1169,26 +1172,91 @@ export class AppSourceService {
       await gitRaw(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`])
     ).stdout.trim();
     if (!tip || tip === head || (await isAncestor(cwd, tip, head))) return null;
-    const publishedTip = published
-      ? (await gitRaw(cwd, ["rev-parse", "--verify", "--quiet", `${published}^{commit}`]))
-          .stdout.trim()
-      : "";
-    const key = `${head}:${tip}:${publishedTip}`;
+    const tipOf = async (name: string) =>
+      (await gitRaw(cwd, ["rev-parse", "--verify", "--quiet", `${name}^{commit}`]))
+        .stdout.trim();
+    const publishedTip = published ? await tipOf(published) : "";
+    const fork = ref !== UPSTREAM_REF;
+    const upstreamTip = fork && this.upstreamTracked ? await tipOf(UPSTREAM_REF) : "";
+    const key = `${head}:${tip}:${publishedTip}:${upstreamTip}`;
     const known = this.offers.get(key);
     if (known) return known;
     const headTree = await git(cwd, ["rev-parse", `${head}^{tree}`]);
     const merged = await this.mergedTree(cwd, head, tip);
-    const offer: Offer =
-      merged === headTree
-        ? { tip, real: false, catchUp: true }
-        : merged !== null &&
-            publishedTip &&
-            (await this.coveredBy(cwd, head, publishedTip, tip))
-          ? { tip, real: false, catchUp: false }
-          : { tip, real: true, catchUp: false };
+    let offer: Offer;
+    if (merged === headTree) {
+      offer = { tip, real: false, catchUp: true };
+    } else if (fork && !(await this.bringsChange(cwd, head, tip, upstreamTip || null))) {
+      // Nothing beyond the published app but merges: the other computer's
+      // own way of taking an update this one takes too. Taking the update
+      // here covers it, so it is never offered. Once it holds no version
+      // this computer lacks, its history is joined, keeping these files.
+      offer = {
+        tip,
+        real: false,
+        catchUp:
+          !(await isAncestor(cwd, head, tip)) &&
+          !(await this.bringsChange(cwd, head, tip, null)),
+      };
+    } else if (
+      merged !== null &&
+      publishedTip &&
+      (await this.coveredBy(cwd, head, publishedTip, tip))
+    ) {
+      offer = { tip, real: false, catchUp: false };
+    } else {
+      offer = { tip, real: true, catchUp: false };
+    }
     if (this.offers.size > 16) this.offers.clear();
     this.offers.set(key, offer);
     return offer;
+  }
+
+  /**
+   * Whether `tip` holds a commit HEAD lacks that is not a merge (nor in
+   * `published`, when given): a change somebody made. A merge only settles
+   * what its sides already held, so two computers that each merged the same
+   * update into the same changes differ by nothing but how each resolved
+   * it, and that resolution is each computer's own.
+   */
+  private async bringsChange(
+    cwd: string,
+    head: string,
+    tip: string,
+    published: string | null,
+  ) {
+    const found = await git(cwd, [
+      "rev-list",
+      "--no-merges",
+      "--max-count=1",
+      tip,
+      `^${head}`,
+      ...(published ? [`^${published}`] : []),
+    ]);
+    return found !== "";
+  }
+
+  /**
+   * The fork, when another computer has already merged the published `tip`
+   * into exactly what this computer has: a fast-forward from HEAD that holds
+   * `tip` and no change beyond it.
+   */
+  private async mergedElsewhere(cwd: string, tip: string) {
+    if (!this.forkBranch) return null;
+    const ref = `${FORK_REF_PREFIX}${this.forkBranch}`;
+    const forkTip = (
+      await gitRaw(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`])
+    ).stdout.trim();
+    if (!forkTip) return null;
+    const head = await git(cwd, ["rev-parse", "HEAD"]);
+    if (
+      !(await isAncestor(cwd, head, forkTip)) ||
+      !(await isAncestor(cwd, tip, forkTip)) ||
+      (await this.bringsChange(cwd, head, forkTip, tip))
+    ) {
+      return null;
+    }
+    return ref;
   }
 
   /** Everything `tip` would bring here is in the published version. */
@@ -1262,9 +1330,10 @@ export class AppSourceService {
 
   /**
    * Join another side's history when it brings no files this computer lacks,
-   * so it never shows as something to add. The checkout ends on its own tree:
-   * nothing on screen changes and nothing restarts. Once per head and tip, so
-   * a refused attempt is not retried on every poll.
+   * or only its own merges of what this computer already has, so it never
+   * shows as something to add. The checkout ends on its own tree: nothing on
+   * screen changes and nothing restarts. Once per head and tip, so a refused
+   * attempt is not retried on every poll.
    */
   private catchUpLater(ref: string, tip: string, head: string) {
     if (this.catchingUp || this.busy || this.disposed) return;
@@ -1292,8 +1361,16 @@ export class AppSourceService {
     const head = await git(cwd, ["rev-parse", "HEAD"]);
     if (await isAncestor(cwd, tip, head)) return true;
     const tree = await git(cwd, ["rev-parse", `${head}^{tree}`]);
-    if ((await this.mergedTree(cwd, head, tip)) !== tree) return true;
-    const to = (await isAncestor(cwd, head, tip))
+    const ahead = await isAncestor(cwd, head, tip);
+    if (
+      (await this.mergedTree(cwd, head, tip)) !== tree &&
+      // Another computer's merge of what this one has keeps these files;
+      // anything else that would change them is the user's to add.
+      (ref === UPSTREAM_REF || ahead || (await this.bringsChange(cwd, head, tip, null)))
+    ) {
+      return true;
+    }
+    const to = ahead
       ? tip
       : await git(
           cwd,

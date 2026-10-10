@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Ez a szál nem tölthető be",
+        "errorBody": "Zárd be, és nyisd meg újra egy pillanat múlva."
       },
       "generatedImage": {
         "generating": "Generálás...",
@@ -182,13 +184,10 @@
       "messageActions": {
         "copied": "Másolva",
         "copy": "Másolás",
-        "fork": "Fork to new chat",
         "more": "További műveletek",
         "quote": "Quote",
         "readAloud": "Felolvasás",
         "reply": "Válasz",
-        "rewind": "Rewind here",
-        "rewindConfirm": "Click again to rewind",
         "selectText": "Select text",
         "share": "Share",
         "stopReading": "Felolvasás leállítása"
@@ -833,7 +832,6 @@
     },
     "integrations": {
       "connectStellaApp": "Csatlakozás a Stella alkalmazáshoz",
-      "connectStellaAppSub": "Párosítsd a telefonodon lévő Stella alkalmazást ezzel a számítógéppel",
       "connectTitle": "Csatlakozás",
       "connected": "Csatlakoztatva",
       "credential": {
@@ -849,11 +847,16 @@
         "saving": "Mentés...",
         "title": "Csatlakozás: {provider}"
       },
-      "heroTagline": "Írj a Stellának bármelyik platformról – csevegj vele természetesen, vagy kérd meg, hogy intézzen el dolgokat a számítógépeden.",
       "phoneTitle": "A telefonod",
       "signInHeadline": "Jelentkezz be a kezdéshez",
       "signInSub": "Jelentkezz be a Stella-fiókodba a csatlakoztatáshoz: {provider}.",
-      "signInToConnect": "Jelentkezz be a Stellába a csatlakoztatáshoz"
+      "signInToConnect": "Jelentkezz be a Stellába a csatlakoztatáshoz",
+      "getApp": {
+        "appStoreQrAlt": "Olvasd be a Stella letöltéséhez az App Store-ból",
+        "platformLabel": "Válassz mobilplatformot",
+        "playStoreQrAlt": "Olvasd be a Stella letöltéséhez a Google Playről",
+        "title": "Töltsd le az appot"
+      }
     },
     "legal": {
       "privacy": {
@@ -905,9 +908,16 @@
         "title": "Ez a beszélgetés"
       },
       "files": {
-        "empty": "Még nincsenek fájlok. Minden, amit Stella készít, itt jelenik meg.",
+        "empty": "Itt jelennek meg a fájlok, amelyeket Stella készít vagy megoszt.",
         "emptyFiltered": "Nincs egyező fájl.",
-        "searchPlaceholder": "Fájlok keresése"
+        "filterAll": "Minden fájl",
+        "filterLabel": "Fájlok szűrése és rendezése",
+        "searchPlaceholder": "Fájlok keresése",
+        "sortName": "Név",
+        "sortNewest": "Legújabb elöl",
+        "sortOldest": "Legrégebbi elöl",
+        "sourceCloud": "Felhő",
+        "sourceUpload": "Általad küldött"
       },
       "schedule": {
         "actionFailed": "Nem sikerült.",
@@ -915,7 +925,9 @@
         "customCadence": "Egyéni ütemezés",
         "deleteConfirm": "A(z) „{title}” többé nem fut.",
         "deleteSchedule": "Ütemezés törlése",
-        "empty": "Még nincs ütemezés. Kérd meg Stellát a számítógépeden, hogy futtasson valamit rendszeresen, és itt megjelenik.",
+        "empty": "Még nincs semmi ütemezve.",
+        "emptyAction": "Ütemezz valamit",
+        "emptyActionPrompt": "Emlékeztess, hogy ",
         "lastRunFailed": "Az utolsó futás nem sikerült: {error}",
         "loadFailed": "Az ütemezéseket nem sikerült betölteni.",
         "next": "Következő futás {when}",
@@ -940,6 +952,11 @@
         "stopped": "Leállítva",
         "working": "A háttérben dolgozik"
       }
+    },
+    "apps": {
+      "empty": "Itt lesznek az alkalmazások, amelyeket Stella neked készít.",
+      "emptyAction": "Alkalmazás készítése",
+      "emptyActionPrompt": "Készíts nekem egy alkalmazást, amely "
     },
     "authCallback": {
       "backToSignIn": "Vissza a bejelentkezéshez",
@@ -1006,7 +1023,6 @@
       "disconnectedLabel": "Számítógép leválasztva",
       "guestHeroBody": "Kérd meg a Stellát, hogy csináljon dolgokat a számítógépeden — böngésszen, kezelje a fájlokat, futtasson feladatokat és még sok mást.",
       "guestHeroTitle": "A számítógéped kéznyújtásnyira",
-      "pairLabel": "Számítógép párosítása",
       "statusAsleep": "Alvó állapotban",
       "statusChecking": "Ellenőrzés…",
       "statusConnected": "Csatlakoztatva"
@@ -1014,20 +1030,11 @@
     "desktop": {
       "connecting": "Csatlakozás az asztali alkalmazáshoz",
       "deviceUnreachable": "Nem érhető el: {platform}",
-      "enterCode": "Írd be a számítógépeden megjelenő kódot.",
-      "guestBody": "Lásd a Stella asztali alkalmazását közvetlenül a telefonodon. A párosítás után a telefonod automatikusan újracsatlakozik.",
       "guestSignInPrompt": "Jelentkezz be a kezdéshez.",
       "limitedCapabilities": "Néhány dologhoz kell a számítógéped",
       "linkInterrupted": "A számítógépeddel való kapcsolat megszakadt.",
-      "pairAnother": "Másik számítógép párosítása",
-      "pairTitle": "Párosítsd a telefonod",
-      "pairing": "Telefon párosítása",
       "reconnecting": "Újracsatlakozás...",
-      "repairNeeded": "Ezt a telefont újra párosítani kell a számítógépeddel.",
       "retryLabel": "Újbóli csatlakozás megkísérlése",
-      "startPairingLabel": "Számítógép párosításának indítása",
-      "unavailableBodyPaired": "Győződj meg róla, hogy a Stella nyitva van a számítógépeden, és csatlakozik az internethez. Ha létrejött a kapcsolat, az asztali alkalmazás itt jelenik meg a telefonodon.",
-      "unavailableBodyUnpaired": "Lásd a Stella asztali alkalmazását közvetlenül a telefonodon. A kezdéshez olvasd be a számítógépeden a Stellában megjelenő QR-kódot — utána a telefonod automatikusan újracsatlakozik.",
       "unreachable": "Nem érhető el az asztali alkalmazás"
     },
     "engineAccounts": {
@@ -1140,26 +1147,28 @@
         "signInBody": "Tartsd meg a beszélgetésedet, a beállításaidat és a csatlakoztatott számítógépedet minden eszközön.",
         "signInTitle": "Jelentkezz be a Stellába",
         "skip": "Most nem",
-        "subscriptionsBody": "Már fizetsz a Claude-ért vagy a ChatGPT-ért? Kapcsold össze, és a felhőben használom. A számítógépeid a saját bejelentkezésüket használják.",
+        "subscriptionsBody": "Használod a meglévő Claude- vagy ChatGPT-előfizetésedet?",
         "subscriptionsLabel": "Opcionális"
       },
       "composerPlaceholder": "Vagy kérdezz tőlem bármit",
       "computer": {
-        "body": "Párosítsd ezt a telefont a számítógépeden futó Stellával, és amíg úton vagy, ott futtathatok feladatokat.",
-        "connectedBody": "Kérj bárhonnan, és én elvégzem a munkát a számítógépeden.",
+        "body": "Jelentkezz be a számítógépen, és automatikusan csatlakozik.",
         "connectedTo": "Csatlakozva: {name}",
-        "guestHint": "A párosítás a Stella-fiókodhoz kötődik, ezért előbb jelentkezz be. Pontosan innen folytatom.",
-        "hint": "A számítógépeden nyisd meg a Stellát, és válaszd a Telefon párosítása lehetőséget.",
+        "getDesktop": "Stella letöltése számítógépre",
         "later": "Később",
-        "pair": "Számítógépem párosítása",
-        "point1": "Megkeresek egy fájlt, és elküldöm neked",
-        "point2": "Befejezek egy exportot vagy letöltést",
-        "point3": "A meglévő alkalmazásaidat használom",
-        "settledConnectedDesc": "A telefonodról ott tudok feladatokat futtatni.",
-        "settledSkippedDesc": "Bármikor párosíthatsz egyet a Beállításokban.",
         "settledSkippedTitle": "Még nincs számítógép",
-        "signInToPair": "Jelentkezz be a párosításhoz",
-        "title": "A számítógéped, a zsebedből"
+        "title": "Stella a számítógépeden"
+      },
+      "gmail": {
+        "body": "Keress e-maileket, zárkózz fel a beszélgetésekre, és írass válaszvázlatokat, csak kérned kell.",
+        "connect": "Gmail csatlakoztatása",
+        "connected": "Csatlakoztatva",
+        "error": "Nem sikerült csatlakoztatni a Gmailt. Próbáld újra, vagy most hagyd ki.",
+        "settledSkippedTitle": "Egyelőre Gmail nélkül",
+        "settledTitle": "Gmail csatlakoztatva",
+        "skip": "Most nem",
+        "title": "Gmail csatlakoztatása",
+        "waiting": "Várakozás a Google-re…"
       },
       "hello": {
         "cta": "Mutasd",
@@ -1183,6 +1192,7 @@
         "account": "Szeretnéd megőrizni mindezt? A Stella-fiók minden eszközödre elkísér.",
         "accountSignedIn": "Be vagy jelentkezve, így minden követ az eszközeid között. Még egy opcionális dolog:",
         "computer": "Ha van Mac-ed vagy PC-d, azon is tudok dolgozni.",
+        "gmail": "Az élet nagy része e-mailen zajlik. Csatlakoztasd a Gmailt, és segítek vele.",
         "hello": "Szia, Stella vagyok.\n\nNem vagyok chatbot. Mondd el, mire van szükséged, és én elintézem a háttérben, amíg te a napoddal foglalkozol.",
         "ready": "Ennyi. Menet közben megismerlek.\n\nMivel kezdjük?",
         "showcase": "Így néz ez ki a gyakorlatban.",
@@ -1216,6 +1226,8 @@
         "accountSkipped": "Most nem.",
         "computerDone": "Csatlakoztatva!",
         "computerSkipped": "Majd később.",
+        "gmailDone": "Kész.",
+        "gmailSkipped": "Most nem.",
         "helloDone": "Mutasd.",
         "showcaseDone": "Értem.",
         "themeDone": "Ez lesz.",
@@ -1364,7 +1376,6 @@
         "enableFailedTitle": "A számítógépet nem sikerült engedélyezni",
         "enableLabel": "{name} engedélyezése",
         "enabling": "Engedélyezés…",
-        "pairingCode": "Párosítási kód használata",
         "sectionLabel": "Hol dolgozik a Stella",
         "statusAwaitingConsent": "Engedélyre vár azon a számítógépen",
         "statusDeclined": "Elutasítva azon a számítógépen",
@@ -1380,10 +1391,6 @@
       "deleteConfirmTitle": "Fiók törlése",
       "deleteFailedTitle": "A fiókot nem sikerült törölni",
       "deletingAccount": "Fiók törlése…",
-      "forget": "Elfelejtés",
-      "forgetConfirmBody": "Ez a telefon nem csatlakozik újra ahhoz a számítógéphez, amíg újra nem párosítod.",
-      "forgetConfirmTitle": "Elfelejted ezt: {name}?",
-      "forgetLabel": "Elfelejtés: {name}",
       "hideEmailLabel": "E-mail elrejtése",
       "loadingSession": "Munkamenet betöltése…",
       "notificationsSection": "Értesítések",
@@ -1393,9 +1400,6 @@
       "paired": {
         "unnamedComputer": "Számítógép · {id}"
       },
-      "pairedEmpty": "Még nincs párosított számítógép.",
-      "pairedOn": "Párosítva: {date}",
-      "pairedSection": "Párosított számítógépek",
       "privacyPolicy": "Adatvédelmi szabályzat",
       "pushToggleA11y": "Push-értesítések be- és kikapcsolása",
       "pushToggleLabel": "Push-értesítések engedélyezése",
@@ -1546,6 +1550,18 @@
         "title": "Two quick extras",
         "titleOne": "One quick extra"
       },
+      "gmail": {
+        "body": "Keress e-maileket, zárkózz fel a beszélgetésekre, és írass válaszvázlatokat, csak kérned kell.",
+        "connect": "Gmail csatlakoztatása",
+        "connected": "Csatlakoztatva",
+        "connecting": "Várakozás a Google-re…",
+        "error": "Nem sikerült csatlakoztatni a Gmailt. Próbáld újra, vagy most hagyd ki.",
+        "settledDesc": "Bármikor kezelheted itt: Összekötők.",
+        "settledSkippedTitle": "Egyelőre Gmail nélkül",
+        "settledTitle": "Gmail csatlakoztatva",
+        "skip": "Most nem",
+        "title": "Gmail"
+      },
       "memory": {
         "bodyChatbot": "A new chat every time, a sidebar full of old ones, and no memory of what you said last week.",
         "bodyStella": "No new chats, no threads. Everything you've ever told me is in the same place, so when you ask about last week I go and find it.",
@@ -1559,7 +1575,9 @@
       "messages": {
         "capabilities": "Szia, én Stella vagyok.\n\nNem vagyok chatbot. Ezt a számítógépet használom, hogy valóban elvégezzem helyetted a dolgokat, a háttérben, miközben te haladsz tovább.\n\nÍgy néz ez ki.",
         "extras": "Almost done. A little housekeeping, then we start.",
+        "gmail": "Az élet nagy része e-mailen zajlik. Csatlakoztasd a Gmailt, és segítek vele.",
         "memory": "One more thing that makes me different.",
+        "phone": "A telefonodon is ott vagyok.",
         "quickstart": "Ez minden. Még egy dolog, és az is opcionális: egy gyorsindítás.",
         "quickstartDone": "Kész. Ezt tanultam meg rólad, és néhány dolog, amivel kezdhetjük.",
         "quickstartFailed": "Ezúttal nem tudtam végigolvasni a böngésződet. Kezdhetjük így is, és menet közben tanulok.",
@@ -1617,6 +1635,8 @@
         "capabilitiesSkipped": "Skip the tour.",
         "extrasDone": "Done.",
         "extrasSkipped": "Skip for now.",
+        "gmailDone": "Kész.",
+        "gmailSkipped": "Most nem.",
         "memoryDone": "Nice.",
         "memorySkipped": "Skip it.",
         "selfmodDone": "Nagyon menő.",
@@ -1847,10 +1867,10 @@
       "microphoneDeviceFallback": "Mikrofon {index}",
       "recovery": {
         "closing": "Bezárás…",
-        "manageDescription": "Ha a mikrofon engedélye elakad, visszaállíthatod, és megkérheted a macOS-t, hogy kérdezzen rá újra.",
+        "manageDescription": "Állítsd vissza a mikrofonengedélyt, ha elakad.",
         "manageLabel": "Mikrofon-hozzáférés kezelése",
         "openSettings": "Beállítások megnyitása",
-        "recoverDescription": "Miután nemet mondtál, a macOS magától nem kérdez rá újra. Állítsd vissza az engedélyt, majd lépj ki a Stellából, és nyisd meg újra.",
+        "recoverDescription": "A macOS nem kérdez újra. Állítsd vissza, majd nyisd meg újra a Stellát.",
         "recoverLabel": "Mikrofon-hozzáférés helyreállítása",
         "reset": "Visszaállítás és újraindítás"
       },
@@ -1863,22 +1883,22 @@
       },
       "speakerDeviceFallback": "Hangszóró {index}",
       "superFast": {
-        "description": "Készenlétben tartja a mikrofont, hogy a diktálás kevesebb késéssel induljon.",
+        "description": "Készenlétben tartja a mikrofont, így a diktálás gyorsabban indul.",
         "label": "Szupergyors diktálás"
       },
       "systemDefault": "Rendszer alapértelmezett",
       "wakeWord": {
-        "description": "A háttérben figyel a „Hey Stella” szóra, és hangbeszélgetést indít. Kikapcsolva a mikrofon inaktív marad, amíg meg nem nyomod a diktálást.",
+        "description": "Mondd: „Hey Stella”, és indul a hangbeszélgetés.",
         "label": "Ébresztőszó: „Hey Stella”"
       }
     },
     "browserExtension": {
       "action": "Bővítmény beszerzése",
-      "description": "Lehetővé teszi a Stellának, hogy lássa az oldalt, amelyen vagy, és műveleteket végezzen a böngésződben.",
+      "description": "Engedd, hogy a Stella lássa a böngésződet és műveleteket végezzen benne.",
       "title": "Stella Chrome-hoz"
     },
     "chatStorage": {
-      "description": "Érd el a beszélgetéseidet minden eszközödön. Kikapcsolva külön beszélgetési előzmény marad csak ezen a számítógépen. Visszakapcsoláskor ezek a beszélgetések nem töltődnek fel. Az MI-szolgáltatók továbbra is feldolgozzák az üzeneteidet.",
+      "description": "Szinkronizálja a csevegéseket az eszközök között. Kikapcsolva ezen a gépen maradnak.",
       "endVoice": "Fejezd be a hangbeszélgetést a beszélgetéstárolás módosításához.",
       "error": "Nem sikerült módosítani a beszélgetéstárolást. Próbáld újra.",
       "title": "Beszélgetési előzmények mentése a felhőbe"
@@ -1897,13 +1917,13 @@
       "upgrade": "Csomag váltása"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Egy kis Stella, amely az asztalod fölött lebeg.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "API-kulcs",
-      "empty": "Még nincs csatlakoztatott szolgáltató. Válassz a Stellától eltérő lehetőséget a fenti modellválasztóban API-kulcs hozzáadásához vagy bejelentkezéshez.",
+      "empty": "Még nincs szolgáltató. Adj hozzá egyet a fenti modellválasztóból.",
       "removeKey": "Kulcs eltávolítása",
       "removingKey": "Eltávolítás…",
       "signOut": "Kijelentkezés",
@@ -1922,7 +1942,7 @@
       "addClaude": "Claude-fiók hozzáadása",
       "addInCloud": "A felhőben",
       "addOnComputer": "Ezen a számítógépen",
-      "cardIntro": "Használd a már előfizetett Claude- vagy ChatGPT-csomagodat. Minden helyen külön kell bejelentkezni: minden számítógépen és a felhődben is.",
+      "cardIntro": "Használd a már előfizetett Claude- vagy ChatGPT-csomagodat.",
       "cardTitle": "Claude- és ChatGPT-fiókok",
       "chatgptBrowserWaiting": "Fejezd be a bejelentkezést a ChatGPT-be a böngésződben.",
       "chatgptCloudSignedIn": "A felhőd be van jelentkezve a ChatGPT-be.",
@@ -1943,7 +1963,7 @@
         "whereComputer": "Bejelentkezés a Claude Code-ba ezen a számítógépen."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "A Claude Code nincs telepítve ezen a számítógépen. Telepítsd, hogy itt is használhasd a Claude-ot.",
+      "cliMissing": "Telepítsd a Claude Code-ot erre a gépre, hogy itt használhasd a Claude-ot.",
       "connecting": "Csatlakozás…",
       "defaultSignedOut": "A Claude Code nincs bejelentkezve ezen a számítógépen.",
       "enablePlanUsage": "ChatGPT-előfizetés használatának engedélyezése",
@@ -1954,14 +1974,14 @@
       "needsChatgptCloud": "Előbb állítsd be a ChatGPT-t a felhődhöz",
       "needsClaudeCloud": "Előbb jelentkezz be a Claude-ba a felhőben",
       "openChatgptAgain": "ChatGPT megnyitása újra",
-      "pasteHintChatgpt": "A jóváhagyás után a ChatGPT egy olyan oldalra visz, amely nem töltődik be. Másold ki az oldal teljes címét, és illeszd be ide.",
+      "pasteHintChatgpt": "Másold ki a ChatGPT által megnyitott oldal címét, és illeszd be ide.",
       "pastePlaceholderUrl": "Illeszd be ide a címet",
       "placeCloud": "Felhő",
       "placeComputer": "Ez a számítógép",
       "placeOtherComputer": "Másik számítógép",
       "placeSignedIn": "{place}: bejelentkezve",
       "placeSignedOut": "{place}: nincs bejelentkezve",
-      "planUsageOffBody": "A Stella nem használhatja a ChatGPT-csomagodat, amíg nem engedélyezed. Válaszd a fióknál a „ChatGPT-csomag használatának engedélyezése” lehetőséget, vagy használj másik modellt.",
+      "planUsageOffBody": "Válaszd a fióknál a „ChatGPT-előfizetés használatának engedélyezése” lehetőséget, vagy másik modellt.",
       "planUsageOffTitle": "Bejelentkezve, de a ChatGPT-csomag használata nincs engedélyezve",
       "remove": "Eltávolítás",
       "removed": "Eltávolítva.",
@@ -2018,7 +2038,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Mennyire igyekszik elérni a Stella, ha válaszra van szüksége.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2053,16 +2073,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2076,16 +2091,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Válaszd ki a Stella által az alkalmazásban és a válaszokban használt nyelvet.",
+      "description": "Az alkalmazáshoz és a Stella válaszaihoz.",
       "title": "Nyelv"
     },
     "lockedComputerUse": {
-      "description": "Lehetővé teszi a Stellának, hogy a Mac zárolása után is folytassa a számítógép-használati feladatokat. Rendszergazdai jóváhagyást igényel, és letakarja a képernyőt, amíg a Stella dolgozik.",
+      "description": "A számítógép-használati feladatok futnak tovább, amikor ez a Mac zárolódik.",
       "title": "Számítógép-használat zárolt állapotban",
       "unsupported": "A számítógép-használat zárolt állapotban csak macOS-en érhető el."
     },
     "memory": {
-      "description": "A mentett emlékeket és a profilodat is foglald bele Stella modellkontextusába. A számítógépeid és a felhő ugyanazt a memóriát tartják, átvitel közben és tárolva is titkosítva. Kikapcsoláskor ez szünetel, és a memória kimarad a későbbi beszélgetésekből, de nem törlődik.",
+      "description": "Mentett emlékek használata a válaszokban. A kikapcsolás nem törli őket.",
       "title": "Memória"
     },
     "modelPicker": {
@@ -2119,7 +2134,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Használj bármilyen helyi, OpenAI-kompatibilis kiszolgálót. Az Ollama általában az alábbi címen fut.",
+        "hint": "Bármilyen helyi, OpenAI-kompatibilis szerver, például az Ollama.",
         "modelNameAriaLabel": "Helyi modell neve",
         "serverUrlAriaLabel": "Helyi kiszolgáló URL-je"
       },
@@ -2163,7 +2178,7 @@
       "title": "Mozgás"
     },
     "nativeFontSmoothing": {
-      "description": "Úgy jeleníti meg a szöveget, ahogy a macOS-alkalmazások, szürkeárnyalatos élsimítással.",
+      "description": "Szürkeárnyalatos élsimítás, mint a natív macOS-alkalmazásokban.",
       "title": "Natív betűsimítás"
     },
     "notifications": {
@@ -2172,18 +2187,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "A bevezetés újrafuttatása. Az adataid megmaradnak.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Lehetővé teszi a Stellának, hogy elolvassa a kijelölt szöveget, és a ⌘+jobb kattintás gyorsbillentyűvel megnyíljon a számítógép bármely pontján.",
+        "description": "Kijelölt szöveg olvasása és megnyitás ⌘+jobb kattintással.",
         "label": "Kisegítő lehetőségek"
       },
       "enable": "Engedélyezés",
       "granted": "Megadva",
       "microphone": {
-        "description": "Hanghoz és diktáláshoz használatos. Állítsd vissza, ha a Stellát korábban elutasították, és a macOS nem kérdez rá újra.",
+        "description": "Hanghoz és diktáláshoz.",
         "label": "Mikrofon"
       },
       "opening": "Megnyitás…",
@@ -2192,55 +2207,14 @@
       "restart": {
         "action": "Újraindítás",
         "closing": "Bezárás…",
-        "description": "A képernyőrögzítés most lett bekapcsolva. A beállítás befejezéséhez lépj ki a Stellából, és nyisd meg újra.",
+        "description": "Nyisd meg újra a Stellát a képernyőrögzítés bekapcsolásának befejezéséhez.",
         "label": "Stella újraindítása"
       },
       "screen": {
-        "description": "Lehetővé teszi a Stellának, hogy lássa a képernyődet, így segíthet abban, amit nézel. Bekapcsolás után előfordulhat, hogy ki kell lépned a Stellából, és újra meg kell nyitnod.",
+        "description": "Engedd, hogy a Stella lássa, mi van a képernyődön.",
         "label": "Képernyőrögzítés"
       },
       "title": "Engedélyek"
-    },
-    "phoneAccess": {
-      "copy": "Másolás",
-      "deviceFallback": "Telefon",
-      "errors": {
-        "createPairing": "Nem sikerült párosítási kódot létrehozni."
-      },
-      "expired": "Lejárt",
-      "getCode": "Kód kérése",
-      "intro": {
-        "headline": "Csatlakoztasd a telefonodat a számítógépedhez"
-      },
-      "pairedCount": {
-        "one": "{count} telefon párosítva",
-        "other": "{count} telefon párosítva"
-      },
-      "pairing": {
-        "body": "Nyisd meg a Stella alkalmazást a telefonodon, és olvasd be a QR-kódot, vagy írd be az alábbi kódot. Ezt csak egyszer kell megtenned.",
-        "headline": "Olvasd be vagy írd be ezt a kódot",
-        "qrAlt": "Olvasd be a telefonod párosításához"
-      },
-      "preparing": "Előkészítés...",
-      "remove": "Eltávolítás",
-      "removing": "Eltávolítás...",
-      "signedOut": {
-        "body": "Jelentkezz be a Stella-fiókodba a mobilalkalmazás párosításához.",
-        "headline": "Jelentkezz be a kezdéshez"
-      },
-      "steps": {
-        "appStoreQrAlt": "Olvasd be a Stella letöltéséhez az App Store-ból",
-        "connect": "Csatlakoztasd a telefonodat",
-        "download": "Töltsd le az alkalmazást",
-        "platformSelectorLabel": "Válassz mobilplatformot",
-        "playStoreQrAlt": "Olvasd be a Stella letöltéséhez a Google Playről"
-      },
-      "timeLeft": "Hátralévő idő: {time}",
-      "toasts": {
-        "codeCopied": "Kód a vágólapra másolva",
-        "phoneRemoved": "Telefon eltávolítva",
-        "removeFailed": "A telefon eltávolítása sikertelen"
-      }
     },
     "power": {
       "description": "Megakadályozza, hogy a számítógép alvó állapotba lépjen, amíg a Stella nyitva van.",
@@ -2253,7 +2227,7 @@
         "description": "A Stella csevegőasszisztense ezen keresztül fusson: {provider}.",
         "label": "Asszisztens"
       },
-      "description": "A(z) {provider} a Stella több részét is működtetheti. Válaszd ki, hol vegye át a szerepet — a többit a Stella intézi tovább.",
+      "description": "Válaszd ki, mit hajtson a(z) {provider}.",
       "errors": {
         "apply": "Nem sikerült alkalmazni a szolgáltatóbeállításokat."
       },
@@ -2282,7 +2256,7 @@
     },
     "resetCustomizations": {
       "action": "Alapértelmezések visszaállítása",
-      "description": "Eltávolítja a készség-testreszabásaidat és a személyiség-módosításaidat, hogy a Stella alapértelmezései érvényesüljenek. Az eltávolítottak a ~/.stella/.trash mappában maradnak, ha vissza szeretnéd őket.",
+      "description": "Alapértelmezett képességek és személyiség visszaállítása. A régi fájlok a ~/.stella/.trash mappába kerülnek.",
       "done": "Alapértelmezések visszaállítva. Korábbi testreszabásaid a ~/.stella/.trash mappába kerültek.",
       "error": "Nem sikerült visszaállítani az alapértelmezéseket.",
       "none": "Már a Stella alapértelmezéseit használod.",
@@ -2316,7 +2290,7 @@
       "change": "Módosítás",
       "clear": "Törlés",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Nyomd meg a diktáláshoz, majd újra a befejezéshez."
       },
       "errors": {
         "load": "A gyorsbillentyűk betöltése sikertelen.",
@@ -2354,7 +2328,7 @@
       "defaultOption": "Stella alapértelmezése",
       "delete": "Törlés",
       "deleted": "Prompt törölve.",
-      "description": "A Stella alapértelmezett promptja mindig frissül az alkalmazással. Mentsd el a sajátodat, hogy azt használja – külön tárolódik, így a frissítések soha nem írják felül.",
+      "description": "Saját prompt használata a Stella alapértelmezése helyett.",
       "duplicate": "Másolat",
       "edit": "Szerkesztés",
       "error": "Valami hiba történt.",
@@ -2371,11 +2345,12 @@
       "account": "Fiók és jogi",
       "audio": "Hang",
       "general": "Általános",
-      "shortcuts": "Gyorsbillentyűk"
+      "shortcuts": "Gyorsbillentyűk",
+      "privacy": "Adatvédelem"
     },
     "title": "Beállítások",
     "voiceAgent": {
-      "description": "Megjeleníti a hang- és hívásvezérlőket, hogy hangosan beszélhess Stellával. A diktálás ettől függetlenül működik.",
+      "description": "Hang- és hívásvezérlők megjelenítése. A diktálás mindenképp működik.",
       "error": "A hangbeállítás frissítése nem sikerült.",
       "title": "Beszélgetés hanggal"
     },
@@ -2397,6 +2372,13 @@
         "openai": "OpenAI hangok",
         "xai": "Grok hangok"
       }
+    },
+    "groups": {
+      "app": "Alkalmazás",
+      "personal": "Személyes"
+    },
+    "nav": {
+      "more": "Továbbiak"
     }
   },
   "shell": {
@@ -2417,6 +2399,7 @@
       "undoneAgo": "Visszavonva: {ago}",
       "undoneJustNow": "Épp most visszavonva",
       "update": "Frissítés",
+      "updateAvailable": "Frissítés érhető el",
       "updatedAgo": "Frissítve: {ago}",
       "updatedJustNow": "Épp most frissítve",
       "updates": {
@@ -2430,18 +2413,17 @@
         "justNow": "Épp most",
         "newVersion": "A Stella új verziója",
         "newVersionDetail": "Fejlesztések és javítások a Stella csapatától",
-        "pill": {
-          "one": "{count} frissítés",
-          "other": "{count} frissítés"
-        },
         "readyChange": "Hozzáadásra kész változtatás",
         "removed": "Eltávolítva: {change}",
         "skip": "Kihagyás",
         "skipped": "Kihagyva",
         "undoing": "Visszavonás…",
         "upToDate": "Semmi sem várakozik",
-        "waiting": "Várakozik"
-      }
+        "waiting": "Várakozik",
+        "upToDateTitle": "Minden naprakész",
+        "upToDateBody": "A Stella új verziói itt jelennek meg."
+      },
+      "updating": "Frissítés…"
     },
     "audioPlayer": {
       "pause": "Szünet",
@@ -2469,7 +2451,9 @@
       "noMatches": "Egy összekötő sem felel meg a keresésnek.",
       "searchLabel": "Összekötők keresése",
       "searchPlaceholder": "Keresés",
-      "title": "Összekötők"
+      "title": "Összekötők",
+      "noMatchesTitle": "Nincs találat",
+      "noMatchesBody": "Próbálj másik nevet."
     },
     "display": {
       "agentThread": {
@@ -2523,11 +2507,19 @@
       },
       "canvasShare": {
         "copyLink": "Hivatkozás másolása",
-        "empty": "Még nincs aktív megosztás. Tegyél közzé egy vásznat a nyilvános hivatkozáshoz.",
+        "empty": "Még nincsenek nyilvános vásznak. Tegyél nyilvánossá egy vásznat a linkje megosztásához.",
         "expires": "Lejár: {date}",
         "links": "Hivatkozások",
         "live": "A vászon él",
         "loadFailed": "Nem sikerült betölteni a megosztásaidat.",
+        "makePrivate": "Priváttá tétel",
+        "makePublic": "Nyilvánossá tétel",
+        "noLink": "Ennek a vászonnak még nincs linkje. Tedd nyilvánossá, hogy bárki által megnyitható linket kapj.",
+        "openInBrowser": "Megnyitás böngészőben",
+        "privateHint": "Ezt a linket csak te nyithatod meg.",
+        "privateLink": "Privát link",
+        "public": "Nyilvános",
+        "publicHint": "A linkkel bárki megtekintheti.",
         "publicLink": "Nyilvános vászonhivatkozás",
         "publishFailed": "Nem sikerült közzétenni ezt a vásznat. Próbáld újra.",
         "publishing": "Vászon közzététele…",
@@ -2539,8 +2531,12 @@
         "toasts": {
           "copyFailed": "Nem sikerült másolni a hivatkozást",
           "linkCopied": "Megosztási hivatkozás másolva",
+          "madePrivate": "A link most már privát",
+          "madePublic": "A link most már nyilvános",
+          "openFailed": "Nem sikerült megnyitni a linket",
           "revokeFailed": "Nem sikerült visszavonni ezt a megosztást",
-          "revoked": "Megosztás visszavonva"
+          "revoked": "Megosztás visszavonva",
+          "visibilityFailed": "Nem sikerült módosítani, ki nyithatja meg ezt a linket"
         },
         "untitled": "Névtelen vászon"
       },
@@ -2549,7 +2545,10 @@
         "codeChanges": "Kódmódosítások",
         "desktopRequired": "A kódelőnézethez a Stella asztali alkalmazás szükséges.",
         "empty": "Még nincs fájlmódosítás. Amikor egy ügynök kódot szerkeszt, a módosítások itt jelennek meg.",
-        "noChanges": "Nem található módosítás."
+        "noChanges": "Nem található módosítás.",
+        "emptyTitle": "Még nincsenek változások",
+        "emptyBody": "Amikor egy ügynök kódot szerkeszt, a változások itt jelennek meg.",
+        "noChangesTitle": "Nincsenek változások"
       },
       "filePreview": {
         "copy": "Másolás",
@@ -2584,7 +2583,11 @@
         "revealInFinder": "Megjelenítés a Finderben",
         "save": "Mentés",
         "saveFailed": "Nem sikerült menteni",
-        "saved": "Mentve"
+        "saved": "Mentve",
+        "zoom": "Kép nagyítása",
+        "imageUnavailable": "A kép nem érhető el",
+        "videoUnavailable": "A videó nem érhető el",
+        "audioUnavailable": "A hang nem érhető el"
       },
       "office": {
         "frameTitle": "{kind} előnézet: {title}",
@@ -2610,7 +2613,11 @@
       },
       "preview": {
         "limited": "Az előnézet korlátozott. Mentsd vagy nyisd meg az eredeti fájlt a teljes tartalomhoz.",
-        "unavailable": "Ezt az előnézetet nem sikerült előkészíteni."
+        "unavailable": "Ezt az előnézetet nem sikerült előkészíteni.",
+        "failedTitle": "Az előnézet nem jeleníthető meg",
+        "failedBody": "Próbáld újra, vagy mentsd a fájlt, és nyisd meg máshol.",
+        "unavailableTitle": "A fájl nem érhető el",
+        "emptyTitle": "Ez a fájl üres"
       },
       "spreadsheet": {
         "column": "{index}. oszlop",
@@ -2632,7 +2639,9 @@
         "pendingPurge": "Törlésre vár",
         "refresh": "Frissítés",
         "title": "Kuka",
-        "trashedAgo": "Kukába helyezve {time} ezelőtt"
+        "trashedAgo": "Kukába helyezve {time} ezelőtt",
+        "emptyTitle": "A kuka üres",
+        "emptyBody": "A törölt elemek 24 óráig itt maradnak."
       },
       "url": {
         "eyebrow": "Élő előnézet",

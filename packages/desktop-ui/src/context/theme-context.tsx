@@ -226,7 +226,7 @@ function useThemePersistence(clearPreviews: () => void): PersistedThemeState {
   const [colorMode, setColorModeRaw] = useState<ColorMode>(
     () =>
       readLegacyForcedAppearance() ??
-      readStorage<ColorMode>(COLOR_MODE_STORAGE_KEY, "light"),
+      readStorage<ColorMode>(COLOR_MODE_STORAGE_KEY, "dark"),
   );
   const [gradientMode, setGradientModeRaw] = useState(() =>
     readStorage<GradientMode>(GRADIENT_MODE_STORAGE_KEY, "soft"),

@@ -5,8 +5,6 @@ import { fileURLToPath } from "node:url";
 
 import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from "../../i18n/locales";
 
-const CLOUD_AUTHORITY_MEMORY_DESCRIPTION =
-  "Include saved memories and your profile in Stella’s model context. The cloud copy is authoritative and encrypted in transit and at rest; Stella may also keep a local copy. Turning this off excludes memory from future turns but does not delete it.";
 const localeDirectory = resolve(
   dirname(fileURLToPath(import.meta.url)),
   "../../i18n/locales",
@@ -66,8 +64,10 @@ describe("mobile memory settings copy", () => {
         .sort();
 
       expect(typeof description).toBe("string");
-      expect(description === CLOUD_AUTHORITY_MEMORY_DESCRIPTION).toBe(false);
-      expect((description as string).trim().length).toBeGreaterThan(40);
+      expect((description as string).trim()).not.toBe("");
+      expect(description).not.toBe(
+        catalogs.get(DEFAULT_LOCALE)?.settings?.memory?.description,
+      );
       expect([...translatedCloudHome.keys()].sort()).toEqual(
         [...englishCloudHome.keys()].sort(),
       );

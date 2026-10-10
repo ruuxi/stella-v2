@@ -52,11 +52,13 @@ export type ConversationState = ConversationViewState & {
    */
   activity: "idle" | "running";
   /**
-   * Agents the journal still shows as working, named by the server over the
-   * whole journal. The retained records can only confirm this list, never
-   * shorten it: an agent started below the window leaves no trace in it.
+   * The agents the conversation has running, as the server lists them on
+   * connect and whenever they change: these and no others are running. The
+   * retained records only draw their rows.
    */
   runningAgents: readonly AgentActivityEntry[];
+  /** When the server read `runningAgents` (its clock). */
+  runningAgentsAtMs: number;
 };
 
 const EMPTY_AGENTS: readonly AgentActivityEntry[] = [];
@@ -77,6 +79,7 @@ const initialState = (conversationId: string): ConversationState => ({
   ...initialConversationViewState(conversationId),
   activity: "idle",
   runningAgents: EMPTY_AGENTS,
+  runningAgentsAtMs: 0,
 });
 
 // ----------------------------------------------------------------- store
@@ -246,29 +249,6 @@ class ConversationStore {
     this.socket?.retryNow();
   }
 
-  /**
-   * Drops the renderer projection after a successful epoch-changing mutation.
-   * Reconnect from an empty cursor so the next paint can only come from the
-   * new canonical generation; stale rows are never kept as a local fallback.
-   */
-  refreshAfterCanonicalMutation(): void {
-    this.socket?.stop();
-    this.socket = null;
-    this.patch({
-      status: "idle",
-      statusMessage: null,
-      statusRetryable: true,
-      epoch: null,
-      headSeq: -1,
-      records: EMPTY_RECORDS,
-      live: null,
-      hasOlder: false,
-      loadingOlder: false,
-      olderNotice: null,
-    });
-    this.ensureSocket();
-  }
-
   /** Immediately retires an old auth subject's socket and rendered state. */
   retireAuthority(): void {
     this.socket?.stop();
@@ -412,6 +392,7 @@ class ConversationStore {
           activity: event.ready.activity === "running" ? "running" : "idle",
           runningAgents:
             event.ready.agents.length > 0 ? event.ready.agents : EMPTY_AGENTS,
+          runningAgentsAtMs: event.ready.serverTimeMs,
           hasOlder: oldest > event.ready.floorSeq,
           ...(epochChanged
             ? {
@@ -424,6 +405,12 @@ class ConversationStore {
         });
         return;
       }
+      case "agents":
+        this.patch({
+          runningAgents: event.agents.length > 0 ? event.agents : EMPTY_AGENTS,
+          runningAgentsAtMs: event.atMs,
+        });
+        return;
       case "records":
         this.appendRecords(event.records);
         return;

@@ -224,16 +224,27 @@ export type ReadyFrame = {
   serverTimeMs: number;
   live: LiveTurnSnapshot | null;
   /**
-   * Every agent the journal still shows as working, folded server-side over the
-   * whole journal. Authoritative: it names agents whose `agent-started` row is
-   * far below anything this client holds, including ones started on another
-   * device. Empty from a server that predates the field.
+   * Every agent the conversation has running, whatever this client holds:
+   * agents whose `agent-started` row is far below its window, and ones
+   * started on another device. Authoritative, and `agents` frames carry it
+   * on. Empty from a server that predates the field.
    */
   agents: AgentActivityEntry[];
 };
 
+/**
+ * The running agents again, sent whenever they change. `atMs` is when the
+ * server read them: an agent whose start card is newer is not in it yet.
+ */
+export type AgentsFrame = {
+  type: "agents";
+  agents: AgentActivityEntry[];
+  atMs: number;
+};
+
 export type ServerFrame =
   | ReadyFrame
+  | AgentsFrame
   | ({ type: "record" } & JournalRecord)
   | {
       type: "backfill";
@@ -480,6 +491,12 @@ export const decodeServerFrame = (data: string): ServerFrame | null => {
         agents: decodeAgents(raw.agents),
       };
     }
+    case "agents":
+      return {
+        type: "agents",
+        agents: decodeAgents(raw.agents),
+        atMs: num(raw.atMs) ?? Date.now(),
+      };
     case "record": {
       const record = decodeSequencedJournalEntry(raw);
       return record ? { type: "record", ...record } : null;

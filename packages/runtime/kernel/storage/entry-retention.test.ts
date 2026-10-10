@@ -1,10 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import type { AgentEvent } from "../agent-core/types.js";
-import {
-  createRunEventRecorder,
-  subscribeRuntimeAgentEvents,
-} from "../agent-runtime/run-events.js";
 import { initializeDesktopDatabase } from "./database-init.js";
 import {
   deleteLegacyRunEventBatch,
@@ -186,112 +181,6 @@ const snapshot = (store: SessionStore, threadKey: string) => {
 };
 
 describe("run_event writes", () => {
-  test("a turn with tool calls writes no run_event rows and consumes no extra seqs", () => {
-    const { db, store } = createStore();
-    expect("recordRunEvent" in store).toBe(false);
-
-    const runId = "run-live";
-    let listener: ((event: AgentEvent) => void) | undefined;
-    const agent = {
-      state: { messages: [] },
-      subscribe: (next: (event: AgentEvent) => void) => {
-        listener = next;
-        return () => {
-          listener = undefined;
-        };
-      },
-    };
-    const recorder = createRunEventRecorder({
-      runId,
-      agentType: "orchestrator",
-      userMessageId: "user-live",
-    });
-    store.appendEvent({
-      conversationId: CONVERSATION,
-      type: "user_message",
-      eventId: "user-live",
-      timestamp: 1_000,
-      payload: { text: "run the tool" },
-    });
-    // Mirrors worker/server/session/agent-runs.ts: tool callbacks become
-    // tool_request / tool_result chat entries.
-    subscribeRuntimeAgentEvents({
-      agent,
-      runId,
-      agentType: "orchestrator",
-      recorder,
-      conversationId: CONVERSATION,
-      callbacks: {
-        onToolStart: (event) => {
-          store.appendEvent({
-            conversationId: CONVERSATION,
-            type: "tool_request",
-            requestId: event.toolCallId,
-            payload: { toolName: event.toolName, args: event.args },
-          });
-        },
-        onToolEnd: (event) => {
-          store.appendEvent({
-            conversationId: CONVERSATION,
-            type: "tool_result",
-            requestId: event.toolCallId,
-            payload: {
-              toolName: event.toolName,
-              resultPreview: event.resultPreview,
-            },
-          });
-        },
-      },
-    });
-    for (const toolCallId of ["call-1", "call-2"]) {
-      listener?.({
-        type: "tool_execution_start",
-        toolCallId,
-        toolName: "Bash",
-        args: { command: "ls" },
-      });
-      listener?.({
-        type: "tool_execution_end",
-        toolCallId,
-        toolName: "Bash",
-        result: {
-          content: [{ type: "text", text: "file.txt" }],
-          details: { exitCode: 0 },
-        },
-        isError: false,
-      } as AgentEvent);
-    }
-    store.appendEvent({
-      conversationId: CONVERSATION,
-      type: "assistant_message",
-      eventId: "assistant-live",
-      timestamp: 2_000,
-      payload: { text: "done", userMessageId: "user-live" },
-    });
-    recorder.recordRunEnd({ finalText: "done" });
-    recorder.recordError("boom");
-    recorder.recordInterrupted("user_stop");
-
-    expect(countRunEvents(db)).toBe(0);
-    const rows = db
-      .prepare("SELECT type FROM entry WHERE conversation_id = ? ORDER BY seq")
-      .all(CONVERSATION) as Array<{ type: string }>;
-    expect(rows.map((row) => row.type)).toEqual([
-      "user_message",
-      "tool_request",
-      "tool_result",
-      "tool_request",
-      "tool_result",
-      "assistant_message",
-    ]);
-    const { nextSeq } = db
-      .prepare("SELECT next_seq AS nextSeq FROM conversation WHERE id = ?")
-      .get(CONVERSATION) as { nextSeq: number };
-    expect(nextSeq).toBe(rows.length + 1);
-  });
-});
-
-describe("legacy run_event rows are unobservable", () => {
   test("every chat and thread read is identical before and after the sweep", async () => {
     const { db, store } = createStore();
     seedConversation(db, store, CONVERSATION, 10_000);

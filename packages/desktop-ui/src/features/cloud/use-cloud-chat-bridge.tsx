@@ -8,6 +8,8 @@ import {
   type CloudSocketStatus,
 } from "@stella/contracts/cloud-connection-notice";
 import { journalWorkingActivity } from "@stella/contracts/journal-working-activity";
+import { journalAgents } from "@stella/contracts/agent-titles";
+import { publishJournalAgents } from "./journal-agent-store";
 import {
   useCallback,
   useEffect,
@@ -56,31 +58,6 @@ const EMPTY_EVENTS: EventRecord[] = [];
 const EMPTY_MESSAGES: MessageRecord[] = [];
 const EMPTY_TASKS: TaskItem[] = [];
 export const LOCAL_CLOUD_TASK_OVERLAY_TTL_MS = 10 * 60_000;
-
-const journalUserMessageId = (
-  record: Extract<JournalRecord, { kind: "message" }>,
-): string =>
-  record.clientMsgId ?? `cloud:${record.turnId}:message:${record.seq}`;
-
-export const findCloudUserMessageRecord = (
-  records: readonly JournalRecord[],
-  userMessageId: string,
-): Extract<JournalRecord, { kind: "message" }> | null =>
-  records.find(
-    (record): record is Extract<JournalRecord, { kind: "message" }> =>
-      record.kind === "message" &&
-      record.role === "user" &&
-      journalUserMessageId(record) === userMessageId,
-  ) ?? null;
-
-/** Existing Fork/Rewind UX operates on the prefix before the chosen prompt. */
-export const cloudPrefixBoundaryForUserMessage = (
-  records: readonly JournalRecord[],
-  userMessageId: string,
-): { targetSeq: number; throughSeq: number } | null => {
-  const record = findCloudUserMessageRecord(records, userMessageId);
-  return record ? { targetSeq: record.seq, throughSeq: record.seq - 1 } : null;
-};
 
 export const cloudPendingPromptsToEvents = (
   pending: readonly PendingPrompt[],
@@ -362,6 +339,11 @@ export function useCloudChatBridge({
     () => journalRecordsToMessageRecords(completeRecords),
     [completeRecords],
   );
+  const journalConversationId = conversation.state.conversationId;
+  useEffect(() => {
+    if (!enabled || !journalConversationId) return;
+    publishJournalAgents(journalConversationId, journalAgents(completeRecords));
+  }, [completeRecords, enabled, journalConversationId]);
   const activeUserIds = useMemo(
     () => activeCloudUserMessageIds(completeRecords),
     [completeRecords],

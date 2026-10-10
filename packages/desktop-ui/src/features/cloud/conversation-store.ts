@@ -287,31 +287,6 @@ class ConversationStore {
     this.socket?.retryNow();
   }
 
-  /**
-   * Drops the renderer projection after a successful epoch-changing mutation.
-   * Reconnect from an empty cursor so the next paint can only come from the
-   * new canonical generation; stale rows are never kept as a local fallback.
-   */
-  refreshAfterCanonicalMutation(): void {
-    this.socket?.stop();
-    this.socket = null;
-    this.patch({
-      status: "idle",
-      statusMessage: null,
-      statusRetryable: true,
-      epoch: null,
-      headSeq: -1,
-      records: EMPTY_RECORDS,
-      recordsSource: "none",
-      live: null,
-      hasOlder: false,
-      loadingOlder: false,
-      olderNotice: null,
-    });
-    this.purgeCache();
-    this.ensureSocket();
-  }
-
   /** Immediately retires an old auth subject's socket and rendered state. */
   retireAuthority(): void {
     this.authorityRetired = true;

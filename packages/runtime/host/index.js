@@ -13,7 +13,7 @@ import { LocalSchedulerService } from "../kernel/local-scheduler-service.js";
 import { createCloudSchedules, isCloudScheduleId, isCloudSchedulePayload, } from "./cloud-schedules.js";
 import { createScheduleScriptAuthEnv } from "../kernel/shared/schedule-scripts.js";
 import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
-import { createExecutionPlacementBridge, placementLocalAgentThreadId, placementLocalChatRunId, placementRemoteThreadAgentId, } from "./execution-placement-bridge.js";
+import { createExecutionPlacementBridge, PlacementRouteError, placementLocalAgentThreadId, placementLocalChatRunId, placementRemoteThreadAgentId, } from "./execution-placement-bridge.js";
 import { isExecutionPlacementEligible } from "./execution-placement-eligibility.js";
 import { isCloudHandedOff } from "./placed-dispatch.js";
 import { AGENT_RUN_RPC_OPTIONS } from "./agent-run-request.js";
@@ -25,7 +25,7 @@ import { RuntimeWorkerLifecycleController, } from "./worker-lifecycle.js";
 import { buildStdioConnectionFactory } from "./stdio-connection.js";
 import { buildInprocConnectionFactory } from "./inproc-connection.js";
 import { resolveRuntimePaths } from "../worker/runtime-paths.js";
-import { Cause, Exit, Fiber } from "effect";
+import { Cause, Effect, Exit, Fiber } from "effect";
 import { forkDelayed, hostRuntime, } from "./effect-runtime.js";
 import { clearPendingWorkerRestartFlag, evaluateWorkerStaleness, persistPendingWorkerRestartFlag, quiescencePollEffect, } from "./staleness.js";
 import { HOST_CHALLENGE_TOKEN_METHOD } from "./challenge-token-method.js";
@@ -103,14 +103,8 @@ const bufferAgentEvent = (buffers, event) => {
 export const isWorkerBusyForRestart = (health) => health != null &&
     (health.voiceBusy === true ||
         (health.pendingVoiceRequestCount ?? 0) > 0 ||
-        // A worker with durable runs reports what a restart would actually
-        // interrupt: an unsafe tool call in flight, or an active run that
-        // would not resume (`run-task.ts`). Durable runs resume in the
-        // replacement worker, so they no longer hold the restart. Older
-        // workers without the report keep the conservative rule.
-        (health.durableRestart
-            ? health.durableRestart.blocked === true
-            : health.activeRun != null || health.activeAgentCount > 0));
+        health.activeRun != null ||
+        health.activeAgentCount > 0);
 export const shouldAckWorkerRunEvent = (event) => {
     if (!Number.isFinite(event.seq))
         return false;
@@ -136,6 +130,29 @@ class HostEvents extends EventEmitter {
         return super.emit(eventName, ...args);
     }
 }
+/**
+ * Where a send the user pointed at the cloud or another computer runs; null
+ * when it runs on this computer (a conversation kept here always does).
+ */
+const placedChatTarget = (send, ownDeviceId) => {
+    const target = send?.storageMode === "local"
+        ? { mode: "automatic" }
+        : send?.executionTarget && typeof send.executionTarget === "object"
+            ? send.executionTarget
+            : { mode: "automatic" };
+    if (target.mode === "cloud")
+        return { mode: "cloud" };
+    if (target.mode === "device" && typeof target.deviceId === "string" && target.deviceId.trim() && target.deviceId.trim() !== ownDeviceId) {
+        return { mode: "device", deviceId: target.deviceId.trim() };
+    }
+    return null;
+};
+/**
+ * A placement that failed because where it went is out of reach (no network,
+ * placement not ready here, the cloud failing), not one the owner gate
+ * refused for the request itself.
+ */
+const placementUnavailable = (error) => !(error instanceof PlacementRouteError) || error.retryable;
 export class StellaRuntimeHost {
     options;
     workerMode = "child";
@@ -148,8 +165,6 @@ export class StellaRuntimeHost {
     cloudScheduleUnsubscribe = null;
     cloudSchedules = null;
     reloadTimer = null;
-    /** Debounced restart re-check at a tool boundary (see RUN_EVENT handler). */
-    durableBoundaryFlushTimer = null;
     deferredRuntimeReload = false;
     // Coalescing for the requested-reload path only: while a
     // scheduled reload's restart is queued or running, further reload requests
@@ -754,6 +769,27 @@ export class StellaRuntimeHost {
                 }
                 return await serve(request);
             },
+            // A cloud agent's tool call runs in the worker, on this computer's
+            // tool host; a stop from the cloud stops it there.
+            runDeviceTool: async (call, signal) => {
+                const requestId = crypto.randomUUID();
+                const stop = () => {
+                    void this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_CANCEL_DEVICE_TOOL, { requestId }, {
+                        ensureWorker: false,
+                        recordActivity: false,
+                    }).catch(() => undefined);
+                };
+                signal.addEventListener("abort", stop, { once: true });
+                try {
+                    return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_RUN_DEVICE_TOOL, { requestId, call }, {
+                        ensureWorker: true,
+                        recordActivity: true,
+                    });
+                }
+                finally {
+                    signal.removeEventListener("abort", stop);
+                }
+            },
             getAvailability: async () => {
                 const platformCapabilities = process.platform === "darwin" || process.platform === "win32"
                     ? ["computer-use"]
@@ -1025,8 +1061,6 @@ export class StellaRuntimeHost {
         this.stopStaleWorkerQuiescencePoll();
         this.reloadTimer?.cancel();
         this.reloadTimer = null;
-        this.durableBoundaryFlushTimer?.cancel();
-        this.durableBoundaryFlushTimer = null;
         await this.workerController.stop(options?.killWorker ? "restart" : "stopped");
         await this.stopHostServices();
         this.deviceIdentity = null;
@@ -1324,6 +1358,8 @@ export class StellaRuntimeHost {
      * The orchestrator's `switch_destination`: the same target change the
      * user makes in the picker, then the rest of the request continues there
      * as a placed chat once this computer's turn for the conversation ends.
+     * A pi chat moving Stella herself (`brain`) moves that conversation only:
+     * its object records where she runs, and the picker stays as it is.
      */
     async switchExecutionDestination(params) {
         const conversationId = typeof params?.conversationId === "string" ? params.conversationId.trim() : "";
@@ -1350,11 +1386,13 @@ export class StellaRuntimeHost {
                 };
             }
         }
-        try {
-            await this.options.hostHandlers.setExecutionTarget?.({ target });
-        }
-        catch (error) {
-            console.warn("[execution-destination] the app's destination picker could not be updated.", error);
+        if (params.brain !== true) {
+            try {
+                await this.options.hostHandlers.setExecutionTarget?.({ target });
+            }
+            catch (error) {
+                console.warn("[execution-destination] the app's destination picker could not be updated.", error);
+            }
         }
         if (target.mode === "automatic") return { ok: true };
         const handoffId = crypto.randomUUID();
@@ -1372,11 +1410,11 @@ export class StellaRuntimeHost {
         this.pendingDestinationHandoffs.set(conversationId, pending);
         void (async () => {
             const deadline = Date.now() + DESTINATION_HANDOFF_MAX_WAIT_MS;
-            await new Promise((resolve) => setTimeout(resolve, DESTINATION_HANDOFF_POLL_MS));
+            await hostRuntime.runPromise(Effect.sleep(DESTINATION_HANDOFF_POLL_MS));
             while (!pending.canceled && Date.now() < deadline) {
                 const health = await this.getWorkerHealth({ ensureWorker: false }).catch(() => null);
                 if (health?.activeRun?.conversationId !== conversationId) break;
-                await new Promise((resolve) => setTimeout(resolve, DESTINATION_HANDOFF_POLL_MS));
+                await hostRuntime.runPromise(Effect.sleep(DESTINATION_HANDOFF_POLL_MS));
             }
             if (pending.canceled) return;
             if (this.pendingDestinationHandoffs.get(conversationId) === pending) {
@@ -1388,21 +1426,49 @@ export class StellaRuntimeHost {
         });
         return { ok: true };
     }
+    /**
+     * What Stella reads hidden (an agent's report or note) in a pi
+     * conversation whose brain runs elsewhere: placed there as a chat, as
+     * this computer places its user's sends, once per `id`.
+     */
+    async placePiBrainNote(params) {
+        const conversationId = typeof params?.conversationId === "string" ? params.conversationId.trim() : "";
+        const requested = params?.target && typeof params.target === "object" ? params.target : null;
+        const deviceId = typeof requested?.deviceId === "string" ? requested.deviceId.trim() : "";
+        const target = requested?.mode === "cloud"
+            ? { mode: "cloud" }
+            : requested?.mode === "device" && deviceId && deviceId !== this.deviceIdentity?.deviceId
+                ? { mode: "device", deviceId }
+                : null;
+        const prompt = typeof params?.prompt === "string" ? params.prompt.trim() : "";
+        const id = typeof params?.id === "string" ? params.id.trim() : "";
+        if (!conversationId || !target || !prompt || !id) {
+            return { ok: false, error: "A conversation, another host, a note and its id are required." };
+        }
+        try {
+            await this.startPlacedChat({
+                conversationId,
+                userPrompt: prompt,
+                requestId: id,
+                userMessageEventId: id,
+                storageMode: "cloud",
+                // Journaled hidden there: the user did not write it.
+                handoff: true,
+            }, target);
+            return { ok: true };
+        }
+        catch (error) {
+            // Out of reach: the conversation here takes it instead.
+            return {
+                ok: false,
+                ...(placementUnavailable(error) ? { unavailable: true } : {}),
+                error: error instanceof Error ? error.message : String(error),
+            };
+        }
+    }
     async startChat(payload) {
-        const target = payload.storageMode === "local"
-            ? { mode: "automatic" }
-            : payload.executionTarget && typeof payload.executionTarget === "object"
-            ? payload.executionTarget
-            : { mode: "automatic" };
-        if (target.mode === "cloud") {
-            return await this.startPlacedChat(payload, { mode: "cloud" });
-        }
-        if (target.mode === "device" && typeof target.deviceId === "string" && target.deviceId.trim() && target.deviceId.trim() !== this.deviceIdentity?.deviceId) {
-            return await this.startPlacedChat(payload, {
-                mode: "device",
-                deviceId: target.deviceId.trim(),
-            });
-        }
+        const target = placedChatTarget(payload, this.deviceIdentity?.deviceId);
+        if (target) return await this.startPlacedChat(payload, target);
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_START_CHAT, payload, {
             ensureWorker: true,
             recordActivity: true,
@@ -1413,6 +1479,78 @@ export class StellaRuntimeHost {
             ensureWorker: true,
             recordActivity: true,
         });
+    }
+    /** The pi-durable chat (`@stella/contracts/pi-chat`). */
+    async piChat(request) {
+        // A send the user pointed elsewhere runs there as a placed chat. Its
+        // turn reaches this computer's transcript through the journal, which
+        // the worker reads closely until it shows.
+        let target = request?.op === "submit" ? placedChatTarget(request.send, this.deviceIdentity?.deviceId) : null;
+        // A conversation whose Stella runs elsewhere (the cloud, another
+        // computer) answers there: this computer takes none of its turns
+        // while that host can take them.
+        let brainTarget = false;
+        if (request?.op === "submit" && !target && request.send?.storageMode !== "local") {
+            const brain = await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_PI_CHAT, { op: "brain", conversationId: request.conversationId }, {
+                ensureWorker: true,
+                recordActivity: false,
+            }).catch(() => null);
+            if (brain && brain.here === false && brain.target) {
+                target = brain.target;
+                brainTarget = true;
+            }
+        }
+        if (target) {
+            const send = request.send ?? {};
+            try {
+                const placed = await this.startPlacedChat({
+                    conversationId: request.conversationId,
+                    userPrompt: request.text,
+                    requestId: request.requestId,
+                    userMessageEventId: request.requestId,
+                    ...(typeof send.selectedText === "string" ? { selectedText: send.selectedText } : {}),
+                    ...(Array.isArray(send.attachments) && send.attachments.length ? { attachments: send.attachments } : {}),
+                    ...(send.locale ? { locale: send.locale } : {}),
+                }, target);
+                void this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_PI_CHAT, { op: "follow", conversationId: request.conversationId }, {
+                    ensureWorker: true,
+                    recordActivity: false,
+                }).catch(() => undefined);
+                return { placed: { runId: placed.runId, userMessageId: placed.userMessageId } };
+            }
+            catch (error) {
+                // Where Stella runs is out of reach: this computer answers, as
+                // with no record, which stays for once that host is back.
+                if (!brainTarget || !placementUnavailable(error)) throw error;
+                console.warn("[pi-chat] Where Stella runs could not take this message; this computer answers it.", error);
+                request = { ...request, send: { ...send, followSender: true } };
+            }
+        }
+        if (request?.op === "abort") await this.cancelPiPlacements(request.conversationId, request.dispatchIds);
+        return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_PI_CHAT, request, {
+            ensureWorker: true,
+            recordActivity: request?.op === "submit",
+        });
+    }
+    /**
+     * Stop what a conversation runs elsewhere: the chats this computer placed,
+     * and the placed turns the app saw running there (`dispatchIds`), which
+     * the cloud may have taken over from their placement.
+     */
+    async cancelPiPlacements(conversationId, dispatchIds) {
+        const bridge = this.hostExecutionPlacementBridge;
+        if (!bridge) return;
+        const ids = new Set(Array.isArray(dispatchIds)
+            ? dispatchIds.filter((id) => typeof id === "string" && /^(dsp|exec):/.test(id))
+            : []);
+        for (const placed of this.placedDispatchByRunId.values()) {
+            if (placed.conversationId === conversationId) ids.add(placed.dispatchId);
+        }
+        await Promise.all([...ids].map((dispatchId) => bridge.cancelDispatch({
+            dispatchId,
+            cancelRequestId: `cancel:${dispatchId}`,
+            reason: "Canceled by the user.",
+        }).catch((error) => console.warn(`[pi-chat] Could not stop ${dispatchId}.`, error))));
     }
     async cancelChat(runId) {
         const placed = this.placedDispatchByRunId.get(runId);
@@ -1955,6 +2093,9 @@ export class StellaRuntimeHost {
         peer.registerRequestHandler(METHOD_NAMES.HOST_EXECUTION_DESTINATION_SWITCH, async (params) => {
             return await this.switchExecutionDestination(params);
         });
+        peer.registerRequestHandler(METHOD_NAMES.HOST_PI_BRAIN_NOTE, async (params) => {
+            return await this.placePiBrainNote(params);
+        });
         peer.registerRequestHandler(METHOD_NAMES.HOST_CONNECTOR_CONNECT_REQUEST, async (params) => {
             if (!this.options.hostHandlers.requestConnectorConnection) {
                 return { ok: false, reason: "unsupported" };
@@ -2081,17 +2222,6 @@ export class StellaRuntimeHost {
                     });
                 }
             }
-            else if ((payload.type === AGENT_STREAM_EVENT_TYPES.TOOL_END ||
-                payload.type === AGENT_STREAM_EVENT_TYPES.AGENT_PROGRESS) &&
-                this.hasPendingWorkerRestartIntent() &&
-                !this.durableBoundaryFlushTimer) {
-                // A restart held only by an unsafe tool call can proceed at the
-                // next tool boundary (durable runs resume in the new worker).
-                this.durableBoundaryFlushTimer = forkDelayed(500, () => {
-                    this.durableBoundaryFlushTimer = null;
-                    void this.flushWorkerRestart();
-                });
-            }
         });
         peer.registerNotificationHandler(NOTIFICATION_NAMES.VOICE_AGENT_EVENT, (params) => {
             this.events.emit("voice-agent-event", params);
@@ -2102,6 +2232,9 @@ export class StellaRuntimeHost {
         });
         peer.registerNotificationHandler(NOTIFICATION_NAMES.THREAD_ACTIVITY_UPDATED, (params) => {
             this.events.emit("thread-activity-updated", params);
+        });
+        peer.registerNotificationHandler(NOTIFICATION_NAMES.PI_CHAT_EVENTS, (params) => {
+            this.events.emit("pi-chat-events", params);
         });
         peer.registerNotificationHandler(NOTIFICATION_NAMES.THREAD_TRANSCRIPT_UPDATED, (params) => {
             this.events.emit("thread-transcript-updated", params);

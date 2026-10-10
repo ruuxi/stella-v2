@@ -108,8 +108,6 @@ const englishLeaves = leafMap(english);
 const otherLocales = SUPPORTED_LOCALES.filter(
   (locale) => locale !== DEFAULT_LOCALE,
 );
-const CLOUD_AUTHORITY_MEMORY_DESCRIPTION =
-  "Include saved memories and your profile in Stella’s model context. The cloud copy is authoritative and encrypted in transit and at rest; Stella may also keep a local copy. Turning this off excludes memory from future turns but does not delete it.";
 const CLOUD_HOME_PREFIX = "mobile.cloudHome.";
 const MAX_CLOUD_HOME_ENGLISH_MATCHES = 8;
 
@@ -232,15 +230,17 @@ describe("i18n catalog parity", () => {
   });
 
   it.each(otherLocales)(
-    "%s localizes the cloud-authority memory description",
+    "%s localizes the memory description",
     (locale) => {
       const value = leafMap(catalogFor(locale)).get(
         "settings.memory.description",
       )?.value;
 
       expect(typeof value).toBe("string");
-      expect(value).not.toBe(CLOUD_AUTHORITY_MEMORY_DESCRIPTION);
-      expect((value as string).trim().length).toBeGreaterThan(40);
+      expect((value as string).trim()).not.toBe("");
+      expect(value).not.toBe(
+        englishLeaves.get("settings.memory.description")?.value,
+      );
     },
   );
 
@@ -260,7 +260,7 @@ describe("i18n catalog parity", () => {
         .map(([path]) => path)
         .sort();
 
-      expect(cloudHomeLeaves).toHaveLength(53);
+      expect(cloudHomeLeaves).toHaveLength(7);
       expect(
         exactEnglishMatches.length,
         `English Cloud Home filler remains in ${locale}:\n${exactEnglishMatches.join("\n")}`,

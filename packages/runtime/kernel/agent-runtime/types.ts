@@ -2,13 +2,8 @@ import type { AgentMessage } from "../agent-core/types.js";
 import type { RawReplyRef } from "@stella/contracts/reply-refs";
 import type { HookEmitter } from "../extensions/hook-emitter.js";
 import type { ResolvedLlmRoute } from "../model-routing.js";
-import type { ImageDescriptionService } from "./image-description.js";
 import type { LocalAgentContext } from "../agents/local-agent-manager.js";
-// Type-only imports — both session classes import from this file, so a
-// runtime import would form a cycle. The types are consumed only as
-// opaque options below so type-only resolution at compile time is enough.
-import type { OrchestratorSession } from "./orchestrator-session.js";
-import type { SubagentSession } from "./subagent-session.js";
+import type { AgentSteering } from "./agent-steering.js";
 import type { BackgroundCompactionScheduler } from "./compaction-scheduler.js";
 import type {
   AgentToolRequest,
@@ -19,10 +14,6 @@ import type {
 } from "../tools/types.js";
 import type { RuntimeStore } from "../storage/runtime-store.js";
 import type {
-  RunTaskRecord,
-  ToolIntentRecord,
-} from "../storage/run-task.js";
-import type {
   LocalChatAppendEventArgs,
   LocalContextEvent,
 } from "../storage/shared.js";
@@ -31,10 +22,6 @@ import type {
   RuntimePromptMessage,
   RuntimeAgentEventPayload,
 } from "@stella/contracts/protocol";
-import type {
-  ProviderStreamLifecycleEvent,
-  ProviderStreamSettlementEvent,
-} from "./provider-stream-lifecycle.js";
 
 /**
  * One delta of a chunk-shaped runtime stream. Assistant text no longer travels
@@ -116,22 +103,6 @@ export type RuntimeStatusEvent = {
   uiVisibility?: "visible" | "hidden";
 };
 
-export type RuntimeProviderLifecycleEvent = {
-  runId: string;
-  agentType: string;
-  seq: number;
-  providerLifecyclePhase:
-    | ProviderStreamLifecycleEvent["phase"]
-    | ProviderStreamSettlementEvent["phase"];
-  providerRequestIdSha256: string;
-  providerPhysicalAttempt: number;
-  providerStreamOrdinal: number;
-  providerName: string;
-  providerModelId: string;
-  providerOutcome?: "completed" | "canceled" | "error";
-  uiVisibility?: "visible" | "hidden";
-};
-
 export type RuntimeUserMessageEvent = {
   userMessageId: string;
   text: string;
@@ -194,14 +165,6 @@ export type RuntimeInterruptedEvent = {
 export type RuntimeExecutionSessionHandle = {
   runId: string;
   threadKey: string;
-  /**
-   * Which execution engine backs `agent`. The native agent-core loop delivers
-   * `steer` messages mid-run at the next safe turn boundary; external CLI
-   * engines (Claude Code, Codex) buffer both steer and followUp until the
-   * current turn completes, so mid-run `steer` delivery for user messages is
-   * only meaningful when this is `"native"`.
-   */
-  engine: "native" | "external";
   queueUserMessageId: (
     userMessageId: string,
     onStart?: () => void,
@@ -223,7 +186,6 @@ export type RuntimeRunCallbacks = {
   onAssistantMessage?: (event: RuntimeAssistantMessageEvent) => void;
   onReasoning?: (event: RuntimeReasoningEvent) => void;
   onStatus?: (event: RuntimeStatusEvent) => void;
-  onProviderLifecycle?: (event: RuntimeProviderLifecycleEvent) => void;
   onToolStart: (event: RuntimeToolStartEvent) => void;
   onToolEnd: (event: RuntimeToolEndEvent) => void;
   onError: (event: RuntimeErrorEvent) => void;
@@ -272,8 +234,6 @@ export type BaseRunOptions = {
   /** Private action-broker endpoint injected only into connector-capable children. */
   cliBridgeSocketPath?: string;
   resolvedLlm: ResolvedLlmRoute;
-  /** Lazily describes newly-arriving images when the selected model is text-only. */
-  describeImages?: ImageDescriptionService;
   store: RuntimeStore;
   abortSignal?: AbortSignal;
   stellaAppDir?: string;
@@ -323,24 +283,6 @@ export type BaseRunOptions = {
    * her thread compacts. Orchestrator turns stored on this computer only.
    */
   readAgentRoster?: () => Promise<string | undefined>;
-  /**
-   * Keep a durable `run_task` row for this run so it can resume after the
-   * worker process dies (`kernel/storage/run-task.ts`). `launch` is the
-   * caller's relaunch metadata, stored verbatim.
-   */
-  durable?: { launch: Record<string, unknown>; background?: boolean };
-  /**
-   * Resume this durable run from its row instead of sending a prompt
-   * (`agent-runtime/durable-resume.ts`). Native engine only.
-   */
-  resume?: DurableRunResume;
-};
-
-export type DurableRunResume = {
-  /** The run's row, `resumeCount` already counting this resume. */
-  record: RunTaskRecord;
-  /** Every tool intent the run wrote before its process died. */
-  intents: ToolIntentRecord[];
 };
 
 export type OrchestratorRunOptions = BaseRunOptions & {
@@ -352,30 +294,14 @@ export type OrchestratorRunOptions = BaseRunOptions & {
     finalText: string;
     outcome: "success";
   }) => Promise<void> | void;
-  /**
-   * Long-lived per-conversation session. When provided, the Pi engine path
-   * routes through `session.runTurn(opts)` so the underlying `Agent`
-   * survives across turns and provider prompt-cache prefixes stay stable.
-   * The external engine path (`runExternalOrchestratorTurn`) ignores this
-   * field; external engines own their own session concept on the binary
-   * side. Callers that omit it get an ephemeral session through
-   * `runOrchestratorTurn`, but the Pi execution path is still the same
-   * session code.
-   */
-  orchestratorSession?: OrchestratorSession;
 };
 
 export type SubagentRunOptions = BaseRunOptions & {
   onProgress?: (chunk: string) => void;
   callbacks?: Partial<RuntimeRunCallbacks>;
   suppressCompletionSideEffects?: boolean;
-  /**
-   * Long-lived per-task subagent session. When provided, the Pi engine
-   * path routes through `session.runTurn(opts)` so the underlying `Agent`
-   * survives across `send_message` / restart-on-input cycles. The external
-   * engine path ignores this. See `SubagentSession` for lifecycle.
-   */
-  subagentSession?: SubagentSession;
+  /** The agent thread's steering, which this turn's live agent attaches to. */
+  steering?: AgentSteering;
 };
 
 export type SubagentRunResult = {

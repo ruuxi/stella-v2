@@ -4,6 +4,8 @@ import type {
   EventRecord,
   MessageRecord,
 } from "@stella/contracts/local-chat";
+import { isPiAgentText } from "@stella/contracts/pi-chat";
+import { journalAgentTitles } from "@stella/contracts/agent-titles";
 import { groupEventsIntoMessages } from "@/features/chat/lib/group-events-into-messages";
 import {
   messageText,
@@ -351,32 +353,8 @@ export const journalRecordsToMessageRecords = (
 ): MessageRecord[] => {
   const byTurn = new Map<string, JournalRecord[]>();
   const recordsBySeq = new Map<number, JournalMessageRecord>();
-  const agentTitles = new Map<string, string>();
+  const agentTitles = journalAgentTitles(records);
   for (const record of records) {
-    if (
-      record.kind === "card" &&
-      record.card.type === "agent-lifecycle" &&
-      record.card.event.type === "agent-started"
-    ) {
-      const { agentId, description } = record.card.event.payload;
-      if (description.trim()) agentTitles.set(agentId, description.trim());
-    }
-    if (record.kind === "message" && record.role === "user" && record.hidden) {
-      const wake = lifecycleWakeTask(messageText(record.payload));
-      if (wake?.description && !agentTitles.has(wake.threadId)) {
-        agentTitles.set(wake.threadId, wake.description);
-      }
-    }
-    if (record.kind === "message" && record.role === "toolResult") {
-      const details = asRecord(record.payload.details);
-      if (
-        typeof details?.thread_id === "string" &&
-        typeof details.description === "string" &&
-        details.description.trim()
-      ) {
-        agentTitles.set(details.thread_id, details.description.trim());
-      }
-    }
     const turn = byTurn.get(record.turnId);
     if (turn) turn.push(record);
     else byTurn.set(record.turnId, [record]);
@@ -407,19 +385,21 @@ export const journalRecordsToMessageRecords = (
         const attachments = userAttachments(record.payload);
         // A prompt with nothing to show (older desktop turns mirrored their
         // lifecycle wake as an empty, unflagged user record) renders like a
-        // hidden one: no bubble, no slot.
+        // hidden one: no bubble, no slot. So does one an agent sent (a note
+        // stored before it was flagged), whose reply still shows.
         const blank =
           !userText.trim() &&
           attachments.length === 0 &&
           !userDisplayContext(record.payload) &&
           !contentBlocks(record.payload).some((block) => block.type !== "text");
+        const unshown = blank || isPiAgentText(userText);
         events.push({
           _id: userMessageId,
           timestamp,
           type: "user_message",
           payload: {
             ...textPayload(
-              blank && !record.hidden ? { ...record, hidden: true } : record,
+              unshown && !record.hidden ? { ...record, hidden: true } : record,
               userText,
             ),
             ...(attachments.length > 0 ? { attachments } : {}),

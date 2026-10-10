@@ -20,9 +20,6 @@ export const WORLD_ROOT = "/workspace/world";
 /** The optional user Drive materialized for a cloud turn. */
 export const WORLD_DRIVE_ROOT = `${WORLD_ROOT}/drive`;
 
-export const driveRootForWorld = (worldRoot: string): string =>
-  `${worldRoot}/drive`;
-
 /**
  * Scratch root for the legacy app-build turn. Outside the world on purpose:
  * an app build is rebuilt from its sources every time and is never restored.

@@ -17,21 +17,23 @@ type AgentWorkPayload = Extract<MobileDisplayPayload, { kind: "agent-work" }>;
  * - `runningRestAlpha`: the running shimmer's resting base over
  *   `textStrong`, matching desktop `--text-shimmer-from: --text-base`
  *   (an 80% mix of the foreground) so settled and running rows agree.
- * - `pillBorderInk`: the file-pill outline tracks the label ink — clearly
- *   visible (the old panel-surface hairline all but disappeared) but one
- *   step below the `text` label so it never outshines it (desktop:
- *   `--text-weaker` under a `--text-base` label).
+ * - `pillBorderInk` / `pillBorderAlpha`: the file-pill outline is the
+ *   foreground at a fixed alpha, so it reads the same on the chat background
+ *   and on the reply bubble: visible, but quieter than the label (desktop:
+ *   the same foreground mix in `.agent-activity-files__pill`).
  */
 export const AGENT_ACTIVITY_INK = {
   glyphInk: "textStrong",
   titleInk: "text",
   runningRestAlpha: 0.8,
-  pillBorderInk: "textMuted",
+  pillBorderInk: "text",
+  pillBorderAlpha: 0.42,
 } as const satisfies {
   glyphInk: keyof Colors;
   titleInk: keyof Colors;
   runningRestAlpha: number;
   pillBorderInk: keyof Colors;
+  pillBorderAlpha: number;
 };
 
 /** What the minimal agent row's leading slot shows. */

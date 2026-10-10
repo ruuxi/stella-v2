@@ -2,6 +2,7 @@ import { DisplayFileSourceContext } from "./display-file-source";
 import { useContext, useEffect, useMemo, useState } from "react";
 import { useOptionalUiState } from "@/context/ui-state";
 import { readDeviceFileCopy } from "@/features/cloud/device-file-copy";
+import { deviceFileMissingMessage } from "@stella/contracts/device-files";
 const isDisplayFileApiAvailable = () => typeof window !== "undefined" &&
     typeof window.electronAPI?.display?.readFile === "function";
 const readDisplayFileRaw = async (filePath, unavailableMessage, conversationId, maxBytes) => {
@@ -160,6 +161,7 @@ export function useDisplayFileBytes(filePath, unavailableMessage, conversationId
                 return;
             if (result.missing) {
                 setMissing(true);
+                setError(deviceFileMissingMessage(result.reason, filePath));
                 return;
             }
             setBytes(result.bytes);
@@ -189,6 +191,7 @@ export function useDisplayFileBlobs(filePaths, unavailableMessage, conversationI
         : (uiState?.state.conversationId ?? null);
     const [files, setFiles] = useState(() => filePaths.map(() => null));
     const [missing, setMissing] = useState(() => filePaths.map(() => false));
+    const [missingMessages, setMissingMessages] = useState(() => filePaths.map(() => null));
     const [error, setError] = useState(null);
     const [loading, setLoading] = useState(true);
     // `filePaths` reference changes on every render, so key off contents.
@@ -235,9 +238,10 @@ export function useDisplayFileBlobs(filePaths, unavailableMessage, conversationI
             setMissing(filePaths.map(() => false));
             setFiles(filePaths.map(() => null));
         }
-        void Promise.all(acquired.map(async ({ entry }) => {
+        void Promise.all(acquired.map(async ({ entry }, index) => {
+            let result;
             try {
-                await entry.promise;
+                result = await entry.promise;
             }
             catch (caught) {
                 if (!cancelled) {
@@ -245,8 +249,12 @@ export function useDisplayFileBlobs(filePaths, unavailableMessage, conversationI
                 }
                 return { blob: null, missing: false };
             }
-            if (entry.resolved?.missing) {
-                return { blob: null, missing: true };
+            if (result?.missing || entry.resolved?.missing) {
+                return {
+                    blob: null,
+                    missing: true,
+                    message: deviceFileMissingMessage(result?.reason, filePaths[index]),
+                };
             }
             const url = objectUrlFor(entry);
             const blob = entry.blob;
@@ -265,6 +273,7 @@ export function useDisplayFileBlobs(filePaths, unavailableMessage, conversationI
                 return;
             setFiles(results.map((r) => r.blob));
             setMissing(results.map((r) => r.missing));
+            setMissingMessages(results.map((r) => r.message ?? null));
             setLoading(false);
         });
         return () => {
@@ -277,5 +286,5 @@ export function useDisplayFileBlobs(filePaths, unavailableMessage, conversationI
                 release(cacheKey, entry);
         };
     }, [key, unavailableMessage, source]);
-    return { files, error, loading, missing };
+    return { files, error, loading, missing, missingMessages };
 }

@@ -13,7 +13,6 @@ import {
   preflightTurnBrokerRequest,
   readTurnBrokerRequestBody,
   revokeTurnBrokerCredential,
-  turnBrokerSandboxResponseHeaders,
   turnBrokerTargetMatchesEngine,
   validateTurnBrokerTarget,
   type TurnBrokerLiveFence,
@@ -163,53 +162,6 @@ describe("BuildSession turn credential broker", () => {
       status: 409,
       code: "out_of_order",
     });
-  });
-
-  test("admits Browser Gateway only for the Stella engine", () => {
-    const target = validateTurnBrokerTarget(
-      "POST",
-      "/api/cloud/browser/command",
-    );
-    expect(target).toEqual({
-      kind: "browser-gateway",
-      method: "POST",
-      path: "/api/cloud/browser/command",
-      maxBodyBytes: 64 * 1024,
-    });
-    if (!target) throw new Error("Expected Browser Gateway target");
-    expect(turnBrokerTargetMatchesEngine(target, "stella")).toBe(true);
-    expect(turnBrokerTargetMatchesEngine(target, "anthropic")).toBe(false);
-    expect(turnBrokerTargetMatchesEngine(target, "chatgpt")).toBe(false);
-    expect(
-      validateTurnBrokerTarget("GET", "/api/cloud/browser/command"),
-    ).toBeNull();
-  });
-
-  test("replays a byte-identical Browser Gateway request for gateway deduplication", async () => {
-    const { handoff, record } = await issued();
-    const browserHeaders = headers(handoff, {
-      [TURN_BROKER_HEADERS.targetPath]: "/api/cloud/browser/command",
-    });
-    const first = await claim(record, handoff, { headers: browserHeaders });
-    expect(first).toMatchObject({
-      ok: true,
-      disposition: "claim",
-      target: { kind: "browser-gateway" },
-    });
-    if (!first.ok) throw new Error(first.code);
-    const replay = await claim(first.record, handoff, {
-      headers: browserHeaders,
-    });
-    expect(replay).toMatchObject({
-      ok: true,
-      disposition: "replay",
-      target: { kind: "browser-gateway" },
-    });
-    const changed = await claim(first.record, handoff, {
-      headers: browserHeaders,
-      bodySha256: await sha256Hex('{"changed":true}'),
-    });
-    expect(changed).toMatchObject({ ok: false, code: "replay" });
   });
 
   test("replays only a byte-identical committed-checkpoint claim", async () => {
@@ -374,23 +326,5 @@ describe("BuildSession turn credential broker", () => {
         },
       ),
     ).toMatchObject({ ok: false, status: 429, code: "limit_exceeded" });
-  });
-
-  test("scrubs backend credentials and broker metadata from responses", () => {
-    const response = turnBrokerSandboxResponseHeaders(
-      new Headers({
-        "content-type": "application/json",
-        "set-cookie": "backend=secret",
-        authorization: "Bearer never-return",
-        "x-stella-broker-debug": "never-return",
-        "x-stella-response-id": "never-return",
-        "x-request-id": "safe-request-id",
-      }),
-    );
-    expect(response.get("set-cookie")).toBeNull();
-    expect(response.get("authorization")).toBeNull();
-    expect(response.get("x-stella-broker-debug")).toBeNull();
-    expect(response.get("x-stella-response-id")).toBeNull();
-    expect(response.get("x-request-id")).toBe("safe-request-id");
   });
 });

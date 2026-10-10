@@ -97,13 +97,13 @@ describe("TranscriptSearchIndex", () => {
     expect(matches(sql, '"tool output" OR hidden OR spill')).toEqual([]);
   });
 
-  test("removes exact rows and suffixes", () => {
+  test("removes exact rows", () => {
     const { sql, index } = openIndex();
-    for (let seq = 1; seq <= 3; seq += 1) {
+    for (let seq = 1; seq <= 2; seq += 1) {
       index.index(searchRow(seq, "user", `removable ${seq}`));
     }
 
-    index.removeAbove(1);
+    index.remove(2);
     expect(matches(sql, "removable")).toEqual([1]);
     index.remove(1);
     expect(index.count()).toBe(0);

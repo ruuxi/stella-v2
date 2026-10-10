@@ -61,7 +61,6 @@ type Setter<T> = (next: T | ((prev: T) => T)) => void;
 
 interface UseDictationOptions {
   setMessage: Setter<string>;
-  message: string;
   disabled?: boolean;
   onError?: (error: string) => void;
   onTranscriptCommitted?: () => void;
@@ -116,7 +115,6 @@ const joinTranscriptOntoBase = (base: string, transcript: string): string => {
 
 export const useDictation = ({
   setMessage,
-  message,
   disabled = false,
   onError,
   onTranscriptCommitted,
@@ -137,8 +135,6 @@ export const useDictation = ({
   const transcriptPreview = transcriptPreviewRef.current;
 
   const sessionRef = useRef<DictationSession | null>(null);
-  const baseTextRef = useRef("");
-  const messageRef = useRef(message);
   const setMessageRef = useRef(setMessage);
   const onErrorRef = useRef(onError);
   const onTranscriptCommittedRef = useRef(onTranscriptCommitted);
@@ -156,7 +152,6 @@ export const useDictation = ({
   /** This composer's press opened the key dialog; start once a key is saved. */
   const awaitingKeyRef = useRef(false);
 
-  messageRef.current = message;
   setMessageRef.current = setMessage;
   onErrorRef.current = onError;
   onTranscriptCommittedRef.current = onTranscriptCommitted;
@@ -266,7 +261,6 @@ export const useDictation = ({
       }
       const session = new DictationSession();
       sessionRef.current = session;
-      baseTextRef.current = messageRef.current;
       setError(null);
       setLevels([]);
       setElapsedMs(0);
@@ -326,11 +320,9 @@ export const useDictation = ({
             }
           },
           onFinalTranscript: (transcript) => {
-            const next = joinTranscriptOntoBase(
-              baseTextRef.current,
-              transcript,
+            setMessageRef.current((current) =>
+              joinTranscriptOntoBase(current, transcript),
             );
-            setMessageRef.current(next);
             onTranscriptCommittedRef.current?.();
           },
           onPartialTranscript: (transcript) => {
@@ -458,6 +450,12 @@ export const useDictation = ({
     };
   }, [transcriptPreview]);
 
+  // Stable so the memoized mic button skips re-rendering on every keystroke.
+  const prewarm = useCallback(() => {
+    if (cachedDictationRoute() === "streaming") prewarmDictationSocket();
+    else prewarmDictation();
+  }, []);
+
   return {
     isRecording: state === "listening",
     isRecordingVisible: state === "listening" && showRecordingBar,
@@ -465,10 +463,7 @@ export const useDictation = ({
     showControls,
     state,
     toggle,
-    prewarm: () => {
-      if (cachedDictationRoute() === "streaming") prewarmDictationSocket();
-      else prewarmDictation();
-    },
+    prewarm,
     cancel,
     commitAndSend,
     levels,

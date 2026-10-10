@@ -79,7 +79,6 @@ const makeService = () => {
     role: "user" | "assistant";
     content: string;
   }> = [];
-  const historyChanges: string[] = [];
   const localChatCalls: Array<Record<string, unknown>> = [];
   const cloudAppends: Array<{
     conversationId: string;
@@ -96,9 +95,6 @@ const makeService = () => {
     ...receiptMethods,
     appendThreadMessage: (entry: (typeof appended)[number]) => {
       appended.push(entry);
-    },
-    notifyOrchestratorHistoryChanged: (conversationId: string) => {
-      historyChanges.push(conversationId);
     },
     appendCloudJournal: async (request: (typeof cloudAppends)[number]) => {
       cloudAppends.push(request);
@@ -138,7 +134,6 @@ const makeService = () => {
   return {
     service,
     appended,
-    historyChanges,
     localChatCalls,
     cloudAppends,
   };
@@ -162,7 +157,7 @@ describe("voice conversation ownership", () => {
   });
 
   test("queues realtime transcripts in canonical cloud history", async () => {
-    const { service, appended, historyChanges, cloudAppends } = makeService();
+    const { service, appended, cloudAppends } = makeService();
 
     await expect(
       service.persistTranscript({
@@ -175,7 +170,6 @@ describe("voice conversation ownership", () => {
       }),
     ).resolves.toEqual({ ok: true });
     expect(appended).toEqual([]);
-    expect(historyChanges).toEqual([]);
     expect(cloudAppends).toHaveLength(1);
     expect(cloudAppends[0]).toMatchObject({
       conversationId: "cloud-conversation",
@@ -202,7 +196,6 @@ describe("voice conversation ownership", () => {
           appendThreadMessage: (entry: (typeof appended)[number]) => {
             appended.push(entry);
           },
-          notifyOrchestratorHistoryChanged: () => undefined,
           appendCloudJournal: async (request: {
             appendId: string;
             records: Array<{ payloadJson: string }>;
@@ -311,7 +304,6 @@ describe("voice conversation ownership", () => {
               ...entry,
               timestamp: Date.now(),
             }),
-          notifyOrchestratorHistoryChanged: () => undefined,
           appendCloudJournal: cloudWriter.append,
           beginVoiceToolCallReceipt: (
             args: Parameters<SessionStore["beginVoiceToolCallReceipt"]>[0],

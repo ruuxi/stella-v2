@@ -11,8 +11,7 @@
  * Every worker this script spawns runs with a scratch HOME, data dir and
  * runtime-state dir under --lab-dir, a minimal allowlisted environment (no
  * inherited API keys or STELLA_* vars), and the probe preload
- * (probe-preload.ts): network guard + scripted fake model provider +
- * counters. Nothing touches ~/.stella and nothing leaves the machine.
+ * (probe-preload.ts): network guard + scripted model + counters. Nothing touches ~/.stella and nothing leaves the machine.
  */
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -140,7 +139,7 @@ const copyDir = (from, to) => {
 /**
  * Templates are cached across invocations, but the catalog stamps the seed
  * wrote age with them: once they pass the runtime's refresh interval (4 h,
- * `REMOTE_CATALOG_REFRESH_INTERVAL_MS` in ai/model-runtime.ts) every boot
+ * `REMOTE_CATALOG_REFRESH_INTERVAL_MS` in kernel/model-runtime.ts) every boot
  * refetches each provider and republishes the catalog, so the "returning user"
  * would depend on the template's age. Each copy gets a just-refreshed store.
  */
@@ -166,38 +165,21 @@ const writeJson = (file, value) => {
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
 };
 
-/** Seed the scratch data dir: fake-provider model pin + a Read fixture. */
+/**
+ * The orchestrator's model: a `local/<base URL>/<model>` pick, which pi runs
+ * on its OpenAI-compatible `local` provider. The probe's network guard
+ * answers that base URL with the scripted model (see probe-preload.ts).
+ */
+const SCRIPTED_MODEL = `local/${encodeURIComponent("http://perf-scripted.invalid/v1")}/scripted`;
+
+/** Seed the scratch data dir: scripted model pin + a Read fixture. */
 const prepareDataDir = (dataDir) => {
   mkdirp(dataDir);
-  writeJson(path.join(dataDir, "models.json"), {
-    providers: {
-      perf: {
-        name: "Perf lab (scripted)",
-        baseUrl: "http://127.0.0.1:9",
-        apiKey: "perf-lab-not-a-secret",
-        api: "perf-scripted",
-        models: [
-          {
-            id: "scripted",
-            name: "Scripted",
-            reasoning: false,
-            input: ["text"],
-            contextWindow: 200000,
-            maxTokens: 8192,
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-          },
-        ],
-      },
-    },
-  });
   const prefsPath = path.join(dataDir, "preferences.json");
   if (!fs.existsSync(prefsPath)) {
     writeJson(prefsPath, {
       defaultModels: {},
-      modelOverrides: {
-        orchestrator: "perf/scripted",
-        general: "perf/scripted",
-      },
+      modelOverrides: { orchestrator: SCRIPTED_MODEL },
     });
   }
   fs.writeFileSync(
@@ -676,7 +658,7 @@ const topStatements = (byStatement, n = 15, divisor = 1) =>
     });
 
 // ------------------------------------------------------------------ templates
-const TEMPLATE_VERSION = 1;
+const TEMPLATE_VERSION = 2;
 /**
  * A "returning user" data dir: booted once and one turn run, then shut down
  * cleanly. Boot and turn journeys copy it so every run starts from the same
@@ -695,7 +677,7 @@ const ensureBaseTemplate = async () => {
     env: workerEnv({ runDir, dataDir: dir, cacheDir: warmCacheDir("source"), entryKind: "source" }),
   }).start();
   await client.boot(dir);
-  await runTurn(client, { conversationId: "perf-conv", prompt: "seed turn" });
+  await runTurn(client, { conversationId: "local_perf-conv", prompt: "seed turn" });
   await client.waitQuiet();
   // A fresh data dir refreshes the pi.dev catalog once; the probe answers it
   // with a local 404 (never a real request). Anything else is blocked.
@@ -705,6 +687,9 @@ const ensureBaseTemplate = async () => {
       `${seedFetch.blockedUrls.length ? ` (${seedFetch.blockedUrls.join(", ")})` : ""}`,
   );
   await client.stop();
+  // The seed turn finished: a returning user has no pi work in flight (the
+  // idle check would clear this list 30s later), so boot resumes nothing.
+  rmrf(path.join(dir, "agent", "active.json"));
   fs.writeFileSync(path.join(dir, ".complete"), new Date().toISOString());
   return dir;
 };
@@ -717,72 +702,86 @@ const warmCacheDir = (entryKind) => {
 // ------------------------------------------------------------------ turn driver
 let turnSeq = 0;
 // Request ids must be unique across invocations: a reused template already
-// holds the seed turn's run_admission row, and startChat answers a repeated
-// (conversation, request id) as a duplicate without starting a run.
+// holds the seed turn's submission, and pi answers a repeated
+// (conversation, request id) as the same submission without a new run.
 const TURN_RUN_TAG = Date.now().toString(36);
+/** Conversations each client watches, so their `piChat.events` reach it. */
+const watchedConversations = new WeakMap();
 /**
- * One chat turn through `internal.worker.startChat`. Marks come from the
- * worker's own notifications, timestamped on arrival:
- *   send → ack (startChat response) → run-started → first assistant-message
- *   (the only assistant-text carrier; there is no separate STREAM chunk
- *   event any more) → run-finished. Tool turns add tool-start/tool-end.
+ * Watch a conversation (once per client). Opening it imports its chat log
+ * into pi's transcript, so on a large seeded history the first watch can
+ * take minutes; returns how long it took (null when already watched).
+ */
+const watchConversation = async (client, conversationId, { timeoutMs = 60_000 } = {}) => {
+  let watched = watchedConversations.get(client);
+  if (!watched) watchedConversations.set(client, (watched = new Set()));
+  if (watched.has(conversationId)) return null;
+  watched.add(conversationId);
+  const r = await client.request("internal.worker.piChat", { op: "watch", conversationId }, { timeoutMs });
+  return r.at - r.sentAt;
+};
+/**
+ * One chat turn as the composer sends it: `internal.worker.piChat` `submit`
+ * on a watched conversation, which pi-durable answers. Marks come from the
+ * conversation's `piChat.events` notifications, timestamped on arrival:
+ *   send → ack (submit response) → run_start → first assistant entry
+ *   (`message_end`) → run_end. Tool turns add tool_execution_start/end.
  * `settledMs` is when the worker went quiet (>=150ms without a message),
- * which captures post-turn tail work (thread activity, persistence fan-out).
+ * which captures post-turn tail work (chat log mirror, persistence fan-out).
  */
 const runTurn = async (client, { conversationId, prompt, timeoutMs = 30_000 }) => {
   turnSeq += 1;
   const requestId = `perf-req-${TURN_RUN_TAG}-${turnSeq}`;
+  await watchConversation(client, conversationId);
   const marks = {};
   const toolSpans = [];
-  let runId = null;
   let resolveFinished;
   const finished = new Promise((r) => (resolveFinished = r));
+  let sendAt = Number.POSITIVE_INFINITY;
   const off = client.on((msg, at) => {
-    if (msg.method !== "run.event") return;
-    const ev = msg.params ?? {};
-    if (ev.requestId !== requestId && (runId == null || ev.runId !== runId)) return;
-    if (ev.type === "run-started" && marks.runStarted == null) {
-      marks.runStarted = at;
-      runId = ev.runId;
-    } else if (ev.type === "assistant-message" && marks.firstAssistant == null) {
-      marks.firstAssistant = at;
-    } else if (ev.type === "tool-start") {
-      toolSpans.push({ name: ev.toolName, start: at });
-    } else if (ev.type === "tool-end") {
-      const span = toolSpans.find((s) => s.end == null);
-      if (span) span.end = at;
-    } else if (ev.type === "run-finished") {
-      marks.runFinished = at;
-      marks.outcome = ev.outcome;
-      marks.error = ev.error;
-      // Event-loop availability probe: a health RPC written the instant the
-      // run finishes is answered only once synchronous post-turn work
-      // (completion hooks, compaction checks, run-log writes) yields.
-      marks.idle = client
-        .request("internal.worker.health")
-        .then((r) => r.at)
-        .catch(() => null);
-      resolveFinished();
+    if (msg.method !== "piChat.events" || msg.params?.conversationId !== conversationId) return;
+    if (at < sendAt) return;
+    for (const ev of msg.params.events ?? []) {
+      if (ev.type === "run_start" && marks.runStarted == null) {
+        marks.runStarted = at;
+      } else if (ev.type === "message_end" && ev.entry?.kind === "pi.assistant") {
+        marks.firstAssistant ??= at;
+        const message = ev.entry.model?.[0];
+        if (message?.stopReason === "error") marks.error = message.errorMessage ?? "model error";
+      } else if (ev.type === "task_failed") {
+        marks.error = ev.message;
+      } else if (ev.type === "tool_execution_start") {
+        toolSpans.push({ name: ev.toolName, start: at });
+      } else if (ev.type === "tool_execution_end") {
+        const span = toolSpans.find((s) => s.end == null);
+        if (span) span.end = at;
+      } else if (ev.type === "run_end" && marks.runStarted != null && marks.runFinished == null) {
+        marks.runFinished = at;
+        // Event-loop availability probe: a health RPC written the instant the
+        // run finishes is answered only once synchronous post-turn work
+        // (mirror writes, completion hooks) yields.
+        marks.idle = client
+          .request("internal.worker.health")
+          .then((r) => r.at)
+          .catch(() => null);
+        resolveFinished();
+      }
     }
   });
-  const sendAt = client.now();
-  const ack = await client.request("internal.worker.startChat", {
+  sendAt = client.now();
+  const ack = await client.request("internal.worker.piChat", {
+    op: "submit",
     conversationId,
-    userPrompt: prompt,
     requestId,
-    platform: process.platform,
-    timezone: "UTC",
-    storageMode: "local",
+    text: prompt,
+    send: { platform: process.platform, timezone: "UTC", storageMode: "local" },
   });
-  runId ??= ack.result?.runId ?? null;
   const timer = setTimeout(() => resolveFinished(), timeoutMs);
   await finished;
   clearTimeout(timer);
   off();
   if (marks.runFinished == null) throw new Error(`turn ${requestId} did not finish`);
-  if (marks.outcome && marks.outcome !== "completed") {
-    throw new Error(`turn ${requestId} outcome=${marks.outcome} error=${marks.error ?? ""}`);
-  }
+  if (marks.error) throw new Error(`turn ${requestId} failed: ${marks.error}`);
   const idleAt = marks.idle ? await marks.idle : null;
   await client.waitQuiet();
   const toolMs = toolSpans.reduce((a, s) => a + ((s.end ?? s.start) - s.start), 0);
@@ -1012,8 +1011,8 @@ const moduleCensus = async (entryKind, template) => {
     marks = await client.boot(dataDir);
     bootSnap = await client.snapshot();
     if (entryKind === "source") {
-      await runTurn(client, { conversationId: "perf-conv", prompt: "census turn" });
-      await runTurn(client, { conversationId: "perf-conv", prompt: "census tool [perf:tool]" });
+      await runTurn(client, { conversationId: "local_perf-conv", prompt: "census turn" });
+      await runTurn(client, { conversationId: "local_perf-conv", prompt: "census tool [perf:tool]" });
       turnSnap = await client.snapshot();
     }
   } finally {
@@ -1233,13 +1232,13 @@ const cmdTurn = async () => {
       prompt: "perf plain turn",
       repeat,
       warmup,
-      conversationId: "perf-turns-plain",
+      conversationId: "local_perf-turns-plain",
     });
     const tool = await measureTurns(client, {
       prompt: "perf tool turn [perf:tool]",
       repeat,
       warmup,
-      conversationId: "perf-turns-tool",
+      conversationId: "local_perf-turns-tool",
     });
     // Journey 5: persistence cost per persisted event, derived from J2.
     const s = plain.steady;
@@ -1263,10 +1262,10 @@ const cmdTurn = async () => {
 
 // ------------------------------------------------------------------ J4 history
 // --history-shape legacy (default): events only, so every event predates the
-// orchestrator thread and the pre-transition shim projects them into the
-// prompt. modern: one real turn first, then N events after it, so the durable
-// thread is the history and the events only feed reminders/locale (the shape
-// of a conversation that started after the durable-store transition).
+// conversation's pi transcript and its chat-log mirror imports them all when
+// the conversation first opens. modern: one real turn first, then N events
+// after it, so the transcript already exists and the mirror imports only the
+// events written after it.
 const historyShape = () => (String(opts["history-shape"] ?? "legacy") === "modern" ? "modern" : "legacy");
 const ensureHistoryTemplate = async (n) => {
   const shape = historyShape();
@@ -1290,7 +1289,7 @@ const ensureHistoryTemplate = async (n) => {
   }).start();
   await client.boot(dir);
   if (shape === "modern") {
-    await runTurn(client, { conversationId: "perf-history", prompt: "perf modern history head" });
+    await runTurn(client, { conversationId: "local_perf-history", prompt: "perf modern history head" });
   }
   log(`seeding ${shape} history N=${n} through internal.worker.localChat.appendEvent`);
   const before = await client.snapshot();
@@ -1303,7 +1302,7 @@ const ensureHistoryTemplate = async (n) => {
       const user = j % 2 === 0;
       inflight.push(
         client.request("internal.worker.localChat.appendEvent", {
-          conversationId: "perf-history",
+          conversationId: "local_perf-history",
           type: user ? "user_message" : "assistant_message",
           timestamp: baseTs + j * (shape === "modern" ? 1 : 1000),
           payload: {
@@ -1386,25 +1385,29 @@ const cmdHistory = async () => {
           top: topStatements(bootSnap.sqlite.byStatement, 5).sort((a, b) => b.ms - a.ms),
         },
         listEvents: await measure("internal.worker.localChat.listEvents", {
-          conversationId: "perf-history",
+          conversationId: "local_perf-history",
         }),
         getEventCount: await measure("internal.worker.localChat.getEventCount", {
-          conversationId: "perf-history",
+          conversationId: "local_perf-history",
         }),
       };
+      // Opening the conversation imports its N events into pi's transcript.
+      results[n].openMs = round(
+        await watchConversation(client, "local_perf-history", { timeoutMs: 30 * 60_000 }),
+      );
       // A turn on the large conversation: does history size leak into turn cost?
       const t = await measureTurns(client, {
         prompt: "perf turn on seeded history",
         repeat: 5,
         warmup: 1,
-        conversationId: "perf-history",
+        conversationId: "local_perf-history",
       });
       results[n].turnOnHistory = {
         toRunFinishedMs: t.steady.toRunFinishedMs,
         sqlStatements: t.steady.sqlStatements,
         sqlRows: t.steady.sqlRows,
       };
-      log(`history N=${n}: listEvents p50=${results[n].listEvents.ms?.p50}ms count p50=${results[n].getEventCount.ms?.p50}ms`);
+      log(`history N=${n}: listEvents p50=${results[n].listEvents.ms?.p50}ms count p50=${results[n].getEventCount.ms?.p50}ms open=${results[n].openMs}ms`);
     } finally {
       await client.stop();
     }
@@ -1443,7 +1446,7 @@ const cmdMemory = async () => {
     for (const target of checkpoints) {
       while (done < target) {
         const t = await runTurn(client, {
-          conversationId: "perf-memory",
+          conversationId: "local_perf-memory",
           prompt: done % 5 === 4 ? "memory tool turn [perf:tool]" : `memory turn ${done}`,
         });
         turnTimes.push(t.toRunFinishedMs);
@@ -1627,7 +1630,7 @@ const newestProfile = (dir) => {
     .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
 };
 const cmdProfile = async () => {
-  // --template NAME profiles against a seeded template (e.g. history-100000-v1)
+  // --template NAME profiles against a seeded template (e.g. history-100000-v2)
   const template = opts.template
     ? path.join(LAB_DIR, "templates", String(opts.template))
     : await ensureBaseTemplate();
@@ -1670,7 +1673,7 @@ const cmdProfile = async () => {
   await client.boot(dataDir);
   for (let i = 0; i < turns; i += 1) {
     await runTurn(client, {
-      conversationId: "perf-profile",
+      conversationId: "local_perf-profile",
       prompt: i % 2 ? "profile tool turn [perf:tool]" : `profile turn ${i}`,
     });
   }
@@ -1743,7 +1746,7 @@ const cmdValidate = async () => {
         ["plain", "validate plain"],
         ["tool", "validate tool [perf:tool]"],
       ]) {
-        const r = await measureTurns(client, { prompt, repeat: 10, warmup: 2, conversationId: `validate-${config}` });
+        const r = await measureTurns(client, { prompt, repeat: 10, warmup: 2, conversationId: `local_validate-${config}` });
         turnPoints.push({ config, sql: r.steady.sqlStatements.p50, sqlRows: r.steady.sqlRows.p50, rpcBytes: r.steady.rpcBytesOut.p50, wallMs: r.steady.toRunFinishedMs.p50 });
       }
     } finally {
@@ -1762,7 +1765,8 @@ const cmdValidate = async () => {
     }).start();
     try {
       await client.boot(dataDir);
-      const r = await measureTurns(client, { prompt: "validate history turn", repeat: 6, warmup: 1, conversationId: "perf-history" });
+      await watchConversation(client, "local_perf-history", { timeoutMs: 30 * 60_000 });
+      const r = await measureTurns(client, { prompt: "validate history turn", repeat: 6, warmup: 1, conversationId: "local_perf-history" });
       turnPoints.push({ config: `history-${n}`, sql: r.steady.sqlStatements.p50, sqlRows: r.steady.sqlRows.p50, rpcBytes: r.steady.rpcBytesOut.p50, wallMs: r.steady.toRunFinishedMs.p50 });
     } finally {
       await client.stop();
@@ -1867,6 +1871,7 @@ const extractMetrics = (report) => {
   for (const [n, h] of Object.entries(report.history ?? {})) {
     put(`history.${n}.listEvents.p50`, h.listEvents?.ms?.p50, "time");
     put(`history.${n}.getEventCount.p50`, h.getEventCount?.ms?.p50, "time");
+    put(`history.${n}.openMs`, h.openMs, "time");
     put(`history.${n}.turnOnHistory.toRunFinishedMs.p50`, h.turnOnHistory?.toRunFinishedMs?.p50, "time");
     put(`history.${n}.turnOnHistory.sqlRows`, h.turnOnHistory?.sqlRows?.p50, "count");
     put(`history.${n}.listEvents.sqlStatementsPerCall`, h.listEvents?.sqlStatementsPerCall, "count");
@@ -1967,7 +1972,7 @@ Options
   --history-shape S   (history) legacy (default; events predate the thread) or modern
   --turns a,b         memory checkpoints (default 10,100)
   --reseed            rebuild seeded template data dirs
-  --template NAME     (profile) profile against templates/NAME, e.g. history-100000-v1
+  --template NAME     (profile) profile against templates/NAME, e.g. history-100000-v2
   --turns N           (profile) turns in the turn profile (default 40)
   --gc-each-turn      (turn) force a full GC before every timed turn (diagnostic)
   --turn-gap-ms N     (turn) idle gap between timed turns (diagnostic)
@@ -1977,6 +1982,8 @@ Options
   --counts-only       (check) only count/exact/bytes metrics gate; wall-clock and
                       memory warn on any runner (the CI mode)
   --add-missing       (any) add metrics this run measured that baseline.json lacks
+  --rerecord P,Q      (any) re-record the metrics whose keys start with P or Q
+                      from this run, for a journey that itself changed
   --keep-runs         keep <lab-dir>/runs (per-run data dir copies) for inspection
   --verbose           echo worker stderr
 `);
@@ -2057,6 +2064,24 @@ const main = async () => {
     }
     writeJson(BASELINE_PATH, baseline);
     log(`added ${added.length} metrics to ${BASELINE_PATH}${added.length ? `: ${added.join(", ")}` : ""}`);
+  }
+  if (opts.rerecord && !opts["write-baseline"]) {
+    // Re-record the metrics under these key prefixes from this run (value and
+    // a fresh ceiling): for a journey that itself changed, whose old numbers
+    // measured something else. Every other entry is left alone.
+    const prefixes = String(opts.rerecord)
+      .split(",")
+      .map((prefix) => prefix.trim())
+      .filter(Boolean);
+    const baseline = JSON.parse(fs.readFileSync(BASELINE_PATH, "utf8"));
+    const rerecorded = [];
+    for (const [k, v] of Object.entries(metrics)) {
+      if (!prefixes.some((prefix) => k.startsWith(prefix))) continue;
+      baseline.metrics[k] = { ...v, ceiling: ceilingFor(v.value, v.kind) };
+      rerecorded.push(k);
+    }
+    writeJson(BASELINE_PATH, baseline);
+    log(`re-recorded ${rerecorded.length} metrics in ${BASELINE_PATH}${rerecorded.length ? `: ${rerecorded.join(", ")}` : ""}`);
   }
   if (opts["write-baseline"]) {
     const baseline = {

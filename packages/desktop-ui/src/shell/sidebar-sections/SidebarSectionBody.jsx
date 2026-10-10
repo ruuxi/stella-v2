@@ -66,7 +66,11 @@ export function SidebarSectionBody() {
             section={tab.kind}
             active={tab.id === activeTabId}
           >
-            <Body location={tab.location} active={tab.id === activeTabId} />
+            <Body
+              tabId={tab.id}
+              location={tab.location}
+              active={tab.id === activeTabId}
+            />
           </SectionHost>
         );
       })}

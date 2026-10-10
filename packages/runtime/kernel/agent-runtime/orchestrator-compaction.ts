@@ -16,7 +16,7 @@ import type {
   ToolCall,
   ToolResultMessage,
   UserMessage,
-} from "../../ai/types.js";
+} from "@earendil-works/pi-ai";
 import { estimateModelVisibleImageTokens } from "./image-tokens.js";
 
 /** Tokens held back from the window for the summary request's own output. */

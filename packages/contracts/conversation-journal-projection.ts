@@ -100,28 +100,42 @@ export const lifecycleWakeOutcome = (
 /**
  * Raw socket windows are record-count bounded and can therefore begin in the
  * middle of a turn. A leading turn whose prompt is still below the window has
- * no stable user owner for anything it renders, so it is not projected until
- * its prompt has been backfilled.
+ * no stable user owner for its replies, so it is not projected until its
+ * prompt has been backfilled. A fragment holding only cards (a task's files or
+ * lifecycle rows) has no reply to own and is kept, unless `dropCardOnly` asks
+ * for the fragment to go too — mobile anchors a turn's file cards on that
+ * turn's replies, so it has nowhere to put them.
  */
 export const hasIncompleteLeadingJournalTurn = (
   records: readonly JournalRecord[],
   hasOlder: boolean,
+  options: { dropCardOnly?: boolean } = {},
 ): boolean => {
   if (!hasOlder || records.length === 0) return false;
   const leadingTurnId = records[0]!.turnId;
-  return !records.some(
+  const leadingTurn = records.filter(
+    (record) => record.turnId === leadingTurnId,
+  );
+  const hasPrompt = leadingTurn.some(
+    (record) => record.kind === "message" && record.role === "user",
+  );
+  if (hasPrompt) return false;
+  if (options.dropCardOnly) return true;
+  return leadingTurn.some(
     (record) =>
-      record.turnId === leadingTurnId &&
-      record.kind === "message" &&
-      record.role === "user",
+      (record.kind === "message" && record.role !== "user") ||
+      record.kind === "turn",
   );
 };
 
 export const completeJournalWindowRecords = (
   records: readonly JournalRecord[],
   hasOlder: boolean,
+  options: { dropCardOnly?: boolean } = {},
 ): JournalRecord[] => {
-  if (!hasIncompleteLeadingJournalTurn(records, hasOlder)) return [...records];
+  if (!hasIncompleteLeadingJournalTurn(records, hasOlder, options)) {
+    return [...records];
+  }
   const incompleteTurnId = records[0]!.turnId;
   return records.filter((record) => record.turnId !== incompleteTurnId);
 };

@@ -8,6 +8,7 @@ import { memo } from "react";
 import type { ReplyRef } from "@stella/contracts/reply-refs";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
 import { useThreadActivityRecords } from "@/features/chat/hooks/use-thread-activity-records";
+import { useAgentCard } from "@/features/cloud/use-agent-title";
 import { TaskReportButton } from "./TaskReportButton";
 
 type AgentRef = Extract<ReplyRef, { kind: "agent" }>;
@@ -30,6 +31,14 @@ export const ReplyReportLinks = memo(function ReplyReportLinks({
     conversationId,
     [...completedIds, ...cited.map((ref) => ref.threadId)],
   );
+  const [primary, ...others] = cited;
+  const primaryLocal = primary ? activity.get(primary.threadId) : undefined;
+  const primaryCard = useAgentCard(
+    conversationId,
+    primary?.threadId ?? "",
+    [primaryLocal?.description, primary?.title],
+    primaryLocal?.status,
+  );
   const reports = [
     ...completions.map((section) => ({
       reference: {
@@ -39,7 +48,13 @@ export const ReplyReportLinks = memo(function ReplyReportLinks({
       } as AgentRef,
       status: activity.get(section.agentId)?.status ?? "completed",
     })),
-    ...cited.flatMap((reference) => {
+    ...(primary && primaryCard.status && primaryCard.status !== "running"
+      ? [{
+          reference: { ...primary, title: primaryCard.title ?? primary.title },
+          status: primaryCard.status,
+        }]
+      : []),
+    ...others.flatMap((reference) => {
       const status = activity.get(reference.threadId)?.status;
       return status && status !== "running" ? [{ reference, status }] : [];
     }),

@@ -24,7 +24,7 @@ import {
   type CloudMemoryWipeIssueCode,
   type CloudMemoryWipeRequestFence,
 } from "./cloud-memory-wipe";
-import { followsOwnerGeneration } from "./cloud-memory-preference";
+import { followsOwnerGeneration } from "@stella/contracts/cloud-memory-preference";
 
 type RetryPlan =
   | { kind: "load" }

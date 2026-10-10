@@ -1,7 +1,14 @@
-import { lifecycleWakeTask, projectMobileLifecycle, resolvedMobileReplyRefs } from "./mobile-reply-context";
+import { projectMobileLifecycle } from "./mobile-reply-context";
 import { cloudFileArtifact } from "./cloud-file-payload";
 import type { ChatArtifact, ChatMessage, MobileDisplayPayload } from "../types";
-import { splitReplyRefs, toReplyPreview, type ReplyRef } from "@stella/contracts/reply-refs";
+import { splitReplyRefs } from "@stella/contracts/reply-refs";
+import {
+  completeJournalWindowRecords,
+  journalMessageTimestamp as timestampOf,
+  journalTerminalNotice,
+  resolveJournalReplyRefs,
+  storedJournalReplyRefs,
+} from "@stella/contracts/conversation-journal-projection";
 import { isMapRouteArtifact } from "@stella/contracts/map-artifact";
 import { isPiAgentText } from "@stella/contracts/pi-chat";
 import type { ToolStep } from "./tool-activity";
@@ -10,7 +17,7 @@ import {
   messageText,
   type JournalMessageRecord,
   type JournalRecord,
-} from "./cloud-conversation-protocol";
+} from "@stella/contracts/conversation-protocol";
 import type { LiveTurn } from "./cloud-conversation-store";
 import { withAttachmentPreamble } from "./chat-attachments";
 
@@ -63,12 +70,6 @@ const userDisplayContext = (payload: Record<string, unknown>) => {
     typeof metadata?.displayText === "string" ? metadata.displayText : undefined;
   return { pastedTexts, quotedText, displayText };
 };
-
-const timestampOf = (record: JournalMessageRecord): number =>
-  typeof record.payload.timestamp === "number" &&
-  Number.isFinite(record.payload.timestamp)
-    ? record.payload.timestamp
-    : record.createdAtMs;
 
 const userAttachmentPresentation = (payload: Record<string, unknown>) => {
   const raw = asRecord(payload.providerContext)?.attachments;
@@ -230,21 +231,6 @@ const mapRouteArtifacts = (args: {
   return artifacts;
 };
 
-const completeWindow = (
-  records: readonly JournalRecord[],
-  hasOlder: boolean,
-): JournalRecord[] => {
-  if (!hasOlder || records.length === 0) return [...records];
-  const firstTurn = records[0]!.turnId;
-  const leading = records.filter((record) => record.turnId === firstTurn);
-  const hasPrompt = leading.some(
-    (record) => record.kind === "message" && record.role === "user",
-  );
-  return hasPrompt
-    ? [...records]
-    : records.filter((record) => record.turnId !== firstTurn);
-};
-
 /**
  * Projects the DO journal into the existing native timeline shape.
  * Canonical sequence order is retained; no local transcript is consulted.
@@ -296,7 +282,11 @@ export const projectCloudConversationMessages = (args: {
   records: readonly JournalRecord[];
   hasOlder?: boolean;
 }): ChatMessage[] => {
-  const records = completeWindow(args.records, args.hasOlder === true);
+  const records = completeJournalWindowRecords(
+    args.records,
+    args.hasOlder === true,
+    { dropCardOnly: true },
+  );
   const recordsBySeq = new Map(args.records.map(record => [record.seq, record]));
   const byTurn = new Map<string, JournalRecord[]>();
   for (const record of records) {
@@ -308,6 +298,7 @@ export const projectCloudConversationMessages = (args: {
   const messages: ChatMessage[] = [];
   for (const [turnId, turn] of byTurn) {
     let userMessageId = `cloud:${turnId}:user`;
+    let turnUserRecord: JournalMessageRecord | undefined;
     let terminal: Extract<JournalRecord, { kind: "turn" }> | undefined;
     const toolResults = new Map<
       string,
@@ -335,6 +326,7 @@ export const projectCloudConversationMessages = (args: {
       if (record.kind !== "message") continue;
       const createdAt = timestampOf(record);
       if (record.role === "user") {
+        turnUserRecord = record;
         userMessageId = projectedMessageId(record);
         // A prompt with nothing to show (older desktop turns mirrored their
         // lifecycle wake as an empty, unflagged user record) is a hidden one,
@@ -397,21 +389,16 @@ export const projectCloudConversationMessages = (args: {
       // never renders. Preserve its relationships for contextual navigation.
       const split = splitReplyRefs(messageText(record.payload));
       const value = split.text;
-      const rawReplyRefs: ReplyRef[] = split.refs.flatMap((ref): ReplyRef[] => {
-        if (ref.kind === "agent") return [{ ...ref, title: "" }];
-        const target = recordsBySeq.get(ref.sequence);
-        if (!target || target.kind !== "message" || target.hidden || (target.role !== "user" && target.role !== "assistant")) return [];
-        return [{ kind: "message", sequence: ref.sequence,
-          id: projectedMessageId(target),
-          role: target.role, preview: toReplyPreview(splitReplyRefs(messageText(target.payload)).text) }];
-      });
-      const storedRefs = resolvedMobileReplyRefs(record.payload);
-      const replyRefs = storedRefs.length ? storedRefs : rawReplyRefs;
-      if (!replyRefs.length) {
-        const wake = turn.find(r => r.kind === "message" && r.role === "user" && r.hidden);
-        const task = wake?.kind === "message" ? lifecycleWakeTask(messageText(wake.payload)) : null;
-        if (task) replyRefs.push({ kind: "agent", threadId: task.threadId, title: task.description ?? "" });
-      }
+      // Desktop-executed turns persist resolved refs instead of a model fence.
+      const storedRefs = storedJournalReplyRefs(record.payload);
+      const replyRefs = storedRefs.length
+        ? storedRefs
+        : resolveJournalReplyRefs({
+            raw: split.refs,
+            recordsBySeq,
+            turnUserRecord,
+            messageId: projectedMessageId,
+          });
       const artifacts = [
         ...mapRouteArtifacts({
           record,
@@ -490,26 +477,17 @@ export const projectCloudConversationMessages = (args: {
       }
     }
 
-    if (
-      terminal &&
-      terminal.phase !== "completed" &&
-      terminal.notice &&
-      !turn.some(
-        (record) =>
-          record.kind === "message" &&
-          record.role === "assistant" &&
-          messageText(record.payload) === terminal!.notice,
-      )
-    ) {
+    const notice = journalTerminalNotice(turn);
+    if (notice) {
       messages.push({
-        id: `cloud:${turnId}:notice:${terminal.seq}`,
+        id: `cloud:${turnId}:notice:${notice.seq}`,
         requestId: userMessageId,
         role: "assistant",
-        text: terminal.notice,
-        createdAt: terminal.createdAtMs,
-        canonicalCreatedAt: terminal.createdAtMs,
-        sequence: terminal.seq,
-        ...(terminal.phase === "canceled" ? { stopped: true } : {}),
+        text: notice.notice,
+        createdAt: notice.createdAtMs,
+        canonicalCreatedAt: notice.createdAtMs,
+        sequence: notice.seq,
+        ...(notice.phase === "canceled" ? { stopped: true } : {}),
       });
     }
   }

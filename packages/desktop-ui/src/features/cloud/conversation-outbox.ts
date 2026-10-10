@@ -1,4 +1,5 @@
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
+import type { JournalRecord } from "@stella/contracts/conversation-protocol";
 import type { CloudAttachment } from "./cloud-composer-store";
 import type { DesktopExecutionTarget } from "../execution-placement/execution-target-store";
 
@@ -473,4 +474,426 @@ export const setCloudConversationOutboxStorageForTests = (
   storage: CloudConversationOutboxStorage | null | undefined,
 ): void => {
   testStorage = storage;
+};
+
+// ---------------------------------------------------------------- pending
+
+const pendingListeners = new Set<() => void>();
+let pending: readonly PendingPrompt[] = [];
+const EMPTY_PENDING: readonly PendingPrompt[] = [];
+const inFlightPending = new Set<string>();
+let activePendingAuthorityKey: string | null = null;
+let activePendingAuthorityReady = false;
+
+const authorityKey = (authority: CloudConversationOutboxAuthority): string =>
+  `${authority.accountScope}\u0000${authority.ownerGeneration}`;
+
+const pendingKey = (
+  authority: CloudConversationOutboxAuthority,
+  clientMsgId: string,
+): string => `${authorityKey(authority)}\u0000${clientMsgId}`;
+
+const ownsPending = (
+  entry: PendingPrompt,
+  authority: CloudConversationOutboxAuthority,
+): boolean =>
+  entry.accountScope === authority.accountScope &&
+  entry.ownerGeneration === authority.ownerGeneration;
+
+const reliableStorageError = (error: unknown): string =>
+  error instanceof Error && error.message
+    ? error.message
+    : "Reliable message storage is unavailable. This message was not sent.";
+
+const frozenSubmission = (
+  submission: PendingCloudTurnSubmission,
+): PendingCloudTurnSubmission =>
+  Object.freeze({
+    requestedConversationId: submission.requestedConversationId,
+    prompt: submission.prompt,
+    imagePaths: Object.freeze([...submission.imagePaths]),
+    attachments: Object.freeze(
+      submission.attachments.map((attachment) =>
+        Object.freeze({ ...attachment }),
+      ),
+    ),
+    locale: submission.locale,
+    execution: submission.execution
+      ? Object.freeze({ ...submission.execution })
+      : null,
+  });
+
+const emitPending = (next: readonly PendingPrompt[]): void => {
+  pending = next;
+  for (const listener of pendingListeners) listener();
+};
+
+/**
+ * Optimistic prompts. A prompt is echoed the instant the user sends it and
+ * replaced by the canonical journal row when it arrives — resolved on either
+ * `clientMsgId` (the key the mutation threads to the DO) or `turnId` (which
+ * the mutation returns directly). Two keys because either one alone leaves a
+ * ghost bubble if a link in the chain drops its field.
+ */
+export const pendingPrompts = {
+  subscribe(listener: () => void): () => void {
+    pendingListeners.add(listener);
+    return () => pendingListeners.delete(listener);
+  },
+  getSnapshot(): readonly PendingPrompt[] {
+    return pending;
+  },
+  add(
+    authority: CloudConversationOutboxAuthority,
+    clientMsgId: string,
+    text: string,
+    conversationId: string | null,
+    submission: PendingCloudTurnSubmission,
+  ): PendingPrompt {
+    const base: PendingPrompt = {
+      ...authority,
+      clientMsgId,
+      text,
+      createdAtMs: Date.now(),
+      conversationId,
+      turnId: null,
+      dispatchId: null,
+      cancelRequested: false,
+      error: null,
+      retryOnNextActivation: false,
+      durable: false,
+      deliveryAcknowledged: false,
+      submission: frozenSubmission(submission),
+    };
+    let entry = base;
+    if (
+      activePendingAuthorityReady &&
+      activePendingAuthorityKey === authorityKey(authority)
+    ) {
+      try {
+        entry = cloudConversationOutbox.enqueue(base);
+      } catch (error) {
+        entry = { ...base, error: reliableStorageError(error) };
+      }
+    } else {
+      entry = {
+        ...base,
+        error:
+          "Stella is still verifying reliable delivery for this account. This message was not sent.",
+      };
+    }
+    emitPending([...pending, entry]);
+    return entry;
+  },
+  bindDispatch(
+    authority: CloudConversationOutboxAuthority,
+    clientMsgId: string,
+    dispatchId: string,
+  ): void {
+    this.patch(authority, clientMsgId, (entry) => ({ ...entry, dispatchId }));
+  },
+  requestCancel(
+    authority: CloudConversationOutboxAuthority,
+    clientMsgId: string,
+  ): void {
+    this.patch(authority, clientMsgId, (entry) => ({
+      ...entry,
+      cancelRequested: true,
+    }));
+  },
+  find(
+    authority: CloudConversationOutboxAuthority,
+    clientMsgId: string,
+  ): PendingPrompt | null {
+    return (
+      pending.find(
+        (entry) =>
+          ownsPending(entry, authority) && entry.clientMsgId === clientMsgId,
+      ) ?? null
+    );
+  },
+  /** The mutation answered: we now know where the prompt landed. */
+  bind(
+    authority: CloudConversationOutboxAuthority,
+    clientMsgId: string,
+    conversationId: string,
+    turnId: string,
+  ): void {
+    this.patch(authority, clientMsgId, (entry) => ({
+      ...entry,
+      conversationId,
+      turnId,
+    }));
+  },
+  fail(
+    authority: CloudConversationOutboxAuthority,
+    clientMsgId: string,
+    message: string,
+    retryOnNextActivation = false,
+  ): void {
+    this.patch(authority, clientMsgId, (entry) => ({
+      ...entry,
+      error: message,
+      retryOnNextActivation,
+    }));
+  },
+  drop(authority: CloudConversationOutboxAuthority, clientMsgId: string): void {
+    const found = this.find(authority, clientMsgId);
+    if (!found) return;
+    if (found.durable) {
+      try {
+        cloudConversationOutbox.remove(found);
+      } catch (error) {
+        this.fail(authority, clientMsgId, reliableStorageError(error));
+        return;
+      }
+    }
+    const next = pending.filter(
+      (entry) =>
+        !ownsPending(entry, authority) || entry.clientMsgId !== clientMsgId,
+    );
+    if (next.length !== pending.length) emitPending(next);
+    inFlightPending.delete(pendingKey(authority, clientMsgId));
+  },
+  /** Persists a storage-denied row if needed, then re-arms exact retry. */
+  prepareRetry(
+    authority: CloudConversationOutboxAuthority,
+    clientMsgId: string,
+  ): PendingPrompt | null {
+    const found = this.find(authority, clientMsgId);
+    if (!found) return null;
+    const candidate = {
+      ...found,
+      error: null,
+      retryOnNextActivation: false,
+    };
+    try {
+      const durable = found.durable
+        ? cloudConversationOutbox.update(candidate)
+        : cloudConversationOutbox.enqueue(candidate);
+      if (!durable) return null;
+      emitPending(
+        pending.map((entry) =>
+          ownsPending(entry, authority) && entry.clientMsgId === clientMsgId
+            ? durable
+            : entry,
+        ),
+      );
+      return durable;
+    } catch (error) {
+      const failed = { ...found, error: reliableStorageError(error) };
+      emitPending(
+        pending.map((entry) =>
+          ownsPending(entry, authority) && entry.clientMsgId === clientMsgId
+            ? failed
+            : entry,
+        ),
+      );
+      return null;
+    }
+  },
+  /** Removes persistence only after a matching canonical turn admission. */
+  acknowledgeAdmission(
+    authority: CloudConversationOutboxAuthority,
+    clientMsgId: string,
+    conversationId: string,
+    turnId: string,
+  ): boolean {
+    const found = this.find(authority, clientMsgId);
+    if (
+      !found ||
+      !turnId ||
+      found.turnId !== turnId ||
+      found.conversationId !== conversationId ||
+      (found.submission.requestedConversationId !== null &&
+        found.submission.requestedConversationId !== conversationId)
+    ) {
+      return false;
+    }
+    if (found.durable) {
+      try {
+        cloudConversationOutbox.remove(found);
+      } catch {
+        return false;
+      }
+    }
+    const acknowledged = {
+      ...found,
+      durable: false,
+      deliveryAcknowledged: true,
+      retryOnNextActivation: false,
+    };
+    emitPending(
+      pending.map((entry) =>
+        ownsPending(entry, authority) && entry.clientMsgId === clientMsgId
+          ? acknowledged
+          : entry,
+      ),
+    );
+    return true;
+  },
+  /** Placement terminal evidence can acknowledge even before a turn id exists. */
+  acknowledgeTerminal(
+    authority: CloudConversationOutboxAuthority,
+    clientMsgId: string,
+    dispatchId: string,
+  ): boolean {
+    const found = this.find(authority, clientMsgId);
+    if (!found || !dispatchId || found.dispatchId !== dispatchId) return false;
+    if (found.durable) {
+      try {
+        cloudConversationOutbox.remove(found);
+      } catch {
+        return false;
+      }
+    }
+    const acknowledged = {
+      ...found,
+      durable: false,
+      deliveryAcknowledged: true,
+      retryOnNextActivation: false,
+    };
+    emitPending(
+      pending.map((entry) =>
+        ownsPending(entry, authority) && entry.clientMsgId === clientMsgId
+          ? acknowledged
+          : entry,
+      ),
+    );
+    return true;
+  },
+  /** Retires any echo the given canonical record supersedes. */
+  resolve(
+    authority: CloudConversationOutboxAuthority,
+    record: JournalRecord,
+  ): void {
+    if (!pending.length) return;
+    const clientMsgId =
+      record.kind === "message" ? record.clientMsgId : undefined;
+    const acknowledged = pending.filter(
+      (entry) =>
+        ownsPending(entry, authority) &&
+        ((clientMsgId !== undefined && entry.clientMsgId === clientMsgId) ||
+          (clientMsgId !== undefined && entry.dispatchId === clientMsgId) ||
+          (entry.turnId !== null && entry.turnId === record.turnId)),
+    );
+    if (!acknowledged.length) return;
+    const removed = new Set<string>();
+    for (const entry of acknowledged) {
+      try {
+        if (!entry.durable || cloudConversationOutbox.remove(entry)) {
+          removed.add(entry.clientMsgId);
+          inFlightPending.delete(pendingKey(authority, entry.clientMsgId));
+        }
+      } catch {
+        // Keep the durable row. Exact backend dedupe makes a later replay safe,
+        // while deleting it only in memory could lose the required retry.
+      }
+    }
+    const next = pending.filter(
+      (entry) =>
+        !ownsPending(entry, authority) || !removed.has(entry.clientMsgId),
+    );
+    if (next.length !== pending.length) emitPending(next);
+  },
+  getServerSnapshot(): readonly PendingPrompt[] {
+    return EMPTY_PENDING;
+  },
+  retainAccountScope(accountScope: string): void {
+    activePendingAuthorityKey = null;
+    activePendingAuthorityReady = false;
+    inFlightPending.clear();
+    try {
+      cloudConversationOutbox.purgeOtherAccounts(accountScope);
+    } catch {
+      // Generation activation retries the synchronous purge before any send.
+    }
+    const next = pending.filter((entry) => entry.accountScope === accountScope);
+    if (next.length !== pending.length) emitPending(next);
+  },
+  activateAuthority(authority: CloudConversationOutboxAuthority): boolean {
+    const nextAuthorityKey = authorityKey(authority);
+    if (
+      activePendingAuthorityReady &&
+      activePendingAuthorityKey === nextAuthorityKey
+    ) {
+      return true;
+    }
+    activePendingAuthorityKey = nextAuthorityKey;
+    activePendingAuthorityReady = false;
+    inFlightPending.clear();
+    try {
+      const hydrated = cloudConversationOutbox
+        .activate(authority)
+        .map((entry) => {
+          if (!entry.retryOnNextActivation) return entry;
+          const rearmed = {
+            ...entry,
+            error: null,
+            retryOnNextActivation: false,
+          };
+          return cloudConversationOutbox.update(rearmed) ?? entry;
+        });
+      activePendingAuthorityReady = true;
+      emitPending(hydrated);
+      return true;
+    } catch {
+      emitPending(EMPTY_PENDING);
+      return false;
+    }
+  },
+  isAuthorityReady(authority: CloudConversationOutboxAuthority): boolean {
+    return (
+      activePendingAuthorityReady &&
+      activePendingAuthorityKey === authorityKey(authority)
+    );
+  },
+  claimDispatch(
+    authority: CloudConversationOutboxAuthority,
+    clientMsgId: string,
+  ): boolean {
+    const entry = this.find(authority, clientMsgId);
+    const key = pendingKey(authority, clientMsgId);
+    if (
+      !entry?.durable ||
+      entry.error !== null ||
+      !this.isAuthorityReady(authority) ||
+      inFlightPending.has(key)
+    ) {
+      return false;
+    }
+    inFlightPending.add(key);
+    return true;
+  },
+  releaseDispatch(
+    authority: CloudConversationOutboxAuthority,
+    clientMsgId: string,
+  ): void {
+    inFlightPending.delete(pendingKey(authority, clientMsgId));
+  },
+  patch(
+    authority: CloudConversationOutboxAuthority,
+    clientMsgId: string,
+    update: (entry: PendingPrompt) => PendingPrompt,
+  ): void {
+    const found = this.find(authority, clientMsgId);
+    if (!found) return;
+    let nextEntry = update(found);
+    if (found.durable) {
+      try {
+        const persisted = cloudConversationOutbox.update(nextEntry);
+        if (!persisted) return;
+        nextEntry = persisted;
+      } catch (error) {
+        nextEntry = { ...nextEntry, error: reliableStorageError(error) };
+      }
+    }
+    emitPending(
+      pending.map((entry) =>
+        ownsPending(entry, authority) && entry.clientMsgId === clientMsgId
+          ? nextEntry
+          : entry,
+      ),
+    );
+  },
 };

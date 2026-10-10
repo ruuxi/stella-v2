@@ -22,8 +22,8 @@ import {
   activateCloudConversationClientAuthority,
   conversationStore,
 } from "@/features/cloud/conversation-store";
-import { messageText } from "@/features/cloud/conversation-protocol";
-import type { JournalRecord } from "@/features/cloud/conversation-protocol";
+import { messageText } from "@stella/contracts/conversation-protocol";
+import type { JournalRecord } from "@stella/contracts/conversation-protocol";
 import { parseCloudAgentLifecycleCard } from "@stella/contracts/cloud-agent-lifecycle";
 import { getChatStorageMode } from "@/features/chat/services/chat-storage-preference";
 import { resolveAuthSessionCacheScope } from "@/global/auth/lib/auth-session-scope";

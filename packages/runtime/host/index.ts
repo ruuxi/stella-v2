@@ -32,7 +32,12 @@ import {
   placementRemoteThreadAgentId,
 } from "./execution-placement-bridge.js";
 import { isExecutionPlacementEligible } from "./execution-placement-eligibility.js";
-import { isCloudHandedOff } from "./placed-dispatch.js";
+import {
+  ConversationPlacements,
+  isCloudHandedOff,
+  isDispatchEnded,
+  type SubmittingPlacement,
+} from "./placed-dispatch.js";
 import { AGENT_RUN_RPC_OPTIONS } from "./agent-run-request.js";
 import {
   placementAttachmentPaths,
@@ -362,6 +367,8 @@ export class StellaRuntimeHost {
   hostExecutionPlacementBridge: ExecutionPlacementBridge | null = null;
   hostExecutionPlacementSyncQueue: Promise<void> = Promise.resolve();
   placedDispatchByRunId = new Map<string, PlacedDispatch>();
+  /** What each conversation runs elsewhere, for Stop (`ConversationPlacements`). */
+  placements = new ConversationPlacements();
   pendingDestinationHandoffs = new Map<string, { canceled: boolean }>();
   pendingRunEventAcks = new Map<string, number>();
   runEventAckTimer: HostTimerHandle | null = null;
@@ -1536,6 +1543,18 @@ export class StellaRuntimeHost {
     return uploaded;
   }
   async startPlacedChat(payload: PlacedChatPayload, target: PlacedChatTarget) {
+    const submitting = this.placements.submitting(payload.conversationId);
+    try {
+      return await this.submitPlacedChat(payload, target, submitting);
+    } finally {
+      this.placements.submitted(submitting);
+    }
+  }
+  private async submitPlacedChat(
+    payload: PlacedChatPayload,
+    target: PlacedChatTarget,
+    submitting: SubmittingPlacement,
+  ) {
     const enteredAt = Date.now();
     const preparationAt = performance.now();
     await this.syncHostExecutionPlacement();
@@ -1603,6 +1622,11 @@ export class StellaRuntimeHost {
     });
     if (!dispatch?.dispatchId)
       throw new Error("Execution placement returned an invalid dispatch.");
+    this.placements.submitted(submitting, dispatch.dispatchId);
+    // Stop came while this send was being submitted: the turn has started
+    // (its prompt is in the conversation), and stops now, as it would have.
+    if (submitting.stopped) void this.stopPlacedDispatches([dispatch.dispatchId]);
+    void this.forgetEndedPlacements(payload.conversationId, dispatch.dispatchId);
     const runId = `placed:${dispatch.dispatchId}`;
     const requestId = payload.requestId;
     // Cloud admission uses the dispatch identity for its journal row.
@@ -1660,8 +1684,14 @@ export class StellaRuntimeHost {
     const onStatus = (status: DispatchSummary | null | undefined) => {
       if (!status || status.dispatchId !== dispatch.dispatchId || terminal)
         return;
+      if (["completed", "failed", "canceled"].includes(status.state)) {
+        this.placements.ended(status.dispatchId);
+        finish(status);
+        return;
+      }
       // The placement run ends at hand-off. The conversation socket
-      // owns the cloud turn's subsequent liveness and cancellation.
+      // owns the cloud turn's subsequent liveness, and `placements` keeps
+      // its dispatch for Stop until it ends.
       // Balance RUN_STARTED so desktop replay cannot retain a phantom run.
       if (isCloudHandedOff(status)) {
         finish({ state: "completed" });
@@ -1691,8 +1721,6 @@ export class StellaRuntimeHost {
           });
         }
       }
-      if (["completed", "failed", "canceled"].includes(status.state))
-        finish(status);
     };
     placed.subscription = bridge.watchDispatch(dispatch.dispatchId, onStatus);
     onStatus(dispatch);
@@ -2043,8 +2071,6 @@ export class StellaRuntimeHost {
    * the cloud may have taken over from their placement.
    */
   async cancelPiPlacements(conversationId: string, dispatchIds: unknown) {
-    const bridge = this.hostExecutionPlacementBridge;
-    if (!bridge) return;
     const ids = new Set(
       Array.isArray(dispatchIds)
         ? dispatchIds.filter(
@@ -2053,22 +2079,41 @@ export class StellaRuntimeHost {
           )
         : [],
     );
+    for (const id of this.placements.stop(conversationId)) ids.add(id);
     for (const placed of this.placedDispatchByRunId.values()) {
       if (placed.conversationId === conversationId) ids.add(placed.dispatchId);
     }
+    await this.stopPlacedDispatches([...ids]);
+  }
+  /** Cancel exact dispatches; one already ended stays ended and is forgotten. */
+  private async stopPlacedDispatches(dispatchIds: readonly string[]) {
+    const bridge = this.hostExecutionPlacementBridge;
+    if (!bridge) return;
     await Promise.all(
-      [...ids].map((dispatchId) =>
+      dispatchIds.map((dispatchId) =>
         bridge
           .cancelDispatch({
             dispatchId,
             cancelRequestId: `cancel:${dispatchId}`,
             reason: "Canceled by the user.",
           })
+          .then((status) => {
+            if (isDispatchEnded(status)) this.placements.ended(dispatchId);
+          })
           .catch((error: unknown) =>
-            console.warn(`[pi-chat] Could not stop ${dispatchId}.`, error),
+            console.warn(`[placement] Could not stop ${dispatchId}.`, error),
           ),
       ),
     );
+  }
+  /** The conversation's earlier placements that have ended since, forgotten. */
+  private async forgetEndedPlacements(conversationId: string, except: string) {
+    const bridge = this.hostExecutionPlacementBridge;
+    if (!bridge) return;
+    for (const dispatchId of this.placements.placedIn(conversationId, except)) {
+      const status = await bridge.getDispatchStatus(dispatchId).catch(() => undefined);
+      if (status !== undefined && isDispatchEnded(status)) this.placements.ended(dispatchId);
+    }
   }
   async cancelChat(runId: string) {
     const placed = this.placedDispatchByRunId.get(runId);
@@ -2581,6 +2626,7 @@ export class StellaRuntimeHost {
       placed.subscription?.unsubscribe();
     }
     this.placedDispatchByRunId.clear();
+    this.placements.clear();
     await this.hostExecutionPlacementSyncQueue;
     await this.hostExecutionPlacementBridge?.stop();
     this.hostExecutionPlacementBridge = null;

@@ -64,23 +64,52 @@ import type { OrchestratorOwner } from "./owner.js";
 
 /** One admitted chat turn, start to terminal, on Stella's loop or on pi. */
 export abstract class OrchestratorRunTurn extends OrchestratorCliTurn {
+  /**
+   * A stopped turn keeps what the user sent: its prompt is journaled now if
+   * the turn had not journaled it yet (Stop before admission, or while it
+   * was still preparing), so every client shows the message and its
+   * "Stopped." notice. Idempotent on the prompt's writer key.
+   */
+  protected async journalStoppedPrompt(turn: ChatTurnRequest): Promise<void> {
+    if (this.journal.hasRow(`turn:${turn.turnId}:prompt`)) return;
+    const now = Date.now();
+    const report = await this.wakeReport(turn);
+    const promptMessage = {
+      role: "user",
+      content: [{ type: "text", text: report.prompt }],
+      timestamp: now,
+      ...(turn.originUserMessageId
+        ? { originUserMessageId: turn.originUserMessageId }
+        : {}),
+      ...(turn.source ? { source: turn.source } : {}),
+    } as AgentMessage;
+    const promptPayload = await this.spillOversizePrompt(
+      turn.turnId,
+      promptMessage,
+    );
+    this.bindConversation(turn);
+    const prompt = this.journal.appendMessage({
+      turnId: turn.turnId,
+      writer: "orchestrator",
+      writerKey: `turn:${turn.turnId}:prompt`,
+      role: "user",
+      hidden: turn.hiddenMessage === true,
+      clientMsgId: turn.clientMsgId,
+      createdAt: now,
+      message: promptMessage,
+      ...promptPayload,
+    });
+    this.journal.setTurnSpan(turn.turnId, prompt.seq);
+    this.publish(prompt.record);
+    this.publishAgentTerminal(turn, report);
+  }
+
   protected async finishPreCanceledTurn(
     turn: ChatTurnRequest,
     cancellation: ExactTurnCancellation,
   ): Promise<Response> {
     try {
       const now = Date.now();
-      const report = await this.wakeReport(turn);
-      const promptMessage = {
-        role: "user",
-        content: [{ type: "text", text: report.prompt }],
-        timestamp: now,
-        ...(turn.source ? { source: turn.source } : {}),
-      } as AgentMessage;
-      const promptPayload = await this.spillOversizePrompt(
-        turn.turnId,
-        promptMessage,
-      );
       const owed: OwedTerminal = {
         kind: "canceled",
         message: TERMINAL_NOTICE.canceled,
@@ -95,7 +124,6 @@ export abstract class OrchestratorRunTurn extends OrchestratorCliTurn {
       });
       await this.ctx.storage.delete(`queued:${turn.turnId}`);
       this.ownerGeneration = turn.ownerGeneration;
-      this.bindConversation(turn);
       this.journal.upsertTurn({
         turnId: turn.turnId,
         sessionId: turn.sessionId,
@@ -106,20 +134,7 @@ export abstract class OrchestratorRunTurn extends OrchestratorCliTurn {
         state: "running",
         now,
       });
-      const prompt = this.journal.appendMessage({
-        turnId: turn.turnId,
-        writer: "orchestrator",
-        writerKey: `turn:${turn.turnId}:prompt`,
-        role: "user",
-        hidden: turn.hiddenMessage === true,
-        clientMsgId: turn.clientMsgId,
-        createdAt: now,
-        message: promptMessage,
-        ...promptPayload,
-      });
-      this.journal.setTurnSpan(turn.turnId, prompt.seq);
-      this.publish(prompt.record);
-      this.publishAgentTerminal(turn, report);
+      await this.journalStoppedPrompt(turn);
       this.recordTerminal(turn, "canceled", TERMINAL_NOTICE.canceled);
       try {
         await this.emitTurnEvent(

@@ -53,7 +53,7 @@ const LINES = [
 const SKINS = [StellaSkin, BlocksSkin, OpsSkin, TraderSkin, EditorSkin];
 const HOLDS = [2.9, 3.6, 3.3, 3.6];
 
-const INTRO = 0.3;
+const INTRO = 0;
 const FADE = 0.62;
 const FINAL = 2.1;
 const SEG_LEN = HOLDS.map((h) => FADE + h);
@@ -92,7 +92,35 @@ function frameAt(t: number): Frame {
   return f;
 }
 
-const SETTLE = 0.6;
+const SETTLE_VH = 52;
+const CENTER_VH = 40;
+const CENTER_MS = 950;
+const UP_MS = 440;
+const REST: Frame = { line: -1, base: 0, next: -1, s: 0 };
+
+const HOP_MS = 6600;
+const HOP_FRAMES: Keyframe[] = [
+  { offset: 0, transform: "translateY(0) rotate(0deg) scale(1, 1)" },
+  { offset: 0.05, transform: "translateY(0) rotate(0deg) scale(1.09, 0.88)", easing: "cubic-bezier(0.2, 0.8, 0.3, 1)" },
+  { offset: 0.11, transform: "translateY(-8%) rotate(-5deg) scale(0.94, 1.07)", easing: "cubic-bezier(0.3, 0, 0.6, 1)" },
+  { offset: 0.17, transform: "translateY(-10%) rotate(-7deg) scale(1, 1)", easing: "cubic-bezier(0.5, 0, 0.9, 0.5)" },
+  { offset: 0.23, transform: "translateY(0) rotate(0deg) scale(1.08, 0.9)", easing: "cubic-bezier(0.2, 0.8, 0.3, 1)" },
+  { offset: 0.28, transform: "translateY(0) rotate(0deg) scale(0.97, 1.03)" },
+  { offset: 0.33, transform: "translateY(0) rotate(0deg) scale(1, 1)" },
+  { offset: 0.38, transform: "translateY(0) rotate(0deg) scale(1.09, 0.88)", easing: "cubic-bezier(0.2, 0.8, 0.3, 1)" },
+  { offset: 0.44, transform: "translateY(-8%) rotate(5deg) scale(0.94, 1.07)", easing: "cubic-bezier(0.3, 0, 0.6, 1)" },
+  { offset: 0.5, transform: "translateY(-10%) rotate(7deg) scale(1, 1)", easing: "cubic-bezier(0.5, 0, 0.9, 0.5)" },
+  { offset: 0.56, transform: "translateY(0) rotate(0deg) scale(1.08, 0.9)", easing: "cubic-bezier(0.2, 0.8, 0.3, 1)" },
+  { offset: 0.61, transform: "translateY(0) rotate(0deg) scale(0.97, 1.03)" },
+  { offset: 0.66, transform: "translateY(0) rotate(0deg) scale(1, 1)" },
+  { offset: 0.71, transform: "translateY(0) rotate(0deg) scale(1.12, 0.84)", easing: "cubic-bezier(0.2, 0.8, 0.3, 1)" },
+  { offset: 0.77, transform: "translateY(-13%) rotate(140deg) scale(0.92, 1.08)", easing: "cubic-bezier(0.25, 0, 0.5, 1)" },
+  { offset: 0.83, transform: "translateY(-15%) rotate(300deg) scale(1, 1)", easing: "cubic-bezier(0.5, 0, 0.9, 0.5)" },
+  { offset: 0.89, transform: "translateY(0) rotate(360deg) scale(1.1, 0.88)", easing: "cubic-bezier(0.2, 0.8, 0.3, 1)" },
+  { offset: 0.94, transform: "translateY(0) rotate(360deg) scale(0.96, 1.04)" },
+  { offset: 1, transform: "translateY(0) rotate(360deg) scale(1, 1)" },
+];
+const SPARKLE_AT = 0.83;
 
 const REDUCED_AT = INTRO + SEG_LEN[0] + SEG_LEN[1] + 2.4;
 
@@ -102,9 +130,12 @@ export function Opening() {
   const heroRef = useRef<HTMLDivElement>(null);
   const mascotRef = useRef<HTMLDivElement>(null);
   const mascotHandle = useRef<StellaMarkHandle | null>(null);
+  const mascotMoveRef = useRef<HTMLDivElement>(null);
   const heroAuroraRef = useRef<HTMLDivElement>(null);
   const darkAuroraRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
+  const peekRef = useRef<HTMLSpanElement>(null);
+  const introRef = useRef<HTMLDivElement>(null);
   const tintRef = useRef<HTMLDivElement>(null);
   const layerRefs = useRef<(HTMLDivElement | null)[]>([]);
   const lineRefs = useRef<(HTMLSpanElement | null)[]>([]);
@@ -113,13 +144,55 @@ export function Opening() {
   useWanderingGaze(mascotHandle, mascotRef);
 
   useEffect(() => {
+    const el = mascotMoveRef.current;
+    if (!el || prefersReducedMotion()) return;
+    const anim = el.animate(HOP_FRAMES, { duration: HOP_MS, iterations: Infinity, delay: 1400 });
+    let raf = 0;
+    let lastLoop = -1;
+    const watch = () => {
+      raf = requestAnimationFrame(watch);
+      const t = Number(anim.currentTime ?? 0) - 1400;
+      if (t < 0) return;
+      const loop = Math.floor(t / HOP_MS);
+      if (loop !== lastLoop && (t % HOP_MS) / HOP_MS >= SPARKLE_AT) {
+        lastLoop = loop;
+        mascotHandle.current?.sparkle(16);
+      }
+    };
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting) {
+        anim.play();
+        if (!raf) raf = requestAnimationFrame(watch);
+      } else {
+        anim.pause();
+        cancelAnimationFrame(raf);
+        raf = 0;
+      }
+    });
+    io.observe(el);
+    return () => {
+      io.disconnect();
+      cancelAnimationFrame(raf);
+      anim.cancel();
+    };
+  }, []);
+
+  useEffect(() => {
     const track = trackRef.current;
     const sticky = stickyRef.current;
     const stage = stageRef.current;
     if (!track || !sticky || !stage) return;
     const reduce = prefersReducedMotion();
 
-    const m = { vh: 0, travel: 1, y0: 0, y1: 0 };
+    const m = { vh: 0, travel: 1, y0: 0, y1: 0, unit: 0.01 };
+    const intro = introRef.current;
+    let introState = "off";
+    let centerAt = 0;
+    let timer = 0;
+    const setIntro = (state: string) => {
+      introState = state;
+      if (intro) intro.dataset.state = state;
+    };
     const st = {
       p: -1,
       line: -2,
@@ -136,7 +209,8 @@ export function Opening() {
       m.vh = sticky.offsetHeight;
       m.travel = Math.max(1, track.offsetHeight - m.vh);
       m.y1 = stage.offsetTop;
-      m.y0 = m.vh * 0.72;
+      m.y0 = peekRef.current?.offsetTop ?? m.vh * 0.72;
+      m.unit = window.innerHeight / 100 / m.travel;
     };
 
     const setLine = (n: number) => {
@@ -206,7 +280,38 @@ export function Opening() {
       st.last = 0;
       cancelAnimationFrame(st.raf);
       st.raf = 0;
-      renderDemo(frameAt(0));
+      renderDemo(REST);
+    };
+
+    const runIntro = (p: number) => {
+      const settle = SETTLE_VH * m.unit;
+      if (p < CENTER_VH * m.unit - 0.06) {
+        window.clearTimeout(timer);
+        timer = 0;
+        stopDemo();
+        if (introState !== "off") setIntro("off");
+        return;
+      }
+      if (introState === "off" && p >= CENTER_VH * m.unit) {
+        setIntro("center");
+        centerAt = performance.now();
+      }
+      if (introState === "center" && p >= settle && !timer) {
+        if (reduce) {
+          setIntro("gone");
+          startDemo();
+          return;
+        }
+        const wait = Math.max(0, centerAt + CENTER_MS - performance.now());
+        timer = window.setTimeout(() => {
+          setIntro("up");
+          timer = window.setTimeout(() => {
+            timer = 0;
+            setIntro("gone");
+            startDemo();
+          }, UP_MS);
+        }, wait);
+      }
     };
 
     const tintJourney = (t: number) => {
@@ -233,32 +338,31 @@ export function Opening() {
       st.p = p;
       const scrolled = p * m.travel;
 
-      const heroFade = seg(p, 0.08, 0.3);
+      const u = m.unit;
+      const heroFade = seg(p, 8 * u, 28 * u);
       if (heroRef.current) {
         heroRef.current.style.transform = `translate3d(0, ${-scrolled}px, 0)`;
         heroRef.current.style.opacity = String(1 - heroFade);
       }
       if (mascotRef.current) {
-        mascotRef.current.style.transform = `translate3d(0, ${-scrolled * 0.7}px, 0) scale(${1 - 0.12 * seg(p, 0, 0.34)})`;
-        mascotRef.current.style.opacity = String(1 - seg(p, 0.1, 0.34));
+        mascotRef.current.style.transform = `translate3d(0, ${-scrolled * 0.7}px, 0) scale(${1 - 0.12 * seg(p, 0, 32 * u)})`;
+        mascotRef.current.style.opacity = String(1 - seg(p, 10 * u, 32 * u));
       }
-      if (heroAuroraRef.current) heroAuroraRef.current.style.opacity = String(1 - seg(p, 0.04, 0.3));
-      if (darkAuroraRef.current) darkAuroraRef.current.style.opacity = String(seg(p, 0.42, 0.75));
+      if (heroAuroraRef.current) heroAuroraRef.current.style.opacity = String(1 - seg(p, 4 * u, 28 * u));
+      if (darkAuroraRef.current) darkAuroraRef.current.style.opacity = String(seg(p, 36 * u, 64 * u));
 
-      const travelK = ease.inOut(seg(p, 0, SETTLE));
+      const travelK = ease.inOut(seg(p, 0, SETTLE_VH * u));
       stage.style.transform = `translate3d(0, ${lerp(m.y0 - m.y1, 0, travelK)}px, 0)`;
 
-      tintJourney(seg(p, 0.02, SETTLE - 0.04));
+      tintJourney(seg(p, 2 * u, (SETTLE_VH - 6) * u));
 
-      const dark = seg(p, 0.28, 0.5);
+      const dark = seg(p, 24 * u, 44 * u);
       const c = Math.round(lerp(255, 6, dark));
       sticky.style.backgroundColor = `rgb(${c}, ${c}, ${Math.round(lerp(255, 9, dark))})`;
       const tone = dark > 0.5 ? "dark" : "light";
       if (track.dataset.tone !== tone) track.dataset.tone = tone;
 
-      if (p >= SETTLE) startDemo();
-      else if (p < 0.35) stopDemo();
-      if (!st.demo) setLine(p > 0.32 ? 0 : -1);
+      runIntro(p);
     };
 
     const onScroll = () => {
@@ -266,7 +370,7 @@ export function Opening() {
     };
 
     measure();
-    renderDemo(frameAt(0));
+    renderDemo(REST);
     st.line = -2;
     apply();
 
@@ -294,6 +398,7 @@ export function Opening() {
       document.removeEventListener("visibilitychange", onVis);
       cancelAnimationFrame(st.raf);
       cancelAnimationFrame(st.scrollRaf);
+      window.clearTimeout(timer);
     };
   }, []);
 
@@ -315,7 +420,9 @@ export function Opening() {
 
         <div ref={mascotRef} className={o.mascot} aria-hidden="true">
           <div className={o.mascotIn}>
-            <StellaCharacter size={null} glow eyeColor="#ffffff" handleRef={mascotHandle} className={o.mascotMark} />
+            <div ref={mascotMoveRef} className={o.mascotMove}>
+              <StellaCharacter size={null} glow eyeColor="#ffffff" handleRef={mascotHandle} className={o.mascotMark} />
+            </div>
           </div>
         </div>
 
@@ -328,6 +435,14 @@ export function Opening() {
             <DownloadButton />
             <span className={o.free}>Free.</span>
           </div>
+        </div>
+
+        <div ref={introRef} className={o.intro} data-state="off" aria-hidden="true">
+          {LINES[0].split(" ").map((word, w) => (
+            <span key={w} className={o.introWord} style={{ ["--i" as string]: w }}>
+              {word}
+            </span>
+          ))}
         </div>
 
         <div className={o.head} aria-hidden="true">
@@ -353,6 +468,7 @@ export function Opening() {
           trading desk or a film editor&apos;s suite. Anything you ask.
         </h2>
 
+        <span ref={peekRef} className={o.peekMark} aria-hidden="true" />
         <div ref={stageRef} className={o.stage} aria-hidden="true">
           {SKINS.map((Skin, i) => (
             <div

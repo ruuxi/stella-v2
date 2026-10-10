@@ -159,7 +159,12 @@ export const OfficeFileTabContent = ({
       })
       .catch((caught) => {
         if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : String(caught));
+          setError(
+            (caught instanceof Error ? caught.message : String(caught)).replace(
+              /^Error invoking remote method '[^']*': (?:\w*Error: )?/u,
+              "",
+            ),
+          );
         }
       });
     return () => {

@@ -17,6 +17,10 @@ import type {
 } from "@stella/contracts/desktop/companion";
 import type { UiState } from "./ui";
 import type { EvidenceCardSet } from "@stella/contracts/chat-evidence";
+import type {
+  DeviceFileMissingReason,
+  DeviceFileSource,
+} from "@stella/contracts/device-files";
 import type { Theme } from "@stella/theme";
 import type { AgentStreamEvent } from "@stella/contracts/agent-stream";
 import type { PiChatEventsPayload, PiChatRequest } from "@stella/contracts/pi-chat";
@@ -1442,8 +1446,19 @@ export type ElectronDisplayApi = {
         truncated: boolean;
         missing: false;
       }
-    | { missing: true; mimeType: string; path: string }
+    | {
+            missing: true;
+            mimeType: string;
+            path: string;
+            reason?: DeviceFileMissingReason;
+          }
   >;
+  /**
+   * Where a `stella-media:` stream for this file comes from: this computer,
+   * the copy another device put in the user's Drive, or nowhere this
+   * computer can reach (and why). Answers without reading the file.
+   */
+  mediaSource?: (filePath: string) => Promise<DeviceFileSource>;
   listCanvasHtml: () => Promise<
     Array<{
       filePath: string;
@@ -1471,7 +1486,7 @@ export type ElectronDisplayApi = {
    * (its own origin and CSP, with the Ask Stella bridge injected).
    * `missing` when the file is on no device that can serve it.
    */
-  canvasFileUrl: (filePath: string) => Promise<{ url: string } | { missing: true }>;
+  canvasFileUrl: (filePath: string) => Promise<{ url: string } | { missing: true; message?: string }>;
   /** Holds `html` (a cloud canvas) in main and returns its `stella-canvas://` URL. */
   canvasHtmlUrl: (html: string) => Promise<{ url: string }>;
   listTrash: () => Promise<{

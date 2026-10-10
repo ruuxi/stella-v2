@@ -13,6 +13,7 @@ import { useDisplayFileBytes } from "@/shared/hooks/use-display-file-data";
 import { DisplayFileSourceContext } from "@/shared/hooks/display-file-source";
 import { useCloudDriveHtml } from "@/features/cloud/use-cloud-drive-html";
 import { openExternalUrl } from "@/platform/electron/open-external";
+import { deviceFileMissingMessage } from "@stella/contracts/device-files";
 import { CanvasIllustration } from "../illustrations/CanvasIllustration";
 import { CanvasShareBar } from "./CanvasShareBar";
 import type { CanvasHtmlItem } from "./canvas-items";
@@ -36,7 +37,7 @@ const canvasUrlApi = () => {
         ? display
         : null;
 };
-const errorMessage = (caught: unknown) => caught instanceof Error ? caught.message : String(caught);
+const errorMessage = (caught: unknown) => (caught instanceof Error ? caught.message : String(caught)).replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/u, "");
 const CanvasLoadingDots = () => (<span className="canvas-tab__loading-dots" aria-hidden>
     <span>.</span>
     <span>.</span>
@@ -68,8 +69,11 @@ const LocalFileCanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => 
             return;
         let cancelled = false;
         void api.canvasFileUrl(item.filePath).then((result) => {
-            if (!cancelled)
-                setResolved({ key, src: "url" in result ? result.url : null, error: null });
+            if (cancelled)
+                return;
+            setResolved("url" in result
+                ? { key, src: result.url, error: null }
+                : { key, src: null, error: result.message ?? deviceFileMissingMessage("deleted", item.filePath) });
         }, (caught: unknown) => {
             if (!cancelled)
                 setResolved({ key, src: null, error: errorMessage(caught) });
@@ -167,8 +171,8 @@ const CanvasHeroFrameDocument = ({ item, frame, error, loading, }: {
         return () => window.removeEventListener("message", handleMessage);
     }, []);
     if (error) {
-        return (<div className="canvas-tab__frame-state canvas-tab__frame-state--error">
-        {t("shell.display.canvas.loadFailed")}
+        return (<div className="canvas-tab__frame-state canvas-tab__frame-state--error" title={item.filePath}>
+        {error || t("shell.display.canvas.loadFailed")}
       </div>);
     }
     if (loading || !frame) {

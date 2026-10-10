@@ -22,6 +22,7 @@ import {
 } from "@/features/canvas-share/canvas-share-context";
 import type { CanvasHtmlItem } from "./canvas-items";
 import { useT } from "@/shared/i18n";
+import { deviceFileMissingMessage } from "@stella/contracts/device-files";
 import "./canvas-share.css";
 
 const decoder = new TextDecoder("utf-8");
@@ -35,7 +36,7 @@ const readCanvasHtml = async (filePath: string): Promise<string> => {
   }
   const result = await readFile(filePath);
   if (result.missing) {
-    throw new Error("Canvas file is missing.");
+    throw new Error(deviceFileMissingMessage(result.reason, filePath));
   }
   return decoder.decode(result.bytes);
 };

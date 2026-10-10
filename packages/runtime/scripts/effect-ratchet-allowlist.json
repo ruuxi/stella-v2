@@ -5,7 +5,7 @@
   "kernel/agent-runtime/run-completion.ts": 1,
   "kernel/agents/local-agent-manager.js": 3,
   "kernel/browser-use/client.ts": 1,
-  "kernel/browser-use/worker-api.ts": 1,
+  "kernel/browser-use/worker-api/context.ts": 1,
   "kernel/computer-use/kernel-worker.ts": 2,
   "kernel/computer-use/kernel.ts": 3,
   "kernel/computer-use/stella-computer-executor.ts": 1,
@@ -26,7 +26,8 @@
   "kernel/tools/local-tool-overrides.ts": 2,
   "kernel/tools/media-artifact-store.ts": 1,
   "kernel/tools/search.ts": 1,
-  "kernel/tools/shell.ts": 2,
+  "kernel/tools/shell/process.ts": 1,
+  "kernel/tools/shell/sessions.ts": 1,
   "worker/cli-bridge-server.ts": 1,
   "workers/cloud-builder/src/archive.ts": {
     "setTimeout(": 1

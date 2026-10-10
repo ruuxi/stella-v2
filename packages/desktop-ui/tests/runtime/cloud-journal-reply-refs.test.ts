@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { journalRecordsToMessageRecords } from "@/features/cloud/journal-message-records";
-import type { JournalRecord } from "@/features/cloud/conversation-protocol";
+import type { JournalRecord } from "@stella/contracts/conversation-protocol";
 import { projectReplyContexts } from "@stella/contracts/reply-context";
 import { replyRefsFromPayload } from "@/features/chat/lib/reply-refs";
 

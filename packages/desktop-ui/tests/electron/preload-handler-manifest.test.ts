@@ -83,26 +83,94 @@ const resolveStaticChannel = (
   return null;
 };
 
-const collectPreloadInvokes = (preloadPath: string): Set<string> => {
-  const sourceFile = ts.createSourceFile(
-    preloadPath,
-    readFileSync(preloadPath, "utf8"),
+const parseTsFile = (filePath: string): ts.SourceFile =>
+  ts.createSourceFile(
+    filePath,
+    readFileSync(filePath, "utf8"),
     ts.ScriptTarget.Latest,
     true,
-    ts.ScriptKind.TS,
+    filePath.endsWith(".js") ? ts.ScriptKind.JS : ts.ScriptKind.TS,
   );
+
+const contractsDir = path.join(repoRoot, "packages/contracts/desktop");
+
+/** `IPC_*` constant name -> channel string, from the shared channel list. */
+const sharedChannelIdentifiers = (): Map<string, string> =>
+  collectStaticChannelValues(
+    parseTsFile(path.join(contractsDir, "ipc-channels.ts")),
+  ).identifiers;
+
+/**
+ * Every invoke channel the typed contract declares: the keys of
+ * `IpcInvokeContract`. The preload bridge can only `ipc.invoke` these (the
+ * `TypedIpcRenderer` signature takes `keyof IpcInvokeContract`), so this is
+ * the full set of channels the renderer can call.
+ */
+const collectContractInvokeChannels = (
+  sharedIdentifiers: Map<string, string>,
+): Set<string> => {
+  const sourceFile = parseTsFile(path.join(contractsDir, "ipc-contract.ts"));
+  const contract = sourceFile.statements.find(
+    (statement): statement is ts.TypeAliasDeclaration =>
+      ts.isTypeAliasDeclaration(statement) &&
+      statement.name.text === "IpcInvokeContract",
+  );
+  if (!contract || !ts.isTypeLiteralNode(contract.type)) {
+    throw new Error(
+      "IpcInvokeContract is not a type literal in ipc-contract.ts",
+    );
+  }
+  const channels = new Set<string>();
+  for (const member of contract.type.members) {
+    const name = member.name;
+    if (!name) continue;
+    let channel: string | null = null;
+    if (ts.isStringLiteral(name)) {
+      channel = name.text;
+    } else if (ts.isComputedPropertyName(name)) {
+      channel = resolveStaticChannel(
+        name.expression,
+        { identifiers: new Map(), objectProperties: new Map() },
+        sharedIdentifiers,
+      );
+    }
+    if (!channel) {
+      throw new Error(
+        `Cannot resolve IpcInvokeContract key ${name.getText(sourceFile)} to a channel string`,
+      );
+    }
+    channels.add(channel);
+  }
+  return channels;
+};
+
+/**
+ * Invoke channels `createElectronApi` (the preload bridge) actually calls,
+ * through `invoker(CHANNEL)` or `ipc.invoke(CHANNEL, ...)`.
+ */
+const collectBridgeInvokeChannels = (
+  sharedIdentifiers: Map<string, string>,
+): Set<string> => {
+  const sourceFile = parseTsFile(path.join(contractsDir, "electron-api.ts"));
+  const values = collectStaticChannelValues(sourceFile);
   const channels = new Set<string>();
   const visit = (node: ts.Node) => {
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      ts.isIdentifier(node.expression.expression) &&
-      node.expression.expression.text === "ipcRenderer" &&
-      node.expression.name.text === "invoke" &&
-      node.arguments[0] &&
-      ts.isStringLiteral(node.arguments[0])
-    ) {
-      channels.add(node.arguments[0].text);
+    if (ts.isCallExpression(node) && node.arguments[0]) {
+      const callee = node.expression;
+      const isInvoker = ts.isIdentifier(callee) && callee.text === "invoker";
+      const isIpcInvoke =
+        ts.isPropertyAccessExpression(callee) &&
+        ts.isIdentifier(callee.expression) &&
+        callee.expression.text === "ipc" &&
+        callee.name.text === "invoke";
+      if (isInvoker || isIpcInvoke) {
+        const channel = resolveStaticChannel(
+          node.arguments[0],
+          values,
+          sharedIdentifiers,
+        );
+        if (channel) channels.add(channel);
+      }
     }
     ts.forEachChild(node, visit);
   };
@@ -110,32 +178,15 @@ const collectPreloadInvokes = (preloadPath: string): Set<string> => {
   return channels;
 };
 
-const collectRegisteredInvokeHandlers = (): Set<string> => {
-  const contractsPath = path.join(
-    repoRoot,
-    "packages/contracts/desktop/ipc-channels.ts",
-  );
-  const contractsSource = ts.createSourceFile(
-    contractsPath,
-    readFileSync(contractsPath, "utf8"),
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
-  const sharedIdentifiers =
-    collectStaticChannelValues(contractsSource).identifiers;
+const collectRegisteredInvokeHandlers = (
+  sharedIdentifiers: Map<string, string>,
+): Set<string> => {
   const channels = new Set<string>();
   const electronRoot = path.join(repoRoot, "packages/desktop/electron");
 
   for (const sourcePath of walkSourceFiles(electronRoot)) {
     if (sourcePath.endsWith("preload.ts")) continue;
-    const sourceFile = ts.createSourceFile(
-      sourcePath,
-      readFileSync(sourcePath, "utf8"),
-      ts.ScriptTarget.Latest,
-      true,
-      sourcePath.endsWith(".js") ? ts.ScriptKind.JS : ts.ScriptKind.TS,
-    );
+    const sourceFile = parseTsFile(sourcePath);
     const values = collectStaticChannelValues(sourceFile);
     const visit = (node: ts.Node) => {
       if (!ts.isCallExpression(node)) {
@@ -149,6 +200,12 @@ const collectRegisteredInvokeHandlers = (): Set<string> => {
         node.expression.expression.text === "ipcMain" &&
         node.expression.name.text === "handle"
       ) {
+        channelExpression = node.arguments[0];
+      } else if (
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "handleIpc"
+      ) {
+        // The typed `ipcMain.handle` wrapper (`electron/ipc/typed-ipc.ts`).
         channelExpression = node.arguments[0];
       } else if (
         ts.isIdentifier(node.expression) &&
@@ -178,13 +235,29 @@ const collectRegisteredInvokeHandlers = (): Set<string> => {
 };
 
 describe("preload IPC handler manifest", () => {
+  const sharedIdentifiers = sharedChannelIdentifiers();
+  const contractInvokes = collectContractInvokeChannels(sharedIdentifiers);
 
-  it("registers a main-process handler for every preload invoke channel", () => {
-    const preloadInvokes = collectPreloadInvokes(
-      path.join(repoRoot, "packages/desktop/electron/preload.ts"),
-    );
-    const registeredHandlers = collectRegisteredInvokeHandlers();
-    const missing = [...preloadInvokes]
+  it("reads the invoke channels from the typed contract", () => {
+    // Guards against the manifest going vacuous if the contract's shape moves.
+    expect(sharedIdentifiers.size).toBeGreaterThan(0);
+    expect(contractInvokes.size).toBeGreaterThan(0);
+  });
+
+  it("only invokes contract channels from the preload bridge", () => {
+    const bridgeInvokes = collectBridgeInvokeChannels(sharedIdentifiers);
+    expect(bridgeInvokes.size).toBeGreaterThan(0);
+    const outsideContract = [...bridgeInvokes]
+      .filter((channel) => !contractInvokes.has(channel))
+      .sort();
+
+    expect(outsideContract).toEqual([]);
+  });
+
+  it("registers a main-process handler for every contract invoke channel", () => {
+    const registeredHandlers =
+      collectRegisteredInvokeHandlers(sharedIdentifiers);
+    const missing = [...contractInvokes]
       .filter((channel) => !registeredHandlers.has(channel))
       .sort();
 

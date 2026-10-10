@@ -8,7 +8,7 @@ import {
   mergeCanonicalCloudEventsWithLocalOverlay,
   nextLocalCloudEventOverlayExpiry,
 } from "../../../src/features/cloud/journal-activity-files";
-import type { JournalRecord } from "../../../src/features/cloud/conversation-protocol";
+import type { JournalRecord } from "@stella/contracts/conversation-protocol";
 import type { CloudAgentThread } from "../../../src/features/cloud/cloud-api";
 import {
   cloudThreadsForOwnerSubject,
@@ -133,7 +133,8 @@ describe("canonical cloud Activity and Files projection", () => {
         payload: {
           role: "user",
           source: "agent-thread",
-          content: "[Agent completed] Write notes (thread thr-cloud-2)\n\nDone.",
+          content:
+            "[Agent completed] Write notes (thread thr-cloud-2)\n\nDone.",
           timestamp: 30,
         },
       },

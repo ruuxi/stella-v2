@@ -2,12 +2,14 @@ import { describe, expect, test } from "vitest";
 import type { MessageRecord } from "@stella/contracts/local-chat";
 import {
   activeCloudUserMessageIds,
-  completeJournalWindowRecords,
-  hasIncompleteLeadingJournalTurn,
   journalRecordsToMessageRecords,
   mergeCanonicalMessagesWithLocalCache,
 } from "../../../src/features/cloud/journal-message-records";
-import type { JournalRecord } from "../../../src/features/cloud/conversation-protocol";
+import {
+  completeJournalWindowRecords,
+  hasIncompleteLeadingJournalTurn,
+} from "@stella/contracts/conversation-journal-projection";
+import type { JournalRecord } from "@stella/contracts/conversation-protocol";
 
 const records: JournalRecord[] = [
   {

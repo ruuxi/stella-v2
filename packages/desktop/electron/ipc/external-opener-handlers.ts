@@ -8,7 +8,7 @@
  * user's machine so the menu never lists something that can't run.
  */
 
-import { ipcMain, shell } from "electron";
+import { shell } from "electron";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import os from "node:os";
@@ -35,6 +35,7 @@ import {
   IPC_SHELL_OPEN_WITH,
 } from "@stella/contracts/desktop/ipc-channels";
 import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
+import { handleIpc } from "./typed-ipc.js";
 
 /**
  * The OS-handoff twin of the `display:readFile` guard. A cloud-world path has
@@ -233,7 +234,8 @@ const isMacAppInstalled = (appName: string): boolean => {
 
 const listMacOpenersForExt = (ext: string): ExternalOpener[] => {
   return MAC_APP_CATALOG.filter(
-    (entry) => entry.extensions.includes(ext) && isMacAppInstalled(entry.appName),
+    (entry) =>
+      entry.extensions.includes(ext) && isMacAppInstalled(entry.appName),
   ).map<ExternalOpener>((entry) => ({
     id: entry.id,
     label: entry.label,
@@ -276,26 +278,23 @@ const asTrimmedString = (value: unknown) =>
 export const registerExternalOpenerHandlers = (options: {
   externalLinkService: ExternalLinkService;
 }) => {
-  ipcMain.handle(
-    IPC_SHELL_LIST_OPENERS,
-    (event, payload: { filePath?: string }) => {
-      if (
-        !options.externalLinkService.assertPrivilegedSender(
-          event,
-          IPC_SHELL_LIST_OPENERS,
-        )
-      ) {
-        return { openers: [] as ExternalOpener[] };
-      }
-      const filePath = asTrimmedString(payload?.filePath);
-      if (!filePath) {
-        return { openers: [] as ExternalOpener[] };
-      }
-      return { openers: buildOpenersForFile(filePath) };
-    },
-  );
+  handleIpc(IPC_SHELL_LIST_OPENERS, (event, payload: { filePath?: string }) => {
+    if (
+      !options.externalLinkService.assertPrivilegedSender(
+        event,
+        IPC_SHELL_LIST_OPENERS,
+      )
+    ) {
+      return { openers: [] as ExternalOpener[] };
+    }
+    const filePath = asTrimmedString(payload?.filePath);
+    if (!filePath) {
+      return { openers: [] as ExternalOpener[] };
+    }
+    return { openers: buildOpenersForFile(filePath) };
+  });
 
-  ipcMain.handle(
+  handleIpc(
     IPC_SHELL_OPEN_WITH,
     async (
       event,
@@ -336,7 +335,7 @@ export const registerExternalOpenerHandlers = (options: {
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_SHELL_OPEN_PATH,
     async (
       event,

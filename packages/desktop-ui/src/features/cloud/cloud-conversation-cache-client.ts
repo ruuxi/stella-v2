@@ -11,7 +11,7 @@ import {
 import {
   decodeSequencedJournalEntry,
   type JournalRecord,
-} from "./conversation-protocol";
+} from "@stella/contracts/conversation-protocol";
 
 export type RenderableCloudConversationCacheSnapshot = Omit<
   CloudConversationCacheSnapshot,

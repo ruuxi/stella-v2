@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { ipcMain } from "electron";
 import { IPC_THEME_LIST_INSTALLED } from "@stella/contracts/desktop/ipc-channels";
+import { handleIpc } from "./typed-ipc.js";
 
 type Theme = {
   id?: unknown;
@@ -38,7 +38,7 @@ const listInstalledThemes = async (stellaDataDir: string) => {
 export const registerThemeHandlers = (options: {
   getStellaDataDir: () => string | null;
 }) => {
-  ipcMain.handle(IPC_THEME_LIST_INSTALLED, async () => {
+  handleIpc(IPC_THEME_LIST_INSTALLED, async () => {
     const stellaDataDir = options.getStellaDataDir();
     return stellaDataDir ? await listInstalledThemes(stellaDataDir) : [];
   });

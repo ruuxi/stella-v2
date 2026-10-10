@@ -52,7 +52,7 @@ export interface Interface {
   ) => void;
   /** appendEvent + LOCAL_CHAT_UPDATED notify in one step. */
   readonly appendChatEventAndNotify: (
-    args: Parameters<ChatStore["appendEvent"]>[0],
+    args: Parameters<ChatStore["chat"]["appendEvent"]>[0],
   ) => LocalChatEventRecord;
 }
 
@@ -126,7 +126,7 @@ export const layer = Layer.effect(
     const appendChatEventAndNotify: Interface["appendChatEventAndNotify"] = (
       args,
     ) => {
-      const event = chatStore.appendEvent(args);
+      const event = chatStore.chat.appendEvent(args);
       notifyLocalChatUpdated(args.conversationId, event);
       return event;
     };

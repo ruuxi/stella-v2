@@ -11,6 +11,11 @@ import {
 export const DIFF_PREVIEW_MAX_BYTES = 2 * 1024 * 1024;
 export const DIFF_PREVIEW_MAX_LINES = 10_000;
 export const PREVIEW_MAX_LINE_CHARS = 2_000;
+/**
+ * Past Streamdown's parse budget a document renders as one plaintext block,
+ * so this bounds how much of that block the renderer has to lay out.
+ */
+export const MARKDOWN_PREVIEW_MAX_BYTES = 512 * 1024;
 export type PreviewRequest =
   | {
       kind: "table";
@@ -24,10 +29,17 @@ export type PreviewRequest =
       patch?: string;
       filePath: string;
       truncated: boolean;
+    }
+  | {
+      kind: "markdown";
+      bytes: Uint8Array;
+      truncated: boolean;
     };
 export type PreviewResult = {
   rows: string[][];
   lines: (DiffLine | { kind: "header"; text: string })[];
+  /** Decoded markdown source; empty when the document is only whitespace. */
+  text?: string;
   limited: boolean;
 };
 
@@ -47,6 +59,18 @@ export function parsePreview(request: PreviewRequest): PreviewResult {
       }),
     );
     return { rows, lines: [], limited };
+  }
+  if (request.kind === "markdown") {
+    let text = new TextDecoder().decode(request.bytes);
+    // A byte cap can split a line or a UTF-8 sequence; end on a whole line.
+    const lastNewline = request.truncated ? text.lastIndexOf("\n") : -1;
+    if (lastNewline > 0) text = text.slice(0, lastNewline);
+    return {
+      rows: [],
+      lines: [],
+      text: text.trim().length > 0 ? text : "",
+      limited: request.truncated,
+    };
   }
   let text = request.patch ?? new TextDecoder().decode(request.bytes);
   let limited = request.truncated || text.length > DIFF_PREVIEW_MAX_BYTES;

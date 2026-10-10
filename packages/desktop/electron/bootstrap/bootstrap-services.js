@@ -13,7 +13,13 @@ import { ClaudeLocalAccounts } from "../services/claude-local-accounts.js";
 import { ExternalLinkService } from "../services/external-link-service.js";
 import { readConfiguredCanvasShareBaseUrl, resolveSharedCanvasPayload, } from "../services/canvas-share-service.js";
 import { isCanvasShareUrl } from "@stella/contracts/canvas-share";
-import { IPC_AUTH_SESSION_INVALIDATED, IPC_MEMORY_SYNC_STATUS, } from "@stella/contracts/desktop/ipc-channels";
+import {
+  IPC_AUTH_SESSION_INVALIDATED,
+  IPC_MEMORY_SYNC_STATUS,
+  IPC_LOCAL_CHAT_UPDATED,
+  IPC_DISPLAY_UPDATE,
+  IPC_CLAUDE_ACCOUNTS_CHANGED,
+} from "@stella/contracts/desktop/ipc-channels";
 import { LocalChatHistoryService } from "../services/local-chat-history-service.js";
 import { SecurityPolicyService } from "../services/security-policy-service.js";
 import { UiStateService } from "../services/ui-state-service.js";
@@ -29,7 +35,7 @@ export const createBootstrapServices = (options) => {
         onUpdated: (payload) => {
             for (const window of options.getAllWindows()) {
                 if (!window.isDestroyed()) {
-                    window.webContents.send("localChat:updated", payload ?? null);
+                    window.webContents.send(IPC_LOCAL_CHAT_UPDATED, payload ?? null);
                 }
             }
         },
@@ -60,7 +66,7 @@ export const createBootstrapServices = (options) => {
             }
             for (const window of options.getAllWindows()) {
                 if (!window.isDestroyed()) {
-                    window.webContents.send("display:update", payload);
+                    window.webContents.send(IPC_DISPLAY_UPDATE, payload);
                 }
             }
         })
@@ -127,7 +133,7 @@ export const createBootstrapServices = (options) => {
         onChanged: () => {
             for (const window of options.getAllWindows()) {
                 if (!window.isDestroyed()) {
-                    window.webContents.send("claudeAccounts:changed", {});
+                    window.webContents.send(IPC_CLAUDE_ACCOUNTS_CHANGED, {});
                 }
             }
         },

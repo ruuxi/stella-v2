@@ -26,7 +26,11 @@ import {
   type SourceDiffBatch,
 } from "@/features/workspace-display/source-diff-batches";
 
-import { DIFF_PREVIEW_MAX_BYTES, type PreviewResult } from "./preview-parser";
+import {
+  DIFF_PREVIEW_MAX_BYTES,
+  MARKDOWN_PREVIEW_MAX_BYTES,
+  type PreviewResult,
+} from "./preview-parser";
 import { usePreviewParser } from "./use-preview-parser";
 import { usePreviewWindow } from "./use-preview-window";
 import { PreviewEmpty, PreviewProblem } from "./preview-states";
@@ -204,8 +208,6 @@ export const OfficeFileTabContent = ({
     </div>
   );
 };
-
-const textDecoder = new TextDecoder("utf-8");
 
 const PreviewLimitNotice = () => {
   const t = useT();
@@ -393,9 +395,6 @@ export const PdfTabContent = ({
   </div>
 );
 
-const decodeTextBytes = (bytes: Uint8Array | null): string =>
-  bytes ? textDecoder.decode(bytes) : "";
-
 export const MarkdownTabContent = (props: {
   filePath: string;
   title?: string;
@@ -420,14 +419,23 @@ const MarkdownView = ({
   onRetry: () => void;
 }) => {
   const t = useT();
-  const { bytes, error, loading, missing } = useDisplayFileBytes(
+  const { bytes, error, loading, missing, truncated } = useDisplayFileBytes(
     filePath,
     t("shell.display.markdown.desktopRequired"),
+    undefined,
+    undefined,
+    MARKDOWN_PREVIEW_MAX_BYTES,
   );
-  const markdown = useMemo(() => decodeTextBytes(bytes), [bytes]);
+  const request = useMemo(
+    () => (bytes ? { kind: "markdown" as const, bytes, truncated } : null),
+    [bytes, truncated],
+  );
+  const parsed = usePreviewParser(request);
+  const markdown = parsed?.result?.text ?? "";
   const { actionStatus, handleSave, handleCopy } = useFilePreviewActions({
     sourcePath: filePath,
-    copyText: markdown,
+    // A partial document is never put on the clipboard as if it were whole.
+    ...(parsed?.result && !parsed.result.limited ? { copyText: markdown } : {}),
     suggestedName: title ?? filePath.split(/[\\/]/).pop() ?? "document.md",
   });
 
@@ -456,13 +464,13 @@ const MarkdownView = ({
           </div>
         </header>
         <div className="display-markdown-viewer">
-          {error ? (
+          {error || parsed?.error ? (
             <PreviewProblem
-              error={error}
+              error={error || parsed?.error}
               missing={missing}
               {...(missing ? {} : { onRetry })}
             />
-          ) : loading ? (
+          ) : loading || (request && !parsed) ? (
             <div className="display-file-preview__empty">
               {t("shell.display.filePreview.loading")}
             </div>
@@ -474,6 +482,7 @@ const MarkdownView = ({
             </Suspense>
           )}
         </div>
+        {parsed?.result?.limited && <PreviewLimitNotice />}
       </section>
     </div>
   );

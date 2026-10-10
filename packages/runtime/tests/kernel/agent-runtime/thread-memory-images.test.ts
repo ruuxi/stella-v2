@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { stripStaleImageBlocks } from "@stella/runtime/kernel/agent-runtime/thread-memory";
+import { collectThreadImageReceipts } from "@stella/runtime/kernel/thread-runtime";
 import {
-  collectThreadImageReceipts,
   getThreadImageHistoryStats,
   splitThreadMessagesForImagePressure,
-} from "@stella/runtime/kernel/thread-runtime";
+} from "@stella/runtime/kernel/thread-compaction-plan";
 
 type TestMessage = {
   role: string;

@@ -6,7 +6,7 @@ import {
 import {
   decodeRecord,
   type JournalRecord,
-} from "../../../src/features/cloud/conversation-protocol";
+} from "@stella/contracts/conversation-protocol";
 import { journalRecordsToMessageRecords } from "../../../src/features/cloud/journal-message-records";
 import { journalRecordsToCloudActivityEvents } from "../../../src/features/cloud/journal-activity-files";
 import { buildBackgroundTaskLifecycleIndex } from "../../../src/features/chat/lib/background-task-lifecycle";

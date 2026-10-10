@@ -11,7 +11,6 @@
  */
 import {
   BrowserWindow,
-  ipcMain,
   type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
@@ -31,6 +30,7 @@ import type {
   CompanionState,
 } from "@stella/contracts/desktop/companion";
 import type { CompanionWindowController } from "../windows/companion-window.js";
+import { handleIpc, onIpc } from "./typed-ipc.js";
 
 type WindowManagerLike = {
   getFullWindow: () => BrowserWindow | null;
@@ -101,7 +101,7 @@ export const registerCompanionHandlers = (
     }
   };
 
-  ipcMain.on(IPC_COMPANION_PUBLISH_STATE, (event, state: CompanionState) => {
+  onIpc(IPC_COMPANION_PUBLISH_STATE, (event, state: CompanionState) => {
     if (!options.assertPrivilegedSender(event, IPC_COMPANION_PUBLISH_STATE))
       return;
     const controller = options.getCompanionController();
@@ -117,13 +117,13 @@ export const registerCompanionHandlers = (
     controller?.setState(state);
   });
 
-  ipcMain.handle(IPC_COMPANION_GET_STATE, (event) => {
+  handleIpc(IPC_COMPANION_GET_STATE, (event) => {
     if (!options.assertPrivilegedSender(event, IPC_COMPANION_GET_STATE))
       return null;
     return options.getCompanionController()?.getState() ?? null;
   });
 
-  ipcMain.on(IPC_COMPANION_SEND, (event, payload: CompanionSendRequest) => {
+  onIpc(IPC_COMPANION_SEND, (event, payload: CompanionSendRequest) => {
     const controller = options.getCompanionController();
     if (!controller?.isSender(event.sender)) return;
     const text = typeof payload?.text === "string" ? payload.text.trim() : "";
@@ -134,7 +134,7 @@ export const registerCompanionHandlers = (
     });
   });
 
-  ipcMain.on(IPC_COMPANION_STOP, (event) => {
+  onIpc(IPC_COMPANION_STOP, (event) => {
     const controller = options.getCompanionController();
     if (!controller?.isSender(event.sender)) return;
     const win = fullWindowBrain();
@@ -146,14 +146,14 @@ export const registerCompanionHandlers = (
     });
   });
 
-  ipcMain.handle(IPC_COMPANION_GET_VISIBLE, (event) => {
+  handleIpc(IPC_COMPANION_GET_VISIBLE, (event) => {
     if (!options.assertPrivilegedSender(event, IPC_COMPANION_GET_VISIBLE)) {
       return { visible: false };
     }
     return { visible: options.getCompanionController()?.isVisible() ?? false };
   });
 
-  ipcMain.handle(IPC_COMPANION_SET_VISIBLE, async (event, visible: boolean) => {
+  handleIpc(IPC_COMPANION_SET_VISIBLE, async (event, visible: boolean) => {
     if (!options.assertPrivilegedSender(event, IPC_COMPANION_SET_VISIBLE)) {
       return { visible: false };
     }

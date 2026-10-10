@@ -23,6 +23,7 @@ import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/a
 import { anonymous, bearer, captcha, jwt, magicLink, oneTimeToken } from "better-auth/plugins";
 import { expo } from "@better-auth/expo";
 import { importPKCS8, SignJWT } from "jose";
+import { bearerCredential } from "../../../shared/bearer.js";
 import { isDisposableEmail } from "./disposable-email-domains.js";
 import { buildMagicLinkEmail, getMagicLinkSubject } from "./email-templates.js";
 import { stellaHandoff, type HandoffApi } from "./handoff.js";
@@ -235,8 +236,14 @@ const endingSession = async (ctx: {
   headers?: Headers | null;
   context: { internalAdapter: { findSession(token: string): Promise<unknown> } };
 }): Promise<EndingSession | null> => {
-  const header = ctx.headers?.get("authorization") ?? "";
-  const bearer = header.startsWith("Bearer ") ? decodeURIComponent(header.slice(7).trim()) : "";
+  // Clients send the signed session token URI-encoded, as bearer() expects.
+  const credential = bearerCredential(ctx.headers?.get("authorization")) ?? "";
+  let bearer = "";
+  try {
+    bearer = decodeURIComponent(credential);
+  } catch {
+    // A malformed escape is no bearer; the context's own session still counts.
+  }
   const resolved =
     (await getSessionFromCtx(ctx as never).catch(() => null)) ??
     (bearer ? await ctx.context.internalAdapter.findSession(bearer.split(".")[0]!).catch(() => null) : null);

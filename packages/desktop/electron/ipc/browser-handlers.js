@@ -1,11 +1,14 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { clipboard, ClipboardItem, ipcMain, nativeImage, } from "electron";
+import { clipboard, ClipboardItem, nativeImage } from "electron";
 import { getBrowserCookieHeader } from "./browser-fetch-session.js";
 import { normalizeUrlForPrivilegedRendererFetch, PRIVILEGED_RENDERER_FETCH_TIMEOUT_MS, } from "./renderer-safe-url.js";
 import { IPC_BROWSER_FETCH_JSON, IPC_BROWSER_FETCH_TEXT, IPC_MEDIA_COPY_ATTACHMENT, IPC_MEDIA_COPY_IMAGE, IPC_MEDIA_GET_DIR, IPC_MEDIA_SAVE_OUTPUT, } from "@stella/contracts/desktop/ipc-channels";
 import { decodeAndValidateImage, decodeBase64ImageBounded, readResponseBodyBounded, validateDecodedImageFile, } from "@stella/runtime/kernel/tools/image-decode-validation";
 import { materializeMediaArtifact } from "@stella/runtime/kernel/tools/media-artifact-store";
+import {
+  handleIpc,
+} from "./typed-ipc.js";
 // Electron 44's clipboard takes W3C-style ClipboardItems; images go on as PNG.
 const writeImageToClipboard = (image) => clipboard.write([
     new ClipboardItem({
@@ -86,7 +89,7 @@ const normalizedImageOutputPath = (requestedPath, mimeType) => {
     return path.join(parsed.dir, `${parsed.name}${extension}`);
 };
 export const registerBrowserHandlers = (options) => {
-    ipcMain.handle(IPC_BROWSER_FETCH_JSON, async (event, payload) => {
+    handleIpc(IPC_BROWSER_FETCH_JSON, async (event, payload) => {
         if (!options.assertPrivilegedSender(event, IPC_BROWSER_FETCH_JSON)) {
             throw new Error("Blocked untrusted request.");
         }
@@ -98,7 +101,7 @@ export const registerBrowserHandlers = (options) => {
             init: payload.init,
         });
     });
-    ipcMain.handle(IPC_BROWSER_FETCH_TEXT, async (event, payload) => {
+    handleIpc(IPC_BROWSER_FETCH_TEXT, async (event, payload) => {
         if (!options.assertPrivilegedSender(event, IPC_BROWSER_FETCH_TEXT)) {
             throw new Error("Blocked untrusted request.");
         }
@@ -111,7 +114,7 @@ export const registerBrowserHandlers = (options) => {
         });
     });
     // ── Media file operations ──
-    ipcMain.handle(IPC_MEDIA_SAVE_OUTPUT, async (event, payload) => {
+    handleIpc(IPC_MEDIA_SAVE_OUTPUT, async (event, payload) => {
         if (!options.assertPrivilegedSender(event, IPC_MEDIA_SAVE_OUTPUT)) {
             return { ok: false, error: "Blocked untrusted request." };
         }
@@ -230,7 +233,7 @@ export const registerBrowserHandlers = (options) => {
             return { ok: false, error: error.message };
         }
     });
-    ipcMain.handle(IPC_MEDIA_GET_DIR, async (event) => {
+    handleIpc(IPC_MEDIA_GET_DIR, async (event) => {
         if (!options.assertPrivilegedSender(event, IPC_MEDIA_GET_DIR)) {
             return null;
         }
@@ -239,7 +242,7 @@ export const registerBrowserHandlers = (options) => {
             return null;
         return path.join(stellaDataDir, "media");
     });
-    ipcMain.handle(IPC_MEDIA_COPY_IMAGE, async (event, payload) => {
+    handleIpc(IPC_MEDIA_COPY_IMAGE, async (event, payload) => {
         if (!options.assertPrivilegedSender(event, IPC_MEDIA_COPY_IMAGE)) {
             return { ok: false, error: "Blocked untrusted request." };
         }
@@ -260,7 +263,7 @@ export const registerBrowserHandlers = (options) => {
     // everything else falls back to writing the file path as text — Electron
     // exposes no cross-platform "put a file object on the clipboard" API, so
     // a path-as-text drop is the least-surprising, most-portable behavior.
-    ipcMain.handle(IPC_MEDIA_COPY_ATTACHMENT, async (event, payload) => {
+    handleIpc(IPC_MEDIA_COPY_ATTACHMENT, async (event, payload) => {
         if (!options.assertPrivilegedSender(event, IPC_MEDIA_COPY_ATTACHMENT)) {
             return { ok: false, error: "Blocked untrusted request." };
         }

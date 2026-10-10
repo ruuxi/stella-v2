@@ -5,7 +5,7 @@
  * drive URL and never through the desktop bridge.
  */
 import type { ChatArtifact, MobileDisplayPayload } from "../types";
-import type { JournalFile } from "./cloud-conversation-protocol";
+import type { JournalFile } from "@stella/contracts/conversation-protocol";
 import { artifactId } from "./mobile-artifacts";
 
 const titleCase = (slug: string) =>

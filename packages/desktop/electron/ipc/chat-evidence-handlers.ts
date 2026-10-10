@@ -1,11 +1,8 @@
-import {
-  ipcMain,
-  type IpcMainEvent,
-  type IpcMainInvokeEvent,
-} from "electron";
+import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { IPC_CHAT_EVIDENCE_CARDS } from "@stella/contracts/desktop/ipc-channels";
 import type { EvidenceCardSet } from "@stella/contracts/chat-evidence";
 import { createChatEvidenceService } from "../services/chat-evidence-service.js";
+import { handleIpc } from "./typed-ipc.js";
 
 const REQUEST_PATH_CAP = 40;
 
@@ -20,7 +17,7 @@ export const registerChatEvidenceHandlers = (options: {
     getStellaDataDir: options.getStellaDataDir,
   });
 
-  ipcMain.handle(
+  handleIpc(
     IPC_CHAT_EVIDENCE_CARDS,
     async (
       event,

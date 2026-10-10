@@ -1,4 +1,3 @@
-import { cloudCacheDelta } from "./cloud-cache-delta";
 /**
  * The rendered state of one cloud conversation, reduced from the socket's
  * ordered record stream.
@@ -9,549 +8,69 @@ import { cloudCacheDelta } from "./cloud-cache-delta";
  * send/cancel/runtime fallback and is repainted only behind this authority
  * reducer after a matching account + generation fence.
  *
- * Two stores, on purpose:
- *  - `conversationStore(id, accountScope, ownerGeneration)` is per exact
- *    lifecycle authority + conversation and owns its socket.
- *  - `pendingPrompts` is authority-scoped global state, because the very first
- *    prompt is durably written before any conversation exists to file it under.
+ * `conversationStore(id, accountScope, ownerGeneration)` is per exact
+ * lifecycle authority + conversation and owns its socket. Optimistic prompts
+ * (`pendingPrompts`) are authority-scoped global state in `conversation-outbox`,
+ * because the very first prompt is durably written before any conversation
+ * exists to file it under; the SQLite replica is written by
+ * `ConversationCachePersister`.
  */
 
 import { getAuthToken } from "@/global/auth/services/auth-token";
+import type { JournalRecord } from "@stella/contracts/conversation-protocol";
 import {
-  BACKFILL_BATCH_RECORDS,
-  MAX_CLIENT_RECORDS,
-  type JournalRecord,
-} from "./conversation-protocol";
+  EMPTY_JOURNAL_RECORDS as EMPTY_RECORDS,
+  MAX_RETAINED_STORES,
+  OLDER_EXHAUSTED_NOTICE,
+  OLDER_INCOMPLETE_NOTICE,
+  OLDER_LIMIT_NOTICE,
+  OLDER_TIMEOUT_MS,
+  TEARDOWN_GRACE_MS,
+  appendJournalRecords,
+  initialConversationViewState,
+  liveTurnAfterRecords,
+  liveTurnFromReady,
+  liveTurnWithTool,
+  olderRangeIsComplete,
+  olderWouldExceedRetainedLimit,
+  prependOlderRecords,
+  type ConversationViewState,
+} from "@stella/contracts/conversation-store-reducer";
 import {
   ConversationSocket,
   type ConversationSocketCursor,
   type ConversationSocketEvent,
-  type SocketStatus,
 } from "./conversation-socket";
 import {
-  cloudConversationOutbox,
+  pendingPrompts,
   type CloudConversationOutboxAuthority,
-  type PendingCloudTurnSubmission,
-  type PendingPrompt,
 } from "./conversation-outbox";
-import type {
-  CloudConversationCacheAuthority,
-  CloudConversationCacheVersion,
-} from "@stella/contracts/cloud-conversation-cache";
+import type { CloudConversationCacheAuthority } from "@stella/contracts/cloud-conversation-cache";
 import { cloudConversationCacheClient } from "./cloud-conversation-cache-client";
+import { ConversationCachePersister } from "./conversation-cache-persister";
 import {
   cloudReadinessNow,
   reportCloudReadiness,
 } from "./cloud-readiness-timing";
 
-export type {
-  CloudConversationOutboxAuthority,
-  PendingCloudTurnSubmission,
-  PendingPrompt,
-} from "./conversation-outbox";
-
-/**
- * The turn that is running right now. Assistant replies are delivered whole,
- * so this carries no text: it exists to keep the working indicator up between
- * the turn's `started` row and its terminal one.
- */
-export type LiveStream = {
-  turnId: string;
-  /** The tool currently running, for the working label. */
-  toolName: string | null;
-  toolLabel: string | null;
-};
-
-export type ConversationState = {
-  conversationId: string;
-  status: SocketStatus;
-  statusMessage: string | null;
-  statusRetryable: boolean;
-  /** Durable journal generation reported by the DO; null before `ready`. */
-  epoch: number | null;
-  /** DO head observed by the socket, including opaque/skipped records. */
-  headSeq: number;
-  /** Ascending by `seq`, contiguous. */
-  records: readonly JournalRecord[];
+export type ConversationState = ConversationViewState & {
   /**
    * `cached-stale` rows may paint while a canonical socket reconnects, but are
    * never eligible to drive server/runtime behavior. Missing is equivalent to
    * `none` for older callers and SSR's inert snapshot.
    */
   recordsSource?: "none" | "cached-stale" | "canonical";
-  live: LiveStream | null;
-  title: string;
-  /** Lowest seq that still exists. Nothing below it is ever fetchable. */
-  floorSeq: number;
-  /** True while records exist below the oldest one loaded. */
-  hasOlder: boolean;
-  loadingOlder: boolean;
-  /** Why scrollback stopped, when it stopped for a reason worth saying. */
-  olderNotice: string | null;
 };
-
-const EMPTY_RECORDS: readonly JournalRecord[] = [];
 
 const initialState = (conversationId: string): ConversationState => ({
-  conversationId,
-  status: "idle",
-  statusMessage: null,
-  statusRetryable: true,
-  epoch: null,
-  headSeq: -1,
-  records: EMPTY_RECORDS,
+  ...initialConversationViewState(conversationId),
   recordsSource: "none",
-  live: null,
-  title: "",
-  floorSeq: 0,
-  hasOlder: false,
-  loadingOlder: false,
-  olderNotice: null,
 });
-
-// ---------------------------------------------------------------- pending
-
-const pendingListeners = new Set<() => void>();
-let pending: readonly PendingPrompt[] = [];
-const EMPTY_PENDING: readonly PendingPrompt[] = [];
-const inFlightPending = new Set<string>();
-let activePendingAuthorityKey: string | null = null;
-let activePendingAuthorityReady = false;
-
-const authorityKey = (authority: CloudConversationOutboxAuthority): string =>
-  `${authority.accountScope}\u0000${authority.ownerGeneration}`;
-
-const pendingKey = (
-  authority: CloudConversationOutboxAuthority,
-  clientMsgId: string,
-): string => `${authorityKey(authority)}\u0000${clientMsgId}`;
-
-const ownsPending = (
-  entry: PendingPrompt,
-  authority: CloudConversationOutboxAuthority,
-): boolean =>
-  entry.accountScope === authority.accountScope &&
-  entry.ownerGeneration === authority.ownerGeneration;
-
-const reliableStorageError = (error: unknown): string =>
-  error instanceof Error && error.message
-    ? error.message
-    : "Reliable message storage is unavailable. This message was not sent.";
-
-const frozenSubmission = (
-  submission: PendingCloudTurnSubmission,
-): PendingCloudTurnSubmission =>
-  Object.freeze({
-    requestedConversationId: submission.requestedConversationId,
-    prompt: submission.prompt,
-    imagePaths: Object.freeze([...submission.imagePaths]),
-    attachments: Object.freeze(
-      submission.attachments.map((attachment) =>
-        Object.freeze({ ...attachment }),
-      ),
-    ),
-    locale: submission.locale,
-    execution: submission.execution
-      ? Object.freeze({ ...submission.execution })
-      : null,
-  });
-
-const emitPending = (next: readonly PendingPrompt[]): void => {
-  pending = next;
-  for (const listener of pendingListeners) listener();
-};
-
-/**
- * Optimistic prompts. A prompt is echoed the instant the user sends it and
- * replaced by the canonical journal row when it arrives — resolved on either
- * `clientMsgId` (the key the mutation threads to the DO) or `turnId` (which
- * the mutation returns directly). Two keys because either one alone leaves a
- * ghost bubble if a link in the chain drops its field.
- */
-export const pendingPrompts = {
-  subscribe(listener: () => void): () => void {
-    pendingListeners.add(listener);
-    return () => pendingListeners.delete(listener);
-  },
-  getSnapshot(): readonly PendingPrompt[] {
-    return pending;
-  },
-  add(
-    authority: CloudConversationOutboxAuthority,
-    clientMsgId: string,
-    text: string,
-    conversationId: string | null,
-    submission: PendingCloudTurnSubmission,
-  ): PendingPrompt {
-    const base: PendingPrompt = {
-      ...authority,
-      clientMsgId,
-      text,
-      createdAtMs: Date.now(),
-      conversationId,
-      turnId: null,
-      dispatchId: null,
-      cancelRequested: false,
-      error: null,
-      retryOnNextActivation: false,
-      durable: false,
-      deliveryAcknowledged: false,
-      submission: frozenSubmission(submission),
-    };
-    let entry = base;
-    if (
-      activePendingAuthorityReady &&
-      activePendingAuthorityKey === authorityKey(authority)
-    ) {
-      try {
-        entry = cloudConversationOutbox.enqueue(base);
-      } catch (error) {
-        entry = { ...base, error: reliableStorageError(error) };
-      }
-    } else {
-      entry = {
-        ...base,
-        error:
-          "Stella is still verifying reliable delivery for this account. This message was not sent.",
-      };
-    }
-    emitPending([...pending, entry]);
-    return entry;
-  },
-  bindDispatch(
-    authority: CloudConversationOutboxAuthority,
-    clientMsgId: string,
-    dispatchId: string,
-  ): void {
-    this.patch(authority, clientMsgId, (entry) => ({ ...entry, dispatchId }));
-  },
-  requestCancel(
-    authority: CloudConversationOutboxAuthority,
-    clientMsgId: string,
-  ): void {
-    this.patch(authority, clientMsgId, (entry) => ({
-      ...entry,
-      cancelRequested: true,
-    }));
-  },
-  find(
-    authority: CloudConversationOutboxAuthority,
-    clientMsgId: string,
-  ): PendingPrompt | null {
-    return (
-      pending.find(
-        (entry) =>
-          ownsPending(entry, authority) && entry.clientMsgId === clientMsgId,
-      ) ?? null
-    );
-  },
-  /** The mutation answered: we now know where the prompt landed. */
-  bind(
-    authority: CloudConversationOutboxAuthority,
-    clientMsgId: string,
-    conversationId: string,
-    turnId: string,
-  ): void {
-    this.patch(authority, clientMsgId, (entry) => ({
-      ...entry,
-      conversationId,
-      turnId,
-    }));
-  },
-  fail(
-    authority: CloudConversationOutboxAuthority,
-    clientMsgId: string,
-    message: string,
-    retryOnNextActivation = false,
-  ): void {
-    this.patch(authority, clientMsgId, (entry) => ({
-      ...entry,
-      error: message,
-      retryOnNextActivation,
-    }));
-  },
-  drop(authority: CloudConversationOutboxAuthority, clientMsgId: string): void {
-    const found = this.find(authority, clientMsgId);
-    if (!found) return;
-    if (found.durable) {
-      try {
-        cloudConversationOutbox.remove(found);
-      } catch (error) {
-        this.fail(authority, clientMsgId, reliableStorageError(error));
-        return;
-      }
-    }
-    const next = pending.filter(
-      (entry) =>
-        !ownsPending(entry, authority) || entry.clientMsgId !== clientMsgId,
-    );
-    if (next.length !== pending.length) emitPending(next);
-    inFlightPending.delete(pendingKey(authority, clientMsgId));
-  },
-  /** Persists a storage-denied row if needed, then re-arms exact retry. */
-  prepareRetry(
-    authority: CloudConversationOutboxAuthority,
-    clientMsgId: string,
-  ): PendingPrompt | null {
-    const found = this.find(authority, clientMsgId);
-    if (!found) return null;
-    const candidate = {
-      ...found,
-      error: null,
-      retryOnNextActivation: false,
-    };
-    try {
-      const durable = found.durable
-        ? cloudConversationOutbox.update(candidate)
-        : cloudConversationOutbox.enqueue(candidate);
-      if (!durable) return null;
-      emitPending(
-        pending.map((entry) =>
-          ownsPending(entry, authority) && entry.clientMsgId === clientMsgId
-            ? durable
-            : entry,
-        ),
-      );
-      return durable;
-    } catch (error) {
-      const failed = { ...found, error: reliableStorageError(error) };
-      emitPending(
-        pending.map((entry) =>
-          ownsPending(entry, authority) && entry.clientMsgId === clientMsgId
-            ? failed
-            : entry,
-        ),
-      );
-      return null;
-    }
-  },
-  /** Removes persistence only after a matching canonical turn admission. */
-  acknowledgeAdmission(
-    authority: CloudConversationOutboxAuthority,
-    clientMsgId: string,
-    conversationId: string,
-    turnId: string,
-  ): boolean {
-    const found = this.find(authority, clientMsgId);
-    if (
-      !found ||
-      !turnId ||
-      found.turnId !== turnId ||
-      found.conversationId !== conversationId ||
-      (found.submission.requestedConversationId !== null &&
-        found.submission.requestedConversationId !== conversationId)
-    ) {
-      return false;
-    }
-    if (found.durable) {
-      try {
-        cloudConversationOutbox.remove(found);
-      } catch {
-        return false;
-      }
-    }
-    const acknowledged = {
-      ...found,
-      durable: false,
-      deliveryAcknowledged: true,
-      retryOnNextActivation: false,
-    };
-    emitPending(
-      pending.map((entry) =>
-        ownsPending(entry, authority) && entry.clientMsgId === clientMsgId
-          ? acknowledged
-          : entry,
-      ),
-    );
-    return true;
-  },
-  /** Placement terminal evidence can acknowledge even before a turn id exists. */
-  acknowledgeTerminal(
-    authority: CloudConversationOutboxAuthority,
-    clientMsgId: string,
-    dispatchId: string,
-  ): boolean {
-    const found = this.find(authority, clientMsgId);
-    if (!found || !dispatchId || found.dispatchId !== dispatchId) return false;
-    if (found.durable) {
-      try {
-        cloudConversationOutbox.remove(found);
-      } catch {
-        return false;
-      }
-    }
-    const acknowledged = {
-      ...found,
-      durable: false,
-      deliveryAcknowledged: true,
-      retryOnNextActivation: false,
-    };
-    emitPending(
-      pending.map((entry) =>
-        ownsPending(entry, authority) && entry.clientMsgId === clientMsgId
-          ? acknowledged
-          : entry,
-      ),
-    );
-    return true;
-  },
-  /** Retires any echo the given canonical record supersedes. */
-  resolve(
-    authority: CloudConversationOutboxAuthority,
-    record: JournalRecord,
-  ): void {
-    if (!pending.length) return;
-    const clientMsgId =
-      record.kind === "message" ? record.clientMsgId : undefined;
-    const acknowledged = pending.filter(
-      (entry) =>
-        ownsPending(entry, authority) &&
-        ((clientMsgId !== undefined && entry.clientMsgId === clientMsgId) ||
-          (clientMsgId !== undefined && entry.dispatchId === clientMsgId) ||
-          (entry.turnId !== null && entry.turnId === record.turnId)),
-    );
-    if (!acknowledged.length) return;
-    const removed = new Set<string>();
-    for (const entry of acknowledged) {
-      try {
-        if (!entry.durable || cloudConversationOutbox.remove(entry)) {
-          removed.add(entry.clientMsgId);
-          inFlightPending.delete(pendingKey(authority, entry.clientMsgId));
-        }
-      } catch {
-        // Keep the durable row. Exact backend dedupe makes a later replay safe,
-        // while deleting it only in memory could lose the required retry.
-      }
-    }
-    const next = pending.filter(
-      (entry) =>
-        !ownsPending(entry, authority) || !removed.has(entry.clientMsgId),
-    );
-    if (next.length !== pending.length) emitPending(next);
-  },
-  getServerSnapshot(): readonly PendingPrompt[] {
-    return EMPTY_PENDING;
-  },
-  retainAccountScope(accountScope: string): void {
-    activePendingAuthorityKey = null;
-    activePendingAuthorityReady = false;
-    inFlightPending.clear();
-    try {
-      cloudConversationOutbox.purgeOtherAccounts(accountScope);
-    } catch {
-      // Generation activation retries the synchronous purge before any send.
-    }
-    const next = pending.filter((entry) => entry.accountScope === accountScope);
-    if (next.length !== pending.length) emitPending(next);
-  },
-  activateAuthority(authority: CloudConversationOutboxAuthority): boolean {
-    const nextAuthorityKey = authorityKey(authority);
-    if (
-      activePendingAuthorityReady &&
-      activePendingAuthorityKey === nextAuthorityKey
-    ) {
-      return true;
-    }
-    activePendingAuthorityKey = nextAuthorityKey;
-    activePendingAuthorityReady = false;
-    inFlightPending.clear();
-    try {
-      const hydrated = cloudConversationOutbox
-        .activate(authority)
-        .map((entry) => {
-          if (!entry.retryOnNextActivation) return entry;
-          const rearmed = {
-            ...entry,
-            error: null,
-            retryOnNextActivation: false,
-          };
-          return cloudConversationOutbox.update(rearmed) ?? entry;
-        });
-      activePendingAuthorityReady = true;
-      emitPending(hydrated);
-      return true;
-    } catch {
-      emitPending(EMPTY_PENDING);
-      return false;
-    }
-  },
-  isAuthorityReady(authority: CloudConversationOutboxAuthority): boolean {
-    return (
-      activePendingAuthorityReady &&
-      activePendingAuthorityKey === authorityKey(authority)
-    );
-  },
-  claimDispatch(
-    authority: CloudConversationOutboxAuthority,
-    clientMsgId: string,
-  ): boolean {
-    const entry = this.find(authority, clientMsgId);
-    const key = pendingKey(authority, clientMsgId);
-    if (
-      !entry?.durable ||
-      entry.error !== null ||
-      !this.isAuthorityReady(authority) ||
-      inFlightPending.has(key)
-    ) {
-      return false;
-    }
-    inFlightPending.add(key);
-    return true;
-  },
-  releaseDispatch(
-    authority: CloudConversationOutboxAuthority,
-    clientMsgId: string,
-  ): void {
-    inFlightPending.delete(pendingKey(authority, clientMsgId));
-  },
-  patch(
-    authority: CloudConversationOutboxAuthority,
-    clientMsgId: string,
-    update: (entry: PendingPrompt) => PendingPrompt,
-  ): void {
-    const found = this.find(authority, clientMsgId);
-    if (!found) return;
-    let nextEntry = update(found);
-    if (found.durable) {
-      try {
-        const persisted = cloudConversationOutbox.update(nextEntry);
-        if (!persisted) return;
-        nextEntry = persisted;
-      } catch (error) {
-        nextEntry = { ...nextEntry, error: reliableStorageError(error) };
-      }
-    }
-    emitPending(
-      pending.map((entry) =>
-        ownsPending(entry, authority) && entry.clientMsgId === clientMsgId
-          ? nextEntry
-          : entry,
-      ),
-    );
-  },
-};
 
 // ----------------------------------------------------------------- store
 
-/** How long a scrollback request may sit unanswered before the spinner stops. */
-const OLDER_TIMEOUT_MS = 15_000;
 const OLDER_CONTINUE_RETRY_MS = 3_500;
 const OLDER_CONTINUE_RETRIES = 20;
-/** How long the socket outlives its last watcher, to survive a remount. */
-const TEARDOWN_GRACE_MS = 5_000;
-const CACHE_WRITE_DEBOUNCE_MS = 50;
-
-const cacheVersionsEqual = (
-  left: CloudConversationCacheVersion | null,
-  right: CloudConversationCacheVersion | null,
-): boolean =>
-  left === right ||
-  (left !== null &&
-    right !== null &&
-    left.epoch === right.epoch &&
-    left.headSeq === right.headSeq &&
-    left.floorSeq === right.floorSeq &&
-    left.revision === right.revision);
 
 class ConversationStore {
   readonly conversationId: string;
@@ -574,13 +93,9 @@ class ConversationStore {
   private authorityRetired = false;
   private cacheHydrationStarted = false;
   private cacheHydrated = false;
-  private cacheVersion: CloudConversationCacheVersion | null = null;
-  private cachePersistedRecords: readonly JournalRecord[] = [];
   /** True only while rendered rows still contain unverified SQLite bytes. */
   private cacheContainsUnverifiedRecords = false;
-  private cacheOperationGeneration = 0;
-  private cacheWriteTimer: ReturnType<typeof setTimeout> | null = null;
-  private cacheWriteChain: Promise<void> = Promise.resolve();
+  private readonly cache: ConversationCachePersister;
 
   constructor(
     conversationId: string,
@@ -592,6 +107,20 @@ class ConversationStore {
     this.ownerGeneration = ownerGeneration;
     this.authority = Object.freeze({ accountScope, ownerGeneration });
     this.state = initialState(conversationId);
+    this.cache = new ConversationCachePersister({
+      authority: this.cacheAuthority,
+      isCurrent: () => this.isCurrentCacheAuthority(),
+      snapshot: () =>
+        this.state.recordsSource === "canonical" && this.state.epoch !== null
+          ? {
+              epoch: this.state.epoch,
+              headSeq: this.state.headSeq,
+              floorSeq: this.state.floorSeq,
+              title: this.state.title,
+              records: this.state.records,
+            }
+          : null,
+    });
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -624,25 +153,15 @@ class ConversationStore {
     if (this.authorityRetired || this.cacheHydrationStarted) return;
     this.cacheHydrationStarted = true;
     const cacheReadStartedAt = cloudReadinessNow();
-    const generation = this.cacheOperationGeneration;
-    void cloudConversationCacheClient
-      .read(this.cacheAuthority)
+    const generation = this.cache.generation;
+    void this.cache
+      .read()
       .then((cached) => {
-        if (
-          this.authorityRetired ||
-          generation !== this.cacheOperationGeneration
-        ) {
+        if (this.authorityRetired || generation !== this.cache.generation) {
           return;
         }
         this.cacheHydrated = true;
-        this.cacheVersion = cached
-          ? {
-              epoch: cached.epoch,
-              headSeq: cached.headSeq,
-              floorSeq: cached.floorSeq,
-              revision: cached.revision,
-            }
-          : null;
+        this.cache.observe(cached);
         reportCloudReadiness("cloud.cache-read", {
           startedAt: cacheReadStartedAt,
           outcome: cached ? "hit" : "miss",
@@ -710,7 +229,7 @@ class ConversationStore {
         // Derived cache failure never changes cloud availability.
       })
       .finally(() => {
-        if (generation === this.cacheOperationGeneration) {
+        if (generation === this.cache.generation) {
           this.cacheHydrated = true;
           this.ensureSocket();
         }
@@ -777,11 +296,7 @@ class ConversationStore {
     if (this.olderTimer) clearTimeout(this.olderTimer);
     this.olderTimer = null;
     this.dropOlderPartial();
-    if (this.cacheWriteTimer) clearTimeout(this.cacheWriteTimer);
-    this.cacheWriteTimer = null;
-    this.cacheOperationGeneration += 1;
-    this.cachePersistedRecords = [];
-    this.cacheVersion = null;
+    this.cache.retire();
     this.state = initialState(this.conversationId);
     this.emit();
   }
@@ -808,18 +323,10 @@ class ConversationStore {
       this.patch({ hasOlder: false });
       return;
     }
-    // The renderer holds a bounded number of records; the server holds all of
-    // them. Say which limit was hit rather than leaving a button that does
-    // nothing, and never grow the array without bound to avoid saying it.
-    if (
-      this.state.records.length + BACKFILL_BATCH_RECORDS >
-      MAX_CLIENT_RECORDS
-    ) {
-      this.patch({
-        hasOlder: false,
-        olderNotice:
-          "That's as far back as this view holds — reload to go further.",
-      });
+    // Say which limit was hit rather than leaving a button that does nothing,
+    // and never grow the array without bound to avoid saying it.
+    if (olderWouldExceedRetainedLimit(this.state.records)) {
+      this.patch({ hasOlder: false, olderNotice: OLDER_LIMIT_NOTICE });
       return;
     }
     this.dropOlderPartial();
@@ -861,7 +368,7 @@ class ConversationStore {
     this.patch({
       hasOlder: true,
       loadingOlder: false,
-      olderNotice: "Couldn't load that part of this conversation. Try again.",
+      olderNotice: OLDER_INCOMPLETE_NOTICE,
     });
   }
 
@@ -959,7 +466,6 @@ class ConversationStore {
         return;
       }
       case "ready": {
-        const live = event.ready.live;
         // A socket can be replaced after the teardown grace while this
         // renderer store deliberately keeps its rows. The new socket has no
         // local epoch to compare, so the store is the final authority fence:
@@ -995,13 +501,7 @@ class ConversationStore {
                 olderNotice: null,
               }
             : {}),
-          live: live
-            ? {
-                turnId: live.turnId,
-                toolName: live.tools.at(-1)?.name ?? null,
-                toolLabel: live.tools.at(-1)?.label ?? null,
-              }
-            : null,
+          live: liveTurnFromReady(event.ready.live),
         });
         this.scheduleCacheWrite();
         return;
@@ -1036,62 +536,30 @@ class ConversationStore {
         this.patch({ hasOlder: true });
         return;
       case "tool":
-        this.applyTool(event.turnId, event.name, event.label, event.phase);
+        this.patch({ live: liveTurnWithTool(this.state.live, event) });
         return;
     }
   }
 
   private appendRecords(incoming: readonly JournalRecord[]): void {
-    if (!incoming.length) return;
-    // The socket keeps its own cursor, but a socket can be replaced (teardown
-    // and remount, a config change) while these records stay. Re-check
-    // contiguity here so the two can never disagree: a repeat is dropped, and
-    // a jump means the rows between are gone, which resets the view rather
-    // than rendering a hole nobody named.
     // SQLite rows are paint-only. The first canonical record frame replaces
     // the entire unverified window, including equal-seq rows; otherwise seq
     // dedupe would let structurally valid cache corruption masquerade as a
     // server-attested transcript forever.
-    const replacingUnverifiedCache = this.cacheContainsUnverifiedRecords;
-    const retainedRecords = replacingUnverifiedCache
-      ? EMPTY_RECORDS
-      : this.state.records;
-    const lastStored = retainedRecords.at(-1)?.seq ?? -1;
-    const fresh = incoming.filter((record) => record.seq > lastStored);
-    if (!fresh.length) return;
-    const restart = lastStored >= 0 && fresh[0]!.seq > lastStored + 1;
-    let records = (restart ? [] : retainedRecords).concat(fresh);
-    let hasOlder = replacingUnverifiedCache
-      ? (fresh[0]?.seq ?? this.state.floorSeq) > this.state.floorSeq
-      : this.state.hasOlder || restart;
-    if (records.length > MAX_CLIENT_RECORDS) {
-      records = records.slice(records.length - MAX_CLIENT_RECORDS);
-      hasOlder = true;
-    }
-    let live = this.state.live;
-    for (const record of fresh) {
+    const appended = appendJournalRecords(this.state, incoming, {
+      replaceRetained: this.cacheContainsUnverifiedRecords,
+    });
+    if (!appended) return;
+    for (const record of appended.fresh) {
       pendingPrompts.resolve(this.authority, record);
-      // The turn's own journal rows bracket the working indicator. Nothing
-      // else can: with replies delivered whole there is no per-token traffic
-      // to infer liveness from, and a committed assistant row is not the end
-      // of a turn — a preamble is followed by tools and another reply.
-      if (record.kind !== "turn") continue;
-      if (record.phase === "started") {
-        if (live?.turnId !== record.turnId) {
-          live = { turnId: record.turnId, toolName: null, toolLabel: null };
-        }
-      } else if (live?.turnId === record.turnId) {
-        live = null;
-      }
     }
-    if (records[0] && records[0].seq > this.state.floorSeq) hasOlder = true;
     this.cacheContainsUnverifiedRecords = false;
     this.patch({
-      records,
+      records: appended.records,
       recordsSource: "canonical",
-      hasOlder,
-      live,
-      headSeq: Math.max(this.state.headSeq, records.at(-1)?.seq ?? -1),
+      hasOlder: appended.hasOlder,
+      live: liveTurnAfterRecords(this.state.live, appended.fresh),
+      headSeq: appended.headSeq,
     });
     this.scheduleCacheWrite();
   }
@@ -1119,15 +587,12 @@ class ConversationStore {
     if (continuesPartial) this.dropOlderPartial();
     const fromSeq = range?.fromSeq;
     const toSeq = range?.toSeq;
-    const contiguousFromStart =
-      fromSeq !== undefined &&
-      incoming.every((record, index) => record.seq === fromSeq + index);
     const lastSeq = incoming.at(-1)?.seq;
     if (
       range?.complete === false &&
       fromSeq !== undefined &&
       toSeq !== undefined &&
-      contiguousFromStart &&
+      incoming.every((record, index) => record.seq === fromSeq + index) &&
       lastSeq !== undefined &&
       lastSeq < toSeq
     ) {
@@ -1140,46 +605,32 @@ class ConversationStore {
       this.requestOlderRemainder(0);
       return;
     }
-    const claimedRangeIsComplete =
-      range?.complete !== false &&
-      (fromSeq === undefined ||
-        toSeq === undefined ||
-        (incoming.length === toSeq - fromSeq + 1 && contiguousFromStart));
-    const page =
-      claimedRangeIsComplete && continuesPartial
-        ? partial.records.concat(incoming)
-        : incoming;
-    if (!claimedRangeIsComplete) {
-      // Never splice a partial archive page beside the retained window. That
-      // would turn missing canonical rows into an invisible transcript hole.
+    if (!olderRangeIsComplete(incoming, range)) {
       // Keep the cursor retryable and name the failure in the UI.
       this.patch({
         hasOlder: true,
         loadingOlder: false,
-        olderNotice: "Couldn't load that part of this conversation. Try again.",
+        olderNotice: OLDER_INCOMPLETE_NOTICE,
       });
       return;
     }
-    const oldest = this.state.records[0]?.seq ?? Number.POSITIVE_INFINITY;
-    const older = page
-      .filter((record) => record.seq < oldest)
-      .sort((a, b) => a.seq - b.seq);
-    if (!older.length) {
-      // The range we asked for came back with nothing in it. `seq` is gapless,
-      // so this can only mean those rows are gone — stop offering a button
-      // that would ask for the same empty range forever.
+    const prepended = prependOlderRecords(
+      this.state,
+      continuesPartial ? partial.records.concat(incoming) : incoming,
+    );
+    if (!prepended) {
+      // Stop offering a button that would ask for the same empty range forever.
       this.patch({
         hasOlder: false,
         loadingOlder: false,
-        olderNotice: "That's the start of what Stella still has.",
+        olderNotice: OLDER_EXHAUSTED_NOTICE,
       });
       return;
     }
-    const records = older.concat(this.state.records);
     this.patch({
-      records,
+      records: prepended.records,
       recordsSource: "canonical",
-      hasOlder: (records[0]?.seq ?? 0) > this.state.floorSeq,
+      hasOlder: prepended.hasOlder,
       loadingOlder: false,
       olderNotice: null,
     });
@@ -1210,137 +661,15 @@ class ConversationStore {
     ) {
       return;
     }
-    if (this.cacheWriteTimer) clearTimeout(this.cacheWriteTimer);
-    const generation = this.cacheOperationGeneration;
-    this.cacheWriteTimer = setTimeout(() => {
-      this.cacheWriteTimer = null;
-      this.cacheWriteChain = this.cacheWriteChain.then(() =>
-        this.persistCurrentCache(generation),
-      );
-    }, CACHE_WRITE_DEBOUNCE_MS);
-  }
-
-  private async persistCurrentCache(generation: number): Promise<void> {
-    if (
-      generation !== this.cacheOperationGeneration ||
-      !this.isCurrentCacheAuthority() ||
-      this.state.recordsSource !== "canonical" ||
-      this.state.epoch === null
-    ) {
-      return;
-    }
-    const records = [...this.state.records];
-    const tail = records.at(-1)?.seq ?? -1;
-    // `ready` can name a head before all replay frames arrive. Persist only a
-    // complete suffix so a crash can never turn an in-flight hole into cache.
-    if (tail !== this.state.headSeq) return;
-    const snapshot = {
-      epoch: this.state.epoch,
-      headSeq: this.state.headSeq,
-      floorSeq: this.state.floorSeq,
-      title: this.state.title,
-    };
-    let expected = this.cacheVersion;
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const result = await cloudConversationCacheClient.replace({
-        ...this.cacheAuthority,
-        expected,
-        epoch: snapshot.epoch,
-        headSeq: snapshot.headSeq,
-        floorSeq: snapshot.floorSeq,
-        title: snapshot.title,
-        ...(expected?.epoch === snapshot.epoch
-          ? cloudCacheDelta(this.cachePersistedRecords, records)
-          : { records }),
-      });
-      if (
-        generation !== this.cacheOperationGeneration ||
-        !this.isCurrentCacheAuthority()
-      ) {
-        return;
-      }
-      if (result.status === "applied") {
-        this.cacheVersion = result.version;
-        this.cachePersistedRecords = records;
-        return;
-      }
-      if (result.status === "inactive") {
-        const reactivated =
-          await cloudConversationCacheClient.activateAuthority(this.authority);
-        if (!reactivated || !this.isCurrentCacheAuthority()) return;
-        const current = await cloudConversationCacheClient.read(
-          this.cacheAuthority,
-        );
-        const currentVersion = current
-          ? {
-              epoch: current.epoch,
-              headSeq: current.headSeq,
-              floorSeq: current.floorSeq,
-              revision: current.revision,
-            }
-          : null;
-        // Main-process restart may forget only the in-memory active authority.
-        // Reuse the on-disk CAS token only when it is still the exact token this
-        // writer had already observed. Cache loss (null) is also rebuildable.
-        if (
-          currentVersion !== null &&
-          !cacheVersionsEqual(currentVersion, expected)
-        ) {
-          return;
-        }
-        expected = currentVersion;
-        this.cacheVersion = currentVersion;
-        continue;
-      }
-      // A null conflict means the disposable file/window vanished between our
-      // read and write, so one null-CAS rebuild is safe. A non-null conflict is
-      // another writer's exact epoch/head/floor/revision fence; adopting that
-      // token would let a stale pre-reset epoch overwrite its successor.
-      if (result.current !== null) return;
-      this.cacheVersion = null;
-      this.cachePersistedRecords = [];
-      expected = null;
-    }
+    this.cache.schedule();
   }
 
   private purgeCache(): void {
-    this.cacheOperationGeneration += 1;
-    if (this.cacheWriteTimer) clearTimeout(this.cacheWriteTimer);
-    this.cacheWriteTimer = null;
-    this.cacheVersion = null;
-    this.cachePersistedRecords = [];
+    this.cache.purge();
     this.cacheContainsUnverifiedRecords = false;
     this.cacheHydrated = true;
-    const authority = this.cacheAuthority;
-    this.cacheWriteChain = this.cacheWriteChain.then(async () => {
-      await cloudConversationCacheClient.purgeConversation(authority);
-    });
-  }
-
-  private applyTool(
-    turnId: string,
-    name: string,
-    label: string | undefined,
-    phase: "start" | "end",
-  ): void {
-    // A tool frame can outrun the turn's `started` row on a fresh connect, so
-    // it opens the live turn rather than assuming one is already there.
-    const current =
-      this.state.live && this.state.live.turnId === turnId
-        ? this.state.live
-        : { turnId, toolName: null, toolLabel: null };
-    this.patch({
-      live: {
-        ...current,
-        toolName: phase === "start" ? name : null,
-        toolLabel: phase === "start" ? (label ?? null) : null,
-      },
-    });
   }
 }
-
-/** Conversations kept warm so switching back does not blank the view. */
-const MAX_RETAINED_STORES = 8;
 
 const stores = new Map<string, ConversationStore>();
 const activeOwnerGenerationByAccount = new Map<string, string>();

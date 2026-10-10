@@ -2047,6 +2047,36 @@ export class PiConversationRuntime {
     return running;
   }
 
+  /**
+   * Every agent under this conversation that still runs, at any depth: an
+   * agent's own agents are in its conversation's agents doc. Deepest first,
+   * so no parent is woken by a child that is still going.
+   */
+  async runningAgentTree(context: Context): Promise<Array<{ threadId: string; conversationId: ConversationId; depth: number }>> {
+    const { harness, root } = await this.open();
+    const found: Array<{ threadId: string; conversationId: ConversationId; depth: number }> = [];
+    const visit = async (conversationId: ConversationId, depth: number): Promise<void> => {
+      if (depth > 6) return;
+      const state = await harness.snapshot(StellaAgentsDoc, conversationId, context);
+      for (const [threadId, agent] of Object.entries(state?.agents ?? {})) {
+        if (agent.remote) continue;
+        const child = agent.conversationId as ConversationId;
+        await visit(child, depth + 1);
+        if ((await harness.snapshot(LiveDoc, child, context))?.run !== undefined) {
+          found.push({ threadId, conversationId: child, depth: depth + 1 });
+        }
+      }
+    };
+    await visit(root.id, 0);
+    return found.sort((a, b) => b.depth - a.depth);
+  }
+
+  /** Abort one agent's run wherever it sits in the tree; it reports nothing. */
+  async abortAgentConversation(conversationId: ConversationId, context: Context): Promise<void> {
+    const { harness } = await this.open();
+    await (await harness.conversation(conversationId, context))?.abort(context);
+  }
+
   /** Pause an agent thread's agent: its run is marked at once, then winds down on its own. */
   async pauseThreadAgent(threadId: string, context: Context): Promise<void> {
     const { agents } = await this.open();

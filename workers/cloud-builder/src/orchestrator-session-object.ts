@@ -356,9 +356,20 @@ export class OrchestratorSessionObject extends OrchestratorTurnStart {
     const runtime = await this.openPiRuntime(this.piGatewayOrigin());
     const { contextFor } = await import("./pi-runtime.js");
     const pauseRunning = async (extra: string[]): Promise<void> => {
-      const running = await runtime.runningAgents(contextFor()).catch(() => []);
-      for (const threadId of new Set([...extra, ...running.map((agent) => agent.agentId)])) {
-        if (paused.has(threadId)) continue;
+      const tree = await runtime.runningAgentTree(contextFor()).catch((error: unknown) => {
+        log("error", "slack_stop_tree_failed", { message: errorMessage(error) });
+        return [];
+      });
+      for (const agent of tree.filter((entry) => entry.depth > 1)) {
+        try {
+          await runtime.abortAgentConversation(agent.conversationId, contextFor());
+          paused.add(agent.threadId);
+        } catch (error) {
+          log("error", "slack_stop_agent_failed", { threadId: agent.threadId, message: errorMessage(error) });
+        }
+      }
+      const topLevel = tree.filter((entry) => entry.depth === 1).map((entry) => entry.threadId);
+      for (const threadId of new Set([...extra, ...topLevel])) {
         try {
           await runtime.pauseThreadAgent(threadId, contextFor());
           paused.add(threadId);

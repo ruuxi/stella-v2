@@ -50,6 +50,8 @@ type TurnState = {
   acked?: boolean;
   /** Someone pressed Stop; the request ends here whatever still reports. */
   stopped?: boolean;
+  /** Woken by an agent's progress note rather than its report: brief replies stay in the app. */
+  noteWake?: boolean;
   updatedAt: number;
 };
 
@@ -68,6 +70,8 @@ const SETTLE_DELAY_MS = 6_000;
 /** Give Stella's first words a head start over the checklist. */
 const PROGRESS_GRACE_MS = 25_000;
 const STALE_AGENT_MS = 3 * 60 * 60_000;
+/** A reply to an agent's progress note this short is chatter, not a result. */
+const NOTE_REPLY_MIN_CHARS = 500;
 const AGENT_TOOLS = new Set(["spawn_agent", "send_message", "agent_status", "pause_agent"]);
 
 const errorText = (error: unknown): string =>
@@ -293,6 +297,12 @@ export class SlackRelay {
 
   private async handleRecord(record: JournalRecord): Promise<void> {
     if (record.kind === "message") {
+      if (record.role === "user" && record.hidden && record.clientMsgId?.startsWith("agent-note:")) {
+        const state = await this.turn(record.turnId);
+        state.noteWake = true;
+        await this.saveTurns();
+        return;
+      }
       if (record.role === "user" && record.clientMsgId) {
         const triggers = (await this.storage.get<Record<string, string>>(TRIGGERS_KEY)) ?? {};
         const triggerTs = triggers[record.clientMsgId];
@@ -319,6 +329,7 @@ export class SlackRelay {
         const host = await this.hostOf(record.turnId);
         const turns = await this.loadTurns();
         if (host && turns[host]?.stopped && !turns[record.turnId]?.triggerTs) return;
+        if (turns[record.turnId]?.noteWake && text.length < NOTE_REPLY_MIN_CHARS) return;
         await this.postText(text);
         if (host) {
           const state = await this.turn(host);
@@ -375,6 +386,7 @@ export class SlackRelay {
     if (event.type === "agent-started") {
       const host = (await this.hostOf(turnId)) ?? turnId;
       const state = await this.turn(host);
+      if (state.stopped) return;
       agents[event.payload.agentId] = host;
       await this.storage.put(AGENTS_KEY, trimRecord(agents, MAX_TRACKED * 2));
       const existing = state.lines.find((line) => line.key === key);

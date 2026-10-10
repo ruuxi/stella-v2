@@ -1381,7 +1381,6 @@
         "enableFailedTitle": "เปิดใช้คอมพิวเตอร์เครื่องนั้นไม่ได้",
         "enableLabel": "เปิดใช้ {name}",
         "enabling": "กำลังเปิดใช้…",
-        "ownSignIn": "{name} ใช้การลงชื่อเข้าใช้ {engine} ของตัวเอง",
         "pairingCode": "ใช้รหัสจับคู่",
         "sectionLabel": "ที่ที่ Stella ทำงาน",
         "statusAwaitingConsent": "รอการอนุญาตบนคอมพิวเตอร์เครื่องนั้น",

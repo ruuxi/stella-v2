@@ -1391,7 +1391,6 @@
         "enableFailedTitle": "Kon die computer niet inschakelen",
         "enableLabel": "{name} inschakelen",
         "enabling": "Inschakelen…",
-        "ownSignIn": "{name} gebruikt zijn eigen {engine}-aanmelding.",
         "pairingCode": "Een koppelcode gebruiken",
         "sectionLabel": "Waar Stella werkt",
         "statusAwaitingConsent": "Wacht op toestemming op die computer",

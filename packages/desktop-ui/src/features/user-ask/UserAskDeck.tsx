@@ -258,12 +258,6 @@ export function UserAskDeck({ asks }: { asks: readonly UserAsk[] }) {
       aria-live="polite"
       onKeyDown={onKeyDown}
     >
-      <div className="user-ask__head">
-        <p className="user-ask__eyebrow">
-          {entry.ask.agentLabel ?? t("userAsk.eyebrow.question")}
-        </p>
-        <DeckTiming ask={entry.ask} />
-      </div>
       <DeckQuestion
         key={entry.key}
         entry={entry}
@@ -285,6 +279,9 @@ export function UserAskDeck({ asks }: { asks: readonly UserAsk[] }) {
         </p>
       ) : null}
       <div className="user-ask__footer">
+        <div className="user-ask__footer-start">
+          <DeckTiming ask={entry.ask} />
+        </div>
         {total > 1 ? (
           <div className="user-ask__pager">
             <button
@@ -314,9 +311,7 @@ export function UserAskDeck({ asks }: { asks: readonly UserAsk[] }) {
               <ChevronRight size={16} aria-hidden="true" />
             </button>
           </div>
-        ) : (
-          <span />
-        )}
+        ) : null}
         <div className="user-ask__footer-actions">
           <button
             type="button"

@@ -218,13 +218,6 @@ function QuestionDeck({
 
   return (
     <View style={styles.card} accessibilityRole="summary">
-      <View style={styles.headerRow}>
-        <Text numberOfLines={1} style={styles.eyebrow}>
-          {ask.agentLabel ?? t("userAsk.eyebrow.question")}
-        </Text>
-        <DeckTiming ask={ask} colors={colors} styles={styles} t={t} />
-      </View>
-
       <View key={userAskDeckKey(ask.askId, question.id)} style={styles.step}>
         <Text style={styles.title}>{question.question}</Text>
         {question.detail ? (
@@ -323,6 +316,9 @@ function QuestionDeck({
       {issue ? <Text style={styles.issue}>{issue}</Text> : null}
 
       <View style={styles.footer}>
+        <View style={styles.footerStart}>
+          <DeckTiming ask={ask} colors={colors} styles={styles} t={t} />
+        </View>
         {total > 1 ? (
           <View style={styles.pager}>
             <Pressable
@@ -363,9 +359,7 @@ function QuestionDeck({
               />
             </Pressable>
           </View>
-        ) : (
-          <View />
-        )}
+        ) : null}
         <View style={styles.footerActions}>
           <Pressable
             accessibilityRole="button"
@@ -899,12 +893,6 @@ const makeStyles = (colors: Colors) =>
     disabled: {
       opacity: 0.4,
     },
-    eyebrow: {
-      color: colors.textMuted,
-      flexShrink: 1,
-      fontFamily: fonts.sans.medium,
-      fontSize: 13,
-    },
     field: {
       backgroundColor: colors.surfaceInset,
       borderRadius: 14,
@@ -935,13 +923,20 @@ const makeStyles = (colors: Colors) =>
     footer: {
       alignItems: "center",
       flexDirection: "row",
-      justifyContent: "space-between",
+      gap: 8,
       minHeight: 38,
     },
     footerActions: {
       alignItems: "center",
+      flex: 1,
       flexDirection: "row",
       gap: 8,
+      justifyContent: "flex-end",
+    },
+    footerStart: {
+      alignItems: "center",
+      flex: 1,
+      flexDirection: "row",
     },
     header: {
       alignItems: "flex-start",
@@ -951,12 +946,6 @@ const makeStyles = (colors: Colors) =>
     headerCopy: {
       flex: 1,
       gap: 3,
-    },
-    headerRow: {
-      alignItems: "center",
-      flexDirection: "row",
-      gap: 10,
-      justifyContent: "space-between",
     },
     icon: {
       alignItems: "center",

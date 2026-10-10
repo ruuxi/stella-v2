@@ -32,11 +32,6 @@
   gap: 6px 12px;
 }
 
-.user-ask--deck .user-ask__head {
-  align-items: center;
-  justify-content: space-between;
-}
-
 .user-ask__icon {
   display: inline-flex;
   flex: 0 0 auto;
@@ -74,6 +69,10 @@
   line-height: 1.35;
   letter-spacing: -0.01em;
   text-wrap: pretty;
+}
+
+.user-ask--deck {
+  padding-top: 20px;
 }
 
 .user-ask--deck .user-ask__title {
@@ -293,15 +292,26 @@
 }
 
 .user-ask__footer {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   min-height: 34px;
 }
 
+.user-ask__footer-start {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.user-ask__footer-start .user-ask__timing {
+  margin-left: 0;
+}
+
 .user-ask__pager {
   display: inline-flex;
+  grid-column: 2;
   align-items: center;
   gap: 4px;
 }
@@ -338,6 +348,8 @@
 
 .user-ask__footer-actions {
   display: inline-flex;
+  grid-column: 3;
+  justify-self: end;
   align-items: center;
   gap: 8px;
 }
@@ -519,7 +531,7 @@
     padding-left: 0;
   }
 
-  .user-ask__timing {
+  .user-ask__head .user-ask__timing {
     order: 3;
     width: 100%;
     margin-left: 0;

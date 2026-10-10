@@ -27,10 +27,6 @@ import { resolveToolProcessIdentity } from "../tools/shell.js";
 import { toolStateEnvironment } from "@stella/contracts/cloud-tool-home";
 import { acquireAbortLatch } from "../agent-core/abort-bridge.js";
 import {
-  isAgentToolSuspendedError,
-  type AgentToolSuspendedError,
-} from "../agent-core/suspension.js";
-import {
   getStellaBrowserSessionId,
   getStellaComputerSessionId,
 } from "../tools/stella-computer-session.js";
@@ -1487,10 +1483,6 @@ class NodeReplKernel {
         });
       }
     } catch (error) {
-      if (isAgentToolSuspendedError(error)) {
-        this.suspendActive(error);
-        return;
-      }
       if (!this.closed && this.active === active) {
         this.postBrowserError(message.callId, error);
       }
@@ -1946,10 +1938,6 @@ class NodeReplKernel {
         });
       }
     } catch (error) {
-      if (isAgentToolSuspendedError(error)) {
-        this.suspendActive(error);
-        return;
-      }
       if (!this.closed && this.active === active) {
         this.postToolError(message.callId, error);
       }
@@ -2360,21 +2348,6 @@ class NodeReplKernel {
     active.controller.abort(error);
     this.settleActive(active, error);
     void this.close();
-  }
-
-  /**
-   * A suspension is settled in the privileged parent and never serialized
-   * into the worker. Killing the worker before it sees a rejected browser/tool
-   * promise makes JavaScript `try/catch` unable to turn the control signal into
-   * an ordinary code result.
-   */
-  private suspendActive(error: AgentToolSuspendedError): void {
-    const active = this.active;
-    if (!active) return;
-    active.controller.abort(error);
-    this.settleActive(active, error);
-    void this.close();
-    this.onTerminated(this);
   }
 
   terminate(reason = "Code cell terminated by caller."): void {
@@ -2854,9 +2827,6 @@ export class NodeReplKernelRegistry {
           ? { responseMeta: cell.outcome.value.responseMeta }
           : {}),
       };
-    }
-    if (isAgentToolSuspendedError(cell.outcome.error)) {
-      throw cell.outcome.error;
     }
     return {
       cellId: cell.cellId,

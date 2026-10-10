@@ -392,64 +392,6 @@ describe("executor turn credential broker", () => {
     );
   });
 
-  test("canonicalizes and bounds a suspended checkpoint transcript", async () => {
-    let captured: Record<string, unknown> | undefined;
-    let calls = 0;
-    const cursor = `v1:${"a".repeat(64)}`;
-    const client = new TurnCredentialBrokerClient(
-      handoff(),
-      async (_input, init) => {
-        calls += 1;
-        captured = JSON.parse(String(init?.body)) as Record<string, unknown>;
-        return Response.json({
-          operationId: "b".repeat(64),
-          historyCursor: cursor,
-          manifestId: "c".repeat(64),
-        });
-      },
-    );
-    const suspensionTranscript = [
-      {
-        ordinal: 0,
-        role: "user",
-        payloadJson: JSON.stringify({ role: "user", content: [] }),
-      },
-      {
-        ordinal: 1,
-        role: "assistant",
-        payloadJson: JSON.stringify({ role: "assistant", content: [] }),
-      },
-    ];
-    await client.commitTurnStateCheckpoint({
-      historyCursor: cursor,
-      suspensionTranscript,
-    });
-    expect(captured).toEqual({
-      schemaVersion: 1,
-      historyCursor: cursor,
-      suspensionTranscript,
-    });
-    expect(calls).toBe(1);
-
-    const invalid = new TurnCredentialBrokerClient(handoff(), async () => {
-      calls += 1;
-      return new Response();
-    });
-    await expect(
-      invalid.commitTurnStateCheckpoint({
-        historyCursor: cursor,
-        suspensionTranscript: [
-          {
-            ordinal: 0,
-            role: "assistant",
-            payloadJson: JSON.stringify({ role: "user", content: [] }),
-          },
-        ],
-      }),
-    ).rejects.toThrow("transcript is invalid");
-    expect(calls).toBe(1);
-  });
-
   test("does not advance or reuse authority after an invalid checkpoint receipt", async () => {
     let calls = 0;
     const client = new TurnCredentialBrokerClient(handoff(), async () => {

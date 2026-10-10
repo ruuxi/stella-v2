@@ -1,8 +1,4 @@
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import type {
-  CloudBrowserResumeReceipt,
-  CloudBrowserSuspension,
-} from "@stella/contracts/cloud-browser";
 import type { CloudOrchestratorCliTurnSpec } from "@stella/contracts/cloud-orchestrator-cli";
 import type { ManagedModelAudience } from "@stella/contracts/gateway/capability";
 import type {
@@ -62,8 +58,6 @@ export type TurnRequest = {
   originConversationId?: string;
   preflightDelayMs?: number;
   watchdogMs?: number;
-  /** Trusted control-plane continuation of a suspended browser tool call. */
-  browserResume?: CloudBrowserResumeReceipt;
   conversationId?: string;
   sessionId?: string;
   threadId?: string;
@@ -119,14 +113,6 @@ export type BuildOwnerFenceLeaseSlot = {
   turnId: string;
   leaseId: string;
   kind: "run" | "aux";
-};
-
-export type AgentComputeRecoveryClaim = {
-  schemaVersion: 1;
-  turnId: string;
-  attemptGeneration: number;
-  sandboxId: string;
-  createdAt: number;
 };
 
 export type AppTurnAdmissionClaim = {
@@ -204,13 +190,6 @@ export type BuilderFallbackTranscript = {
   workspacePublished: boolean;
 };
 
-/**
- * How an agent attempt is entered. `resume` continues the journaled attempt a
- * replaced isolate left behind (`resumeResidentAgentTurn`) instead of
- * starting it.
- */
-export type AgentTurnRunOptions = Readonly<{ resume?: boolean }>;
-
 export type AgentExecutionMarker = {
   schemaVersion: 1;
   turnId: string;
@@ -221,9 +200,8 @@ export type AgentExecutionMarker = {
 };
 
 /**
- * What recovery already knows about a lost turn, if anything. The container
- * path recovers a transcript the executor handed up before it died; a resident
- * turn recovers one from its own journal. Absent both, the fallback synthesizes
+ * What recovery already knows about a lost turn, if anything: the transcript
+ * the executor handed up before it died. Absent that, the fallback synthesizes
  * the two rows a thread needs to stay readable.
  */
 export type BuilderFallbackInput = {
@@ -233,7 +211,7 @@ export type BuilderFallbackInput = {
 };
 
 export type AgentExecutorResult = {
-  outcome?: "completed" | "suspended";
+  outcome?: "completed";
   ok: boolean;
   finalText?: string;
   error?: string;
@@ -241,7 +219,6 @@ export type AgentExecutorResult = {
   checkpointPolicy?: "preserve_prior" | "builder_fallback";
   checkpointMs?: number;
   turnStateCheckpoint?: TurnBrokerTurnStateCheckpointReceipt;
-  suspension?: CloudBrowserSuspension;
   builderFallback?: {
     historyCursor: string;
     messages: Array<{ ordinal: number; role: string; payloadJson: string }>;
@@ -288,38 +265,6 @@ export type PendingTerminal = {
    * would be refused as a different message under the same id.
    */
   completedAt?: number;
-};
-
-/**
- * Durable handoff from a finished executor to the owner's waiting projection.
- * The descriptor is intentionally secret-free. It is committed before the
- * sandbox is destroyed so a Worker restart can redeliver the same interaction.
- */
-export type PendingBrowserSuspension = {
-  schemaVersion: 1;
-  turnId: string;
-  attemptGeneration: number;
-  suspension: CloudBrowserSuspension;
-  payload: Record<string, unknown>;
-  createdAt: number;
-};
-
-/**
- * The Browser Gateway has already entered human control, but the trusted
- * executor has not yet returned the canonical outer Code tool-call binding.
- * Keeping this separate from `PendingBrowserSuspension` prevents an alarm
- * from exposing a takeover before the matching transcript checkpoint is
- * authoritative.
- */
-export type ObservedBrowserSuspension = {
-  schemaVersion: 1;
-  turnId: string;
-  attemptGeneration: number;
-  brokerRequestId: string;
-  requestBodySha256: string;
-  responseBodySha256: string;
-  suspension: CloudBrowserSuspension;
-  observedAt: number;
 };
 
 export type ExecutorResult = {

@@ -15,15 +15,15 @@ import type { UpdatePlan } from "./update-plan.js";
  * `userAuthoredPrompt` already states for journal rows — visibility follows
  * authorship — rather than a second convention beside it.
  *
- * Every brief ends up in the same place: a finished draft. What differs is
- * what the agent is reconciling and whether the app takes the result by
- * itself afterwards.
+ * Every brief ends up in the same place: a finished draft, which then waits
+ * in Updates until the user adds it. What differs is what the agent is
+ * reconciling.
  */
 
 export type AgentBrief = { description: string; prompt: string };
 
 /**
- * The name for a merge the app dispatched and takes by itself. The `update-`
+ * The name for a merge the app dispatched. The `update-`
  * prefix is what `isStellaDraft` reads: such a draft is Stella settling its
  * own version, so it stays out of the chat and off the user's other
  * computers as a change of theirs.
@@ -75,7 +75,7 @@ export const upstreamMergeBrief = (
   gateOutput?: string,
 ): AgentBrief => ({
   description: `Merge Stella update ${plan.tip.slice(0, 7)}`,
-  prompt: `An official Stella update has to be merged with this computer's own changes. The user already pressed Update, so nobody is waiting on a question — finish the draft and the app takes it by itself.
+  prompt: `An official Stella update has to be merged with this computer's own changes. The user already pressed Update, so nobody is waiting on a question — finish the draft. It then waits in Updates until they add it, so Stella never relaunches under them.
 
 Follow the "Updates" section of the modify-stella skill. Name the draft \`${mergeDraftName(plan.tip)}\`.
 
@@ -96,7 +96,7 @@ export const remoteMergeBrief = (
   gateOutput?: string,
 ): AgentBrief => ({
   description: `Merge changes from another computer ${plan.tip.slice(0, 7)}`,
-  prompt: `The user changed Stella on another of their computers, and that change has to be merged with this computer's own changes. They already pressed the button to add it here, so nobody is waiting on a question — finish the draft and the app takes it by itself.
+  prompt: `The user changed Stella on another of their computers, and that change has to be merged with this computer's own changes. They already pressed the button to add it here, so nobody is waiting on a question — finish the draft. It then waits in Updates until they add it, so Stella never relaunches under them.
 
 Follow the "Rebase, merge, or undo for the user" section of the modify-stella skill, the "changes from another computer diverged" case. Name the draft \`${mergeDraftName(plan.tip)}\`.
 
@@ -112,8 +112,8 @@ Both sides are the user's own work, so neither wins by default: keep what each o
 
 /**
  * A finished draft whose base moved under it. The agent brings it up to date
- * on the branch it is already on; the app takes it afterwards, because
- * pressing Update on that change was an unambiguous request for it.
+ * on the branch it is already on; it then waits in Updates for the user to
+ * add, since taking it can relaunch Stella.
  */
 export const staleDraftBrief = (
   plan: Extract<UpdatePlan, { kind: "clean" | "conflict" }>,
@@ -122,7 +122,7 @@ export const staleDraftBrief = (
   gateOutput?: string,
 ): AgentBrief => ({
   description: `Bring the draft "${name}" up to date`,
-  prompt: `A finished change of the user's was made against an older version of Stella and no longer fits the current one. They pressed Update on it, so they want it — bring it up to date and leave it finished on its own branch, \`draft/${name}\`. The app takes it from there; do not ask them to press Update again.
+  prompt: `A finished change of the user's was made against an older version of Stella and no longer fits the current one. They pressed Update on it, so they want it — bring it up to date and leave it finished on its own branch, \`draft/${name}\`. It then waits in Updates until they add it.
 
 Follow the "Rebase, merge, or undo for the user" section of the modify-stella skill, the "stale draft" case: \`git worktree add "$STELLA_DRAFTS_DIR/${name}" draft/${name}\` (no \`-b\`), rebase onto the checkout's current branch, resolve, check, finish.
 

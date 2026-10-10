@@ -59,6 +59,10 @@ import type {
   CloudHomeImportOwnership,
   LocalCloudHomeScan,
 } from "../cloud-home-sync.js";
+import type {
+  DeviceFileMissingReason,
+  DeviceFileSource,
+} from "../device-files.js";
 import type { DiscoveryKnowledgeSeedPayload } from "../discovery.js";
 import type { ExecutionTarget } from "../execution-placement.js";
 import type {
@@ -76,6 +80,7 @@ import type {
 } from "../local-chat.js";
 import type { RealtimeVoicePreferences } from "../local-preferences.js";
 import type { RuntimeModelCatalogSnapshot } from "../model-catalog.js";
+import type { PiChatEventsPayload, PiChatRequest } from "../pi-chat.js";
 import type {
   OfficePreviewRef,
   OfficePreviewSnapshot,
@@ -113,6 +118,10 @@ import type { UiState } from "./ui.js";
 import {
   IPC_AGENT_CANCEL_CHAT,
   IPC_AGENT_EVENT,
+  IPC_PI_CHAT_ENABLED,
+  IPC_PI_CHAT_ENABLED_CHANGED,
+  IPC_PI_CHAT_EVENTS,
+  IPC_PI_CHAT_REQUEST,
   IPC_AGENT_GET_ACTIVE_RUN,
   IPC_AGENT_GET_SESSION_STARTED_AT,
   IPC_AGENT_HEALTH_CHECK,
@@ -255,6 +264,7 @@ import {
   IPC_DISPLAY_CANVAS_FILE_URL,
   IPC_DISPLAY_CANVAS_HTML_URL,
   IPC_DISPLAY_LIST_CANVAS_HTML,
+  IPC_DISPLAY_MEDIA_SOURCE,
   IPC_DISPLAY_OPEN_SHARED_CANVAS,
   IPC_DISPLAY_READ_FILE,
   IPC_DISPLAY_TRASH_FORCE_DELETE,
@@ -283,7 +293,6 @@ import {
   IPC_LLM_CREDENTIALS_VALIDATE_OAUTH,
   IPC_LOCAL_CHAT_CREATE_NEW_DEFAULT_ID,
   IPC_LOCAL_CHAT_DELETE_CONVERSATION,
-  IPC_LOCAL_CHAT_FORK_CONVERSATION,
   IPC_LOCAL_CHAT_GET_AGENT_REPORT,
   IPC_LOCAL_CHAT_GET_EVENT_COUNT,
   IPC_LOCAL_CHAT_GET_OR_CREATE_ID,
@@ -302,7 +311,6 @@ import {
   IPC_LOCAL_CHAT_PERSIST_WELCOME,
   IPC_LOCAL_CHAT_SET_ACTIVE_ID,
   IPC_LOCAL_CHAT_THREAD_ACTIVITY_UPDATED,
-  IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
   IPC_LOCAL_CHAT_UPDATED,
   IPC_MEDIA_COPY_ATTACHMENT,
   IPC_MEDIA_COPY_IMAGE,
@@ -497,7 +505,12 @@ export type DisplayReadFileResult =
       truncated: boolean;
       missing: false;
     }
-  | { missing: true; mimeType: string; path: string };
+  | {
+      missing: true;
+      mimeType: string;
+      path: string;
+      reason?: DeviceFileMissingReason;
+    };
 
 export type CanvasHtmlEntry = {
   filePath: string;
@@ -908,6 +921,10 @@ export type IpcInvokeContract = {
     ],
     DisplayReadFileResult
   >;
+  [IPC_DISPLAY_MEDIA_SOURCE]: Invoke<
+    [payload: { filePath: string }],
+    DeviceFileSource
+  >;
   [IPC_DISPLAY_LIST_CANVAS_HTML]: Invoke<[], CanvasHtmlEntry[]>;
   [IPC_DISPLAY_OPEN_SHARED_CANVAS]: Invoke<
     [payload: { url: string }],
@@ -915,7 +932,7 @@ export type IpcInvokeContract = {
   >;
   [IPC_DISPLAY_CANVAS_FILE_URL]: Invoke<
     [payload: { filePath: string }],
-    { url: string } | { missing: true }
+    { url: string } | { missing: true; message?: string }
   >;
   [IPC_DISPLAY_CANVAS_HTML_URL]: Invoke<
     [payload: { html: string }],
@@ -1565,14 +1582,6 @@ export type IpcInvokeContract = {
     [payload: { conversationId: string }],
     { deleted: boolean }
   >;
-  [IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION]: Invoke<
-    [payload: { conversationId: string; eventId: string }],
-    { removed: number }
-  >;
-  [IPC_LOCAL_CHAT_FORK_CONVERSATION]: Invoke<
-    [payload: { conversationId: string; eventId: string }],
-    { conversationId: string } | null
-  >;
   [IPC_LOCAL_CHAT_LIST_EVENTS]: Invoke<
     [payload: { conversationId: string; maxItems?: number }],
     EventRecord[]
@@ -1695,10 +1704,15 @@ export type IpcInvokeContract = {
     [payload: { id: string }],
     NativeIntegration
   >;
+
+  // The desktop chat on pi-durable (`../pi-chat.js`)
+  [IPC_PI_CHAT_REQUEST]: Invoke<[request: PiChatRequest], unknown>;
 };
 
 export type IpcSendContract = {
   [IPC_UI_STATE_KV_SNAPSHOT]: [];
+  /** Synchronous: whether the desktop chat runs on pi-durable. */
+  [IPC_PI_CHAT_ENABLED]: [];
   [IPC_UI_STATE_KV_APPLY]: [changes: Record<string, string | null>];
   [IPC_UI_STATE_KV_CLEAR]: [];
   [IPC_WINDOW_MINIMIZE]: [];
@@ -1812,6 +1826,8 @@ export type IpcEventContract = {
   [IPC_COMPANION_STOP_REQUESTED]: void;
   [IPC_COMPANION_VISIBLE_CHANGED]: CompanionVisibility;
   [IPC_AGENT_EVENT]: AgentStreamEvent;
+  [IPC_PI_CHAT_EVENTS]: PiChatEventsPayload;
+  [IPC_PI_CHAT_ENABLED_CHANGED]: boolean;
   [IPC_RUNTIME_AVAILABILITY]: RuntimeAvailabilitySnapshot;
   [IPC_AUTH_SESSION_INVALIDATED]: void;
   [IPC_PREFERENCES_READ_ALOUD_CHANGED]: boolean;
@@ -1855,6 +1871,11 @@ export type TypedIpcRenderer = {
     ...args: IpcInvokeArgs<C>
   ) => Promise<IpcInvokeResult<C>>;
   send: <C extends IpcSendChannel>(channel: C, ...args: IpcSendArgs<C>) => void;
+  /** Blocking send; main answers through `event.returnValue`, unchecked. */
+  sendSync: <C extends IpcSendChannel>(
+    channel: C,
+    ...args: IpcSendArgs<C>
+  ) => unknown;
   on: <C extends IpcEventChannel>(
     channel: C,
     listener: (event: unknown, payload: IpcEventPayload<C>) => void,

@@ -6,6 +6,8 @@ import path from "path";
 import { AGENT_RUN_FINISH_OUTCOMES, AGENT_STREAM_EVENT_TYPES, } from "@stella/contracts/agent-runtime";
 import {
   IPC_AGENT_ONE_SHOT_COMPLETION,
+  IPC_PI_CHAT_ENABLED,
+  IPC_PI_CHAT_REQUEST,
   IPC_AGENT_EVENT,
   IPC_AGENT_HEALTH_CHECK,
   IPC_AGENT_GET_ACTIVE_RUN,
@@ -17,6 +19,8 @@ import {
   IPC_DEVTEST_TRIGGER_VITE_ERROR,
   IPC_DEVTEST_FIX_VITE_ERROR,
 } from "@stella/contracts/desktop/ipc-channels";
+import { desktopPiChatEnabled } from "@stella/contracts/pi-chat";
+import { getAgentRuntimeEngine } from "@stella/runtime/kernel/preferences/local-preferences";
 import { requireMatchingCloudConversationId, selectedCloudConversationId, } from "../cloud-conversation-mode.js";
 import { createMonotonicSeqGenerator } from "./monotonic-seq.js";
 import { stampAgentEventMainSeq, workerResumeLastSeq, } from "./agent-event-seq.js";
@@ -362,12 +366,6 @@ export const registerAgentHandlers = (options) => {
                     conversationId,
                     requestId,
                 }, senderWebContentsId),
-                onProviderLifecycle: (ev) => emitAgentEvent({
-                    ...ev,
-                    type: AGENT_STREAM_EVENT_TYPES.PROVIDER_LIFECYCLE,
-                    conversationId,
-                    requestId,
-                }, senderWebContentsId),
                 onToolStart: (ev) => emitAgentEvent({
                     ...ev,
                     type: AGENT_STREAM_EVENT_TYPES.TOOL_START,
@@ -615,12 +613,6 @@ export const registerAgentHandlers = (options) => {
                 conversationId,
                 requestId,
             }, senderWebContentsId),
-            onProviderLifecycle: (ev) => emitAgentEvent({
-                ...ev,
-                type: AGENT_STREAM_EVENT_TYPES.PROVIDER_LIFECYCLE,
-                conversationId,
-                requestId,
-            }, senderWebContentsId),
             onToolStart: (ev) => emitAgentEvent({
                 ...ev,
                 type: AGENT_STREAM_EVENT_TYPES.TOOL_START,
@@ -727,6 +719,34 @@ export const registerAgentHandlers = (options) => {
             ...payload,
             conversationId,
         });
+    });
+    // The desktop chat on pi-durable (unless the user's engine is Claude
+    // Code): the renderer submits to and watches one conversation's harness
+    // in the runtime.
+    onIpc(IPC_PI_CHAT_ENABLED, (event) => {
+        event.returnValue = desktopPiChatEnabled(getAgentRuntimeEngine(options.getStellaDataDir()));
+    });
+    handleIpc(IPC_PI_CHAT_REQUEST, async (event, request) => {
+        if (!options.assertPrivilegedSender(event, IPC_PI_CHAT_REQUEST)) {
+            throw new Error("Blocked untrusted request.");
+        }
+        const stellaHostRunner = options.getStellaHostRunner();
+        if (!stellaHostRunner) {
+            throw new Error("Stella runtime not available");
+        }
+        const op = request?.op;
+        // Sending and stopping act on the selected conversation only; a
+        // window may stop watching one it has left.
+        const conversationId = op === "submit" || op === "abort"
+            ? requireMatchingCloudConversationId(request?.conversationId, options.uiState?.conversationId)
+            : typeof request?.conversationId === "string"
+                ? request.conversationId.trim()
+                : "";
+        if (!conversationId) {
+            throw new Error("conversationId is required.");
+        }
+        await stellaHostRunner.waitUntilConnected(5_000);
+        return await stellaHostRunner.piChat({ ...request, conversationId });
     });
     onIpc(IPC_AGENT_CANCEL_CHAT, (event, target) => {
         if (!options.assertPrivilegedSender(event, IPC_AGENT_CANCEL_CHAT)) {

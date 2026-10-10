@@ -8,9 +8,6 @@ const mocked = vi.hoisted(() => ({
 }));
 
 vi.mock("@stella/runtime/kernel/runner/model-selection", () => ({
-  createRunnerImageDescriptionService: vi.fn(() =>
-    vi.fn(async () => "described image"),
-  ),
   resolveRunnerLlmRouteWithMetadata: vi.fn(async () => ({
     model: { id: "test-model", provider: "test-provider" },
     route: "direct-provider",
@@ -31,7 +28,7 @@ const createContext = () =>
       activeOrchestratorConversationId: null,
       activeOrchestratorUiVisibility: "visible",
       activeOrchestratorSession: null,
-      orchestratorSessions: new Map(),
+      cloudThreads: new Map(),
       loadedAgents: [],
       localAgentManager: { listActiveAgentRuns: () => [] },
       compactionScheduler: {},

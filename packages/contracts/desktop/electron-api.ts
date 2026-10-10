@@ -27,6 +27,10 @@ import type {
 import {
   IPC_AGENT_CANCEL_CHAT,
   IPC_AGENT_EVENT,
+  IPC_PI_CHAT_ENABLED,
+  IPC_PI_CHAT_ENABLED_CHANGED,
+  IPC_PI_CHAT_EVENTS,
+  IPC_PI_CHAT_REQUEST,
   IPC_AGENT_GET_ACTIVE_RUN,
   IPC_AGENT_GET_SESSION_STARTED_AT,
   IPC_AGENT_HEALTH_CHECK,
@@ -169,6 +173,7 @@ import {
   IPC_DISPLAY_CANVAS_FILE_URL,
   IPC_DISPLAY_CANVAS_HTML_URL,
   IPC_DISPLAY_LIST_CANVAS_HTML,
+  IPC_DISPLAY_MEDIA_SOURCE,
   IPC_DISPLAY_OPEN_SHARED_CANVAS,
   IPC_DISPLAY_READ_FILE,
   IPC_DISPLAY_TRASH_FORCE_DELETE,
@@ -197,7 +202,6 @@ import {
   IPC_LLM_CREDENTIALS_VALIDATE_OAUTH,
   IPC_LOCAL_CHAT_CREATE_NEW_DEFAULT_ID,
   IPC_LOCAL_CHAT_DELETE_CONVERSATION,
-  IPC_LOCAL_CHAT_FORK_CONVERSATION,
   IPC_LOCAL_CHAT_GET_AGENT_REPORT,
   IPC_LOCAL_CHAT_GET_OR_CREATE_ID,
   IPC_LOCAL_CHAT_LIST_ACTIVITY,
@@ -215,7 +219,6 @@ import {
   IPC_LOCAL_CHAT_PERSIST_WELCOME,
   IPC_LOCAL_CHAT_SET_ACTIVE_ID,
   IPC_LOCAL_CHAT_THREAD_ACTIVITY_UPDATED,
-  IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
   IPC_LOCAL_CHAT_UPDATED,
   IPC_MEDIA_COPY_ATTACHMENT,
   IPC_MEDIA_COPY_IMAGE,
@@ -468,6 +471,13 @@ export const createElectronApi = (
           conversationId: options?.conversationId,
           maxBytes: options?.maxBytes,
         }),
+      /**
+       * Where a `stella-media:` stream for this file comes from: this computer,
+       * the copy another device put in the user's Drive, or nowhere this
+       * computer can reach (and why). Answers without reading the file.
+       */
+      mediaSource: (filePath: string) =>
+        ipc.invoke(IPC_DISPLAY_MEDIA_SOURCE, { filePath }),
       listCanvasHtml: invoker(IPC_DISPLAY_LIST_CANVAS_HTML),
       /**
        * Fetches a shared canvas (`<CANVAS_SHARE_BASE_URL>/c/<slug>`) in main,
@@ -717,6 +727,29 @@ export const createElectronApi = (
       onVisibleChanged: on(IPC_COMPANION_VISIBLE_CHANGED),
     },
 
+    /** The desktop chat on pi-durable (`@stella/contracts/pi-chat`). */
+    piChat: (() => {
+      let enabled = (() => {
+        try {
+          return ipc.sendSync(IPC_PI_CHAT_ENABLED) === true;
+        } catch {
+          return false;
+        }
+      })();
+      // Registered before any page listener, so a listener reads the new value.
+      ipc.on(IPC_PI_CHAT_ENABLED_CHANGED, (_event, next) => {
+        enabled = next === true;
+      });
+      return {
+        /** Whether the desktop chat runs on pi-durable: unless the user's engine is Claude Code. */
+        isEnabled: () => enabled,
+        /** Called when the user's engine moves the chat onto or off pi-durable. */
+        onEnabledChanged: on(IPC_PI_CHAT_ENABLED_CHANGED),
+        request: invoker(IPC_PI_CHAT_REQUEST),
+        onEvents: on(IPC_PI_CHAT_EVENTS),
+      };
+    })(),
+
     agent: {
       oneShotCompletion: invoker(IPC_AGENT_ONE_SHOT_COMPLETION),
       healthCheck: invoker(IPC_AGENT_HEALTH_CHECK),
@@ -736,6 +769,19 @@ export const createElectronApi = (
       onAvailability: on(IPC_RUNTIME_AVAILABILITY),
       triggerViteError: invoker(IPC_DEVTEST_TRIGGER_VITE_ERROR),
       fixViteError: invoker(IPC_DEVTEST_FIX_VITE_ERROR),
+    },
+
+    // The renderer reads asks as electronAPI.userAsk (user-ask-store).
+    userAsk: {
+      onOpened: onWithEvent(IPC_USER_ASK_OPENED),
+      onUpdated: onWithEvent(IPC_USER_ASK_UPDATED),
+      onClosed: onWithEvent(IPC_USER_ASK_CLOSED),
+      list: invoker(IPC_USER_ASK_LIST),
+      answer: invoker(IPC_USER_ASK_ANSWER),
+      cancel: invoker(IPC_USER_ASK_CANCEL),
+      overrideSensitive: invoker(IPC_USER_ASK_OVERRIDE_SENSITIVE),
+      policyGet: invoker(IPC_USER_ASK_POLICY_GET),
+      policySet: invoker(IPC_USER_ASK_POLICY_SET),
     },
 
     system: {
@@ -900,17 +946,6 @@ export const createElectronApi = (
         IPC_SYSTEM_DETECT_TECHNICAL_USER_SIGNALS,
       ),
       resetMessages: invoker(IPC_APP_RESET_MESSAGES),
-      userAsk: {
-        onOpened: onWithEvent(IPC_USER_ASK_OPENED),
-        onUpdated: onWithEvent(IPC_USER_ASK_UPDATED),
-        onClosed: onWithEvent(IPC_USER_ASK_CLOSED),
-        list: invoker(IPC_USER_ASK_LIST),
-        answer: invoker(IPC_USER_ASK_ANSWER),
-        cancel: invoker(IPC_USER_ASK_CANCEL),
-        overrideSensitive: invoker(IPC_USER_ASK_OVERRIDE_SENSITIVE),
-        policyGet: invoker(IPC_USER_ASK_POLICY_GET),
-        policySet: invoker(IPC_USER_ASK_POLICY_SET),
-      },
       onConnectorCredentialRequest: onWithEvent(
         IPC_CONNECTOR_CREDENTIAL_REQUEST,
       ),
@@ -1061,17 +1096,6 @@ export const createElectronApi = (
       setActiveConversationId: invoker(IPC_LOCAL_CHAT_SET_ACTIVE_ID),
       listConversations: invoker(IPC_LOCAL_CHAT_LIST_CONVERSATIONS),
       deleteConversation: invoker(IPC_LOCAL_CHAT_DELETE_CONVERSATION),
-      /**
-       * Truncate a conversation at (and including) a user message: the
-       * "Rewind here" action. Removes the target event and every event after
-       * it, then notifies listeners with a full-refresh update.
-       */
-      truncateConversation: invoker(IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION),
-      /**
-       * Branch the prefix before a user message into a new conversation: the
-       * "Fork to new chat" action. Null when the anchor event is gone.
-       */
-      forkConversation: invoker(IPC_LOCAL_CHAT_FORK_CONVERSATION),
       /**
        * Raw event-stream read for the few non-timeline consumers that look
        * for specific auxiliary event types, and for the mobile bridge. Chat

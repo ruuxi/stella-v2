@@ -5,6 +5,7 @@ import type {
   LocalChatLineageWindow,
   LocalChatMessageWindow,
   LocalChatToolEventPage,
+  LocalModelUsagePage,
 } from "@stella/contracts/local-chat";
 import type { ConversationFocusRoot } from "@stella/contracts/reply-refs";
 import {
@@ -14,8 +15,6 @@ import {
   IPC_CLOUD_CONVERSATION_CACHE_REPLACE,
   IPC_CLOUD_CONVERSATION_CACHE_RETAIN_ACCOUNT,
   IPC_LOCAL_CHAT_DELETE_CONVERSATION,
-  IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
-  IPC_LOCAL_CHAT_FORK_CONVERSATION,
   IPC_LOCAL_CHAT_GET_AGENT_REPORT,
   IPC_LOCAL_CHAT_LIST_LINEAGE_MESSAGES,
   IPC_LOCAL_CHAT_LIST_REPLY_COUNTS,
@@ -59,6 +58,11 @@ const parseConversationFocusRoot = (
 
 type LocalChatHandlersOptions = {
   localChatHistoryService: LocalChatHistoryService;
+  /** The runtime, for what conversations on pi-durable keep (their model usage). */
+  getStellaHostRunner?: () =>
+    | { piChat(request: unknown): Promise<unknown> }
+    | null
+    | undefined;
   assertPrivilegedSender: (
     event: IpcMainEvent | IpcMainInvokeEvent,
     channel: string,
@@ -198,36 +202,6 @@ export const registerLocalChatHandlers = (
         event,
         IPC_LOCAL_CHAT_DELETE_CONVERSATION,
         (client) => client.deleteConversation(payload?.conversationId ?? ""),
-      ),
-  );
-
-  handleIpc(
-    IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
-    async (event, payload: { conversationId?: string; eventId?: string }) =>
-      await withLocalChatClient(
-        options,
-        event,
-        IPC_LOCAL_CHAT_TRUNCATE_CONVERSATION,
-        (client) =>
-          client.truncateConversation({
-            conversationId: payload?.conversationId ?? "",
-            eventId: payload?.eventId ?? "",
-          }),
-      ),
-  );
-
-  handleIpc(
-    IPC_LOCAL_CHAT_FORK_CONVERSATION,
-    async (event, payload: { conversationId?: string; eventId?: string }) =>
-      await withLocalChatClient(
-        options,
-        event,
-        IPC_LOCAL_CHAT_FORK_CONVERSATION,
-        (client) =>
-          client.forkConversation({
-            conversationId: payload?.conversationId ?? "",
-            eventId: payload?.eventId ?? "",
-          }),
       ),
   );
 
@@ -487,14 +461,33 @@ export const registerLocalChatHandlers = (
         options,
         event,
         IPC_LOCAL_CHAT_LIST_MODEL_USAGE,
-        (client) =>
-          client.listModelUsage({
+        async (client) => {
+          const args = {
             fromMs: payload?.fromMs,
             toMs: payload?.toMs,
             conversationId: payload?.conversationId,
             threadId: payload?.threadId,
             limit: payload?.limit,
-          }),
+          };
+          const local = client.listModelUsage(args);
+          // pi's conversations keep their own calls; Claude Code's and the
+          // older agent loops' history stays listed beside them.
+          const runner = options.getStellaHostRunner?.();
+          if (!runner) return local;
+          const pi = (await runner.piChat({
+            op: "usage",
+            ...args,
+          })) as LocalModelUsagePage;
+          const limit = args.limit ?? 10_000;
+          const records = [...local.records, ...pi.records].sort(
+            (a, b) => b.timestamp - a.timestamp,
+          );
+          return {
+            records: records.slice(0, limit),
+            truncated:
+              local.truncated || pi.truncated || records.length > limit,
+          };
+        },
       ),
   );
 

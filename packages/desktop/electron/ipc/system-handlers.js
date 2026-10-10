@@ -16,11 +16,12 @@ import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-ho
 import { loadAgentSystemPrompt } from "@stella/runtime/kernel/agents/home-agent-prompt";
 import { deletePromptPreset, isCustomizablePromptAgentId, listPromptPresets, readPromptPreset, savePromptPreset, } from "@stella/runtime/kernel/prompts/prompt-presets";
 import { getPromptPresetSelection, setPromptPresetSelection, } from "@stella/runtime/kernel/preferences/local-preferences";
-import { getModels } from "@stella/runtime/ai/models";
+import { desktopPiChatEnabled } from "@stella/contracts/pi-chat";
+import { getModels } from "@stella/runtime/kernel/model-catalog";
 import { deleteLocalLlmCredential, getLocalLlmCredential, listLocalLlmCredentials, saveLocalLlmCredential, } from "@stella/runtime/kernel/storage/llm-credentials";
 import { cleanupRetiredLocalLlmOAuthCredentials, deleteLocalLlmOAuthCredential, getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, saveLocalLlmOAuthCredential, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
-import { getOAuthProvider, getOAuthProviders, } from "@stella/runtime/ai/utils/oauth";
-import { loginChatGpt } from "@stella/runtime/ai/utils/oauth/chatgpt";
+import { getLlmOAuthProvider, getLlmOAuthProviders, loginLlmOAuth, } from "@stella/runtime/kernel/storage/llm-oauth-providers";
+import { loginChatGpt } from "@stella/runtime/kernel/integrations/chatgpt-sign-in";
 import { beginChatGptRegistration, chatGptProfileIdForClient, getChatGptAccessToken, getChatGptHostId, hasUsableChatGptProfile, listChatGptProfiles, removeChatGptProfile, saveChatGptRegistration, savedChatGptRegistration, setActiveChatGptProfile, signOutChatGptProfile, } from "@stella/runtime/kernel/storage/chatgpt-profiles";
 import { isRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
 import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
@@ -71,6 +72,7 @@ import {
   IPC_PREFERENCES_READ_ALOUD_CHANGED,
   IPC_PREFERENCES_SET_READ_ALOUD,
   IPC_VOICE_PREFERENCES_CHANGED,
+  IPC_PI_CHAT_ENABLED_CHANGED,
   IPC_USER_ASK_ANSWER,
   IPC_USER_ASK_CANCEL,
   IPC_USER_ASK_LIST,
@@ -1250,6 +1252,7 @@ export const registerSystemHandlers = (options) => {
         const previousRealtimeVoice = payload?.realtimeVoice !== undefined
             ? getLocalModelPreferences(stellaAppDir).realtimeVoice
             : null;
+        const previousPiChat = desktopPiChatEnabled(getLocalModelPreferences(stellaAppDir).agentRuntimeEngine);
         const nextDefaultModels = sanitizeStringRecord(payload?.defaultModels);
         const nextOverrides = sanitizeStringRecord(payload?.modelOverrides);
         const nextAssistantPropagatedAgents = sanitizeStringList(payload?.assistantPropagatedAgents);
@@ -1326,6 +1329,20 @@ export const registerSystemHandlers = (options) => {
             patch.memoryEnabled = payload.memoryEnabled === true;
         }
         const saved = updateLocalModelPreferences(stellaAppDir, patch);
+        // Moving onto or off Claude Code moves the chat between its paths.
+        const piChat = desktopPiChatEnabled(saved.agentRuntimeEngine);
+        if (piChat !== previousPiChat) {
+            for (const window of BrowserWindow.getAllWindows()) {
+                if (window.isDestroyed() || window.webContents.isDestroyed())
+                    continue;
+                try {
+                    window.webContents.send(IPC_PI_CHAT_ENABLED_CHANGED, piChat);
+                }
+                catch {
+                    // Ignore renderer delivery failures while a window closes.
+                }
+            }
+        }
         if (previousRealtimeVoice &&
             hasRealtimeVoiceSessionRouteChanged(previousRealtimeVoice, saved.realtimeVoice)) {
             for (const window of BrowserWindow.getAllWindows()) {
@@ -1357,7 +1374,7 @@ export const registerSystemHandlers = (options) => {
         }
         // Claude (Claude Code's own login) and ChatGPT (Sign in with
         // ChatGPT) are not providers of this store.
-        return getOAuthProviders()
+        return getLlmOAuthProviders()
             .map((provider) => ({
             provider: provider.id,
             label: provider.name,
@@ -1384,7 +1401,7 @@ export const registerSystemHandlers = (options) => {
             throw new Error("Local Stella root is unavailable.");
         }
         const providerId = asTrimmedString(payload?.provider).toLowerCase();
-        const provider = getOAuthProvider(providerId);
+        const provider = getLlmOAuthProvider(providerId);
         if (!provider) {
             throw new Error("Unsupported OAuth provider.");
         }
@@ -1395,43 +1412,26 @@ export const registerSystemHandlers = (options) => {
         const abortOnSenderDestroyed = () => controller.abort();
         event.sender.once("destroyed", abortOnSenderDestroyed);
         try {
-            let savedCredential = null;
-            const persistCredentials = async (credentials) => {
-                savedCredential = saveLocalLlmOAuthCredential(stellaAppDir, {
-                    provider: provider.id,
-                    label: provider.name,
-                    credentials,
-                });
-                refreshLocalLlmCredentials();
-            };
-            const credentials = await provider.login({
-                onAuth: (info) => {
-                    void shell.openExternal(info.url);
-                    if (providerId === "xai" && info.instructions?.trim()) {
+            const credentials = await loginLlmOAuth(provider, {
+                notify: (authEvent) => {
+                    if (authEvent.type === "auth_url") {
+                        void shell.openExternal(authEvent.url);
+                    }
+                    else if (authEvent.type === "device_code") {
+                        void shell.openExternal(authEvent.verificationUri);
+                        if (providerId !== "xai")
+                            return;
                         void dialog.showMessageBox({
                             type: "info",
                             message: t("desktop.oauth.xaiCodeMessage"),
-                            detail: info.instructions,
+                            detail: authEvent.userCode,
                             buttons: [t("desktop.common.continue")],
                         });
                     }
                 },
-                onPrompt: async (prompt) => {
-                    if (prompt.allowEmpty)
-                        return "";
-                    const result = await dialog.showMessageBox({
-                        type: "info",
-                        message: prompt.message,
-                        detail: prompt.placeholder
-                            ? t("desktop.oauth.expectedValue", {
-                                value: prompt.placeholder,
-                            })
-                            : undefined,
-                        buttons: [t("desktop.common.continue")],
-                    });
-                    return result.response === 0 ? "" : "";
-                },
-                onCredentialsReady: persistCredentials,
+                // The only question these sign-ins ask is GitHub Enterprise's
+                // domain; the empty answer signs in to github.com.
+                prompt: async () => "",
                 signal: controller.signal,
             });
             if (controller.signal.aborted) {
@@ -1439,9 +1439,12 @@ export const registerSystemHandlers = (options) => {
                     ? controller.signal.reason
                     : new Error("OAuth login was canceled.");
             }
-            if (!savedCredential) {
-                await persistCredentials(credentials);
-            }
+            const savedCredential = saveLocalLlmOAuthCredential(stellaAppDir, {
+                provider: provider.id,
+                label: provider.name,
+                credentials,
+            });
+            refreshLocalLlmCredentials();
             return savedCredential;
         }
         finally {

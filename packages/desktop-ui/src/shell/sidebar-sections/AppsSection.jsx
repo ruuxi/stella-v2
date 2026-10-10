@@ -21,7 +21,8 @@ import { useCloudApps } from "@/features/cloud/use-cloud-apps";
 import { useSidebarSectionLocation } from "@/features/workspace-display/sidebar-sections";
 import { useT } from "@/shared/i18n";
 import { dispatchComposeText } from "@/shared/lib/stella-orb-chat";
-import { AppWindowMac } from "@/ui/icons";
+import { EmptyState } from "@/ui/empty-state/EmptyState";
+import { Wand2 } from "@/ui/icons";
 import "./apps-section.css";
 export function AppsSection() {
   const cloudApps = useCloudApps();
@@ -60,17 +61,11 @@ function AppsEmpty() {
     });
   }, [navigate, t]);
   return (
-    <div className="sidebar-section__empty">
-      <span className="sidebar-section__empty-icon" aria-hidden="true">
-        <AppWindowMac size={17} strokeWidth={1.75} />
-      </span>
-      <p className="sidebar-section__empty-title">No apps yet</p>
-      <p className="sidebar-section__empty-body">
-        Ask Stella to build a small app. It will show up here.
-      </p>
-      <button type="button" className="pill-btn" onClick={requestApp}>
-        Ask Stella to create an app
-      </button>
-    </div>
+    <EmptyState
+      motif="apps"
+      title="No apps yet"
+      body="Apps Stella builds for you live here."
+      action={{ label: "Build an app", icon: Wand2, onClick: requestApp }}
+    />
   );
 }

@@ -15,8 +15,6 @@ aesthetics.
 | Host worker lifecycle (lock/spawn/kill/readiness) | `host/lifecycle/` Scope + Schedule                                                                                                                                         |
 | Orchestrator lane admission + queued-turn drain   | `kernel/runner/run-coordinator.ts`                                                                                                                                         |
 | Run fiber tree (turns, subagent attempts)         | `kernel/runner/supervision/run-supervisor.ts` over `shared/supervised-scope.ts`                                                                                            |
-| Provider streams (delivery + lifecycle)           | `agent-runtime/provider-stream-lifecycle.ts` (true Stream pipeline; relay abort; bounded joins) + `ai/stream.ts` pipeStream                                                |
-| Tool executions                                   | `agent-runtime/tool-lifecycle.ts` (child signals, duplicate guard, bounded joins)                                                                                          |
 | External engine turns                             | `agent-runtime/external-engine-lifecycle.ts` (relay → kill ladder, bounded joins)                                                                                          |
 | Compaction scheduling                             | keyed SupervisedScope executors (single-flight pinned)                                                                                                                     |
 | Cancellation                                      | one joining interrupt: `cancelLocalChat` → `supervisor.cancelRun`                                                                                                          |
@@ -28,10 +26,7 @@ aesthetics.
 
 ## Retained imperative seams (deliberate, with reasons)
 
-- Provider adapters (`ai/providers/*`) — boundary code over SDKs/fetch.
-  Network lifetime derives from run-scope relay signals (phases 2–3);
-  bodies close exactly once on every reader exit path (phase 4).
-- Claude Code / Codex stdio framing — protocol boundary code. Process
+- Claude Code stdio framing — protocol boundary code. Process
   lifetime is scope-joined via engine-turn resources + kill ladders;
   pendings settle exactly once; durable session ids/resume are covered by
   the integrations suites incl. the split-frame reassembly pin.

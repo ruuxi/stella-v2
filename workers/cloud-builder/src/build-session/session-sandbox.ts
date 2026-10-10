@@ -10,10 +10,6 @@ import {
   attachedToolPathsForDirectory,
 } from "@stella/executor-cloud/attached-tool-protocol";
 import {
-  agentComputeKey,
-  parsePersistedAgentCompute,
-} from "../agent-compute-ladder.js";
-import {
   advanceSandboxDestroyDebt,
   clearSandboxDestroyDebt,
   createSandboxDestroyDebt,
@@ -468,46 +464,16 @@ export const currentSandboxTarget = async (
     host.ctx.storage.get<InstanceSize>("sandboxSize"),
     host.ctx.storage.get<TurnRequest>("turn"),
   ]);
-  if (
-    turn?.kind === "agent" &&
-    Number.isSafeInteger(turn.attemptGeneration) &&
-    turn.attemptGeneration! >= 1
-  ) {
-    const identity = {
-      turnId: turn.turnId,
-      attemptGeneration: turn.attemptGeneration!,
-    };
-    const compute = parsePersistedAgentCompute(
-      await host.ctx.storage.get(
-        agentComputeKey(identity.turnId, identity.attemptGeneration),
-      ),
-      identity,
-    );
-    // A valid exact compute record is tuple authority as a whole. Resident
-    // means no sandbox; attaching and later phases carry both exact id and
-    // namespace-selecting size. Never combine either with a stale mirror.
-    if (compute) {
-      return compute.sandboxId
-        ? {
-            sandboxId: compute.sandboxId,
-            size: compute.instanceSize,
-            workload: "world",
-          }
-        : undefined;
-    }
-    return storedSandboxId
-      ? {
-          sandboxId: storedSandboxId,
-          size: storedSize ?? "large",
-          workload: "world",
-        }
-      : undefined;
-  }
   return storedSandboxId
     ? {
         sandboxId: storedSandboxId,
         size: storedSize ?? "large",
-        workload: "app-build",
+        workload:
+          turn?.kind === "agent" &&
+          Number.isSafeInteger(turn.attemptGeneration) &&
+          turn.attemptGeneration! >= 1
+            ? "world"
+            : "app-build",
       }
     : undefined;
 };
@@ -531,56 +497,30 @@ export const terminateCurrentAgentSession = async (
       turn.attemptGeneration! >= 1
         ? agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!)
         : undefined;
-    const computeIdentity =
-      turn.kind === "agent" &&
-      Number.isSafeInteger(turn.attemptGeneration) &&
-      turn.attemptGeneration! >= 1
-        ? {
-            turnId: turn.turnId,
-            attemptGeneration: turn.attemptGeneration!,
-          }
-        : undefined;
-    const [current, storedSandboxId, storedSize, executionMarker, compute] =
-      await Promise.all([
+    const [current, sandboxId, storedSize, executionMarker] = await Promise.all(
+      [
         txn.get<TurnRequest>("turn"),
         txn.get<string>("sandboxId"),
         txn.get<InstanceSize>("sandboxSize"),
         markerKey
           ? txn.get<AgentExecutionMarker>(markerKey)
           : Promise.resolve(undefined),
-        computeIdentity
-          ? txn
-              .get(
-                agentComputeKey(
-                  computeIdentity.turnId,
-                  computeIdentity.attemptGeneration,
-                ),
-              )
-              .then((value) =>
-                parsePersistedAgentCompute(value, computeIdentity),
-              )
-          : Promise.resolve(null),
-      ]);
-    // The ladder's exact record wins over the eager-path mirrors.
-    const sandboxId = compute ? compute.sandboxId : storedSandboxId;
-    if (!sandboxId || (!compute && !exactTurnIdentityMatches(current, turn))) {
+      ],
+    );
+    if (!sandboxId || !exactTurnIdentityMatches(current, turn)) {
       return undefined;
     }
-    const size = compute
-      ? compute.instanceSize
-      : (storedSize ?? ("large" as const));
+    const size = storedSize ?? ("large" as const);
     return {
       sandboxId,
       size,
       workload:
         turn.kind === "agent" ? ("world" as const) : ("app-build" as const),
-      sessionId: compute?.sessionId ?? agentTurnSessionId(turn.turnId),
-      daemonDirectory:
-        compute?.daemonDirectory ??
-        attachedToolPaths({
-          turnId: turn.turnId,
-          attemptGeneration: turn.attemptGeneration ?? 1,
-        }).directory,
+      sessionId: agentTurnSessionId(turn.turnId),
+      daemonDirectory: attachedToolPaths({
+        turnId: turn.turnId,
+        attemptGeneration: turn.attemptGeneration ?? 1,
+      }).directory,
       executorAdmitted:
         executionMarker?.schemaVersion === 1 &&
         executionMarker.turnId === turn.turnId &&

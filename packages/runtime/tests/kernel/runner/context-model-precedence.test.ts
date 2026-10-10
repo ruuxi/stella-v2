@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Model } from "@stella/runtime/ai/types";
+import type { Model } from "@earendil-works/pi-ai";
 import {
   captureEffectiveModelConfig,
   resolveAgentEngineForRun,

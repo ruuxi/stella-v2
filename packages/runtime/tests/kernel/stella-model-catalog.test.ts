@@ -8,7 +8,7 @@ import {
   invalidateStellaModelCatalogCache,
   withStellaModelCatalogMetadata,
 } from "@stella/runtime/kernel/stella-model-catalog";
-import { modelRuntime } from "@stella/runtime/ai/model-runtime";
+import { modelRuntime } from "@stella/runtime/kernel/model-runtime";
 import { getFileEditToolFamily } from "@stella/runtime/kernel/tools/file-edit-policy";
 import {
   getRememberedStellaGatewayOrigin,

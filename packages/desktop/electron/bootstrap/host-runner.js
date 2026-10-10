@@ -21,6 +21,7 @@ import {
   IPC_DISPLAY_UPDATE,
   IPC_EXECUTION_REMOTE_REQUEST,
   IPC_EXECUTION_TARGET_SET,
+  IPC_PI_CHAT_EVENTS,
 } from "@stella/contracts/desktop/ipc-channels";
 // Module-level one-shot cache for the skills home reconciliation. This
 // seeding used to run on the pre-window path inside `resolveStellaDataDir`, where
@@ -314,6 +315,8 @@ const clearHostRunnerSubscriptions = (context) => {
     state.localChatUpdateUnsubscribe = null;
     state.threadActivityUpdateUnsubscribe?.();
     state.threadActivityUpdateUnsubscribe = null;
+    state.piChatEventsUnsubscribe?.();
+    state.piChatEventsUnsubscribe = null;
     state.scheduleUpdateUnsubscribe?.();
     state.scheduleUpdateUnsubscribe = null;
 };
@@ -334,6 +337,9 @@ const connectHostRunner = async (context) => {
     });
     state.scheduleUpdateUnsubscribe = runner.onScheduleUpdated(() => {
         broadcastScheduleUpdated(context);
+    });
+    state.piChatEventsUnsubscribe = runner.onPiChatEvents((payload) => {
+        broadcastToWindows(context, IPC_PI_CHAT_EVENTS, payload);
     });
     const logger = getMainLogger();
     const connectBeganAt = Math.round(process.uptime() * 1000);

@@ -5,7 +5,7 @@ import path from "node:path";
 import { Cause, Effect, Exit, Layer, ManagedRuntime } from "effect";
 import { formatLlmRouteFailure } from "@stella/contracts/llm-route-failure";
 import type { GatewayProtocol } from "@stella/contracts/gateway/api";
-import type { Api, Model } from "../ai/types.js";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   STELLA_DEFAULT_MODEL,
   STELLA_MODELS_PATH,
@@ -144,7 +144,7 @@ const publishCatalogToModelRuntime = async (
       }),
     )
     .filter((route): route is NonNullable<typeof route> => Boolean(route));
-  const { modelRuntime } = await import("../ai/model-runtime.js");
+  const { modelRuntime } = await import("./model-runtime.js");
   modelRuntime.setManagedProviderModels(
     STELLA_PROVIDER,
     routes.map((route) => ({ ...route.model, provider: STELLA_PROVIDER })),
@@ -646,7 +646,7 @@ export const withStellaModelCatalogMetadata = (args: {
       const registryModel =
         findRegistryModel(lookup.provider, lookup.candidates) ??
         (yield* tryCatalogOp(async () => {
-          const { modelRuntime } = await import("../ai/model-runtime.js");
+          const { modelRuntime } = await import("./model-runtime.js");
           return modelRuntime
             .ensureProviderModel(lookup.provider, lookup.candidates)
             .catch(() => undefined);

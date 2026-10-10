@@ -7,7 +7,6 @@ import { empty } from "./args.js";
 import { agentThreadsDomain } from "./domains/agent-threads.js";
 import { appSourceDomain } from "./domains/app-source.js";
 import { billingDomain } from "./domains/billing.js";
-import { conversationEditsDomain } from "./domains/conversation-edits.js";
 import { conversationsDomain } from "./domains/conversations.js";
 import { devicesDomain } from "./domains/devices.js";
 import { homeDomain } from "./domains/home.js";
@@ -44,7 +43,6 @@ export const ownerDomains: OwnerDomain[] = [
   systemDomain,
   conversationsDomain,
   agentThreadsDomain,
-  conversationEditsDomain,
   billingDomain,
   devicesDomain,
   appSourceDomain,

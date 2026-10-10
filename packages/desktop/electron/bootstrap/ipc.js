@@ -22,6 +22,7 @@ import { registerOfficePreviewHandlers } from "../ipc/office-preview-handlers.js
 import { registerChatEvidenceHandlers } from "../ipc/chat-evidence-handlers.js";
 import { createCloudConversationFileGrants } from "../services/cloud-conversation-file-grants.js";
 import { createDeviceFileLocator } from "../services/device-file-locator.js";
+import { setDeviceMediaSource } from "../source/media-protocol.js";
 import { registerScheduleHandlers } from "../ipc/schedule-handlers.js";
 import { registerThemeHandlers } from "../ipc/theme-handlers.js";
 import { registerWebsiteHandlers } from "../ipc/website-handlers.js";
@@ -335,8 +336,21 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         getBackendUrl: () => services.authService.getBackendUrl(),
         getAuthToken: () => services.authService.getAuthToken(),
     });
+    // A conversation's pi transcript names the files Stella linked there.
+    const piLinkedFiles = async (conversationId) => (await lifecycle.getRunner()?.piChat({ op: "files", conversationId }))?.paths ?? [];
+    const deviceFileLocator = createDeviceFileLocator({
+        getBackendUrl: () => services.authService.getBackendUrl(),
+        getAuthToken: () => services.authService.getAuthToken(),
+    });
+    const deviceFiles = {
+        locator: deviceFileLocator,
+        getDeviceId: () => state.deviceId,
+    };
+    setDeviceMediaSource(deviceFiles);
     const officePreview = registerOfficePreviewHandlers({
         cloudFileGrants,
+        piLinkedFiles,
+        deviceFiles,
         getAuthToken: () => services.authService.getAuthToken(),
         getStellaAppDir: lifecycle.getStellaAppDir,
         getStellaDataDir: lifecycle.getStellaDataDir,
@@ -349,10 +363,8 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     });
     const display = registerDisplayHandlers({
         cloudFileGrants,
-        deviceFileLocator: createDeviceFileLocator({
-            getBackendUrl: () => services.authService.getBackendUrl(),
-            getAuthToken: () => services.authService.getAuthToken(),
-        }),
+        piLinkedFiles,
+        deviceFileLocator,
         getDeviceId: () => state.deviceId,
         getAuthToken: () => services.authService.getAuthToken(),
         getStellaAppDir: lifecycle.getStellaAppDir,
@@ -367,6 +379,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
         getActiveCloudConversationCacheAuthority: () => services.localChatHistoryService.getActiveCloudConversationCacheAuthority(),
         uiState: services.uiStateService.state,
         stellaAppDir: config.stellaAppDir,
+        getStellaDataDir: lifecycle.getStellaDataDir,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     registerRuntimeAvailabilityBridge({
@@ -375,6 +388,7 @@ export const registerBootstrapIpcHandlers = (context, resetFlows) => {
     });
     registerLocalChatHandlers({
         localChatHistoryService: services.localChatHistoryService,
+        getStellaHostRunner: lifecycle.getRunner,
         assertPrivilegedSender: (event, channel) => services.externalLinkService.assertPrivilegedSender(event, channel),
     });
     registerThemeHandlers({

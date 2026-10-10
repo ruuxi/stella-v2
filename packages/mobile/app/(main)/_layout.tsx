@@ -31,7 +31,14 @@ import {
   AppBackdrop,
   TOP_BAR_BAR_HEIGHT,
 } from "../../src/components/AppBackdrop";
-import { SidebarPanel } from "../../src/components/sidebar/SidebarPanel";
+import {
+  SIDEBAR_BRAND_CENTER,
+  SidebarPanel,
+} from "../../src/components/sidebar/SidebarPanel";
+import {
+  DRAWER_CHEVRON_SIZE,
+  DrawerStage,
+} from "../../src/components/sidebar/DrawerStage";
 import {
   Keyboard,
   Pressable,
@@ -41,14 +48,20 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
+  Extrapolation,
   interpolate,
-  runOnJS,
   useAnimatedStyle,
-  useSharedValue,
-  withSpring,
 } from "react-native-reanimated";
+import {
+  closeDrawer,
+  drawerJustOpened,
+  drawerProgress,
+  isDrawerOpen,
+  openDrawer,
+  useDrawerLive,
+  useDrawerMetrics,
+} from "../../src/lib/drawer";
 import { type Colors } from "../../src/theme/colors";
 import { useColors, useTheme } from "../../src/theme/theme-context";
 import { fonts } from "../../src/theme/fonts";
@@ -66,6 +79,7 @@ import {
 import {
   subscribeSidebarOpenRequests,
   useBackOverride,
+  useTopBarAccessory,
 } from "../../src/lib/main-shell-store";
 import { useT } from "../../src/i18n";
 
@@ -79,23 +93,19 @@ import { useT } from "../../src/i18n";
 export const unstable_settings = { anchor: "chat" };
 
 const SIDEBAR_WIDTH = 320;
-/** How far the foreground slides right when the drawer opens. Decoupled
- * from SIDEBAR_WIDTH so the sidebar can be widened (more breathing room
- * for its content) without pushing the main content further right; the
- * sidebar keeps its own content clear of the strip the foreground still
- * covers. */
-const DRAWER_REVEAL = 292;
 /** Diameter of the top bar's circular glass controls. */
-const TOP_BAR_BUTTON = 44;
+const TOP_BAR_BUTTON = DRAWER_CHEVRON_SIZE;
+const TOP_BAR_INSET = 10;
+const TITLE_MAX_FONT_SCALE = 1.3;
 
 const EMPTY_RUNNING_AGENTS: readonly ActivityIndicatorEntry[] = [];
-/** Snappy, lightly-springy settle for the drawer — tuned to feel closer to
- * ChatGPT iOS: it starts moving instantly (unlike an ease-in curve) and rests
- * fast with just a hint of overshoot for tactility. `duration` is the
- * perceptual duration; `dampingRatio` just under 1 keeps the bounce subtle
- * rather than wobbly. Gesture releases additionally hand the fling velocity to
- * the spring so the panel continues from the finger's speed. */
-const DRAWER_SPRING = { duration: 260, dampingRatio: 0.88 } as const;
+
+/** Pages whose name the top bar carries, centred between its controls. */
+const PAGE_TITLE_KEYS: Partial<Record<MainTabId, string>> = {
+  schedule: "mobile.activityHub.tabs.schedule",
+  apps: "mobile.nav.apps",
+  files: "mobile.activityHub.tabs.files",
+};
 
 export default function MainLayout() {
   const insets = useSafeAreaInsets();
@@ -103,7 +113,8 @@ export default function MainLayout() {
   const wide = width >= 920;
   const pathname = usePathname();
   const router = useRouter();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const drawerLive = useDrawerLive();
+  const { travel } = useDrawerMetrics();
   const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   // The in-progress agents the top-bar indicator was showing when it was
   // pressed. Held rather than re-read so the menu keeps listing what the user
@@ -115,7 +126,7 @@ export default function MainLayout() {
   const colors = useColors();
   const t = useT();
   const { isDark } = useTheme();
-  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   useEffect(() => {
     if (!hasAiConsent()) {
@@ -144,9 +155,6 @@ export default function MainLayout() {
     })();
   }, [router]);
 
-  // Reanimated shared value: 0 = closed, 1 = fully open
-  const drawerProgress = useSharedValue(0);
-
   const activeTab = readMainTabFromPath(pathname);
   const onChatSurface = pathname === "/chat";
   // A tab's own page (not a page pushed from one, like Cloud Home).
@@ -154,6 +162,13 @@ export default function MainLayout() {
     (href) => href === pathname,
   );
   const backOverride = useBackOverride();
+  const pageTitleKey =
+    onTabRoot && !backOverride && activeTab
+      ? PAGE_TITLE_KEYS[activeTab]
+      : undefined;
+  const pageTitle = pageTitleKey ? t(pageTitleKey) : null;
+  const topBarAccessory = useTopBarAccessory();
+  const accessoryVisible = Boolean(pageTitle) && topBarAccessory != null;
 
   const search = useChatSearch();
   // Collapse + clear search whenever the route changes (e.g. switching tabs) so
@@ -183,22 +198,7 @@ export default function MainLayout() {
   const drawerAvailable = onChatSurface || (onTabRoot && !backOverride);
   const backVisible = !drawerAvailable;
 
-  const openSidebar = () => {
-    Keyboard.dismiss();
-    tapLight();
-    setSidebarOpen(true);
-    drawerProgress.value = withSpring(1, DRAWER_SPRING);
-  };
-
-  // `haptic` defaults on so direct user closes (scrim tap, back) feel the
-  // commit. Callers that already fire their own feedback or close the drawer
-  // programmatically (tab navigation, rotating into the wide layout) pass
-  // false to avoid a double buzz.
-  const closeSidebar = (haptic = true) => {
-    if (haptic) tapLight();
-    setSidebarOpen(false);
-    drawerProgress.value = withSpring(0, DRAWER_SPRING);
-  };
+  const openSidebar = openDrawer;
 
   // Tabs push over the chat rather than replacing it, so the chat keeps its
   // mount (scroll position, draft, journal socket) and coming back is a pop,
@@ -208,9 +208,10 @@ export default function MainLayout() {
   // too; leaving one of those drops to the chat first and opens the tab
   // from there.
   const selectTab = (tab: MainTabId) => {
+    if (!wide && drawerJustOpened()) return;
     const destination = MAIN_TAB_HREFS[tab];
     tapLight();
-    if (!wide) closeSidebar(false);
+    if (!wide) closeDrawer();
     if (destination === pathname) return;
     Keyboard.dismiss();
     if (destination === "/chat") {
@@ -245,16 +246,14 @@ export default function MainLayout() {
   };
 
   useEffect(() => {
-    if (wide) closeSidebar(false);
+    if (wide && isDrawerOpen()) closeDrawer();
   }, [wide]);
 
   // A route that takes the drawer away (a pushed page, an open app) never
   // inherits it open.
   useEffect(() => {
-    if (drawerAvailable) return;
-    setSidebarOpen(false);
-    drawerProgress.value = withSpring(0, DRAWER_SPRING);
-  }, [drawerAvailable, drawerProgress]);
+    if (!drawerAvailable && isDrawerOpen()) closeDrawer();
+  }, [drawerAvailable]);
 
   // The chat's running-tasks pill asks for the drawer; the wide layout has
   // the sidebar on screen already, so there is nothing to reveal there.
@@ -268,120 +267,14 @@ export default function MainLayout() {
     [wide],
   );
 
-  // -- Gesture: swipe right anywhere on a tab page to open --
-  // `Keyboard.dismiss` is a method on the native Keyboard module and isn't
-  // serializable into the Worklets UI runtime, so wrap it in a plain JS
-  // function before handing it to `runOnJS`.
-  const dismissKeyboard = () => Keyboard.dismiss();
-  const openPan = Gesture.Pan()
-    .enabled(!sidebarOpen && drawerAvailable)
-    .activeOffsetX(15)
-    .failOffsetY([-20, 20])
-    .onStart(() => {
-      runOnJS(dismissKeyboard)();
-    })
-    .onUpdate((e) => {
-      drawerProgress.value = Math.min(
-        1,
-        Math.max(0, e.translationX / DRAWER_REVEAL),
-      );
-    })
-    .onEnd((e) => {
-      if (e.velocityX > 500 || drawerProgress.value > 0.4) {
-        // Commit open: continue from the fling velocity so the spring picks up
-        // where the finger left off, and fire the open haptic on the detent.
-        drawerProgress.value = withSpring(1, {
-          ...DRAWER_SPRING,
-          velocity: e.velocityX / DRAWER_REVEAL,
-        });
-        runOnJS(setSidebarOpen)(true);
-        runOnJS(tapLight)();
-      } else {
-        // Snap back to closed — no haptic, the drawer never left its rest state.
-        drawerProgress.value = withSpring(0, {
-          ...DRAWER_SPRING,
-          velocity: e.velocityX / DRAWER_REVEAL,
-        });
-      }
-    });
-
-  // -- Gesture: swipe left to close --
-  const makeCloseGesture = () =>
-    Gesture.Pan()
-      .enabled(sidebarOpen)
-      .activeOffsetX(-15)
-      .failOffsetY([-20, 20])
-      .onUpdate((e) => {
-        drawerProgress.value = Math.min(
-          1,
-          Math.max(0, 1 + e.translationX / DRAWER_REVEAL),
-        );
-      })
-      .onEnd((e) => {
-        if (e.velocityX < -500 || drawerProgress.value < 0.6) {
-          // Commit closed: ride the fling velocity into the spring and fire the
-          // close haptic on the detent.
-          drawerProgress.value = withSpring(0, {
-            ...DRAWER_SPRING,
-            velocity: e.velocityX / DRAWER_REVEAL,
-          });
-          runOnJS(setSidebarOpen)(false);
-          runOnJS(tapLight)();
-        } else {
-          // Snap back to open — no haptic, the drawer stays where it was.
-          drawerProgress.value = withSpring(1, {
-            ...DRAWER_SPRING,
-            velocity: e.velocityX / DRAWER_REVEAL,
-          });
-        }
-      });
-
-  const closePanDrawer = makeCloseGesture();
-  const drawerPan = sidebarOpen ? closePanDrawer : openPan;
-
-  // -- Animated styles --
-  // Sidebar sits underneath the foreground at rest. As the drawer opens we
-  // parallax it in (-12px → 0) so the reveal reads as the content lifting
-  // away rather than the menu sliding in. Deliberately no opacity fade:
-  // UIKit refuses to render Liquid Glass (UIVisualEffectView) beneath a
-  // superview whose alpha has been taken below 1, and the sidebar's glass
-  // pills stayed flat for exactly that reason. The opaque foreground hides
-  // the parked sidebar anyway, so the fade bought nothing visible.
-  const sidebarStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        translateX: interpolate(drawerProgress.value, [0, 1], [-12, 0]),
-      },
-    ],
+  const topBarFade = useAnimatedStyle(() => ({
+    opacity: interpolate(
+      drawerProgress.value,
+      [0, 0.22],
+      [1, 0],
+      Extrapolation.CLAMP,
+    ),
   }));
-
-  // Foreground (top bar + content) is the elevated layer. It slides right
-  // to expose the sidebar parked beneath it.
-  const foregroundStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        translateX: interpolate(
-          drawerProgress.value,
-          [0, 1],
-          [0, DRAWER_REVEAL],
-        ),
-      },
-    ],
-  }));
-
-  // Scrim painted onto the foreground itself, plus a tap-to-close target.
-  // Lives above content but travels with the foreground so it never covers
-  // the sidebar.
-  //
-  // This is the only thing separating the drawer from the page now that both
-  // sit on the base background, and it tracks `drawerProgress` rather than
-  // open state — drag halfway and you get half the lift, drag back and it
-  // unwinds. On a black substrate the page lifts *away* from the drawer;
-  // in light mode there is no headroom above white, so it keeps dimming.
-  const scrimStyle = useAnimatedStyle(() => ({
-    opacity: drawerProgress.value * (isDark ? 0.14 : 0.18),
-  }));
-
 
   // Constant on every route (like the empty nav bar over an iOS large title),
   // so the chat underneath never reflows as tabs swap over it.
@@ -413,6 +306,18 @@ export default function MainLayout() {
                 pointerEvents="box-none"
                 style={[styles.topBar, { height: topBarHeight }]}
               >
+                {pageTitle ? (
+                  <View pointerEvents="none" style={styles.titleLane}>
+                    <Text
+                      accessibilityRole="header"
+                      style={styles.pageTitle}
+                      numberOfLines={1}
+                      maxFontSizeMultiplier={TITLE_MAX_FONT_SCALE}
+                    >
+                      {pageTitle}
+                    </Text>
+                  </View>
+                ) : null}
                 {backVisible ? (
                   <View style={styles.topBarSide}>
                     <GlassIconButton
@@ -426,146 +331,147 @@ export default function MainLayout() {
                     />
                   </View>
                 ) : null}
+                {accessoryVisible ? (
+                  <View style={[styles.topBarSide, styles.topBarEnd]}>
+                    {topBarAccessory}
+                  </View>
+                ) : null}
               </View>
             </View>
           </View>
         </>
       ) : (
-        <View style={styles.narrowLayout}>
-          {/* Gradient backdrop — painted behind both sidebar and foreground
-              so the inset/rounded foreground reveals the same continuous
-              canvas through its curved corners (no contrasting bands). */}
-          <AppBackdrop />
-          {/* Sidebar parked underneath at the left edge. Always mounted,
-              statically positioned, edge-to-edge vertically. The foreground
-              (below) slides right to reveal it, so the menu reads as a layer
-              the app is lifting off of rather than a panel sliding in over
-              the content. */}
-          <Animated.View
-            pointerEvents={sidebarOpen ? "auto" : "none"}
-            style={[styles.sidebarLayer, sidebarStyle]}
-          >
+        <DrawerStage
+          enabled={drawerAvailable}
+          panel={
             <SidebarPanel
-              width={SIDEBAR_WIDTH}
-              contentInsetRight={SIDEBAR_WIDTH - DRAWER_REVEAL}
+              width={travel}
+              animated
               activeTab={activeTab}
               onSelectTab={selectTab}
             />
-          </Animated.View>
+          }
+          chevron={{
+            left: TOP_BAR_INSET,
+            top: topBarHeight - TOP_BAR_BUTTON,
+            openCenterY: insets.top + SIDEBAR_BRAND_CENTER,
+            openLabel: t("mobile.nav.openLabel"),
+            closeLabel:
+              activeTab === "chat"
+                ? t("mobile.nav.backToChat")
+                : t("mobile.nav.closeLabel"),
+          }}
+        >
+          <AppBackdrop />
+          <View style={styles.content}>
+            <MainStack />
+          </View>
 
-          {/* Foreground — the elevated layer. Top bar + content travel
-              together, with a soft left-edge shadow for depth, and a scrim
-              painted on top so taps behind the controls dismiss the drawer
-              without ever obscuring the sidebar. */}
-          <GestureDetector gesture={drawerPan}>
-            <Animated.View style={[styles.foregroundLayer, foregroundStyle]}>
-              {/* The foreground carries the backdrop as its own opaque surface
-                  so soft/flat is actually visible in the app (and the parked
-                  sidebar stays hidden) instead of being covered by a flat
-                  fill. Clipped to the rounded corners via overflow:hidden. */}
-              <AppBackdrop />
-              <View style={styles.content}>
-                <MainStack />
-              </View>
-
-              {/* The top bar floats over the routes: the chat runs edge to
-                  edge underneath it, and every other route starts below it
-                  (`useShellTopInset`). Taps between its controls pass through
-                  to the page. */}
-              <View
-                pointerEvents="box-none"
-                style={[styles.topBar, { height: topBarHeight }]}
-              >
-                {search.isOpen ? (
-                  <View style={styles.searchRow}>
-                    <View style={styles.searchField}>
-                      <Icon name="search" size={16} color={colors.textMuted} />
-                      <TextInput
-                        style={styles.searchInput}
-                        value={search.query}
-                        onChangeText={search.setQuery}
-                        placeholder={t("mobile.search.placeholder")}
-                        placeholderTextColor={fadeHex(colors.textMuted, 0.6)}
-                        selectionColor={colors.accent}
-                        autoFocus
-                        autoCorrect={false}
-                        returnKeyType="search"
-                      />
-                      {search.query.length > 0 ? (
-                        <Pressable
-                          onPress={() => search.setQuery("")}
-                          hitSlop={8}
-                          accessibilityLabel={t("mobile.search.clearLabel")}
-                        >
-                          <Icon name="x" size={15} color={colors.textMuted} />
-                        </Pressable>
-                      ) : null}
-                    </View>
+          {/* The top bar floats over the routes: the chat runs edge to
+              edge underneath it, and every other route starts below it
+              (`useShellTopInset`). Taps between its controls pass through
+              to the page. */}
+          <Animated.View
+            pointerEvents="box-none"
+            style={[styles.topBar, { height: topBarHeight }, topBarFade]}
+          >
+            {search.isOpen ? (
+              <View style={styles.searchRow}>
+                <View style={styles.searchField}>
+                  <Icon name="search" size={16} color={colors.textMuted} />
+                  <TextInput
+                    style={styles.searchInput}
+                    value={search.query}
+                    onChangeText={search.setQuery}
+                    placeholder={t("mobile.search.placeholder")}
+                    placeholderTextColor={fadeHex(colors.textMuted, 0.6)}
+                    selectionColor={colors.accent}
+                    autoFocus
+                    autoCorrect={false}
+                    returnKeyType="search"
+                  />
+                  {search.query.length > 0 ? (
                     <Pressable
-                      onPress={search.close}
+                      onPress={() => search.setQuery("")}
                       hitSlop={8}
-                      accessibilityLabel={t("mobile.search.cancelLabel")}
-                      style={styles.searchCancel}
+                      accessibilityLabel={t("mobile.search.clearLabel")}
                     >
-                      <Text style={styles.searchCancelText}>
-                        {t("mobile.common.cancel")}
-                      </Text>
+                      <Icon name="x" size={15} color={colors.textMuted} />
                     </Pressable>
-                  </View>
-                ) : null}
-                {!search.isOpen && onChatSurface ? (
-                  <View pointerEvents="box-none" style={styles.statusLane}>
-                    <StellaStatusHeader onPress={setActivityMenuRunning} />
-                  </View>
-                ) : null}
-                {search.isOpen ? null : (
-                  <View style={styles.topBarSide}>
-                    <GlassIconButton
-                      icon="chevron-left"
-                      size={TOP_BAR_BUTTON}
-                      iconSize={20}
-                      accessibilityLabel={
-                        drawerAvailable
-                          ? t("mobile.nav.openLabel")
-                          : (backOverride?.label ?? t("mobile.common.back"))
-                      }
-                      onPress={onPressTopLeft}
-                    />
-                  </View>
-                )}
-                {!search.isOpen && onChatSurface ? (
-                  <View style={[styles.topBarSide, styles.topBarEnd]}>
-                    <GlassIconButton
-                      icon="settings"
-                      size={TOP_BAR_BUTTON}
-                      iconSize={19}
-                      accessibilityLabel={t("mobile.nav.chatSettingsLabel")}
-                      onPress={() => {
-                        tapLight();
-                        setChatSettingsOpen(true);
-                      }}
-                    />
-                  </View>
-                ) : null}
-              </View>
-
-              {/* Scrim — sits on top of the foreground while the drawer is
-                  open. Tap anywhere on the visible app area to close. */}
-              <Animated.View
-                pointerEvents={sidebarOpen ? "auto" : "none"}
-                style={[styles.foregroundScrim, scrimStyle]}
-              >
+                  ) : null}
+                </View>
                 <Pressable
-                  onPress={() => closeSidebar()}
-                  style={StyleSheet.absoluteFill}
-                  accessibilityRole="button"
-                  accessibilityLabel={t("mobile.nav.closeLabel")}
-                  testID="mobile-nav-close"
+                  onPress={search.close}
+                  hitSlop={8}
+                  accessibilityLabel={t("mobile.search.cancelLabel")}
+                  style={styles.searchCancel}
+                >
+                  <Text style={styles.searchCancelText}>
+                    {t("mobile.common.cancel")}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
+            {!search.isOpen && pageTitle ? (
+              <View pointerEvents="none" style={styles.titleLane}>
+                <Text
+                  accessibilityRole="header"
+                  style={styles.pageTitle}
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={TITLE_MAX_FONT_SCALE}
+                >
+                  {pageTitle}
+                </Text>
+              </View>
+            ) : null}
+            {!search.isOpen && onChatSurface ? (
+              <View pointerEvents="box-none" style={styles.statusLane}>
+                <StellaStatusHeader onPress={setActivityMenuRunning} />
+              </View>
+            ) : null}
+            {search.isOpen ? null : (
+              <View
+                style={[
+                  styles.topBarSide,
+                  drawerAvailable && drawerLive && styles.handedOff,
+                ]}
+                pointerEvents={drawerAvailable && drawerLive ? "none" : "auto"}
+                accessibilityElementsHidden={drawerAvailable && drawerLive}
+              >
+                <GlassIconButton
+                  icon={drawerAvailable ? "chevron-right" : "chevron-left"}
+                  size={TOP_BAR_BUTTON}
+                  iconSize={20}
+                  accessibilityLabel={
+                    drawerAvailable
+                      ? t("mobile.nav.openLabel")
+                      : (backOverride?.label ?? t("mobile.common.back"))
+                  }
+                  onPress={onPressTopLeft}
                 />
-              </Animated.View>
-            </Animated.View>
-          </GestureDetector>
-        </View>
+              </View>
+            )}
+            {!search.isOpen && accessoryVisible ? (
+              <View style={[styles.topBarSide, styles.topBarEnd]}>
+                {topBarAccessory}
+              </View>
+            ) : null}
+            {!search.isOpen && onChatSurface ? (
+              <View style={[styles.topBarSide, styles.topBarEnd]}>
+                <GlassIconButton
+                  icon="settings"
+                  size={TOP_BAR_BUTTON}
+                  iconSize={19}
+                  accessibilityLabel={t("mobile.nav.chatSettingsLabel")}
+                  onPress={() => {
+                    tapLight();
+                    setChatSettingsOpen(true);
+                  }}
+                />
+              </View>
+            ) : null}
+          </Animated.View>
+        </DrawerStage>
       )}
       <ChatSettingsSheet
         visible={chatSettingsOpen}
@@ -631,7 +537,7 @@ const TRANSPARENT_NAVIGATION_THEME = {
   colors: { ...DefaultTheme.colors, background: "transparent" },
 };
 
-const makeStyles = (colors: Colors, isDark: boolean) =>
+const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     shell: {
       flex: 1,
@@ -644,11 +550,6 @@ const makeStyles = (colors: Colors, isDark: boolean) =>
       flexDirection: "row",
     },
 
-    // Narrow (phone)
-    narrowLayout: {
-      flex: 1,
-    },
-
     // Top bar — phone and tablet action controls, floating over the routes.
     // Height is set inline as `insets.top + barHeight` so the safe-area inset
     // is added on top of the bar's own height rather than eating into it (RN
@@ -657,7 +558,7 @@ const makeStyles = (colors: Colors, isDark: boolean) =>
       alignItems: "flex-end",
       flexDirection: "row",
       left: 0,
-      paddingHorizontal: 10,
+      paddingHorizontal: TOP_BAR_INSET,
       position: "absolute",
       right: 0,
       top: 0,
@@ -675,6 +576,23 @@ const makeStyles = (colors: Colors, isDark: boolean) =>
       left: 0,
       position: "absolute",
       right: 0,
+    },
+    // A page's name, centred on the bar whatever sits at either side of it,
+    // in the sidebar's place-label face.
+    titleLane: {
+      alignItems: "center",
+      bottom: 0,
+      height: TOP_BAR_BUTTON,
+      justifyContent: "center",
+      left: TOP_BAR_INSET + TOP_BAR_BUTTON + 8,
+      position: "absolute",
+      right: TOP_BAR_INSET + TOP_BAR_BUTTON + 8,
+    },
+    pageTitle: {
+      color: colors.text,
+      fontFamily: fonts.sans.bold,
+      fontSize: 20,
+      letterSpacing: -0.6,
     },
     topBarEnd: { marginLeft: "auto" },
     topBarSide: {
@@ -726,45 +644,7 @@ const makeStyles = (colors: Colors, isDark: boolean) =>
       flex: 1,
       minHeight: 0,
     },
-    // Sidebar layer — sits underneath the foreground, anchored to the left
-    // edge. Stays mounted so swipe-to-open reveals an already-laid-out menu.
-    sidebarLayer: {
-      bottom: 0,
-      left: 0,
-      position: "absolute",
-      top: 0,
-      width: SIDEBAR_WIDTH,
-      zIndex: 1,
-    },
-
-    // Foreground layer — elevated above the sidebar. Carries the canvas
-    // color so the parked sidebar doesn't show through the app, and a soft
-    // left-edge shadow so the layering reads when the drawer is open.
-    foregroundLayer: {
-      flex: 1,
-      backgroundColor: colors.background,
-      zIndex: 2,
-      shadowColor: "#000",
-      shadowOffset: { width: -2, height: 0 },
-      shadowOpacity: 0.18,
-      shadowRadius: 18,
-      elevation: 12,
-      overflow: "hidden",
-      borderTopLeftRadius: 56,
-      borderBottomLeftRadius: 56,
-      borderLeftWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-    },
-
-    // Scrim painted on the foreground while the drawer is open. Dims the
-    // app slightly and provides a tap target to close.
-    foregroundScrim: {
-      ...StyleSheet.absoluteFill,
-      // White on a dark substrate so opening the drawer lifts the page;
-      // black in light mode, where there is nothing above white to lift to.
-      backgroundColor: isDark ? "#fff" : "#000",
-      zIndex: 3,
-    },
+    handedOff: { opacity: 0 },
 
     // Shared content area. Routes apply their own inset (see
     // `mainContentStyles`) so a pushed detail page can paint edge to edge.

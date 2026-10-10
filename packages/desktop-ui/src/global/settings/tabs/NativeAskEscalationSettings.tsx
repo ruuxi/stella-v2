@@ -57,7 +57,7 @@ export function NativeAskEscalationSettings() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const bridge = getElectronApi()?.system.userAsk;
+      const bridge = getElectronApi()?.userAsk;
       if (!bridge?.policyGet) {
         if (!cancelled) setLoaded(true);
         return;
@@ -89,7 +89,7 @@ export function NativeAskEscalationSettings() {
 
   const commit = useCallback(
     async (patch: Partial<UserAskEscalationPolicy>) => {
-      const bridge = getElectronApi()?.system.userAsk;
+      const bridge = getElectronApi()?.userAsk;
       const previous = policy;
       const next = normalizeUserAskEscalationPolicy({ ...policy, ...patch });
       setPolicy(next);

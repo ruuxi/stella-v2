@@ -32,6 +32,7 @@ const ipc: TypedIpcRenderer = {
     }
   },
   send: (channel, ...args) => ipcRenderer.send(channel, ...args),
+  sendSync: (channel, ...args) => ipcRenderer.sendSync(channel, ...args),
   on: (channel, listener) => {
     const handler = (
       event: IpcRendererEvent,
@@ -64,9 +65,7 @@ contextBridge.exposeInMainWorld(
   "__stellaUiState",
   (() => {
     try {
-      const snapshot = ipcRenderer.sendSync(
-        IPC_UI_STATE_KV_SNAPSHOT,
-      ) as unknown;
+      const snapshot = ipc.sendSync(IPC_UI_STATE_KV_SNAPSHOT);
       return snapshot && typeof snapshot === "object" ? snapshot : {};
     } catch {
       return {};

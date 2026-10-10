@@ -22,6 +22,14 @@ import { resolveJwtOwnerScope } from "@stella/runtime/kernel/runner/computer-age
 import { resolveCanonicalConversationFilePaths } from "../services/canonical-conversation-file-paths.js";
 import type { CloudConversationFileGrants } from "../services/cloud-conversation-file-grants.js";
 import { handleIpc } from "./typed-ipc.js";
+import {
+  resolveDeviceFileSource,
+  type DeviceFileSourceDeps,
+} from "../services/device-file-source.js";
+import {
+  deviceFileUnavailableMessage,
+  friendlyDeviceName,
+} from "@stella/contracts/device-files";
 
 type OfficePreviewHandlersOptions = {
   getStellaAppDir: () => string | null;
@@ -30,6 +38,10 @@ type OfficePreviewHandlersOptions = {
   getAuthToken?: () => Promise<string | null>;
   /** Files Stella produced or displayed in a conversation, per its cloud journal. */
   cloudFileGrants?: CloudConversationFileGrants;
+  /** On pi-durable: the local files Stella linked in a conversation's transcript. */
+  piLinkedFiles?: (conversationId: string) => Promise<readonly string[]>;
+  /** Says which device has a file that is not on this computer. */
+  deviceFiles?: DeviceFileSourceDeps;
   assertPrivilegedSender: (
     event: IpcMainEvent | IpcMainInvokeEvent,
     channel: string,
@@ -250,6 +262,12 @@ export const registerOfficePreviewHandlers = (
       ))
         artifactPaths.add(filePath);
     }
+    if (options.piLinkedFiles) {
+      for (const filePath of await resolveCanonicalConversationFilePaths(
+        await options.piLinkedFiles(conversationId).catch(() => []),
+      ))
+        artifactPaths.add(filePath);
+    }
     return { fileEvents, artifactPaths };
   };
 
@@ -288,7 +306,19 @@ export const registerOfficePreviewHandlers = (
       );
     }
 
-    const stats = await fs.stat(sourcePath);
+    const stats = await fs.stat(sourcePath).catch(async (caught: unknown) => {
+      if ((caught as NodeJS.ErrnoException | null)?.code !== "ENOENT")
+        throw caught;
+      const source = await resolveDeviceFileSource(
+        requestedPath,
+        options.deviceFiles ?? null,
+      );
+      throw new Error(
+        source.kind === "drive"
+          ? `This file is on ${friendlyDeviceName(source.deviceName)}. Office previews of files from your other devices aren't available yet, so open it there.`
+          : deviceFileUnavailableMessage(source, requestedPath),
+      );
+    });
     if (!stats.isFile()) {
       throw new Error(`Office preview target is not a file: ${sourcePath}`);
     }

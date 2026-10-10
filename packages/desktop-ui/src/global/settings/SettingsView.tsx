@@ -4,13 +4,14 @@ import {
   useCallback,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
-import { useEdgeFadeRef } from "@/shared/hooks/use-edge-fade";
 import type { LegalDocument } from "@/global/legal/legal-text";
 import { SettingsPanel } from "@/global/settings/SettingsPanel";
 import { SettingsSearch } from "@/global/settings/SettingsSearch";
+import { SettingsBarNav, SettingsRailNav } from "@/global/settings/SettingsNav";
 import { SettingsSearchResults } from "@/global/settings/SettingsSearchResults";
 import { AudioTab } from "@/global/settings/AudioTab";
 import {
@@ -20,6 +21,7 @@ import {
 import { AccountTab } from "./tabs/AccountTab";
 import { GeneralTab } from "./tabs/GeneralTab";
 import { ShortcutsTab } from "./tabs/ShortcutsTab";
+import { PrivacyTab } from "./tabs/PrivacyTab";
 import type { ScoredSettingsSearchEntry } from "@/global/settings/lib/settings-search-index";
 import { useT } from "@/shared/i18n";
 import "@/global/settings/settings.css";
@@ -32,6 +34,9 @@ const LegalDialog = lazy(() =>
     default: m.LegalDialog,
   })),
 );
+
+/** Screen width below which the left rail becomes a top bar. */
+const NARROW_WIDTH = 720;
 
 // ---------------------------------------------------------------------------
 // SettingsScreen (route- or sidebar-mounted, no Dialog wrapper)
@@ -113,65 +118,54 @@ export const SettingsScreen = ({
     [handleTabClick],
   );
 
-  // Edge fade is on the horizontal tab strip itself — that's where the
-  // scrollable overflow lives now that the rail is laid out as a row.
-  const tabStripRef = useEdgeFadeRef<HTMLElement>();
+  // Below this width the rail would squeeze the cards, so the tabs move
+  // into a single row above the panel instead.
+  const screenRef = useRef<HTMLDivElement>(null);
+  const [narrow, setNarrow] = useState(embedded);
+  useLayoutEffect(() => {
+    const screen = screenRef.current;
+    if (!screen || embedded) return;
+    const measure = () => setNarrow(screen.clientWidth < NARROW_WIDTH);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(screen);
+    return () => observer.disconnect();
+  }, [embedded]);
+
+  const tabs = availableSettingsTabs(platformCapabilities.website);
+  const handleNavSelect = useCallback(
+    (tab: SettingsTab) => {
+      if (isSearching) setSearchQuery("");
+      handleTabClick(tab);
+    },
+    [handleTabClick, isSearching],
+  );
+  const navProps = {
+    tabs,
+    activeTab: isSearching ? null : activeTab,
+    onSelect: handleNavSelect,
+    label: t("settings.title"),
+  };
 
   return (
     <>
-      {/* The Settings page owns its own left rail rather than borrowing
-          the global sidebar's slot — keeps Settings self-contained and
-          leaves the shell sidebar untouched while /settings is open. */}
       <div
+        ref={screenRef}
         className="settings-screen"
         data-search-active={isSearching ? "true" : "false"}
       >
         <div
           className={`settings-layout ${
-            embedded
-              ? "settings-layout--sidebar"
-              : "settings-layout--standalone"
+            narrow ? "settings-layout--bar" : "settings-layout--rail"
           }`}
         >
-          {/* Header: title row above, then horizontal tab strip. No
-              side rail — keeps the page visually centered and gives
-              the panel content the full width to breathe. */}
-          <header
-            className="settings-tab-rail"
-            role="tablist"
-            aria-label={t("settings.title")}
-          >
-            <div className="settings-tab-rail-header">
-              <div className="settings-tab-rail-title">
-                {t("settings.title")}
-              </div>
-              <SettingsSearch value={searchQuery} onChange={setSearchQuery} />
-            </div>
-            <nav ref={tabStripRef} className="settings-tab-rail-nav">
-              {availableSettingsTabs(platformCapabilities.website).map(
-                (tab) => {
-                  const isActive = activeTab === tab.key && !isSearching;
-                  return (
-                    <button
-                      key={tab.key}
-                      id={`settings-tab-${tab.key}`}
-                      type="button"
-                      role="tab"
-                      aria-selected={isActive}
-                      aria-controls={`settings-tabpanel-${tab.key}`}
-                      tabIndex={isActive ? 0 : -1}
-                      className={`settings-tab-rail-item${isActive ? " settings-tab-rail-item--active" : ""}`}
-                      onClick={() => {
-                        if (isSearching) setSearchQuery("");
-                        handleTabClick(tab.key);
-                      }}
-                    >
-                      {t(tab.labelKey)}
-                    </button>
-                  );
-                },
-              )}
-            </nav>
+          <header className="settings-nav">
+            <SettingsSearch value={searchQuery} onChange={setSearchQuery} />
+            {narrow ? (
+              <SettingsBarNav {...navProps} />
+            ) : (
+              <SettingsRailNav {...navProps} />
+            )}
           </header>
           <SettingsPanel scrollResetKey={isSearching ? "search" : activeTab}>
             {isSearching ? (
@@ -307,6 +301,8 @@ function SettingsTabContent({
         <AccountTab onSignOut={onSignOut} onOpenLegal={onOpenLegal} />
       ) : activeTab === "audio" ? (
         <AudioTab />
+      ) : activeTab === "privacy" ? (
+        <PrivacyTab />
       ) : (
         <GeneralTab />
       )}

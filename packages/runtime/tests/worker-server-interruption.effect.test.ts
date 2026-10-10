@@ -71,7 +71,7 @@ vi.mock("../kernel/connectors/process-registry.js", () => ({
   sweepStaleConnectorBridgeProcesses: async () => null,
 }));
 
-vi.mock("../ai/model-runtime.js", () => ({
+vi.mock("../kernel/model-runtime.js", () => ({
   modelRuntime: {
     onCatalogChanged: () => () => undefined,
     getSnapshotForListing: async () => ({ models: [] }),

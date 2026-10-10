@@ -214,6 +214,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Reacții {reactions}",
         "showMoreChips": "Arată încă {count}",
+        "stellaReaction": "Stella a reacționat cu {emoji}",
         "windowPreviewAlt": "Previzualizarea conținutului ferestrei"
       },
       "miniModelPicker": {

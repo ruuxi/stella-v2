@@ -208,6 +208,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Αντιδράσεις {reactions}",
         "showMoreChips": "Εμφάνιση {count} ακόμη",
+        "stellaReaction": "Η Stella αντέδρασε με {emoji}",
         "windowPreviewAlt": "Προεπισκόπηση περιεχομένου παραθύρου"
       },
       "miniModelPicker": {

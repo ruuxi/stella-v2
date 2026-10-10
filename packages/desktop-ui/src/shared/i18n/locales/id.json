@@ -202,6 +202,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Reaksi {reactions}",
         "showMoreChips": "Tampilkan {count} lagi",
+        "stellaReaction": "Stella bereaksi {emoji}",
         "windowPreviewAlt": "Pratinjau konten jendela"
       },
       "miniModelPicker": {

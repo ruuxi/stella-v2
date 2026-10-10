@@ -132,6 +132,33 @@ export function MessageEntry({
   );
 }
 
+const REACTION_POP = { side: "left", rise: 4, scale: 0.4 } as const;
+
+function ReactionBadge({
+  emoji,
+  fresh,
+  styles,
+}: {
+  emoji: string;
+  fresh: boolean;
+  styles: MessageRowStyles;
+}) {
+  const popStyle = useBubblePop(fresh, REACTION_POP);
+  return (
+    <Animated.View
+      style={[styles.reactionBadge, popStyle]}
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={`Stella reacted ${emoji}`}
+      pointerEvents="none"
+    >
+      <Text style={styles.reactionBadgeText} maxFontSizeMultiplier={1.2}>
+        {emoji}
+      </Text>
+    </Animated.View>
+  );
+}
+
 /** Anchor passed to the message-actions popover (the long-press point). */
 export type MessageMenuRequest = { message: ChatMessage; anchor: AnchorRect };
 
@@ -889,7 +916,10 @@ export const ChatMessageRow = memo(function ChatMessageRow({
             <View
               ref={bubbleRef}
               collapsable={false}
-              style={menuActive ? styles.bubbleHidden : null}
+              style={[
+                item.reaction ? styles.userBubbleReacted : null,
+                menuActive ? styles.bubbleHidden : null,
+              ]}
             >
               <Animated.View style={pressStyle}>
                 <Pressable
@@ -906,6 +936,17 @@ export const ChatMessageRow = memo(function ChatMessageRow({
                   {userBubbleBody}
                 </Pressable>
               </Animated.View>
+              {item.reaction ? (
+                <ReactionBadge
+                  key={item.reaction}
+                  emoji={item.reaction}
+                  fresh={
+                    item.reactionAt !== undefined &&
+                    Date.now() - item.reactionAt < 10_000
+                  }
+                  styles={styles}
+                />
+              ) : null}
             </View>
           )}
           {receiptLabel ? (
@@ -1225,6 +1266,22 @@ export const makeMessageRowStyles = (colors: Colors) =>
       paddingVertical: 6,
     },
     bubbleHidden: { opacity: 0 },
+    userBubbleReacted: { marginTop: 14 },
+    reactionBadge: {
+      position: "absolute",
+      top: -14,
+      left: -12,
+      minWidth: 28,
+      height: 28,
+      paddingHorizontal: 5,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 14,
+      backgroundColor: colors.surface,
+      borderColor: colors.background,
+      borderWidth: 2,
+    },
+    reactionBadgeText: { fontSize: 15, lineHeight: 19 },
     receipt: {
       color: colors.textMuted,
       fontFamily: fonts.sans.medium,

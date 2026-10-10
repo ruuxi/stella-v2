@@ -232,6 +232,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "التفاعلات {reactions}",
         "showMoreChips": "عرض {count} إضافية",
+        "stellaReaction": "تفاعلت Stella بـ {emoji}",
         "windowPreviewAlt": "معاينة محتوى النافذة"
       },
       "miniModelPicker": {

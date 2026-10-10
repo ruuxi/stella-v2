@@ -208,6 +208,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Reakciók: {reactions}",
         "showMoreChips": "Még {count} megjelenítése",
+        "stellaReaction": "Stella reagált: {emoji}",
         "windowPreviewAlt": "Ablaktartalom előnézete"
       },
       "miniModelPicker": {

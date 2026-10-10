@@ -90,6 +90,13 @@ export type LocalLogWrite =
     }
   | {
       key: string;
+      role: "reaction";
+      timestamp: number;
+      sequence: number;
+      emoji: string;
+    }
+  | {
+      key: string;
       role: "tool_request";
       timestamp: number;
       toolCallId: string;
@@ -425,8 +432,18 @@ export async function localLogMirror(args: {
               if (clientMsgId) await recordMessageId(harness, root.id, clientMsgId, row.seq ?? NO_MESSAGE_ID, context);
             }
           } else if (entry.kind === "pi.assistant" && message.role === "assistant") {
-            const text = splitReplyRefs(piMessageText(message)).text.trim();
+            const split = splitReplyRefs(piMessageText(message));
+            const text = split.text.trim();
             const calls = message.content.flatMap((part) => (part.type === "toolCall" ? [part] : []));
+            for (const reaction of split.reactions) {
+              await log.write({
+                key: `${key}:react:${reaction.sequence}`,
+                role: "reaction",
+                timestamp: message.timestamp,
+                sequence: reaction.sequence,
+                emoji: reaction.emoji,
+              });
+            }
             if (text) {
               await log.write({
                 key,

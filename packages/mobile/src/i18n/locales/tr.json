@@ -208,6 +208,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Tepkiler {reactions}",
         "showMoreChips": "{count} tane daha göster",
+        "stellaReaction": "Stella {emoji} ile tepki verdi",
         "windowPreviewAlt": "Pencere içeriği önizlemesi"
       },
       "miniModelPicker": {

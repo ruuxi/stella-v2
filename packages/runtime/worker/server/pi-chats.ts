@@ -95,6 +95,16 @@ const piLocalLog = (
         message.role === "user" && message.clientMsgId && CLIENT_MSG_ID_PATTERN.test(message.clientMsgId)
           ? message.clientMsgId
           : rowId(message.key);
+      if (message.role === "reaction") {
+        const reacted = session.storage.chatStore.chat.reactToUserMessage({
+          conversationId,
+          sequence: message.sequence,
+          emoji: message.emoji,
+          at: message.timestamp,
+        });
+        if (reacted) session.storage.notifyLocalChatUpdated(conversationId, reacted);
+        return { id: reacted?._id ?? eventId };
+      }
       if (session.storage.chatStore.chat.hasEvent(conversationId, eventId)) return written(eventId);
       const writer = { writer: PI_WRITER };
       if (message.role === "lifecycle") {

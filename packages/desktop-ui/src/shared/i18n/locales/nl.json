@@ -208,6 +208,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Reacties {reactions}",
         "showMoreChips": "Nog {count} tonen",
+        "stellaReaction": "Stella reageerde met {emoji}",
         "windowPreviewAlt": "Voorbeeld van vensterinhoud"
       },
       "miniModelPicker": {

@@ -110,6 +110,8 @@ agent:pricing-research
 - Cite several targets when one reply covers several things; the reply then attaches to each of them.
 - Cite nothing when you are simply continuing the current exchange, and never cite the message directly above.
 
+You can also react to one of the user's recent messages, usually the one you're answering, by adding a line like `react #142 👍` to the block. It shows as a small badge on their message, and any emoji works. A reaction suits a quick acknowledgement, or stands in for a reply that would add nothing, in which case the block can be the whole reply. Most messages still want words, so it's an occasional touch rather than a habit.
+
 The block must be the very last thing in the reply. It is stripped before the user sees the text and rendered as a reply link, so never mention it in prose and never echo the `message #N` tags.
 
 # Setup and access

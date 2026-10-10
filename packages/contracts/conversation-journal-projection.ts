@@ -16,6 +16,7 @@ import {
 import {
   splitReplyRefs,
   toReplyPreview,
+  type MessageReaction,
   type RawReplyRef,
   type ReplyRef,
 } from "./reply-refs.js";
@@ -24,6 +25,29 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+
+export const journalUserReactions = (
+  records: readonly JournalRecord[],
+): Map<number, MessageReaction> => {
+  const userSeqs = new Set<number>();
+  const reactions = new Map<number, MessageReaction>();
+  for (const record of records) {
+    if (record.kind !== "message" || record.hidden) continue;
+    if (record.role === "user") {
+      userSeqs.add(record.seq);
+      continue;
+    }
+    if (record.role !== "assistant") continue;
+    for (const reaction of splitReplyRefs(messageText(record.payload)).reactions) {
+      if (!userSeqs.has(reaction.sequence)) continue;
+      reactions.set(reaction.sequence, {
+        emoji: reaction.emoji,
+        at: journalMessageTimestamp(record),
+      });
+    }
+  }
+  return reactions;
+};
 
 /** The payload's own clock when it carries one, else the commit time. */
 export const journalMessageTimestamp = (

@@ -214,6 +214,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "תגובות {reactions}",
         "showMoreChips": "הצג {count} נוספים",
+        "stellaReaction": "Stella הגיבה {emoji}",
         "windowPreviewAlt": "תצוגה מקדימה של תוכן החלון"
       },
       "miniModelPicker": {

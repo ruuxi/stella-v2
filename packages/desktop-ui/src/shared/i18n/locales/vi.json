@@ -202,6 +202,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Biểu cảm {reactions}",
         "showMoreChips": "Hiện thêm {count}",
+        "stellaReaction": "Stella đã bày tỏ cảm xúc {emoji}",
         "windowPreviewAlt": "Xem trước nội dung cửa sổ"
       },
       "miniModelPicker": {

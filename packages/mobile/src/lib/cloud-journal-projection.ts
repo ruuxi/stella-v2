@@ -7,6 +7,7 @@ import {
   completeJournalWindowRecords,
   journalMessageTimestamp as timestampOf,
   journalTerminalNotice,
+  journalUserReactions,
   resolveJournalReplyRefs,
   storedJournalReplyRefs,
 } from "@stella/contracts/conversation-journal-projection";
@@ -289,6 +290,7 @@ export const projectCloudConversationMessages = (args: {
     { dropCardOnly: true },
   );
   const recordsBySeq = new Map(args.records.map(record => [record.seq, record]));
+  const reactions = journalUserReactions(args.records);
   const byTurn = new Map<string, JournalRecord[]>();
   for (const record of records) {
     const turn = byTurn.get(record.turnId);
@@ -343,6 +345,7 @@ export const projectCloudConversationMessages = (args: {
           continue;
         }
         const presentation = userAttachmentPresentation(record.payload);
+        const reaction = reactions.get(record.seq);
         messages.push({
           id: userMessageId,
           canonicalId: `cloud:${turnId}:message:${record.seq}`,
@@ -355,6 +358,7 @@ export const projectCloudConversationMessages = (args: {
             ? { pastedTexts: display.pastedTexts }
             : {}),
           ...(display.quotedText ? { quotedText: display.quotedText } : {}),
+          ...(reaction ? { reaction: reaction.emoji, reactionAt: reaction.at } : {}),
           createdAt,
           canonicalCreatedAt: record.createdAtMs,
           sequence: record.seq,

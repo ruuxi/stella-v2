@@ -202,6 +202,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "回应 {reactions}",
         "showMoreChips": "再显示 {count} 个",
+        "stellaReaction": "Stella 回应了 {emoji}",
         "windowPreviewAlt": "窗口内容预览"
       },
       "miniModelPicker": {

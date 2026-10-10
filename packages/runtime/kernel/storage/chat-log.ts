@@ -892,6 +892,29 @@ export class ChatLog {
     return updatedRecord;
   }
 
+  reactToUserMessage(args: {
+    conversationId: string;
+    sequence: number;
+    emoji: string;
+    at?: number;
+  }): LocalChatEventRecord | null {
+    const conversationId = requireConversationId(args.conversationId);
+    const row = this.cached
+      .prepare(
+        `SELECT id FROM entry
+         WHERE conversation_id = ? AND seq = ?
+           AND type = 'user_message' AND visible = 1
+         LIMIT 1`,
+      )
+      .get(conversationId, args.sequence) as { id: string } | undefined;
+    if (!row) return null;
+    return this.mergeEventPayload({
+      conversationId,
+      eventId: row.id,
+      patch: { reaction: { emoji: args.emoji, at: args.at ?? Date.now() } },
+    });
+  }
+
   hasEvent(
     conversationId: string,
     eventIdInput: string,

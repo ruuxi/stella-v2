@@ -214,6 +214,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Reazioni {reactions}",
         "showMoreChips": "Mostrane altri {count}",
+        "stellaReaction": "Stella ha reagito con {emoji}",
         "windowPreviewAlt": "Anteprima del contenuto della finestra"
       },
       "miniModelPicker": {

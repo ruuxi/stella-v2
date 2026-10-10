@@ -590,8 +590,23 @@ export const UserMessageRow = memo(
             />
             {text.trim() || pastedTexts.length > 0 ? (
               <div
-                className={`event-item user chat-bubble-text${pastedTexts.length > 0 ? " event-item--with-pastes" : ""}`}
+                className={`event-item user chat-bubble-text${pastedTexts.length > 0 ? " event-item--with-pastes" : ""}${row.reaction ? " event-item--reacted" : ""}`}
               >
+                {row.reaction ? (
+                  <span
+                    key={row.reaction}
+                    className={`event-item__reaction${row.reactionAt && Date.now() - row.reactionAt < 10_000 ? " event-item__reaction--fresh" : ""}`}
+                    role="img"
+                    aria-label={t("app.chat.messageRow.stellaReaction", {
+                      emoji: row.reaction,
+                    })}
+                    title={t("app.chat.messageRow.stellaReaction", {
+                      emoji: row.reaction,
+                    })}
+                  >
+                    {row.reaction}
+                  </span>
+                ) : null}
                 {text.trim() ? <UserMessageBody text={text} /> : null}
                 {pastedTexts.length > 0 ? (
                   <div className="event-item__pastes">

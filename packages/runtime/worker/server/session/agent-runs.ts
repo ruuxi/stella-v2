@@ -343,6 +343,20 @@ export const layer = Layer.effect(
           ) {
             return;
           }
+          if (persistLocalTranscript) {
+            for (const reaction of ev.reactions ?? []) {
+              const reacted = storage.chatStore.chat.reactToUserMessage({
+                conversationId,
+                sequence: reaction.sequence,
+                emoji: reaction.emoji,
+                at: ev.timestamp,
+              });
+              if (reacted) {
+                storage.notifyLocalChatUpdated(conversationId, reacted);
+              }
+            }
+          }
+          if (!ev.text.trim()) return;
           // Chronological anchor for this text block: the moment the
           // segment produced its first character. Assistant text no longer
           // streams chunk by chunk, so the runtime recorder stamps this on

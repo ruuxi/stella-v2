@@ -208,6 +208,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "प्रतिक्रियाएँ {reactions}",
         "showMoreChips": "{count} और दिखाएँ",
+        "stellaReaction": "Stella ने {emoji} से प्रतिक्रिया दी",
         "windowPreviewAlt": "विंडो सामग्री पूर्वावलोकन"
       },
       "miniModelPicker": {

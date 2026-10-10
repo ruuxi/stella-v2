@@ -242,6 +242,8 @@ export type ChatMessage = {
   askRecords?: readonly UserAskRecord[];
   /** Durable reply relationships; UI hides adjacent context. */
   replyRefs?: ReplyRef[];
+  reaction?: string;
+  reactionAt?: number;
   agentStates?: Record<string, "running" | "completed" | "error">;
   /**
    * Agent threads this row's `spawn_agent` / `send_message` calls started, from

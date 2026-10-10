@@ -38,6 +38,8 @@ export type UserRowViewModel = {
    * dedicated hidden context message and is never part of the visible body.
    */
   quotedText?: string;
+  reaction?: string;
+  reactionAt?: number;
   attachments: Attachment[];
   channelEnvelope?: ChannelEnvelope;
   /**

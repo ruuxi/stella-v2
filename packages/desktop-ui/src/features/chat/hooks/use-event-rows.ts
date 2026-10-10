@@ -6,6 +6,7 @@ import {
 } from "@/features/workspace-display/derive-conversation-files";
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { parseReplyRefs } from "@/features/chat/lib/reply-refs";
+import { readMessageReaction } from "@stella/contracts/reply-refs";
 import type { EventRecord } from "@/features/chat/lib/event-transforms";
 import type { MessagePayload } from "@/features/chat/lib/event-transforms";
 import {
@@ -783,6 +784,7 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           contextMetadata.quotedText.trim()
             ? contextMetadata.quotedText.trim()
             : undefined;
+        const messageReaction = readMessageReaction(message.payload);
         const userSpawnedThreadIds = getSpawnedThreadIds(message.toolEvents);
         const userSpawnedDescriptions = getSpawnedDescriptions(message.toolEvents);
         const row: UserRowViewModel = {
@@ -805,6 +807,9 @@ export function useEventRows(opts: UseEventRowsOptions): UseEventRowsResult {
           ...(activityLabel ? { activityLabel } : {}),
           ...(pastedTexts ? { pastedTexts } : {}),
           ...(quotedText ? { quotedText } : {}),
+          ...(messageReaction
+            ? { reaction: messageReaction.emoji, reactionAt: messageReaction.at }
+            : {}),
           attachments: getAttachments(message),
           ...(getChannelEnvelope(message)
             ? { channelEnvelope: getChannelEnvelope(message) }

@@ -208,6 +208,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Reaktiot {reactions}",
         "showMoreChips": "Näytä {count} lisää",
+        "stellaReaction": "Stella reagoi {emoji}",
         "windowPreviewAlt": "Ikkunan sisällön esikatselu"
       },
       "miniModelPicker": {

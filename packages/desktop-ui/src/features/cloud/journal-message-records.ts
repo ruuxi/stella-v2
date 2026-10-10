@@ -17,6 +17,7 @@ import {
 import {
   journalMessageTimestamp,
   journalTerminalNotice,
+  journalUserReactions,
   lifecycleWakeOutcome,
   lifecycleWakeTask,
   resolveJournalReplyRefs,
@@ -387,6 +388,7 @@ export const journalRecordsToMessageRecords = (
   const byTurn = new Map<string, JournalRecord[]>();
   const recordsBySeq = new Map<number, JournalMessageRecord>();
   const agentTitles = journalAgentTitles(records);
+  const reactions = journalUserReactions(records);
   for (const record of records) {
     const turn = byTurn.get(record.turnId);
     if (turn) turn.push(record);
@@ -427,6 +429,7 @@ export const journalRecordsToMessageRecords = (
           !userDisplayContext(record.payload) &&
           !contentBlocks(record.payload).some((block) => block.type !== "text");
         const unshown = blank || isPiAgentText(userText);
+        const reaction = reactions.get(record.seq);
         events.push({
           _id: userMessageId,
           timestamp,
@@ -437,6 +440,7 @@ export const journalRecordsToMessageRecords = (
               userText,
             ),
             ...(attachments.length > 0 ? { attachments } : {}),
+            ...(reaction ? { reaction } : {}),
           },
         });
         // The wake's completion precedes the reply that relays it, so the

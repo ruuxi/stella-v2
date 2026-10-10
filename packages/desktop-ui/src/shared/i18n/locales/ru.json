@@ -220,6 +220,7 @@
         "quotedTextLabel": "Quoted text",
         "reactionsSummary": "Реакции {reactions}",
         "showMoreChips": "Показать ещё {count}",
+        "stellaReaction": "Stella отреагировала {emoji}",
         "windowPreviewAlt": "Предпросмотр содержимого окна"
       },
       "miniModelPicker": {

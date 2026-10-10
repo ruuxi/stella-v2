@@ -148,7 +148,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "無法載入此對話串",
+        "errorBody": "請關閉後稍待片刻再開啟。"
       },
       "generatedImage": {
         "generating": "正在生成...",
@@ -2473,7 +2475,9 @@
         "skipped": "已略過",
         "undoing": "正在復原…",
         "upToDate": "沒有待加入的項目",
-        "waiting": "待加入"
+        "waiting": "待加入",
+        "upToDateTitle": "已是最新版本",
+        "upToDateBody": "Stella 的新版本會顯示在這裡。"
       },
       "updating": "正在更新…"
     },
@@ -2503,7 +2507,9 @@
       "noMatches": "沒有符合該搜尋的連接器。",
       "searchLabel": "搜尋連接器",
       "searchPlaceholder": "搜尋",
-      "title": "連接器"
+      "title": "連接器",
+      "noMatchesTitle": "沒有相符項目",
+      "noMatchesBody": "換個名稱試試。"
     },
     "display": {
       "agentThread": {
@@ -2591,7 +2597,10 @@
         "codeChanges": "程式碼變更",
         "desktopRequired": "程式碼預覽需要 Stella 桌面 App。",
         "empty": "還沒有檔案變更。當代理編輯程式碼時，變更會出現在這裡。",
-        "noChanges": "找不到變更。"
+        "noChanges": "找不到變更。",
+        "emptyTitle": "尚無變更",
+        "emptyBody": "當代理程式編輯程式碼時，變更會顯示在這裡。",
+        "noChangesTitle": "沒有變更"
       },
       "filePreview": {
         "copy": "複製",
@@ -2627,7 +2636,10 @@
         "save": "儲存",
         "saveFailed": "無法儲存",
         "saved": "已儲存",
-        "zoom": "縮放圖片"
+        "zoom": "縮放圖片",
+        "imageUnavailable": "圖片無法使用",
+        "videoUnavailable": "影片無法使用",
+        "audioUnavailable": "音訊無法使用"
       },
       "office": {
         "frameTitle": "{kind} 預覽：{title}",
@@ -2651,7 +2663,11 @@
       },
       "preview": {
         "limited": "預覽內容有限。請儲存或開啟原始檔案以檢視全部內容。",
-        "unavailable": "無法準備此預覽。"
+        "unavailable": "無法準備此預覽。",
+        "failedTitle": "無法顯示預覽",
+        "failedBody": "請再試一次，或儲存檔案後在其他地方開啟。",
+        "unavailableTitle": "檔案無法使用",
+        "emptyTitle": "此檔案是空的"
       },
       "spreadsheet": {
         "column": "第 {index} 欄",
@@ -2672,7 +2688,9 @@
         "pendingPurge": "待清除",
         "refresh": "重新整理",
         "title": "垃圾桶",
-        "trashedAgo": "{time}前移到垃圾桶"
+        "trashedAgo": "{time}前移到垃圾桶",
+        "emptyTitle": "垃圾桶是空的",
+        "emptyBody": "刪除的項目會在這裡保留 24 小時。"
       },
       "url": {
         "eyebrow": "即時預覽",

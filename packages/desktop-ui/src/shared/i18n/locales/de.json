@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Dieser Thread konnte nicht geladen werden",
+        "errorBody": "Schließe ihn und öffne ihn gleich noch einmal."
       },
       "generatedImage": {
         "generating": "Wird erzeugt...",
@@ -2485,7 +2487,9 @@
         "skipped": "Übersprungen",
         "undoing": "Wird rückgängig gemacht…",
         "upToDate": "Nichts wartet",
-        "waiting": "Wartet"
+        "waiting": "Wartet",
+        "upToDateTitle": "Alles ist aktuell",
+        "upToDateBody": "Neue Versionen von Stella erscheinen hier."
       },
       "updating": "Wird aktualisiert…"
     },
@@ -2515,7 +2519,9 @@
       "noMatches": "Keine Connectors passen zu dieser Suche.",
       "searchLabel": "Connectors durchsuchen",
       "searchPlaceholder": "Suchen",
-      "title": "Connectors"
+      "title": "Connectors",
+      "noMatchesTitle": "Keine Treffer",
+      "noMatchesBody": "Versuche einen anderen Namen."
     },
     "display": {
       "agentThread": {
@@ -2607,7 +2613,10 @@
         "codeChanges": "Code-Änderungen",
         "desktopRequired": "Die Code-Vorschau erfordert die Stella-Desktop-App.",
         "empty": "Noch keine Dateiänderungen. Wenn ein Agent Code bearbeitet, erscheinen die Änderungen hier.",
-        "noChanges": "Keine Änderungen gefunden."
+        "noChanges": "Keine Änderungen gefunden.",
+        "emptyTitle": "Noch keine Änderungen",
+        "emptyBody": "Wenn ein Agent Code bearbeitet, erscheinen die Änderungen hier.",
+        "noChangesTitle": "Keine Änderungen"
       },
       "filePreview": {
         "copy": "Kopieren",
@@ -2643,7 +2652,10 @@
         "save": "Speichern",
         "saveFailed": "Speichern nicht möglich",
         "saved": "Gespeichert",
-        "zoom": "Bild zoomen"
+        "zoom": "Bild zoomen",
+        "imageUnavailable": "Bild nicht verfügbar",
+        "videoUnavailable": "Video nicht verfügbar",
+        "audioUnavailable": "Audio nicht verfügbar"
       },
       "office": {
         "frameTitle": "{kind}-Vorschau: {title}",
@@ -2669,7 +2681,11 @@
       },
       "preview": {
         "limited": "Vorschau eingeschränkt. Speichere oder öffne die Originaldatei, um den gesamten Inhalt zu sehen.",
-        "unavailable": "Diese Vorschau kann nicht erstellt werden."
+        "unavailable": "Diese Vorschau kann nicht erstellt werden.",
+        "failedTitle": "Vorschau nicht möglich",
+        "failedBody": "Versuche es erneut oder speichere die Datei, um sie woanders zu öffnen.",
+        "unavailableTitle": "Datei nicht verfügbar",
+        "emptyTitle": "Diese Datei ist leer"
       },
       "spreadsheet": {
         "column": "Spalte {index}",
@@ -2691,7 +2707,9 @@
         "pendingPurge": "Löschung ausstehend",
         "refresh": "Aktualisieren",
         "title": "Papierkorb",
-        "trashedAgo": "Vor {time} in den Papierkorb gelegt"
+        "trashedAgo": "Vor {time} in den Papierkorb gelegt",
+        "emptyTitle": "Papierkorb ist leer",
+        "emptyBody": "Gelöschtes bleibt hier 24 Stunden lang."
       },
       "url": {
         "eyebrow": "Live-Vorschau",

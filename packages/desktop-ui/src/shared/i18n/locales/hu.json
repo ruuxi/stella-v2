@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Ez a szál nem tölthető be",
+        "errorBody": "Zárd be, és nyisd meg újra egy pillanat múlva."
       },
       "generatedImage": {
         "generating": "Generálás...",
@@ -2485,7 +2487,9 @@
         "skipped": "Kihagyva",
         "undoing": "Visszavonás…",
         "upToDate": "Semmi sem várakozik",
-        "waiting": "Várakozik"
+        "waiting": "Várakozik",
+        "upToDateTitle": "Minden naprakész",
+        "upToDateBody": "A Stella új verziói itt jelennek meg."
       },
       "updating": "Frissítés…"
     },
@@ -2515,7 +2519,9 @@
       "noMatches": "Egy összekötő sem felel meg a keresésnek.",
       "searchLabel": "Összekötők keresése",
       "searchPlaceholder": "Keresés",
-      "title": "Összekötők"
+      "title": "Összekötők",
+      "noMatchesTitle": "Nincs találat",
+      "noMatchesBody": "Próbálj másik nevet."
     },
     "display": {
       "agentThread": {
@@ -2607,7 +2613,10 @@
         "codeChanges": "Kódmódosítások",
         "desktopRequired": "A kódelőnézethez a Stella asztali alkalmazás szükséges.",
         "empty": "Még nincs fájlmódosítás. Amikor egy ügynök kódot szerkeszt, a módosítások itt jelennek meg.",
-        "noChanges": "Nem található módosítás."
+        "noChanges": "Nem található módosítás.",
+        "emptyTitle": "Még nincsenek változások",
+        "emptyBody": "Amikor egy ügynök kódot szerkeszt, a változások itt jelennek meg.",
+        "noChangesTitle": "Nincsenek változások"
       },
       "filePreview": {
         "copy": "Másolás",
@@ -2643,7 +2652,10 @@
         "save": "Mentés",
         "saveFailed": "Nem sikerült menteni",
         "saved": "Mentve",
-        "zoom": "Kép nagyítása"
+        "zoom": "Kép nagyítása",
+        "imageUnavailable": "A kép nem érhető el",
+        "videoUnavailable": "A videó nem érhető el",
+        "audioUnavailable": "A hang nem érhető el"
       },
       "office": {
         "frameTitle": "{kind} előnézet: {title}",
@@ -2669,7 +2681,11 @@
       },
       "preview": {
         "limited": "Az előnézet korlátozott. Mentsd vagy nyisd meg az eredeti fájlt a teljes tartalomhoz.",
-        "unavailable": "Ezt az előnézetet nem sikerült előkészíteni."
+        "unavailable": "Ezt az előnézetet nem sikerült előkészíteni.",
+        "failedTitle": "Az előnézet nem jeleníthető meg",
+        "failedBody": "Próbáld újra, vagy mentsd a fájlt, és nyisd meg máshol.",
+        "unavailableTitle": "A fájl nem érhető el",
+        "emptyTitle": "Ez a fájl üres"
       },
       "spreadsheet": {
         "column": "{index}. oszlop",
@@ -2691,7 +2707,9 @@
         "pendingPurge": "Törlésre vár",
         "refresh": "Frissítés",
         "title": "Kuka",
-        "trashedAgo": "Kukába helyezve {time} ezelőtt"
+        "trashedAgo": "Kukába helyezve {time} ezelőtt",
+        "emptyTitle": "A kuka üres",
+        "emptyBody": "A törölt elemek 24 óráig itt maradnak."
       },
       "url": {
         "eyebrow": "Élő előnézet",

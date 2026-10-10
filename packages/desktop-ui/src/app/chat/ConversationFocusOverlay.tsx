@@ -10,6 +10,7 @@ import { ConversationEvents } from "@/app/chat/ConversationEvents";
 import { X } from "@/ui/icons";
 import { Modal } from "@/ui/modal";
 import { useT } from "@/shared/i18n";
+import { EmptyState } from "@/ui/empty-state/EmptyState";
 import { useChatScrollManagement } from "@/shell/use-chat-scroll-management";
 import {
   closeConversationFocus,
@@ -128,9 +129,11 @@ function FocusPanel({
       <div className="conversation-focus__body">
         <div className="conversation-focus__surface">
           {lineage.error ? (
-            <div className="conversation-focus__error" role="alert">
-              {t("app.chat.focus.error")}
-            </div>
+            <EmptyState
+              motif="unavailable"
+              title={t("app.chat.focus.errorTitle")}
+              body={t("app.chat.focus.errorBody")}
+            />
           ) : (
             <ConversationEvents
               messages={lineage.messages}

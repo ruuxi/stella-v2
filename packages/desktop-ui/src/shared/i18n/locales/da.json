@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Kunne ikke indlæse denne tråd",
+        "errorBody": "Luk den, og åbn den igen om et øjeblik."
       },
       "generatedImage": {
         "generating": "Genererer...",
@@ -2485,7 +2487,9 @@
         "skipped": "Sprunget over",
         "undoing": "Fortryder…",
         "upToDate": "Intet venter",
-        "waiting": "Venter"
+        "waiting": "Venter",
+        "upToDateTitle": "Du er opdateret",
+        "upToDateBody": "Nye versioner af Stella vises her."
       },
       "updating": "Opdaterer…"
     },
@@ -2515,7 +2519,9 @@
       "noMatches": "Ingen forbindelser matcher den søgning.",
       "searchLabel": "Søg i forbindelser",
       "searchPlaceholder": "Søg",
-      "title": "Forbindelser"
+      "title": "Forbindelser",
+      "noMatchesTitle": "Ingen resultater",
+      "noMatchesBody": "Prøv et andet navn."
     },
     "display": {
       "agentThread": {
@@ -2607,7 +2613,10 @@
         "codeChanges": "Kodeændringer",
         "desktopRequired": "Forhåndsvisning af kode kræver Stella-computerappen.",
         "empty": "Ingen filændringer endnu. Når en agent redigerer kode, vises ændringerne her.",
-        "noChanges": "Ingen ændringer fundet."
+        "noChanges": "Ingen ændringer fundet.",
+        "emptyTitle": "Ingen ændringer endnu",
+        "emptyBody": "Når en agent redigerer kode, vises ændringerne her.",
+        "noChangesTitle": "Ingen ændringer"
       },
       "filePreview": {
         "copy": "Kopiér",
@@ -2643,7 +2652,10 @@
         "save": "Gem",
         "saveFailed": "Kunne ikke gemme",
         "saved": "Gemt",
-        "zoom": "Zoom ind på billede"
+        "zoom": "Zoom ind på billede",
+        "imageUnavailable": "Billedet er ikke tilgængeligt",
+        "videoUnavailable": "Videoen er ikke tilgængelig",
+        "audioUnavailable": "Lyden er ikke tilgængelig"
       },
       "office": {
         "frameTitle": "Forhåndsvisning af {kind}: {title}",
@@ -2669,7 +2681,11 @@
       },
       "preview": {
         "limited": "Begrænset forhåndsvisning. Gem eller åbn den originale fil for at se alt indhold.",
-        "unavailable": "Denne forhåndsvisning kunne ikke forberedes."
+        "unavailable": "Denne forhåndsvisning kunne ikke forberedes.",
+        "failedTitle": "Kan ikke vise en forhåndsvisning",
+        "failedBody": "Prøv igen, eller gem filen og åbn den et andet sted.",
+        "unavailableTitle": "Filen er ikke tilgængelig",
+        "emptyTitle": "Denne fil er tom"
       },
       "spreadsheet": {
         "column": "Kolonne {index}",
@@ -2691,7 +2707,9 @@
         "pendingPurge": "Afventer sletning",
         "refresh": "Opdater",
         "title": "Papirkurv",
-        "trashedAgo": "Smidt ud for {time} siden"
+        "trashedAgo": "Smidt ud for {time} siden",
+        "emptyTitle": "Papirkurven er tom",
+        "emptyBody": "Slettede ting bliver her i 24 timer."
       },
       "url": {
         "eyebrow": "Direkte forhåndsvisning",

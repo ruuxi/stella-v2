@@ -261,12 +261,3 @@
 .files-list__item--nested {
   margin-left: 22px;
 }
-
-.files-unavailable__name {
-  max-width: 100%;
-  overflow: hidden;
-  color: var(--text-base);
-  font-weight: var(--weight-medium);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}

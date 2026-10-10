@@ -148,7 +148,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "このスレッドを読み込めませんでした",
+        "errorBody": "閉じて、少ししてからもう一度開いてください。"
       },
       "generatedImage": {
         "generating": "生成中...",
@@ -2473,7 +2475,9 @@
         "skipped": "スキップ済み",
         "undoing": "取り消し中…",
         "upToDate": "待機中のものはありません",
-        "waiting": "待機中"
+        "waiting": "待機中",
+        "upToDateTitle": "最新の状態です",
+        "upToDateBody": "Stellaの新しいバージョンがここに表示されます。"
       },
       "updating": "アップデート中…"
     },
@@ -2503,7 +2507,9 @@
       "noMatches": "その検索に一致するコネクタはありません。",
       "searchLabel": "コネクタを検索",
       "searchPlaceholder": "検索",
-      "title": "コネクタ"
+      "title": "コネクタ",
+      "noMatchesTitle": "一致なし",
+      "noMatchesBody": "別の名前で試してください。"
     },
     "display": {
       "agentThread": {
@@ -2553,11 +2559,19 @@
       },
       "canvasShare": {
         "copyLink": "リンクをコピー",
-        "empty": "有効な共有はまだありません。キャンバスを公開すると公開リンクを取得できます。",
+        "empty": "公開中のキャンバスはまだありません。キャンバスを公開するとリンクを共有できます。",
         "expires": "有効期限 {date}",
         "links": "リンク",
         "live": "キャンバスを公開しました",
         "loadFailed": "共有を読み込めませんでした。",
+        "makePrivate": "非公開にする",
+        "makePublic": "公開する",
+        "noLink": "このキャンバスにはまだリンクがありません。公開すると、誰でも開けるリンクが作成されます。",
+        "openInBrowser": "ブラウザで開く",
+        "privateHint": "このリンクを開けるのはあなただけです。",
+        "privateLink": "非公開リンク",
+        "public": "公開中",
+        "publicHint": "リンクを知っている人は誰でも閲覧できます。",
         "publicLink": "キャンバスの公開リンク",
         "publishFailed": "このキャンバスを公開できませんでした。もう一度お試しください。",
         "publishing": "キャンバスを公開中…",
@@ -2569,8 +2583,12 @@
         "toasts": {
           "copyFailed": "リンクをコピーできませんでした",
           "linkCopied": "共有リンクをコピーしました",
+          "madePrivate": "リンクを非公開にしました",
+          "madePublic": "リンクを公開しました",
+          "openFailed": "リンクを開けませんでした",
           "revokeFailed": "この共有を取り消せませんでした",
-          "revoked": "共有を取り消しました"
+          "revoked": "共有を取り消しました",
+          "visibilityFailed": "このリンクを開ける人を変更できませんでした"
         },
         "untitled": "無題のキャンバス"
       },
@@ -2579,7 +2597,10 @@
         "codeChanges": "コードの変更",
         "desktopRequired": "コードのプレビューには Stella デスクトップアプリが必要です。",
         "empty": "ファイルの変更はまだありません。エージェントがコードを編集すると、ここに変更が表示されます。",
-        "noChanges": "変更は見つかりません。"
+        "noChanges": "変更は見つかりません。",
+        "emptyTitle": "まだ変更はありません",
+        "emptyBody": "エージェントがコードを編集すると、変更がここに表示されます。",
+        "noChangesTitle": "変更はありません"
       },
       "filePreview": {
         "copy": "コピー",
@@ -2615,7 +2636,10 @@
         "save": "保存",
         "saveFailed": "保存できませんでした",
         "saved": "保存しました",
-        "zoom": "画像を拡大"
+        "zoom": "画像を拡大",
+        "imageUnavailable": "画像を利用できません",
+        "videoUnavailable": "動画を利用できません",
+        "audioUnavailable": "音声を利用できません"
       },
       "office": {
         "frameTitle": "{kind} のプレビュー: {title}",
@@ -2639,7 +2663,11 @@
       },
       "preview": {
         "limited": "プレビューは一部のみです。すべての内容を見るには、元のファイルを保存するか開いてください。",
-        "unavailable": "このプレビューを準備できません。"
+        "unavailable": "このプレビューを準備できません。",
+        "failedTitle": "プレビューを表示できません",
+        "failedBody": "もう一度試すか、ファイルを保存して別のアプリで開いてください。",
+        "unavailableTitle": "ファイルを利用できません",
+        "emptyTitle": "このファイルは空です"
       },
       "spreadsheet": {
         "column": "列 {index}",
@@ -2660,7 +2688,9 @@
         "pendingPurge": "完全削除を保留中",
         "refresh": "更新",
         "title": "ゴミ箱",
-        "trashedAgo": "{time} 前に削除"
+        "trashedAgo": "{time} 前に削除",
+        "emptyTitle": "ゴミ箱は空です",
+        "emptyBody": "削除したものは24時間ここに残ります。"
       },
       "url": {
         "eyebrow": "ライブプレビュー",

@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Kan deze thread niet laden",
+        "errorBody": "Sluit hem en open hem zo opnieuw."
       },
       "generatedImage": {
         "generating": "Genereren...",
@@ -2485,7 +2487,9 @@
         "skipped": "Overgeslagen",
         "undoing": "Ongedaan maken…",
         "upToDate": "Niets in afwachting",
-        "waiting": "Wachtend"
+        "waiting": "Wachtend",
+        "upToDateTitle": "Je bent helemaal bij",
+        "upToDateBody": "Nieuwe versies van Stella verschijnen hier."
       },
       "updating": "Bijwerken…"
     },
@@ -2515,7 +2519,9 @@
       "noMatches": "Geen connectors komen overeen met die zoekopdracht.",
       "searchLabel": "Connectors zoeken",
       "searchPlaceholder": "Zoeken",
-      "title": "Connectors"
+      "title": "Connectors",
+      "noMatchesTitle": "Geen resultaten",
+      "noMatchesBody": "Probeer een andere naam."
     },
     "display": {
       "agentThread": {
@@ -2569,11 +2575,19 @@
       },
       "canvasShare": {
         "copyLink": "Link kopiëren",
-        "empty": "Nog niets actief gedeeld. Publiceer een canvas voor een openbare link.",
+        "empty": "Nog geen openbare canvassen. Maak een canvas openbaar om de link te delen.",
         "expires": "Verloopt {date}",
         "links": "Links",
         "live": "Canvas is live",
         "loadFailed": "Kon je gedeelde items niet laden.",
+        "makePrivate": "Privé maken",
+        "makePublic": "Openbaar maken",
+        "noLink": "Dit canvas heeft nog geen link. Maak het openbaar om een link te krijgen die iedereen kan openen.",
+        "openInBrowser": "Openen in browser",
+        "privateHint": "Alleen jij kunt deze link openen.",
+        "privateLink": "Privélink",
+        "public": "Openbaar",
+        "publicHint": "Iedereen met de link kan het bekijken.",
         "publicLink": "Openbare canvaslink",
         "publishFailed": "Kon dit canvas niet publiceren. Probeer het opnieuw.",
         "publishing": "Canvas publiceren…",
@@ -2585,8 +2599,12 @@
         "toasts": {
           "copyFailed": "Kon de link niet kopiëren",
           "linkCopied": "Deellink gekopieerd",
+          "madePrivate": "Link is nu privé",
+          "madePublic": "Link is nu openbaar",
+          "openFailed": "Kan de link niet openen",
           "revokeFailed": "Kon dit delen niet intrekken",
-          "revoked": "Delen ingetrokken"
+          "revoked": "Delen ingetrokken",
+          "visibilityFailed": "Kan niet wijzigen wie deze link kan openen"
         },
         "untitled": "Canvas zonder titel"
       },
@@ -2595,7 +2613,10 @@
         "codeChanges": "Codewijzigingen",
         "desktopRequired": "Codevoorbeeld vereist de Stella-desktopapp.",
         "empty": "Nog geen bestandswijzigingen. Wanneer een agent code bewerkt, verschijnen de wijzigingen hier.",
-        "noChanges": "Geen wijzigingen gevonden."
+        "noChanges": "Geen wijzigingen gevonden.",
+        "emptyTitle": "Nog geen wijzigingen",
+        "emptyBody": "Als een agent code bewerkt, verschijnen de wijzigingen hier.",
+        "noChangesTitle": "Geen wijzigingen"
       },
       "filePreview": {
         "copy": "Kopiëren",
@@ -2631,7 +2652,10 @@
         "save": "Opslaan",
         "saveFailed": "Kon niet opslaan",
         "saved": "Opgeslagen",
-        "zoom": "Afbeelding inzoomen"
+        "zoom": "Afbeelding inzoomen",
+        "imageUnavailable": "Afbeelding niet beschikbaar",
+        "videoUnavailable": "Video niet beschikbaar",
+        "audioUnavailable": "Audio niet beschikbaar"
       },
       "office": {
         "frameTitle": "{kind}-voorbeeld: {title}",
@@ -2657,7 +2681,11 @@
       },
       "preview": {
         "limited": "Voorbeeld beperkt. Sla het originele bestand op of open het om alle inhoud te zien.",
-        "unavailable": "Kan dit voorbeeld niet voorbereiden."
+        "unavailable": "Kan dit voorbeeld niet voorbereiden.",
+        "failedTitle": "Kan geen voorbeeld tonen",
+        "failedBody": "Probeer het opnieuw, of sla het bestand op om het elders te openen.",
+        "unavailableTitle": "Bestand niet beschikbaar",
+        "emptyTitle": "Dit bestand is leeg"
       },
       "spreadsheet": {
         "column": "Kolom {index}",
@@ -2679,7 +2707,9 @@
         "pendingPurge": "Wordt gewist",
         "refresh": "Vernieuwen",
         "title": "Prullenmand",
-        "trashedAgo": "{time} geleden weggegooid"
+        "trashedAgo": "{time} geleden weggegooid",
+        "emptyTitle": "Prullenmand is leeg",
+        "emptyBody": "Verwijderde items blijven hier 24 uur staan."
       },
       "url": {
         "eyebrow": "Live voorbeeld",

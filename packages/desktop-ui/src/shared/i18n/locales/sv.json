@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Det gick inte att läsa in tråden",
+        "errorBody": "Stäng den och öppna den igen om en stund."
       },
       "generatedImage": {
         "generating": "Genererar...",
@@ -2485,7 +2487,9 @@
         "skipped": "Hoppade över",
         "undoing": "Ångrar…",
         "upToDate": "Inget väntar",
-        "waiting": "Väntar"
+        "waiting": "Väntar",
+        "upToDateTitle": "Allt är uppdaterat",
+        "upToDateBody": "Nya versioner av Stella visas här."
       },
       "updating": "Uppdaterar…"
     },
@@ -2515,7 +2519,9 @@
       "noMatches": "Inga anslutningar matchar sökningen.",
       "searchLabel": "Sök anslutningar",
       "searchPlaceholder": "Sök",
-      "title": "Anslutningar"
+      "title": "Anslutningar",
+      "noMatchesTitle": "Inga träffar",
+      "noMatchesBody": "Prova ett annat namn."
     },
     "display": {
       "agentThread": {
@@ -2607,7 +2613,10 @@
         "codeChanges": "Kodändringar",
         "desktopRequired": "Kodförhandsvisning kräver Stellas skrivbordsapp.",
         "empty": "Inga filändringar ännu. När en agent redigerar kod visas ändringarna här.",
-        "noChanges": "Inga ändringar hittades."
+        "noChanges": "Inga ändringar hittades.",
+        "emptyTitle": "Inga ändringar än",
+        "emptyBody": "När en agent redigerar kod visas ändringarna här.",
+        "noChangesTitle": "Inga ändringar"
       },
       "filePreview": {
         "copy": "Kopiera",
@@ -2643,7 +2652,10 @@
         "save": "Spara",
         "saveFailed": "Det gick inte att spara",
         "saved": "Sparad",
-        "zoom": "Zooma bilden"
+        "zoom": "Zooma bilden",
+        "imageUnavailable": "Bilden är inte tillgänglig",
+        "videoUnavailable": "Videon är inte tillgänglig",
+        "audioUnavailable": "Ljudet är inte tillgängligt"
       },
       "office": {
         "frameTitle": "{kind}-förhandsvisning: {title}",
@@ -2669,7 +2681,11 @@
       },
       "preview": {
         "limited": "Begränsad förhandsvisning. Spara eller öppna originalfilen för att se allt innehåll.",
-        "unavailable": "Det gick inte att förbereda förhandsvisningen."
+        "unavailable": "Det gick inte att förbereda förhandsvisningen.",
+        "failedTitle": "Kan inte visa en förhandsvisning",
+        "failedBody": "Försök igen, eller spara filen för att öppna den någon annanstans.",
+        "unavailableTitle": "Filen är inte tillgänglig",
+        "emptyTitle": "Den här filen är tom"
       },
       "spreadsheet": {
         "column": "Kolumn {index}",
@@ -2691,7 +2707,9 @@
         "pendingPurge": "Väntar på rensning",
         "refresh": "Uppdatera",
         "title": "Papperskorg",
-        "trashedAgo": "Slängd för {time} sedan"
+        "trashedAgo": "Slängd för {time} sedan",
+        "emptyTitle": "Papperskorgen är tom",
+        "emptyBody": "Raderade saker ligger kvar här i 24 timmar."
       },
       "url": {
         "eyebrow": "Live-förhandsvisning",

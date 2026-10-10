@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "यह थ्रेड लोड नहीं हो सका",
+        "errorBody": "इसे बंद करें और थोड़ी देर में फिर खोलें।"
       },
       "generatedImage": {
         "generating": "बनाया जा रहा है...",
@@ -2485,7 +2487,9 @@
         "skipped": "छोड़े गए",
         "undoing": "पूर्ववत किया जा रहा है…",
         "upToDate": "कुछ भी प्रतीक्षा में नहीं है",
-        "waiting": "प्रतीक्षा में"
+        "waiting": "प्रतीक्षा में",
+        "upToDateTitle": "आप अप टू डेट हैं",
+        "upToDateBody": "Stella के नए संस्करण यहाँ दिखेंगे।"
       },
       "updating": "अपडेट हो रहा है…"
     },
@@ -2515,7 +2519,9 @@
       "noMatches": "उस खोज से कोई कनेक्टर मेल नहीं खाता।",
       "searchLabel": "कनेक्टर खोजें",
       "searchPlaceholder": "खोजें",
-      "title": "कनेक्टर"
+      "title": "कनेक्टर",
+      "noMatchesTitle": "कोई मिलान नहीं",
+      "noMatchesBody": "कोई दूसरा नाम आज़माएँ।"
     },
     "display": {
       "agentThread": {
@@ -2607,7 +2613,10 @@
         "codeChanges": "कोड बदलाव",
         "desktopRequired": "कोड पूर्वावलोकन के लिए Stella डेस्कटॉप ऐप आवश्यक है।",
         "empty": "अभी कोई फ़ाइल बदलाव नहीं। जब कोई एजेंट कोड संपादित करेगा, बदलाव यहाँ दिखेंगे।",
-        "noChanges": "कोई बदलाव नहीं मिला।"
+        "noChanges": "कोई बदलाव नहीं मिला।",
+        "emptyTitle": "अभी कोई बदलाव नहीं",
+        "emptyBody": "जब कोई एजेंट कोड बदलता है, बदलाव यहाँ दिखते हैं।",
+        "noChangesTitle": "कोई बदलाव नहीं"
       },
       "filePreview": {
         "copy": "कॉपी करें",
@@ -2643,7 +2652,10 @@
         "save": "सहेजें",
         "saveFailed": "सहेजा नहीं जा सका",
         "saved": "सहेजा गया",
-        "zoom": "छवि ज़ूम करें"
+        "zoom": "छवि ज़ूम करें",
+        "imageUnavailable": "इमेज उपलब्ध नहीं है",
+        "videoUnavailable": "वीडियो उपलब्ध नहीं है",
+        "audioUnavailable": "ऑडियो उपलब्ध नहीं है"
       },
       "office": {
         "frameTitle": "{kind} पूर्वावलोकन: {title}",
@@ -2669,7 +2681,11 @@
       },
       "preview": {
         "limited": "प्रीव्यू सीमित है। पूरा कॉन्टेंट देखने के लिए मूल फ़ाइल सेव करें या खोलें।",
-        "unavailable": "यह प्रीव्यू तैयार नहीं किया जा सका।"
+        "unavailable": "यह प्रीव्यू तैयार नहीं किया जा सका।",
+        "failedTitle": "पूर्वावलोकन नहीं दिखा सकते",
+        "failedBody": "फिर से कोशिश करें, या फ़ाइल सहेजकर कहीं और खोलें।",
+        "unavailableTitle": "फ़ाइल उपलब्ध नहीं है",
+        "emptyTitle": "यह फ़ाइल खाली है"
       },
       "spreadsheet": {
         "column": "स्तंभ {index}",
@@ -2691,7 +2707,9 @@
         "pendingPurge": "मिटाने की प्रतीक्षा में",
         "refresh": "ताज़ा करें",
         "title": "ट्रैश",
-        "trashedAgo": "{time} पहले ट्रैश किया गया"
+        "trashedAgo": "{time} पहले ट्रैश किया गया",
+        "emptyTitle": "ट्रैश खाली है",
+        "emptyBody": "हटाई गई चीज़ें यहाँ 24 घंटे तक रहती हैं।"
       },
       "url": {
         "eyebrow": "लाइव पूर्वावलोकन",

@@ -158,7 +158,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Firul nu a putut fi încărcat",
+        "errorBody": "Închide-l și redeschide-l peste o clipă."
       },
       "generatedImage": {
         "generating": "Se generează...",
@@ -2497,7 +2499,9 @@
         "skipped": "Omise",
         "undoing": "Se anulează…",
         "upToDate": "Nimic în așteptare",
-        "waiting": "În așteptare"
+        "waiting": "În așteptare",
+        "upToDateTitle": "Ești la zi",
+        "upToDateBody": "Versiunile noi ale Stella apar aici."
       },
       "updating": "Se actualizează…"
     },
@@ -2527,7 +2531,9 @@
       "noMatches": "Niciun conector nu corespunde căutării.",
       "searchLabel": "Caută conectori",
       "searchPlaceholder": "Caută",
-      "title": "Conectori"
+      "title": "Conectori",
+      "noMatchesTitle": "Niciun rezultat",
+      "noMatchesBody": "Încearcă alt nume."
     },
     "display": {
       "agentThread": {
@@ -2583,11 +2589,19 @@
       },
       "canvasShare": {
         "copyLink": "Copiază linkul",
-        "empty": "Încă nicio partajare activă. Publică un canvas pentru a obține un link public.",
+        "empty": "Încă nu există pânze publice. Fă o pânză publică pentru a-i distribui linkul.",
         "expires": "Expiră {date}",
         "links": "Linkuri",
         "live": "Canvasul este live",
         "loadFailed": "Partajările tale nu au putut fi încărcate.",
+        "makePrivate": "Fă privat",
+        "makePublic": "Fă public",
+        "noLink": "Această pânză nu are încă un link. Fă-o publică pentru a obține un link pe care îl poate deschide oricine.",
+        "openInBrowser": "Deschide în browser",
+        "privateHint": "Doar tu poți deschide acest link.",
+        "privateLink": "Link privat",
+        "public": "Public",
+        "publicHint": "Oricine are linkul îl poate vedea.",
         "publicLink": "Link public către canvas",
         "publishFailed": "Acest canvas nu a putut fi publicat. Încearcă din nou.",
         "publishing": "Se publică canvasul…",
@@ -2599,8 +2613,12 @@
         "toasts": {
           "copyFailed": "Linkul nu a putut fi copiat",
           "linkCopied": "Link de partajare copiat",
+          "madePrivate": "Linkul este acum privat",
+          "madePublic": "Linkul este acum public",
+          "openFailed": "Nu s-a putut deschide linkul",
           "revokeFailed": "Această partajare nu a putut fi revocată",
-          "revoked": "Partajare revocată"
+          "revoked": "Partajare revocată",
+          "visibilityFailed": "Nu s-a putut schimba cine poate deschide acest link"
         },
         "untitled": "Canvas fără titlu"
       },
@@ -2609,7 +2627,10 @@
         "codeChanges": "Modificări de cod",
         "desktopRequired": "Previzualizarea codului necesită aplicația desktop Stella.",
         "empty": "Încă nicio modificare de fișier. Când un agent editează cod, modificările apar aici.",
-        "noChanges": "Nicio modificare găsită."
+        "noChanges": "Nicio modificare găsită.",
+        "emptyTitle": "Încă nicio modificare",
+        "emptyBody": "Când un agent editează cod, modificările apar aici.",
+        "noChangesTitle": "Nicio modificare"
       },
       "filePreview": {
         "copy": "Copiază",
@@ -2645,7 +2666,10 @@
         "save": "Salvează",
         "saveFailed": "Nu s-a putut salva",
         "saved": "Salvat",
-        "zoom": "Mărește imaginea"
+        "zoom": "Mărește imaginea",
+        "imageUnavailable": "Imagine indisponibilă",
+        "videoUnavailable": "Videoclip indisponibil",
+        "audioUnavailable": "Audio indisponibil"
       },
       "office": {
         "frameTitle": "Previzualizare {kind}: {title}",
@@ -2673,7 +2697,11 @@
       },
       "preview": {
         "limited": "Previzualizare limitată. Salvează sau deschide fișierul original pentru a vedea tot conținutul.",
-        "unavailable": "Această previzualizare nu a putut fi pregătită."
+        "unavailable": "Această previzualizare nu a putut fi pregătită.",
+        "failedTitle": "Nu se poate afișa o previzualizare",
+        "failedBody": "Încearcă din nou sau salvează fișierul pentru a-l deschide în altă parte.",
+        "unavailableTitle": "Fișier indisponibil",
+        "emptyTitle": "Acest fișier este gol"
       },
       "spreadsheet": {
         "column": "Coloana {index}",
@@ -2696,7 +2724,9 @@
         "pendingPurge": "În așteptarea golirii",
         "refresh": "Reîmprospătează",
         "title": "Coș de gunoi",
-        "trashedAgo": "Aruncat acum {time}"
+        "trashedAgo": "Aruncat acum {time}",
+        "emptyTitle": "Coșul este gol",
+        "emptyBody": "Elementele șterse rămân aici 24 de ore."
       },
       "url": {
         "eyebrow": "Previzualizare live",

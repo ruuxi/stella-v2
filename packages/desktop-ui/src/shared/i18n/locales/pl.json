@@ -163,7 +163,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Nie udało się wczytać tego wątku",
+        "errorBody": "Zamknij go i otwórz ponownie za chwilę."
       },
       "generatedImage": {
         "generating": "Generowanie...",
@@ -2509,7 +2511,9 @@
         "skipped": "Pominięte",
         "undoing": "Cofanie…",
         "upToDate": "Nic nie oczekuje",
-        "waiting": "Oczekuje"
+        "waiting": "Oczekuje",
+        "upToDateTitle": "Masz najnowszą wersję",
+        "upToDateBody": "Nowe wersje Stelli pojawią się tutaj."
       },
       "updating": "Aktualizowanie…"
     },
@@ -2539,7 +2543,9 @@
       "noMatches": "Żaden łącznik nie pasuje do wyszukiwania.",
       "searchLabel": "Szukaj łączników",
       "searchPlaceholder": "Szukaj",
-      "title": "Łączniki"
+      "title": "Łączniki",
+      "noMatchesTitle": "Brak wyników",
+      "noMatchesBody": "Spróbuj innej nazwy."
     },
     "display": {
       "agentThread": {
@@ -2635,7 +2641,10 @@
         "codeChanges": "Zmiany w kodzie",
         "desktopRequired": "Podgląd kodu wymaga aplikacji desktopowej Stelli.",
         "empty": "Brak jeszcze zmian w plikach. Gdy agent zmieni kod, zmiany pojawią się tutaj.",
-        "noChanges": "Nie znaleziono zmian."
+        "noChanges": "Nie znaleziono zmian.",
+        "emptyTitle": "Na razie brak zmian",
+        "emptyBody": "Gdy agent edytuje kod, zmiany pojawią się tutaj.",
+        "noChangesTitle": "Brak zmian"
       },
       "filePreview": {
         "copy": "Kopiuj",
@@ -2671,7 +2680,10 @@
         "save": "Zapisz",
         "saveFailed": "Nie udało się zapisać",
         "saved": "Zapisano",
-        "zoom": "Powiększ obraz"
+        "zoom": "Powiększ obraz",
+        "imageUnavailable": "Obraz niedostępny",
+        "videoUnavailable": "Wideo niedostępne",
+        "audioUnavailable": "Dźwięk niedostępny"
       },
       "office": {
         "frameTitle": "Podgląd — {kind}: {title}",
@@ -2701,7 +2713,11 @@
       },
       "preview": {
         "limited": "Podgląd ograniczony. Zapisz lub otwórz oryginalny plik, aby zobaczyć całą zawartość.",
-        "unavailable": "Nie można przygotować tego podglądu."
+        "unavailable": "Nie można przygotować tego podglądu.",
+        "failedTitle": "Nie można wyświetlić podglądu",
+        "failedBody": "Spróbuj ponownie lub zapisz plik, aby otworzyć go gdzie indziej.",
+        "unavailableTitle": "Plik niedostępny",
+        "emptyTitle": "Ten plik jest pusty"
       },
       "spreadsheet": {
         "column": "Kolumna {index}",
@@ -2725,7 +2741,9 @@
         "pendingPurge": "Oczekuje na wyczyszczenie",
         "refresh": "Odśwież",
         "title": "Kosz",
-        "trashedAgo": "Usunięto {time} temu"
+        "trashedAgo": "Usunięto {time} temu",
+        "emptyTitle": "Kosz jest pusty",
+        "emptyBody": "Usunięte elementy zostają tu przez 24 godziny."
       },
       "url": {
         "eyebrow": "Podgląd na żywo",

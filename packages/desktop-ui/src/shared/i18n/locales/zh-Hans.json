@@ -148,7 +148,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "无法加载此对话",
+        "errorBody": "请关闭后稍等片刻再打开。"
       },
       "generatedImage": {
         "generating": "正在生成...",
@@ -2473,7 +2475,9 @@
         "skipped": "已跳过",
         "undoing": "正在撤销…",
         "upToDate": "没有待添加的内容",
-        "waiting": "待添加"
+        "waiting": "待添加",
+        "upToDateTitle": "已是最新版本",
+        "upToDateBody": "Stella 的新版本会显示在这里。"
       },
       "updating": "正在更新…"
     },
@@ -2503,7 +2507,9 @@
       "noMatches": "没有符合该搜索的连接器。",
       "searchLabel": "搜索连接器",
       "searchPlaceholder": "搜索",
-      "title": "连接器"
+      "title": "连接器",
+      "noMatchesTitle": "没有匹配项",
+      "noMatchesBody": "换个名称试试。"
     },
     "display": {
       "agentThread": {
@@ -2591,7 +2597,10 @@
         "codeChanges": "代码更改",
         "desktopRequired": "代码预览需要 Stella 桌面应用。",
         "empty": "还没有文件更改。当智能体编辑代码时，更改会显示在这里。",
-        "noChanges": "未找到更改。"
+        "noChanges": "未找到更改。",
+        "emptyTitle": "暂无更改",
+        "emptyBody": "当智能体编辑代码时，更改会显示在这里。",
+        "noChangesTitle": "无更改"
       },
       "filePreview": {
         "copy": "复制",
@@ -2627,7 +2636,10 @@
         "save": "保存",
         "saveFailed": "无法保存",
         "saved": "已保存",
-        "zoom": "缩放图片"
+        "zoom": "缩放图片",
+        "imageUnavailable": "图片不可用",
+        "videoUnavailable": "视频不可用",
+        "audioUnavailable": "音频不可用"
       },
       "office": {
         "frameTitle": "{kind} 预览：{title}",
@@ -2651,7 +2663,11 @@
       },
       "preview": {
         "limited": "预览内容有限。请保存或打开原始文件以查看全部内容。",
-        "unavailable": "无法准备此预览。"
+        "unavailable": "无法准备此预览。",
+        "failedTitle": "无法显示预览",
+        "failedBody": "请重试，或保存文件后在其他地方打开。",
+        "unavailableTitle": "文件不可用",
+        "emptyTitle": "此文件为空"
       },
       "spreadsheet": {
         "column": "第 {index} 列",
@@ -2672,7 +2688,9 @@
         "pendingPurge": "待清除",
         "refresh": "刷新",
         "title": "废纸篓",
-        "trashedAgo": "{time}前移入废纸篓"
+        "trashedAgo": "{time}前移入废纸篓",
+        "emptyTitle": "废纸篓是空的",
+        "emptyBody": "删除的内容会在这里保留 24 小时。"
       },
       "url": {
         "eyebrow": "实时预览",

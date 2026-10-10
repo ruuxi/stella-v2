@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Couldn't load this thread",
+        "errorBody": "Close it and open it again in a moment."
       },
       "generatedImage": {
         "generating": "Generating...",
@@ -2485,7 +2487,9 @@
         "skipped": "Skipped",
         "undoing": "Undoing…",
         "upToDate": "Nothing waiting",
-        "waiting": "Waiting"
+        "waiting": "Waiting",
+        "upToDateTitle": "You're up to date",
+        "upToDateBody": "New versions of Stella show up here."
       },
       "updating": "Updating…"
     },
@@ -2515,7 +2519,9 @@
       "noMatches": "No connectors match that search.",
       "searchLabel": "Search connectors",
       "searchPlaceholder": "Search",
-      "title": "Connectors"
+      "title": "Connectors",
+      "noMatchesTitle": "No matches",
+      "noMatchesBody": "Try a different name."
     },
     "display": {
       "agentThread": {
@@ -2569,11 +2575,19 @@
       },
       "canvasShare": {
         "copyLink": "Copy link",
-        "empty": "No active shares yet. Publish a canvas to get a public link.",
+        "empty": "No public canvases yet. Make a canvas public to share its link.",
         "expires": "Expires {date}",
         "links": "Links",
         "live": "Canvas is live",
         "loadFailed": "Couldn't load your shares.",
+        "makePrivate": "Make private",
+        "makePublic": "Make public",
+        "noLink": "This canvas has no link yet. Make it public to get one anyone can open.",
+        "openInBrowser": "Open in browser",
+        "privateHint": "Only you can open this link.",
+        "privateLink": "Private link",
+        "public": "Public",
+        "publicHint": "Anyone with the link can view.",
         "publicLink": "Public canvas link",
         "publishFailed": "Couldn't publish this canvas. Please try again.",
         "publishing": "Publishing canvas…",
@@ -2585,8 +2599,12 @@
         "toasts": {
           "copyFailed": "Couldn't copy the link",
           "linkCopied": "Share link copied",
+          "madePrivate": "Link is private now",
+          "madePublic": "Link is public now",
+          "openFailed": "Couldn't open the link",
           "revokeFailed": "Couldn't revoke this share",
-          "revoked": "Share revoked"
+          "revoked": "Share revoked",
+          "visibilityFailed": "Couldn't change who can open this link"
         },
         "untitled": "Untitled canvas"
       },
@@ -2595,7 +2613,10 @@
         "codeChanges": "Code changes",
         "desktopRequired": "Code preview requires the Stella desktop app.",
         "empty": "No file changes yet. When an agent edits code, the changes appear here.",
-        "noChanges": "No changes found."
+        "noChanges": "No changes found.",
+        "emptyTitle": "No changes yet",
+        "emptyBody": "When an agent edits code, the changes show up here.",
+        "noChangesTitle": "No changes"
       },
       "filePreview": {
         "copy": "Copy",
@@ -2631,7 +2652,10 @@
         "save": "Save",
         "saveFailed": "Could not save",
         "saved": "Saved",
-        "zoom": "Zoom image"
+        "zoom": "Zoom image",
+        "imageUnavailable": "Image unavailable",
+        "videoUnavailable": "Video unavailable",
+        "audioUnavailable": "Audio unavailable"
       },
       "office": {
         "frameTitle": "{kind} preview: {title}",
@@ -2657,7 +2681,11 @@
       },
       "preview": {
         "limited": "Preview limited. Save or open the original file to view all content.",
-        "unavailable": "Unable to prepare this preview."
+        "unavailable": "Unable to prepare this preview.",
+        "failedTitle": "Can't show a preview",
+        "failedBody": "Try again, or save the file to open it elsewhere.",
+        "unavailableTitle": "File unavailable",
+        "emptyTitle": "This file is empty"
       },
       "spreadsheet": {
         "column": "Column {index}",
@@ -2679,7 +2707,9 @@
         "pendingPurge": "Pending purge",
         "refresh": "Refresh",
         "title": "Trash",
-        "trashedAgo": "Trashed {time} ago"
+        "trashedAgo": "Trashed {time} ago",
+        "emptyTitle": "Trash is empty",
+        "emptyBody": "Deleted things wait here for 24 hours."
       },
       "url": {
         "eyebrow": "Live preview",

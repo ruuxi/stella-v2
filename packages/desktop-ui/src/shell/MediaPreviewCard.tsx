@@ -17,6 +17,7 @@ import { AudioPlayer } from "@/shell/AudioPlayer";
 import { localMediaUrl } from "@/shared/hooks/local-media-url";
 import { useLocalMediaFailure } from "@/shared/hooks/use-local-media-failure";
 import { useT } from "@/shared/i18n";
+import { EmptyState } from "@/ui/empty-state/EmptyState";
 import { ZoomableImage, type SwipeDirection } from "@/shell/ZoomableImage";
 
 type MediaPreviewCardProps = {
@@ -159,7 +160,7 @@ const ImageGallery = ({
   return (
     <div className="display-media display-media--image">
       <PromptHeader prompt={prompt} madeBy={madeBy} />
-      {error && <p className="display-media__error">{error}</p>}
+      {error && active && <p className="display-media__error">{error}</p>}
       <MediaActions
         filePath={filePaths[safeIndex]}
         copyImage={active}
@@ -196,12 +197,22 @@ const ImageGallery = ({
           />
         </button>
       ) : missing[safeIndex] ? (
-        <div className="display-media__missing">
-          {missingMessages[safeIndex] ??
-            `File no longer available — ${filenameOf(filePaths[safeIndex])} was moved or deleted.`}
-        </div>
+        <EmptyState
+          motif="unavailable"
+          title={t("shell.display.media.imageUnavailable")}
+          body={
+            missingMessages[safeIndex] ??
+            `${filenameOf(filePaths[safeIndex])} was moved or deleted.`
+          }
+        />
+      ) : error ? (
+        <EmptyState
+          motif="preview"
+          title={t("shell.display.preview.failedTitle")}
+          body={error}
+        />
       ) : (
-        !error && <div className="display-media__loading">Loading…</div>
+        <div className="display-media__loading">Loading…</div>
       )}
       {files.length > 1 && (
         <div className="display-media__strip" role="tablist">
@@ -248,7 +259,11 @@ const VideoCard = ({
     <div className="display-media display-media--video">
       <PromptHeader prompt={prompt} madeBy={madeBy} />
       {failure ? (
-        <div className="display-media__missing">{failure}</div>
+        <EmptyState
+          motif="unavailable"
+          title={t("shell.display.media.videoUnavailable")}
+          body={failure}
+        />
       ) : (
         <video
           src={streamUrl}
@@ -299,7 +314,12 @@ const AudioCard = ({
       <PromptHeader prompt={prompt} madeBy={madeBy} />
       <div className="display-media__audio-card">
         {failure ? (
-          <div className="display-media__missing">{failure}</div>
+          <EmptyState
+            motif="unavailable"
+            size="compact"
+            title={t("shell.display.media.audioUnavailable")}
+            body={failure}
+          />
         ) : (
           <AudioPlayer key={streamUrl} src={streamUrl} onError={onError} />
         )}

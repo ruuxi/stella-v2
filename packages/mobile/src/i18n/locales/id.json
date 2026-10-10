@@ -148,7 +148,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Tidak bisa memuat utas ini",
+        "errorBody": "Tutup lalu buka lagi sebentar lagi."
       },
       "generatedImage": {
         "generating": "Membuat...",
@@ -2473,7 +2475,9 @@
         "skipped": "Dilewati",
         "undoing": "Membatalkan…",
         "upToDate": "Tidak ada yang menunggu",
-        "waiting": "Menunggu"
+        "waiting": "Menunggu",
+        "upToDateTitle": "Semua sudah terbaru",
+        "upToDateBody": "Versi baru Stella muncul di sini."
       },
       "updating": "Memperbarui…"
     },
@@ -2503,7 +2507,9 @@
       "noMatches": "Tidak ada konektor yang cocok dengan pencarian itu.",
       "searchLabel": "Cari konektor",
       "searchPlaceholder": "Cari",
-      "title": "Konektor"
+      "title": "Konektor",
+      "noMatchesTitle": "Tidak ada yang cocok",
+      "noMatchesBody": "Coba nama lain."
     },
     "display": {
       "agentThread": {
@@ -2553,11 +2559,19 @@
       },
       "canvasShare": {
         "copyLink": "Salin tautan",
-        "empty": "Belum ada berbagi aktif. Terbitkan sebuah kanvas untuk mendapatkan tautan publik.",
+        "empty": "Belum ada kanvas publik. Jadikan kanvas publik untuk membagikan tautannya.",
         "expires": "Kedaluwarsa {date}",
         "links": "Tautan",
         "live": "Kanvas sudah tayang",
         "loadFailed": "Tidak dapat memuat item yang Anda bagikan.",
+        "makePrivate": "Jadikan privat",
+        "makePublic": "Jadikan publik",
+        "noLink": "Kanvas ini belum punya tautan. Jadikan publik untuk mendapatkan tautan yang bisa dibuka siapa saja.",
+        "openInBrowser": "Buka di browser",
+        "privateHint": "Hanya kamu yang bisa membuka tautan ini.",
+        "privateLink": "Tautan privat",
+        "public": "Publik",
+        "publicHint": "Siapa pun yang punya tautan dapat melihatnya.",
         "publicLink": "Tautan kanvas publik",
         "publishFailed": "Tidak dapat menerbitkan kanvas ini. Silakan coba lagi.",
         "publishing": "Menerbitkan kanvas…",
@@ -2569,8 +2583,12 @@
         "toasts": {
           "copyFailed": "Tidak dapat menyalin tautan",
           "linkCopied": "Tautan berbagi disalin",
+          "madePrivate": "Tautan sekarang privat",
+          "madePublic": "Tautan sekarang publik",
+          "openFailed": "Tidak dapat membuka tautan",
           "revokeFailed": "Tidak dapat mencabut berbagi ini",
-          "revoked": "Berbagi dicabut"
+          "revoked": "Berbagi dicabut",
+          "visibilityFailed": "Tidak dapat mengubah siapa yang bisa membuka tautan ini"
         },
         "untitled": "Kanvas tanpa judul"
       },
@@ -2579,7 +2597,10 @@
         "codeChanges": "Perubahan kode",
         "desktopRequired": "Pratinjau kode memerlukan aplikasi desktop Stella.",
         "empty": "Belum ada perubahan berkas. Saat agen mengedit kode, perubahannya muncul di sini.",
-        "noChanges": "Tidak ada perubahan ditemukan."
+        "noChanges": "Tidak ada perubahan ditemukan.",
+        "emptyTitle": "Belum ada perubahan",
+        "emptyBody": "Saat agen mengedit kode, perubahannya muncul di sini.",
+        "noChangesTitle": "Tidak ada perubahan"
       },
       "filePreview": {
         "copy": "Salin",
@@ -2615,7 +2636,10 @@
         "save": "Simpan",
         "saveFailed": "Tidak dapat menyimpan",
         "saved": "Tersimpan",
-        "zoom": "Perbesar gambar"
+        "zoom": "Perbesar gambar",
+        "imageUnavailable": "Gambar tidak tersedia",
+        "videoUnavailable": "Video tidak tersedia",
+        "audioUnavailable": "Audio tidak tersedia"
       },
       "office": {
         "frameTitle": "Pratinjau {kind}: {title}",
@@ -2639,7 +2663,11 @@
       },
       "preview": {
         "limited": "Pratinjau terbatas. Simpan atau buka berkas asli untuk melihat seluruh isinya.",
-        "unavailable": "Tidak dapat menyiapkan pratinjau ini."
+        "unavailable": "Tidak dapat menyiapkan pratinjau ini.",
+        "failedTitle": "Tidak bisa menampilkan pratinjau",
+        "failedBody": "Coba lagi, atau simpan file untuk membukanya di tempat lain.",
+        "unavailableTitle": "File tidak tersedia",
+        "emptyTitle": "File ini kosong"
       },
       "spreadsheet": {
         "column": "Kolom {index}",
@@ -2660,7 +2688,9 @@
         "pendingPurge": "Menunggu pembersihan",
         "refresh": "Segarkan",
         "title": "Sampah",
-        "trashedAgo": "Dibuang {time} lalu"
+        "trashedAgo": "Dibuang {time} lalu",
+        "emptyTitle": "Sampah kosong",
+        "emptyBody": "Item yang dihapus tetap di sini selama 24 jam."
       },
       "url": {
         "eyebrow": "Pratinjau langsung",

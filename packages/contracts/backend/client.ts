@@ -23,6 +23,7 @@ import {
   LIVE_SUBPROTOCOL,
   LIVE_TOKEN_SUBPROTOCOL_PREFIX,
   rpcPath,
+  SOCKET_KEEPALIVE_PING,
   type BackendError,
   type LiveClientFrame,
   type LiveServerFrame,
@@ -452,10 +453,19 @@ export class BackendClient {
   }
 
   private sendFrame(frame: LiveClientFrame): void {
+    this.sendRaw(JSON.stringify(frame));
+  }
+
+  /** Answered by the platform, so a ping never wakes the owner's object. */
+  private sendKeepalive(): void {
+    this.sendRaw(SOCKET_KEEPALIVE_PING);
+  }
+
+  private sendRaw(data: string): void {
     const socket = this.socket;
     if (!socket || socket.readyState !== SOCKET_OPEN) return;
     try {
-      socket.send(JSON.stringify(frame));
+      socket.send(data);
     } catch {
       // A failed send means the socket is closing; `onclose` resubscribes.
     }
@@ -493,7 +503,7 @@ export class BackendClient {
   private startPing(): void {
     this.stopPing();
     this.pingTimer = setInterval(
-      () => this.sendFrame({ t: "ping" }),
+      () => this.sendKeepalive(),
       PING_INTERVAL_MS,
     );
   }

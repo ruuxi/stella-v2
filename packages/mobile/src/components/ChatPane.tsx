@@ -1,8 +1,11 @@
 import { AssistantBubble, SENT_BUBBLE_POP, useBubblePop } from "./BubblePop";
 import type { ReplyRef } from "@stella/contracts/reply-refs";
+import { cloudWorldDrivePath } from "@stella/contracts/cloud-world-paths";
 import { AgentReportSheet, ReplyFocus, type AgentReplyRef } from "./ReplyFocus";
-import { ReplyPreview, type ReplyAgentStatus } from "./ReplyPreview";
+import { ReplyPreview, replyTitle, type ReplyAgentStatus } from "./ReplyPreview";
+import { ReplyFilePills } from "./ReplyFilePills";
 import { mobileReplyContexts, type MobileReplyContexts } from "../lib/mobile-reply-context";
+import { useAgentReplyTitles } from "../lib/use-agent-reply-titles";
 import {
   type ReactNode,
   type Ref,
@@ -65,10 +68,8 @@ import {
   type ChatDraftStore,
 } from "../lib/chat-draft-store";
 import Reanimated, {
-  KeyboardState,
-  useAnimatedKeyboard,
-  useAnimatedReaction,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -91,6 +92,7 @@ import {
 } from "./MessageContextMenu";
 import { AppBackdrop } from "./AppBackdrop";
 import { useShellTopInset } from "./MainScreenSurface";
+import { useKeyboardHandler } from "react-native-keyboard-controller";
 import { MessageEvidenceStrip } from "./evidence/MessageEvidenceStrip";
 import { artifactPrimaryFilePath } from "../lib/mobile-artifacts";
 import { AppPreviewCard } from "./AppPreviewCard";
@@ -98,7 +100,7 @@ import { extractStellaAppLinkSlugs } from "@stella/contracts/workspace-apps";
 import { stellaFileChatArtifact } from "../lib/stella-file-links";
 import {
   extractLocalFileLinkPaths,
-  stripLocalFileLinks,
+  unlinkLocalFileLinks,
 } from "@stella/contracts/local-file-links";
 import {
   resolveCloudDriveFileUri,
@@ -317,6 +319,8 @@ const LEGEND_TAIL_SCROLL_AT_END = {
   on: { dataChange: true, itemLayout: false, layout: false },
 } as const;
 const MESSAGE_LIST_GAP = 10;
+/** `assistantRow`'s vertical padding, part of the visible gap between bubbles. */
+const ASSISTANT_ROW_PAD_VERTICAL = 2;
 /**
  * Fixed reading-area floor below the last message (desktop's
  * `.event-list-trailing-region` `min-height`). The inline working indicator
@@ -353,40 +357,35 @@ const MESSAGE_LONG_PRESS_MS = 420;
 // ---------------------------------------------------------------------------
 // Keyboard inset — keeps the composer and message list above the OS keyboard.
 //
-// The composer's *motion* is driven separately, on the UI thread, by
-// reanimated's `useAnimatedKeyboard` (see `composerKeyboardStyle`), so it stays
-// glued to the keyboard frame-for-frame in both directions. This hook only
-// tracks the settled height as JS state, used to reserve the message list's
-// bottom inset — that reserve doesn't need frame-perfect smoothness (content
-// just scrolls under the composer), so no `LayoutAnimation` is needed here.
+// The *motion* of the composer and the message list is driven on the UI thread
+// from one value, the keyboard's height as react-native-keyboard-controller
+// reads it from the keyboard's own animation every frame (see `keyboardLift`),
+// so both move with the keyboard frame for frame and together. Nothing here
+// may re-render or re-lay-out the chat while the keyboard animates: the
+// keyboard moves in the render server regardless, and any main-thread layout
+// work left the composer frozen behind it while the list jumped ahead. So this
+// hook only publishes the settled height as JS state after the animation ends.
 // ---------------------------------------------------------------------------
 
 function useKeyboardInset() {
   const bottomInset = useSafeAreaInsets().bottom;
   const [height, setHeight] = useState(0);
-  // The height the keyboard is heading to, for the composer's UI-thread lift.
-  const targetHeight = useSharedValue(0);
 
   useEffect(() => {
-    const showEvent =
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent =
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-
-    const onShow = (e: { endCoordinates: { height: number } }) => {
-      targetHeight.value = e.endCoordinates.height;
+    const onDidShow = (e: { endCoordinates: { height: number } }) => {
       setHeight(e.endCoordinates.height);
     };
-    const onHide = () => setHeight(0);
+    const onDidHide = () => setHeight(0);
 
-    const showSub = Keyboard.addListener(showEvent, onShow);
-    const hideSub = Keyboard.addListener(hideEvent, onHide);
+    const subs = [
+      Keyboard.addListener("keyboardDidShow", onDidShow),
+      Keyboard.addListener("keyboardDidHide", onDidHide),
+    ];
 
     return () => {
-      showSub.remove();
-      hideSub.remove();
+      for (const sub of subs) sub.remove();
     };
-  }, [targetHeight]);
+  }, []);
 
   const open = height > 0;
   // The composer's bottom pad is keyboard-independent: it always reserves the
@@ -397,7 +396,7 @@ function useKeyboardInset() {
   // animate.
   const composerBottomPad = 6 + bottomInset;
 
-  return { height, open, composerBottomPad, targetHeight };
+  return { height, open, composerBottomPad };
 }
 
 // ---------------------------------------------------------------------------
@@ -1423,6 +1422,89 @@ const generatedImageStyles = StyleSheet.create({
   tile: { borderRadius: 14, maxWidth: 320, overflow: "hidden", width: "100%" },
 });
 
+type CompletionQuote = {
+  key: string;
+  artifactId: string;
+  ref: AgentReplyRef;
+  files: ChatArtifact[];
+};
+
+/**
+ * The tasks a row relays the results of: one quote per agent of each settled
+ * completion card on the row (a follow-up keeps its spawn row instead).
+ */
+const rowCompletionQuotes = (
+  agentWork: ReturnType<typeof consolidateRowArtifacts>["agentWork"],
+): CompletionQuote[] =>
+  agentWork.flatMap((artifact) => {
+    if (
+      artifact.payload.state !== "done" ||
+      artifact.payload.followUp === true ||
+      artifact.payload.completion !== true
+    ) {
+      return [];
+    }
+    const sections = inlineAgentWorkCardSections(artifact) ?? [];
+    const filesByAgent = new Map(
+      sections.flatMap((section) => (section.agentId ? [[section.agentId, section.files] as const] : [])),
+    );
+    const agents =
+      artifact.payload.agents && artifact.payload.agents.length > 0
+        ? artifact.payload.agents.map((agent) => ({
+            agentId: agent.agentId,
+            title: agent.title,
+            files: filesByAgent.get(agent.agentId) ?? [],
+          }))
+        : (artifact.payload.agentIds ?? []).slice(0, 1).map((agentId) => ({
+            agentId,
+            title: artifact.payload.title,
+            files: [] as ChatArtifact[],
+          }));
+    return agents.flatMap((agent) => {
+      if (!agent.agentId) return [];
+      return [{
+        key: `${artifact.id}:${agent.agentId}`,
+        artifactId: artifact.id,
+        ref: { kind: "agent" as const, threadId: agent.agentId, title: agent.title || artifact.payload.title },
+        files: agent.files,
+      }];
+    });
+  });
+
+/**
+ * A cloud completion lands on its own textless row just above the reply that
+ * relays it. That row keeps the task quote; the reply below takes the task's
+ * report link and files, so they ride in its bubble like on desktop.
+ */
+const carryCompletionQuotes = (
+  messages: readonly ChatMessage[],
+): { carried: ReadonlyMap<string, CompletionQuote[]>; forwarded: ReadonlySet<string> } => {
+  const carried = new Map<string, CompletionQuote[]>();
+  const forwarded = new Set<string>();
+  let pending: { ids: string[]; quotes: CompletionQuote[] } = { ids: [], quotes: [] };
+  for (const message of messages) {
+    if (message.role !== "assistant") {
+      pending = { ids: [], quotes: [] };
+      continue;
+    }
+    if ((message.text ?? "").trim().length > 0) {
+      if (pending.quotes.length > 0) {
+        carried.set(message.id, pending.quotes);
+        for (const id of pending.ids) forwarded.add(id);
+      }
+      pending = { ids: [], quotes: [] };
+      continue;
+    }
+    const quotes = rowCompletionQuotes(
+      consolidateRowArtifacts(message.artifacts ?? [], message.tasks ?? []).agentWork,
+    );
+    if (quotes.length > 0) {
+      pending = { ids: [...pending.ids, message.id], quotes: [...pending.quotes, ...quotes] };
+    }
+  }
+  return { carried, forwarded };
+};
+
 const ChatMessageRow = memo(function ChatMessageRow({
   item,
   conversationId,
@@ -1445,6 +1527,8 @@ const ChatMessageRow = memo(function ChatMessageRow({
   desktopAccess,
   menuClone = false,
   receiptLabel,
+  carriedQuotes,
+  quotesForwarded = false,
 }: {
   item: ChatMessage;
   /** Scopes this row's file reads, the way a tapped file link is scoped. */
@@ -1461,9 +1545,12 @@ const ChatMessageRow = memo(function ChatMessageRow({
   isSelecting: boolean;
   /** True while ANY row is selecting — lets other rows tap-to-dismiss it. */
   anySelecting: boolean;
-  onOpenArtifact?: (artifact: ChatArtifact) => void;
+  onOpenArtifact?: (
+    artifact: ChatArtifact,
+    gallery?: readonly ChatArtifact[],
+  ) => void;
   /** Opens a tapped `stella://file/...` markdown link in the file viewer. */
-  onOpenStellaFile?: (path: string) => void;
+  onOpenStellaFile?: (path: string, gallery?: readonly string[]) => void;
   onOpenMessageMenu: (request: MessageMenuRequest) => void;
   /** Leaves native text-selection mode for this row. */
   onEndSelecting: () => void;
@@ -1481,6 +1568,11 @@ const ChatMessageRow = memo(function ChatMessageRow({
   menuClone?: boolean;
   /** "Delivered" / "Read" under the latest user message. */
   receiptLabel?: string | null;
+  /** Tasks quoted on the textless row just above, whose report link and
+   *  files this reply's bubble carries. */
+  carriedQuotes?: CompletionQuote[];
+  /** This row's tasks are carried by the reply below it. */
+  quotesForwarded?: boolean;
 }) {
   // iOS press feedback: the held bubble eases down while the long-press
   // builds, then the menu lifts a copy of it (see MessageContextMenu).
@@ -1569,6 +1661,18 @@ const ChatMessageRow = memo(function ChatMessageRow({
     paths.push(...extractLocalFileLinkPaths(item.text ?? ""));
     return paths;
   }, [consolidated.looseFiles, item.role, item.text]);
+  // A cloud turn names one drive file twice: drive-relative as an artifact,
+  // world-absolute as a link. The strip shows each file once, by the
+  // world-absolute path, which is the one that opens from the drive.
+  const evidenceStripPaths = useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const filePath of evidencePaths) {
+      const drivePath = cloudWorldDrivePath(filePath);
+      const key = drivePath ?? filePath;
+      if (!byKey.has(key) || drivePath) byKey.set(key, filePath);
+    }
+    return [...byKey.values()];
+  }, [evidencePaths]);
   // Schedule tool results render their human-readable summaries as plain
   // text lines in the flow (desktop parity — no chip/card). Every settled
   // Schedule call in the turn gets its line, in call order; unparseable or
@@ -1586,7 +1690,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   const bodyText = useMemo(
     () =>
       evidencePaths.length > 0
-        ? stripLocalFileLinks(item.text, evidencePaths)
+        ? unlinkLocalFileLinks(item.text, evidencePaths)
         : item.text,
     [item.text, evidencePaths],
   );
@@ -1807,60 +1911,111 @@ const ChatMessageRow = memo(function ChatMessageRow({
   // media previews, then the rest as pills.
   const showEvidence = !isStandIn && evidencePaths.length > 0;
   const showArtifacts =
-    showMapArtifacts || showGeneratedImages || linkedAppSlugs.length > 0;
+    showMapArtifacts ||
+    (showGeneratedImages && !hasText) ||
+    linkedAppSlugs.length > 0;
   // Desktop renders the complete markdown body once, then attaches activity
   // and artifact cards at the row boundary. Keep the same shape on mobile:
   // stored text offsets still describe event chronology, but must never become
   // character-level insertion points that split prose (or markdown) in two.
   const groupAgentWorkArtifacts = agentWorkArtifacts;
   // Desktop parity: a task whose result this reply relays is quoted ABOVE
-  // the bubble the iMessage way, with its produced files as pills inside
-  // that quote. It is the only completion presentation; the settled spawn
-  // row below the text is gone. A settled follow-up keeps its spawn row.
-  const completionQuotes = groupAgentWorkArtifacts.flatMap((artifact) => {
-    if (
-      artifact.payload.state !== "done" ||
-      artifact.payload.followUp === true ||
-      artifact.payload.completion !== true
-    ) {
-      return [];
-    }
-    const sections = inlineAgentWorkCardSections(artifact) ?? [];
-    const filesByAgent = new Map(
-      sections.flatMap((section) => (section.agentId ? [[section.agentId, section.files] as const] : [])),
-    );
-    const agents =
-      artifact.payload.agents && artifact.payload.agents.length > 0
-        ? artifact.payload.agents.map((agent) => ({
-            agentId: agent.agentId,
-            title: agent.title,
-            files: filesByAgent.get(agent.agentId) ?? [],
-          }))
-        : (artifact.payload.agentIds ?? []).slice(0, 1).map((agentId) => ({
-            agentId,
-            title: artifact.payload.title,
-            files: [] as ChatArtifact[],
-          }));
-    // Files the reply itself links join the quote's pills (desktop parity).
-    const linked = extractLocalFileLinkPaths(item.text ?? "").map((path) =>
-      stellaFileChatArtifact(path, artifact.conversationId),
-    );
-    return agents.flatMap((agent) => {
-      if (!agent.agentId) return [];
-      const seen = new Set(agent.files.map((file) => file.id));
-      const files = [...agent.files, ...linked.filter((file) => !seen.has(file.id))];
-      return [{
-        key: `${artifact.id}:${agent.agentId}`,
-        artifactId: artifact.id,
-        ref: { kind: "agent" as const, threadId: agent.agentId, title: agent.title || artifact.payload.title },
-        files,
-      }];
-    });
-  });
-  const quotedThreadIds = new Set(completionQuotes.map((quote) => quote.ref.threadId));
+  // the bubble the iMessage way; the files it produced ride as pills at the
+  // bottom of the reply bubble itself. A settled follow-up keeps its spawn
+  // row.
+  const completionQuotes = rowCompletionQuotes(groupAgentWorkArtifacts);
+  const relayedQuotes = [
+    ...(quotesForwarded ? [] : completionQuotes),
+    ...(carriedQuotes ?? []),
+  ];
+  const quotedThreadIds = new Set(
+    [...completionQuotes, ...relayedQuotes].map((quote) => quote.ref.threadId),
+  );
+  // Files a relayed task produced, minus any the evidence strip already shows
+  // because the reply links them.
+  const evidencePathSet = new Set(evidencePaths);
+  const replyFiles = onOpenArtifact
+    ? relayedQuotes
+        .flatMap((quote) => quote.files)
+        .filter((file, index, all) => {
+          const filePath = artifactPrimaryFilePath(file.payload);
+          return (
+            !(filePath && evidencePathSet.has(filePath)) &&
+            all.findIndex((other) => other.id === file.id) === index
+          );
+        })
+    : [];
+  const showReplyFiles = !isStandIn && replyFiles.length > 0;
+  // Everything the reply attaches sits at the bottom of its bubble; a reply
+  // with no text shows the same pieces on their own.
+  const generatedImageCards = showGeneratedImages
+    ? generatedImages.map((artifact) => (
+        <GeneratedImageCard
+          key={artifact.id}
+          artifact={artifact}
+          access={desktopAccess ?? undefined}
+          colors={colors}
+          onPress={onOpenArtifact}
+        />
+      ))
+    : null;
+  // With text, pictures and video sit in their own block under the bubble
+  // and file pills at the bottom of it; without text, the strip stands alone.
+  const evidenceMedia = showEvidence ? (
+    <MessageEvidenceStrip
+      filePaths={evidenceStripPaths}
+      conversationId={conversationId}
+      access={desktopAccess ?? null}
+      colors={colors}
+      onOpen={onOpenStellaFile}
+      part={hasText ? "media" : undefined}
+      style={hasText ? styles.mediaBelowBubble : undefined}
+    />
+  ) : null;
+  const evidenceDocuments =
+    showEvidence && hasText ? (
+      <MessageEvidenceStrip
+        filePaths={evidenceStripPaths}
+        conversationId={conversationId}
+        access={desktopAccess ?? null}
+        colors={colors}
+        onOpen={onOpenStellaFile}
+        part="documents"
+        style={styles.bubbleEvidence}
+      />
+    ) : null;
+  const replyFilePills =
+    showReplyFiles && onOpenArtifact ? (
+      <ReplyFilePills
+        files={replyFiles}
+        colors={colors}
+        onOpenArtifact={onOpenArtifact}
+        style={styles.bubbleFilePills}
+      />
+    ) : null;
+  // The full report of each task this reply relays (or cites, unless it is
+  // still running) opens from a quiet "more" after the reply's text, not from
+  // the quote.
+  const reportRefs: AgentReplyRef[] = [
+    ...relayedQuotes.map((quote) => quote.ref),
+    ...(contextRef?.kind === "agent" &&
+    !quotedThreadIds.has(contextRef.threadId) &&
+    contextStatus !== "running"
+      ? [contextRef]
+      : []),
+  ];
+  const moreLinks =
+    onOpenReport && reportRefs.length > 0
+      ? reportRefs.map((ref) => ({
+          key: ref.threadId,
+          label: `Full report: ${replyTitle(ref)}`,
+          onPress: () => onOpenReport(ref),
+        }))
+      : undefined;
+  const fillAssistantBubble = boundedAssistantBubble;
   const assistantBubble = (
     <AssistantBubble
-      style={[styles.assistantBubble, boundedAssistantBubble && styles.assistantBlockBubble]}
+      style={[styles.assistantBubble, fillAssistantBubble && styles.assistantBlockBubble]}
       animate={!menuClone && (animate || mountedEmptyRef.current)}
     >
       <AssistantMarkdown
@@ -1868,7 +2023,10 @@ const ChatMessageRow = memo(function ChatMessageRow({
         colors={colors}
         fill={boundedAssistantBubble}
         onStellaFileLink={onOpenStellaFile}
+        moreLinks={moreLinks}
       />
+      {evidenceDocuments}
+      {replyFilePills}
     </AssistantBubble>
   );
   if (menuClone) return assistantBubble;
@@ -1886,9 +2044,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
               }
               colors={colors}
               onOpen={() => onOpenReply(quote.ref)}
-              onOpenReport={onOpenReport ? () => onOpenReport(quote.ref) : undefined}
-              files={quote.files}
-              onOpenArtifact={onOpenArtifact}
             />
           ))
         : null}
@@ -1900,11 +2055,6 @@ const ChatMessageRow = memo(function ChatMessageRow({
           status={contextStatus}
           colors={colors}
           onOpen={() => onOpenReply(contextRef)}
-          onOpenReport={
-            onOpenReport && contextRef.kind === "agent"
-              ? () => onOpenReport(contextRef)
-              : undefined
-          }
         />
       ) : null}
       {hasText && isSelecting ? (
@@ -1923,7 +2073,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
           ref={bubbleRef}
           collapsable={false}
           style={[
-            boundedAssistantBubble ? styles.assistantBubbleSlotFill : styles.assistantBubbleSlot,
+            fillAssistantBubble ? styles.assistantBubbleSlotFill : styles.assistantBubbleSlot,
             menuActive && styles.bubbleHidden,
           ]}
         >
@@ -1939,6 +2089,16 @@ const ChatMessageRow = memo(function ChatMessageRow({
               {assistantBubble}
             </Pressable>
           </Animated.View>
+        </View>
+      ) : null}
+      {hasText && (showGeneratedImages || showEvidence) ? (
+        <View>
+          {showGeneratedImages ? (
+            <View style={[styles.artifactGroup, styles.mediaBelowBubble]}>
+              {generatedImageCards}
+            </View>
+          ) : null}
+          {evidenceMedia}
         </View>
       ) : null}
       {scheduleReceipts.map((receipt) => (
@@ -1968,30 +2128,13 @@ const ChatMessageRow = memo(function ChatMessageRow({
                 />
               ))
             : null}
-          {showGeneratedImages
-            ? generatedImages.map((artifact) => {
-                return (
-                  <GeneratedImageCard
-                    key={artifact.id}
-                    artifact={artifact}
-                    access={desktopAccess ?? undefined}
-                    colors={colors}
-                    onPress={onOpenArtifact}
-                  />
-                );
-              })
-            : null}
+          {hasText ? null : generatedImageCards}
         </View>
       ) : null}
-      {showEvidence ? (
-        <MessageEvidenceStrip
-          filePaths={evidencePaths}
-          conversationId={conversationId}
-          access={desktopAccess ?? null}
-          colors={colors}
-          onOpen={onOpenStellaFile}
-        />
-      ) : null}
+      {hasText ? null : evidenceMedia}
+      {hasText || !replyFilePills ? null : (
+        <View style={styles.artifactGroupSpaced}>{replyFilePills}</View>
+      )}
       {item.stopped ? (
         <Text
           style={styles.stoppedTag}
@@ -3032,7 +3175,10 @@ export type ChatPaneProps = {
   dictationHeaders?: Record<string, string>;
 
   /** Opens a desktop artifact linked from an assistant message. */
-  onOpenArtifact?: (artifact: ChatArtifact) => void;
+  onOpenArtifact?: (
+    artifact: ChatArtifact,
+    gallery?: readonly ChatArtifact[],
+  ) => void;
 
   /**
    * Conversation the transcript belongs to. Used to key artifacts built from
@@ -3091,7 +3237,7 @@ export type ComposerModelPickerConfig = {
 };
 
 export function ChatPane({
-  messages,
+  messages: projectedMessages,
   streaming,
   workingIndicator,
   offline = false,
@@ -3137,6 +3283,7 @@ export function ChatPane({
   // Transcript file links open on the preferred paired computer even when the
   // voice route itself is the phone's cloud session.
   const desktopAccess = desktopAccessProp ?? realtimeVoiceDesktopAccess;
+  const messages = useAgentReplyTitles(conversationId, projectedMessages);
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const t = useT();
@@ -3149,39 +3296,42 @@ export function ChatPane({
   const { height: screenHeight } = useWindowDimensions();
 
   const inputRef = useRef<TextInput>(null);
-  const {
-    height: keyboardHeight,
-    composerBottomPad,
-    targetHeight: keyboardTargetHeight,
-  } = useKeyboardInset();
-  // UI-thread keyboard frame. Drives the composer's lift directly so it tracks
-  // the keyboard exactly — both rising and falling — instead of chasing it via
-  // a JS-scheduled layout animation that the OS curve always out-runs.
-  const keyboard = useAnimatedKeyboard();
-  // Once the keyboard settles, its height is the travel for the next close
-  // and open, including a height change while it's up (QuickType, emoji).
-  useAnimatedReaction(
-    () =>
-      keyboard.state.value === KeyboardState.OPEN ? keyboard.height.value : -1,
-    (settled) => {
-      if (settled > 0) keyboardTargetHeight.value = settled;
-    },
-  );
+  const { height: keyboardHeight, composerBottomPad } = useKeyboardInset();
   // The composer rests at `composerBottomPad` (the home-indicator band) above
-  // the screen bottom, and must end a constant gap above the keyboard, so it
-  // travels the keyboard height *minus* that band. Spread that travel over
-  // the keyboard's whole motion rather than waiting for the keyboard to climb
-  // past the band: the composer starts moving on the keyboard's first frame
-  // and the two land together, in both directions.
-  const composerKeyboardStyle = useAnimatedStyle(() => {
-    const height = keyboard.height.value;
-    const travel = Math.max(keyboardTargetHeight.value, height);
-    const lift =
-      travel > 0 ? (height / travel) * Math.max(0, travel - bottomInset) : 0;
-    return { transform: [{ translateY: -lift }] };
-  });
-  // Extra reading area the message list must reserve below its content while the
-  // keyboard is up, mirroring the composer's lift (JS side, for the list inset).
+  // the screen bottom and rides the keyboard's top edge, a constant gap above
+  // it, once the keyboard reaches it: it is lifted by the keyboard height
+  // minus that band.
+  const keyboardHeightNow = useSharedValue(0);
+  useKeyboardHandler(
+    {
+      onStart: (e) => {
+        "worklet";
+        if (e.duration === 0) keyboardHeightNow.value = e.height;
+      },
+      onMove: (e) => {
+        "worklet";
+        keyboardHeightNow.value = e.height;
+      },
+      onInteractive: (e) => {
+        "worklet";
+        keyboardHeightNow.value = e.height;
+      },
+      onEnd: (e) => {
+        "worklet";
+        keyboardHeightNow.value = e.height;
+      },
+    },
+    [],
+  );
+  const keyboardLift = useDerivedValue(() =>
+    Math.max(0, keyboardHeightNow.value - bottomInset),
+  );
+  const composerKeyboardStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -keyboardLift.value }],
+  }));
+  const listKeyboardStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -keyboardLift.value }],
+  }));
   const keyboardExtra = Math.max(0, keyboardHeight - bottomInset);
 
   // The composer + working indicator overlay the bottom of the chat. We
@@ -3193,7 +3343,7 @@ export function ChatPane({
   const [footerHeight, setFooterHeight] = useState(0);
   // The list runs under the composer, so its reserved inset is exactly the
   // overlay; the chat tail supplies the gap between the last row and it.
-  const listBottomInsetPx = footerHeight + keyboardExtra;
+  const listBottomInsetPx = footerHeight;
   const listTrailingSlackPx = listBottomInsetPx + CHAT_TAIL_GAP;
 
   // The footer (working indicator + composer) re-measures on every frame of any
@@ -3244,6 +3394,7 @@ export function ChatPane({
     }),
     [messages, replyContexts, onOpenArtifact],
   );
+  const quoteCarry = useMemo(() => carryCompletionQuotes(visibleMessages), [visibleMessages]);
   // A conversation first observed empty mounts its list on the optimistic
   // send. Our post-send owner already places that row; starting Legend's
   // footer-preserving end bootstrap as well would move it a second time.
@@ -3310,47 +3461,9 @@ export function ChatPane({
   // Assistant identity changes reset its measurements above. A busy-state
   // transition alone must not cancel the in-flight post-send placement.
 
-  // When the keyboard rises while the user is at/near the bottom, pull the
-  // chat up so the keyboard doesn't cover the latest messages. If the user
-  // is reading further up, leave their scroll position alone.
-  //
-  // The list's reserved bottom inset grows with `keyboardExtra` in the same
-  // render as `keyboardHeight` changes, but the layout pass that applies the
-  // larger inset only commits the following frame. Scrolling immediately here
-  // would race that pass and land short — the keyboard ends up covering the
-  // tail. So we record the intent and do the authoritative scroll once the
-  // inset has actually grown (the effect keyed on `keyboardExtra` below).
-  const prevKeyboardHeightRef = useRef(0);
-  const pinTailForKeyboardRef = useRef(false);
-  useEffect(() => {
-    const prev = prevKeyboardHeightRef.current;
-    prevKeyboardHeightRef.current = keyboardHeight;
-    if (keyboardHeight > prev && !scroll.awayFromBottom) {
-      pinTailForKeyboardRef.current = true;
-      requestAnimationFrame(() =>
-        scroll.listRef.current?.scrollToEnd({ animated: true }),
-      );
-    } else if (keyboardHeight === 0) {
-      pinTailForKeyboardRef.current = false;
-    }
-  }, [keyboardHeight, scroll.awayFromBottom, scroll.listRef]);
-
-  // The list's bottom inset just grew to include the keyboard — this is the
-  // layout pass the keyboard effect above was racing, so finish pinning to the
-  // tail now that there's actually room to scroll into.
-  useEffect(() => {
-    if (!pinTailForKeyboardRef.current) return;
-    pinTailForKeyboardRef.current = false;
-    scroll.listRef.current?.scrollToEnd({ animated: true });
-  }, [keyboardExtra, scroll.listRef]);
-
-  // A send anchors its scroll target against the keyboard-DOWN inset (submit
-  // dismisses the keyboard), but the list's padding only sheds `keyboardExtra`
-  // once the dismissal commits. Nudging immediately would measure content that
-  // still carries the keyboard-inflated padding and land ~keyboard-height past
-  // the tail — the same race `pinTailForKeyboardRef` above solves for the
-  // keyboard rising. Record the intent here and fire the nudge on the render
-  // where the inset has actually collapsed.
+  // A send records its intent here and fires the nudge on the render where
+  // the submitted row has reached the list. The keyboard no longer changes
+  // the list's insets, so the dismissal that follows a send cannot skew it.
   const pendingSendNudgeRef = useRef<{
     userMessageId: string;
   } | null>(null);
@@ -3359,10 +3472,10 @@ export function ChatPane({
     if (!pending) return;
     // onSubmit can return before its optimistic row reaches this list. Starting
     // placement against the previous tail discards the anchor before onLayout.
-    if (!canStartPostSendPlacement(pending.userMessageId, visibleMessages.map((message) => message.id), keyboardExtra)) return;
+    if (!canStartPostSendPlacement(pending.userMessageId, visibleMessages.map((message) => message.id), 0)) return;
     pendingSendNudgeRef.current = null;
     scroll.nudgeAfterSend(pending.userMessageId);
-  }, [keyboardExtra, visibleMessages, scroll.nudgeAfterSend]);
+  }, [visibleMessages, scroll.nudgeAfterSend]);
 
   // LegendList's `dataChange` auto-pin fires on the optimistic send append —
   // `streaming` is often still false at that render (always for a placed
@@ -3526,9 +3639,6 @@ export function ChatPane({
     if (submitted && shouldPlaceLatestTurn) {
       setSendPinSuppressForId(submitted.userMessageId);
       // Always start from the committed message list, even with no keyboard.
-      // The effect waits for the keyboard-down inset: `Keyboard.dismiss()`
-      // below collapses `keyboardExtra` a few frames from now, and a target
-      // derived from the inflated inset would land past the content end.
       pendingSendNudgeRef.current = {
         userMessageId: submitted.userMessageId,
       };
@@ -4133,8 +4243,13 @@ export function ChatPane({
   const onOpenStellaFile = useMemo(
     () =>
       onOpenArtifact
-        ? (path: string) =>
-            onOpenArtifact(stellaFileChatArtifact(path, conversationId ?? ""))
+        ? (path: string, gallery?: readonly string[]) =>
+            onOpenArtifact(
+              stellaFileChatArtifact(path, conversationId ?? ""),
+              gallery?.map((entry) =>
+                stellaFileChatArtifact(entry, conversationId ?? ""),
+              ),
+            )
         : undefined,
     [onOpenArtifact, conversationId],
   );
@@ -4202,6 +4317,8 @@ export function ChatPane({
             contextStatus={contextStatusFor(replyContexts, replyContexts.contexts.get(item.id))}
             desktopAccess={desktopAccess}
             receiptLabel={receipt?.id === item.id ? receipt.label : null}
+            carriedQuotes={quoteCarry.carried.get(item.id)}
+            quotesForwarded={quoteCarry.forwarded.has(item.id)}
           />
         </MessageEntry>
       );
@@ -4210,6 +4327,7 @@ export function ChatPane({
       timeHeaders,
       receipt,
       replyContexts,
+      quoteCarry,
       contextStatusFor,
       lastMessage?.id,
       historyLoading,
@@ -4513,6 +4631,7 @@ export function ChatPane({
           </Pressable>
         ) : (
           <>
+            <Reanimated.View style={[styles.messageList, listKeyboardStyle]}>
             <LegendList<ChatMessage>
               ref={scroll.listRef}
               pointerEvents={replyFocus ? "none" : "auto"}
@@ -4570,6 +4689,7 @@ export function ChatPane({
                   : false
               }
             />
+            </Reanimated.View>
             {/* Top taper — fades the list into the surface at the top edge so
                 messages scrolling under the top bar dissolve instead of
                 hard-cutting. Cross-platform (RN `fadingEdgeLength` is
@@ -4598,6 +4718,8 @@ export function ChatPane({
             onOpenMessageMenu={setMessageMenu} onEndSelecting={stopSelectingMessage}
             onAskStella={quoteMessage}
             onOpenReply={setReplyFocus} onOpenReport={setReportRef}
+            carriedQuotes={quoteCarry.carried.get(item.id)}
+            quotesForwarded={quoteCarry.forwarded.has(item.id)}
             contextRef={contexts.contexts.get(item.id)}
             contextStatus={contextStatusFor(contexts, contexts.contexts.get(item.id))}
             desktopAccess={desktopAccess} />}
@@ -4636,14 +4758,19 @@ export function ChatPane({
             />
           ) : null}
           {!historyLoading && !empty ? (
-            <ScrollToBottomFab
-              visible={scroll.awayFromBottom}
-              hasUnread={unread}
-              onPress={scroll.scrollToBottom}
-              styles={styles}
-              colors={colors}
-              bottomOffset={footerHeight + FLOATING_CONTROL_LIFT - 24}
-            />
+            <Reanimated.View
+              pointerEvents="box-none"
+              style={[StyleSheet.absoluteFill, listKeyboardStyle]}
+            >
+              <ScrollToBottomFab
+                visible={scroll.awayFromBottom}
+                hasUnread={unread}
+                onPress={scroll.scrollToBottom}
+                styles={styles}
+                colors={colors}
+                bottomOffset={footerHeight + FLOATING_CONTROL_LIFT - 24}
+              />
+            </Reanimated.View>
           ) : null}
         </View>
         {searchOpen && searchActive ? (
@@ -5188,9 +5315,12 @@ const makeStyles = (colors: Colors) =>
     itemSeparator: { height: MESSAGE_LIST_GAP },
     // Fixed-height tail below the last message. Hosts the inline working
     // indicator and keeps its footprint constant whether or not it's showing.
+    // Its top padding matches the user-to-assistant bubble gap (separator plus
+    // the assistant row's padding), so the indicator bubble sits as far below
+    // the last message as the next reply will.
     chatTail: {
       minHeight: CHAT_TAIL_GAP,
-      paddingTop: 4,
+      paddingTop: MESSAGE_LIST_GAP + ASSISTANT_ROW_PAD_VERTICAL,
       justifyContent: "flex-start",
     },
 
@@ -5381,7 +5511,7 @@ const makeStyles = (colors: Colors) =>
       letterSpacing: -0.1,
     },
 
-    assistantRow: { paddingVertical: 2 },
+    assistantRow: { paddingVertical: ASSISTANT_ROW_PAD_VERTICAL },
     /**
      * Mirror of `userBubble`, flipped: same radius family with the tightened
      * corner on the bottom LEFT, the quieter elevated surface (`card`) instead
@@ -5427,6 +5557,9 @@ const makeStyles = (colors: Colors) =>
       marginTop: 6,
     },
     artifactGroup: { gap: 10 },
+    bubbleFilePills: { marginTop: 2, marginBottom: 12 },
+    bubbleEvidence: { marginTop: 0, marginBottom: 12 },
+    mediaBelowBubble: { marginTop: 6 },
     artifactGroupSpaced: { marginTop: 10 },
     assistantText: {
       color: colors.assistantBubbleText,

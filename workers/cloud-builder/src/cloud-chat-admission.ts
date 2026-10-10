@@ -74,4 +74,6 @@ export const chatTurnFingerprintSource = (
           lifecycleReport: request.agentThreadControl.lifecycleReport,
         }
       : undefined,
+    agentRuntime: request.agentRuntime,
+    piAgent: request.piAgent,
   });

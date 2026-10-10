@@ -5,78 +5,16 @@ import {
 } from "../src/turn-state-checkpoint.js";
 
 const cursor = `v1:${"a".repeat(64)}`;
-const suspensionTranscript = [
-  {
-    ordinal: 0,
-    role: "user",
-    payloadJson: JSON.stringify({ role: "user", content: [] }),
-  },
-  {
-    ordinal: 1,
-    role: "assistant",
-    payloadJson: JSON.stringify({
-      role: "assistant",
-      content: [{ type: "toolCall", id: "outer-code-call", name: "code" }],
-    }),
-  },
-];
-
 describe("turn-state checkpoint request", () => {
-  test("accepts an exact bounded suspension transcript", () => {
+  test("accepts a cursor-only request and refuses unknown fields", () => {
+    expect(
+      parseTurnStateCheckpointRequest({ schemaVersion: 1, historyCursor: cursor }),
+    ).toEqual({ schemaVersion: 1, historyCursor: cursor });
     expect(
       parseTurnStateCheckpointRequest({
         schemaVersion: 1,
         historyCursor: cursor,
-        suspensionTranscript,
-      }),
-    ).toEqual({
-      schemaVersion: 1,
-      historyCursor: cursor,
-      suspensionTranscript,
-    });
-  });
-
-  test("rejects role drift, ordinal gaps, and unbounded transcript bytes", () => {
-    expect(
-      parseTurnStateCheckpointRequest({
-        schemaVersion: 1,
-        historyCursor: cursor,
-        suspensionTranscript: [
-          {
-            ordinal: 0,
-            role: "assistant",
-            payloadJson: JSON.stringify({ role: "user", content: [] }),
-          },
-        ],
-      }),
-    ).toBeNull();
-    expect(
-      parseTurnStateCheckpointRequest({
-        schemaVersion: 1,
-        historyCursor: cursor,
-        suspensionTranscript: [
-          {
-            ordinal: 1,
-            role: "assistant",
-            payloadJson: JSON.stringify({ role: "assistant", content: [] }),
-          },
-        ],
-      }),
-    ).toBeNull();
-    expect(
-      parseTurnStateCheckpointRequest({
-        schemaVersion: 1,
-        historyCursor: cursor,
-        suspensionTranscript: [
-          {
-            ordinal: 0,
-            role: "assistant",
-            payloadJson: JSON.stringify({
-              role: "assistant",
-              content: "x".repeat(4 * 1024 * 1024),
-            }),
-          },
-        ],
+        suspensionTranscript: [],
       }),
     ).toBeNull();
   });

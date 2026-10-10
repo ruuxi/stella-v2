@@ -180,6 +180,20 @@ export type TurnPhase =
 
 export type ConversationCard =
   | CloudAgentLifecycleCard
+  /**
+   * A report of a cloud agent a computer's orchestrator started, for that
+   * computer, which gives it to its orchestrator. Clients do not show it;
+   * the computer's own turn that answers it does.
+   */
+  | {
+      type: "agent-report";
+      reportFor: string;
+      threadId: string;
+      requestId: string;
+      text: string;
+      /** One of the agent's messages settled without a report of its own (answered within another, or paused). */
+      settled?: true;
+    }
   | { type: "build"; buildId: string; appId?: string }
   | { type: "operation"; operation: string; args?: unknown; result?: unknown }
   | {
@@ -302,9 +316,11 @@ export interface JournalReader {
   newest(limit: number): JournalRecord[];
   liveTurn(): LiveTurnSnapshot | null;
   /**
-   * Every agent the whole journal still shows as running, oldest start first.
+   * Every agent the conversation has running, oldest start first: where pi
+   * has run, the list its owner records keep (pi's agents and the owner's
+   * agent threads); elsewhere, the whole journal's agent cards folded.
    * Synchronous on purpose: `ready` is assembled with no await left to spend,
-   * and this answer comes from a cached fold over resident rows.
+   * and this answer comes from memory.
    */
   runningAgents(limit: number): AgentActivityEntry[];
 }
@@ -396,6 +412,12 @@ export interface ConversationHub {
    * clients whole on `broadcastRecord`, never as deltas.
    */
   broadcastTool(tool: ToolInput): void;
+  /** The running agents may have changed: every socket hears when they did. Must never throw. */
+  agentsChanged(): void;
+  /** A batch of pi-durable events for the sockets watching the pi view. Must never throw. */
+  broadcastPi(events: readonly unknown[]): void;
+  /** How many sockets watch the pi view. */
+  piSocketCount(): number;
   /** A turn reached a terminal phase: drop any retained live state. */
   endTurn(turnId: string): void;
   closeAll(code: number): void;
@@ -428,6 +450,22 @@ export interface ConversationHubDeps {
   log: ConversationLogger;
   /** Verifies a mid-life `auth` frame's token with the worker's own keys. */
   verifyToken: (token: string) => Promise<import("./auth-jwt.js").VerifyResult>;
+  /** The pi-durable view, for conversations that run on it. */
+  pi?: PiSocketSource;
+}
+
+/**
+ * A pi-durable conversation's view for sockets that ask for it (`pi=1`):
+ * the snapshot a socket starts from, its event batches (`broadcastPi`), and
+ * older history on request (`@stella/contracts/pi-chat`).
+ */
+export interface PiSocketSource {
+  enabled(): Promise<boolean>;
+  /** A fresh snapshot; attaching also sends it to every pi socket as an event. */
+  attach(): Promise<{ snapshot: unknown; hasOlder: boolean }>;
+  older(beforeEntryId: number): Promise<{ entries: unknown[]; hasOlder: boolean }>;
+  /** No pi socket is left. */
+  detach(): void;
 }
 
 export type ConversationHubFactory = (
@@ -456,6 +494,11 @@ export class NullConversationHub implements ConversationHub {
   async onError(): Promise<void> {}
   broadcastRecord(): void {}
   broadcastTool(): void {}
+  agentsChanged(): void {}
+  broadcastPi(): void {}
+  piSocketCount(): number {
+    return 0;
+  }
   endTurn(): void {}
   closeAll(): void {}
 }

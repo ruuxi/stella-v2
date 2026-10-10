@@ -14,8 +14,12 @@
  *  - a turn a computer ran is mirrored with its `spawn_agent` / `send_message`
  *    tool results and the hidden wake prompt (`[Agent completed]` and friends)
  *    that reported the outcome.
- * A lifecycle card always wins: when an agent has cards, its mirrored rows are
- * the same facts said less precisely.
+ * A lifecycle card always wins: when an agent has a start card, its mirrored
+ * rows are the same facts said less precisely. A terminal card alone, from
+ * whoever owns the agent's record (the owner's agent threads for a computer's
+ * agents, the conversation's object for its own), settles a mirrored agent:
+ * it is how an agent that ended without a wake prompt stops reading as
+ * running.
  */
 
 import { parseCloudAgentLifecycleCard } from "./cloud-agent-lifecycle.js";
@@ -35,6 +39,8 @@ export type AgentActivityEntry = {
   createdAtMs: number;
   updatedAtMs: number;
   completedAtMs?: number;
+  /** The attempt its latest start card named; none for a mirrored start. */
+  attemptGeneration?: number;
 };
 
 /**
@@ -44,6 +50,13 @@ export type AgentActivityEntry = {
 export type AgentActivityState = {
   entries: Map<string, AgentActivityEntry>;
   generations: Map<string, number>;
+  /**
+   * The newest attempt a terminal card settled, per agent. A start card can
+   * reach the journal after its own attempt's terminal (the two travel
+   * separately), and must not bring that attempt back.
+   */
+  settledGenerations: Map<string, number>;
+  /** Agents with a start card: their mirrored rows no longer count. */
   carded: Set<string>;
 };
 
@@ -60,6 +73,7 @@ export type AgentActivityRecordInput = {
 export const emptyAgentActivityState = (): AgentActivityState => ({
   entries: new Map(),
   generations: new Map(),
+  settledGenerations: new Map(),
   carded: new Set(),
 });
 
@@ -217,7 +231,9 @@ export const foldAgentActivity = (
   for (const record of records) {
     if (record.kind !== "card") continue;
     const card = parseCloudAgentLifecycleCard(record.card);
-    if (card) state.carded.add(card.event.payload.agentId);
+    if (card?.event.type === "agent-started") {
+      state.carded.add(card.event.payload.agentId);
+    }
   }
   const calls = collectToolCalls(records, options?.toolCalls ?? new Map());
 
@@ -267,6 +283,9 @@ export const foldAgentActivity = (
       const current = state.generations.get(agentId) ?? 0;
       if (event.type === "agent-started") {
         if (generation < current) continue;
+        if (generation <= (state.settledGenerations.get(agentId) ?? 0)) {
+          continue;
+        }
         state.generations.set(agentId, generation);
         start(agentId, event.payload.description, record.createdAtMs, {
           ...(event.payload.agentType
@@ -275,11 +294,22 @@ export const foldAgentActivity = (
           ...(event.payload.statusText?.trim()
             ? { statusText: event.payload.statusText.trim() }
             : {}),
+          attemptGeneration: generation,
         });
         continue;
       }
-      if (generation !== current) continue;
+      if (event.type !== "agent-progress") {
+        state.settledGenerations.set(
+          agentId,
+          Math.max(generation, state.settledGenerations.get(agentId) ?? 0),
+        );
+      }
+      // An agent no start card names is one a mirrored row started: the
+      // terminal card of whoever owns its record settles it, whichever
+      // attempt it names.
+      if (generation !== current && state.generations.has(agentId)) continue;
       if (event.type === "agent-progress") {
+        if (!state.generations.has(agentId)) continue;
         const existing = state.entries.get(agentId);
         const statusText = event.payload.statusText.trim();
         if (existing?.status === "running" && statusText) {
@@ -376,6 +406,7 @@ export const trimAgentActivity = (
     for (const entry of settled.slice(0, settled.length - MAX_SETTLED_ENTRIES)) {
       state.entries.delete(entry.agentId);
       state.generations.delete(entry.agentId);
+      state.settledGenerations.delete(entry.agentId);
       state.carded.delete(entry.agentId);
     }
   }
@@ -392,6 +423,11 @@ export const trimAgentActivity = (
   if (state.generations.size > MAX_SETTLED_ENTRIES) {
     for (const agentId of state.generations.keys()) {
       if (!state.entries.has(agentId)) state.generations.delete(agentId);
+    }
+  }
+  if (state.settledGenerations.size > MAX_SETTLED_ENTRIES) {
+    for (const agentId of state.settledGenerations.keys()) {
+      if (!state.entries.has(agentId)) state.settledGenerations.delete(agentId);
     }
   }
   if (toolCalls && toolCalls.size > MAX_PENDING_TOOL_CALLS) {

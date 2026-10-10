@@ -95,6 +95,18 @@
   font-weight: var(--weight-medium);
 }
 
+.canvas-share__hint {
+  color: var(--text-weak);
+  line-height: var(--lh-normal, 1.45);
+}
+
+.canvas-share__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
 .canvas-share__url-row {
   display: flex;
   align-items: center;

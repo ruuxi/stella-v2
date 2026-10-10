@@ -81,6 +81,15 @@ export const CONVERSATIONS_MIGRATION = {
   ],
 };
 
+/**
+ * Fork and rewind are gone: nothing reserves conversation edits any more, so
+ * their ledger has nothing left to describe.
+ */
+export const CONVERSATIONS_DROP_EDITS_MIGRATION = {
+  id: "conversations.2-drop-conversation-edits",
+  statements: [`DROP TABLE IF EXISTS conversation_edits`],
+};
+
 export const CONVERSATION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export const CLIENT_CREATE_ID_PATTERN = /^[A-Za-z0-9._:-]{8,128}$/;
@@ -288,8 +297,7 @@ export const applyConversationEvent = (
         return;
       }
       if (row.deleted_at !== null) return;
-      // A rewind advances the epoch so a delayed flush from the removed
-      // suffix can't land.
+      // A delayed flush from an earlier journal epoch can't land.
       if (event.epoch < row.epoch) return;
       if (event.force !== true && event.epoch === row.epoch && event.lastSeq <= row.last_seq) return;
       db.run(
@@ -357,7 +365,7 @@ const conversationIdArg = string({ pattern: CONVERSATION_ID_PATTERN, max: 64 });
 
 export const conversationsDomain = {
   name: "conversations",
-  migrations: [CONVERSATIONS_MIGRATION],
+  migrations: [CONVERSATIONS_MIGRATION, CONVERSATIONS_DROP_EDITS_MIGRATION],
   purge: purgeConversationData,
   jobs: { [CONVERSATION_PURGE_JOB]: conversationPurgeJob },
   calls: {

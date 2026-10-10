@@ -3,7 +3,8 @@ import {
   STELLA_DEFAULT_UPSTREAM_MODEL,
 } from "@stella/contracts/stella-api";
 import { Buffer } from "node:buffer";
-import type { Api, Model } from "../ai/types.js";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import type { StellaGatewayAccess } from "@stella/agent/provider/stella";
 import {
   findRegistryModel,
   findRegistryModelsById,
@@ -270,6 +271,17 @@ export const getManagedStellaRegistryLookup = (
   };
 };
 
+/** The relay base a route's requests go to, as soon as the catalog names the gateway. */
+const relayBaseUrlFor = (
+  siteBaseUrl: string,
+  gatewayOrigin: string | null,
+): string =>
+  gatewayRelayBaseUrl(
+    gatewayOrigin ??
+      getRememberedStellaGatewayOrigin(siteBaseUrl) ??
+      STELLA_GATEWAY_ORIGIN_PENDING,
+  );
+
 const createRelayModel = (args: {
   siteBaseUrl: string;
   gatewayOrigin: string | null;
@@ -279,7 +291,6 @@ const createRelayModel = (args: {
   api?: GatewayProtocol;
   agentType: string;
   registryModel?: Model<Api> | null;
-  fetch?: typeof fetch;
 }): Model<Api> => {
   const lookup = getManagedStellaRegistryLookup(args.resolvedModelId);
   const nativeId = providerNativeModelId(args.resolvedModelId, args.provider);
@@ -306,37 +317,20 @@ const createRelayModel = (args: {
     name: modelName(args.requestedModelId),
     provider: registryModel?.provider ?? args.provider,
     api: args.api ?? apiForRelay(args.provider, registryModel),
-    baseUrl: gatewayRelayBaseUrl(
-      args.gatewayOrigin ?? STELLA_GATEWAY_ORIGIN_PENDING,
-    ),
+    baseUrl: relayBaseUrlFor(args.siteBaseUrl, args.gatewayOrigin),
     headers: {
       ...(registryModel?.headers ?? {}),
       // `X-Stella-Agent-Type` lets the gateway validate the capability's
       // agent-type allowlist and attribute usage to the right per-agent
-      // bucket; it is stripped before forwarding upstream. Provider adapters
-      // detect the gateway by baseUrl (`/v1/relay`), never by header, so a
-      // missing header can never accidentally route native auth headers
-      // through to providers that wouldn't accept a capability token.
+      // bucket; it is stripped before forwarding upstream.
       "X-Stella-Agent-Type": args.agentType,
     },
   } as Model<Api>;
 
-  if (args.fetch) {
-    // Transport closures carry live session state and cannot be
-    // structured-cloned with catalog model metadata. Keep the override on
-    // the executable route while excluding it from metadata spreads/clones.
-    Object.defineProperty(model, "fetch", {
-      configurable: true,
-      enumerable: false,
-      value: args.fetch,
-    });
-  }
-
-  // Stash the resolved upstream model id so provider adapters can make
-  // model-capability decisions (e.g. Anthropic adaptive vs budget-based
-  // thinking, which Opus 4.7 rejects in budget form) when `model.id`
-  // carries a user-facing Stella alias like `stella/designer` that doesn't
-  // include the underlying model slug.
+  // Stash the resolved upstream model id so callers can make
+  // model-capability decisions when `model.id` carries a user-facing Stella
+  // alias like `stella/designer` that doesn't include the underlying model
+  // slug.
   (model as Model<Api> & { upstreamModelId?: string }).upstreamModelId =
     nativeId;
   if (!args.gatewayOrigin) {
@@ -346,16 +340,11 @@ const createRelayModel = (args: {
     Object.defineProperty(model, "baseUrl", {
       enumerable: true,
       configurable: true,
-      get: () =>
-        gatewayRelayBaseUrl(
-          getRememberedStellaGatewayOrigin(args.siteBaseUrl) ??
-            STELLA_GATEWAY_ORIGIN_PENDING,
-        ),
+      get: () => relayBaseUrlFor(args.siteBaseUrl, null),
     });
   }
   return model;
 };
-
 export const normalizeStellaBase = readConfiguredBackendUrl;
 
 const capabilityExhausted = async (response: Response): Promise<boolean> => {
@@ -404,9 +393,14 @@ const bearerCapability = (headers: Headers): string | null => {
   return authorization.slice("bearer ".length).trim() || null;
 };
 
+/**
+ * One relay request on a session capability: the device's DPoP proof on
+ * every request, and one fresh capability for a request the gateway refused
+ * on its capability (401, or the session ledger's 402/429 exhaustion).
+ */
 const sessionCapabilityFetch = (
   session: ReturnType<typeof createGatewaySessionClient>,
-): typeof fetch => {
+): StellaGatewayAccess["fetch"] => {
   const relayFetch = async (
     input: string | URL | Request,
     init?: RequestInit,
@@ -449,7 +443,9 @@ const sessionCapabilityFetch = (
     if (await isDpopInvalid(response)) {
       throw new Error(STELLA_GATEWAY_DEVICE_VERIFICATION_MESSAGE);
     }
-    if (!(await capabilityExhausted(response))) return response;
+    if (response.status !== 401 && !(await capabilityExhausted(response))) {
+      return response;
+    }
     const capability = (await session.refreshCapability())?.trim();
     if (!capability) return response;
     const retryBody =
@@ -469,8 +465,15 @@ const sessionCapabilityFetch = (
     }
     return retried;
   };
-  return Object.assign(relayFetch, { preconnect: fetch.preconnect });
+  return relayFetch;
 };
+
+const STELLA_PROTOCOLS = new Set<string>([
+  "openai-completions",
+  "anthropic-messages",
+  "openai-responses",
+  "google-generative-ai",
+]);
 
 export const createStellaRoute = (args: {
   site: StellaSiteConfig;
@@ -532,22 +535,47 @@ export const createStellaRoute = (args: {
     }),
   });
 
+  const model = createRelayModel({
+    siteBaseUrl,
+    gatewayOrigin,
+    requestedModelId: args.modelId,
+    resolvedModelId,
+    provider: relayProvider,
+    ...(args.api ? { api: args.api } : {}),
+    agentType: args.agentType,
+    registryModel: args.registryModel,
+  });
+  const access: StellaGatewayAccess = {
+    // Read per request: a provisional route learns the gateway once the
+    // catalog remembers it.
+    get relayBaseUrl() {
+      return relayBaseUrlFor(siteBaseUrl, gatewayOrigin);
+    },
+    capability: async () => {
+      const capability = (await session.getCapability())?.trim();
+      if (!capability) throw new Error("Stella is not signed in.");
+      return capability;
+    },
+    fetch: sessionCapabilityFetch(session),
+  };
   return {
     route: "stella",
-    model: createRelayModel({
-      siteBaseUrl,
-      gatewayOrigin,
-      requestedModelId: args.modelId,
-      resolvedModelId,
-      provider: relayProvider,
-      ...(args.api ? { api: args.api } : {}),
-      agentType: args.agentType,
-      registryModel: args.registryModel,
-      fetch: sessionCapabilityFetch(session),
-    }),
+    model,
     getApiKey: () => session.getCapability(),
-    // Auth failures and session-ledger exhaustion (402/429) exchange one
-    // fresh capability for the provider adapter's single retry.
     refreshApiKey: () => session.refreshCapability(),
+    stella: {
+      access,
+      spec: {
+        agentType: args.agentType,
+        alias: args.modelId,
+        protocol: (STELLA_PROTOCOLS.has(model.api)
+          ? model.api
+          : "openai-completions") as GatewayProtocol,
+        reasoning: model.reasoning,
+        supportsImages: model.input.includes("image"),
+        contextWindow: model.contextWindow,
+        maxOutputTokens: model.maxTokens,
+      },
+    },
   };
 };

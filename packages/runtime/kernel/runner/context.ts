@@ -76,17 +76,15 @@ import type {
   AgentModelReasoningEffort,
   AgentRuntimeEngine,
   CloudExecutionSelection,
-  CodexServiceTier,
   SpawnEngineSelection,
   SpawnReasoningEffort,
 } from "@stella/contracts/agent-engine";
-import { getCodexSubscriptionPreferences } from "../integrations/codex-subscription.js";
 import {
   getClaudeCodeAgentModelId,
   getClaudeCodeRuntimeEffortLevel,
 } from "../integrations/claude-code-agent-runtime.js";
-import { getSupportedThinkingLevels } from "../../ai/thinking-levels.js";
-import type { Model, Api, ModelThinkingLevel } from "../../ai/types.js";
+import type { Api, Model, ModelThinkingLevel } from "@earendil-works/pi-ai";
+import { supportedThinkingLevels } from "../model-thinking-levels.js";
 import type {
   PersistedRuntimeThreadPayload,
   RuntimeThreadMessage,
@@ -137,15 +135,6 @@ import {
   getFileEditToolFamily,
   rewriteFileEditToolNames,
 } from "../tools/file-edit-policy.js";
-
-const CODEX_SKILL_CATALOG_OMITTED_IDS = [
-  "stella-computer-windows",
-  "stella-computer-macos",
-  "stella-browser",
-  "electron",
-  "stella-office",
-  "pdf",
-] as const;
 
 type ThreadHistoryEntry = {
   timestamp?: number;
@@ -690,9 +679,8 @@ export const createRunnerContext = ({
       (context.state?.authToken ?? envAuthToken ?? "").trim() || null,
     getBaseUrl: cloudRealtimeBaseUrl,
     getOwnerGeneration: getCloudOwnerGeneration,
-    // A turn the runtime resumes this boot replays its own begin.
-    isResumableTurn: (localTurnId: string) =>
-      runtimeStore.runTasks?.isResumeOwned(localTurnId) ?? false,
+    // A pi-durable transcript's mirror re-adopts the turn it had open.
+    isResumableTurn: (localTurnId: string) => localTurnId.startsWith("pi:"),
     ...(appendLocalChatEvent
       ? {
           onDurableDeliveryFailure: ({
@@ -773,39 +761,18 @@ export const createRunnerContext = ({
           : spawnEngine.model,
         reasoningEffort: spawnReasoningEffort ?? configuredReasoningEffort,
       });
-      const sampledSpawnEngine: SpawnEngineSelection =
-        selectedEngine === "default"
-          ? { engine: "default" }
-          : {
-              engine: selectedEngine,
-              ...(sampledEngineConfig.engineModel
-                ? { model: sampledEngineConfig.engineModel }
-                : {}),
-            };
-      const harnessRouteModel = resolveSubscriptionHarnessRouteModel({
-        stellaDataDir,
-        agentType,
-        configuredEngine,
-        subscriptionHarnessEnabled,
-        configuredModel,
-        spawnEngine: sampledSpawnEngine,
-      });
-      const model = harnessRouteModel ?? configuredModel;
       const resolvedLlm = await resolveRunnerLlmRouteWithMetadata(
         context,
         agentType,
-        model,
+        configuredModel,
         spawnReasoningEffort,
       );
       return captureEffectiveModelConfig({
         stellaDataDir,
         engine: selectedEngine,
         subscriptionHarnessEnabled,
-        configuredModel: model,
+        configuredModel,
         engineModelOverride: sampledEngineConfig.engineModel,
-        ...(sampledEngineConfig.serviceTier
-          ? { serviceTierOverride: sampledEngineConfig.serviceTier }
-          : {}),
         engineConfigSampled: true,
         resolvedLlm,
         reasoningEffort: sampledEngineConfig.reasoningEffort,
@@ -1087,6 +1054,7 @@ export const createRunnerContext = ({
     notifyThreadActivityUpdated,
     getDefaultConversationId,
     cloudTranscript,
+    cloudOwnerGeneration: getCloudOwnerGeneration,
     linkedFilePublisher,
     loadExecutionContext: async () => {
       const authToken = context.state.authToken;
@@ -1125,7 +1093,7 @@ export const createRunnerContext = ({
       activeOrchestratorConversationId: null,
       activeOrchestratorUiVisibility: "visible",
       activeOrchestratorSession: null,
-      orchestratorSessions: new Map(),
+      cloudThreads: new Map(),
       compactionScheduler: new BackgroundCompactionScheduler(),
       queuedOrchestratorTurns: [],
       runCoordinator: null,
@@ -1286,7 +1254,6 @@ export { captureEffectiveModelConfig, resolveAgentEngineForRun };
 export type SampledAgentEngineConfig = {
   engineModel?: string;
   reasoningEffort?: AgentModelReasoningEffort;
-  serviceTier?: CodexServiceTier;
 };
 
 /** Freeze every engine-owned picker value before any async route lookup. */
@@ -1298,20 +1265,6 @@ export const sampleAgentEngineConfig = (args: {
   reasoningEffort?: string;
 }): SampledAgentEngineConfig => {
   const explicitEffort = normalizeCapturedReasoningEffort(args.reasoningEffort);
-  if (args.engine === "codex_cli") {
-    const codex = getCodexSubscriptionPreferences(
-      args.stellaDataDir,
-      args.configuredModel,
-      args.engineModelOverride,
-    );
-    const effort =
-      explicitEffort ?? normalizeCapturedReasoningEffort(codex.reasoningEffort);
-    return {
-      engineModel: codex.model,
-      ...(effort ? { reasoningEffort: effort } : {}),
-      serviceTier: codex.serviceTier,
-    };
-  }
   if (args.engine === "claude_code_local") {
     const model = getClaudeCodeAgentModelId(
       args.stellaDataDir,
@@ -1332,42 +1285,6 @@ export const sampleAgentEngineConfig = (args: {
   return explicitEffort ? { reasoningEffort: explicitEffort } : {};
 };
 
-/**
- * Resolve the provider route used when a General Codex run executes through
- * Stella's Pi harness. Root Orchestrator routing remains unchanged.
- */
-export const resolveSubscriptionHarnessRouteModel = (args: {
-  stellaDataDir: string;
-  agentType: string;
-  configuredEngine: AgentRuntimeEngine;
-  subscriptionHarnessEnabled: boolean;
-  configuredModel?: string;
-  spawnEngine?: SpawnEngineSelection;
-  modelConfigSnapshot?: AgentModelConfigSnapshot;
-}): string | undefined => {
-  if (args.agentType === AGENT_IDS.ORCHESTRATOR) return undefined;
-  const engine =
-    args.modelConfigSnapshot?.engine ??
-    resolveAgentEngineForRun(args.configuredEngine, args.spawnEngine);
-  if (engine !== "codex_cli") return undefined;
-  if (args.modelConfigSnapshot) {
-    const snapshotModel = args.modelConfigSnapshot.engineModel?.trim();
-    return snapshotModel
-      ? `chatgpt/${snapshotModel}`
-      : args.modelConfigSnapshot.routeModel.startsWith("chatgpt/")
-        ? args.modelConfigSnapshot.routeModel
-        : `chatgpt/${getCodexSubscriptionPreferences(args.stellaDataDir).model}`;
-  }
-  const codex = getCodexSubscriptionPreferences(
-    args.stellaDataDir,
-    args.configuredModel,
-    args.spawnEngine?.engine === "codex_cli"
-      ? args.spawnEngine.model
-      : undefined,
-  );
-  return `chatgpt/${codex.model}`;
-};
-
 export const resolveSpawnReasoningEffortForModel = (
   model: Model<Api>,
   requested: SpawnReasoningEffort,
@@ -1381,7 +1298,7 @@ export const resolveSpawnReasoningEffortForModel = (
     "xhigh",
   ];
   const requestedIndex = effortOrder.indexOf(requested);
-  const supported = getSupportedThinkingLevels(model);
+  const supported = supportedThinkingLevels(model);
   let nearest: ModelThinkingLevel | undefined;
   let nearestDistance = Number.POSITIVE_INFINITY;
   for (const candidate of supported) {
@@ -1500,7 +1417,6 @@ export const resolveEffectiveAgentExecutionConfig = (
         configuredModel: args.model,
         engineModelOverride:
           args.sampledEngineConfig?.engineModel ?? restoredSpawnEngine?.model,
-        serviceTierOverride: args.sampledEngineConfig?.serviceTier,
         engineConfigSampled: Boolean(args.sampledEngineConfig),
         ...(restoredSpawnEngine ? { spawnEngine: restoredSpawnEngine } : {}),
         resolvedLlm: args.resolvedLlm,
@@ -1673,20 +1589,6 @@ export const buildAgentContext = async (
     restoredSpawnEngine,
   } = resolveEffectiveAgentExecutionConfig(context, args);
 
-  const subscriptionHarnessEnabled =
-    agentEngine === "codex_cli" ||
-    (args.modelConfigSnapshot
-      ? args.modelConfigSnapshot.subscriptionHarnessEnabled === true
-      : (args.subscriptionHarnessEnabled ??
-        getSubscriptionHarnessEnabled(context.stellaDataDir, agentEngine)));
-  const capturedSubscriptionHarness =
-    subscriptionHarnessEnabled &&
-    (agentEngine === "codex_cli" || agentEngine === "claude_code_local");
-  const usesInProcessSubscriptionHarness =
-    args.agentType !== AGENT_IDS.ORCHESTRATOR &&
-    capturedSubscriptionHarness &&
-    agentEngine === "codex_cli";
-
   const fileEditToolFamily = getFileEditToolFamily({
     agentType: args.agentType,
     model: resolvedLlm.toolPolicyModel ?? resolvedLlm.model,
@@ -1728,14 +1630,7 @@ export const buildAgentContext = async (
   // copy only when the rendered bytes actually change.
   let skillsCatalog: string | undefined;
   if (agentHasCapability(args.agentType, "injectsSkillCatalog")) {
-    const skillCatalogOptions =
-      agentEngine === "codex_cli" && !usesInProcessSubscriptionHarness
-        ? { omitSkillIds: CODEX_SKILL_CATALOG_OMITTED_IDS }
-        : undefined;
-    skillsCatalog = await renderSkillCatalogBlock(
-      context.stellaDataDir,
-      skillCatalogOptions,
-    );
+    skillsCatalog = await renderSkillCatalogBlock(context.stellaDataDir);
     // Connector discovery + connect offers are orchestrator-driven now:
     // a deterministic keyword reminder (connector-availability hook) plus
     // the demoted `connector_status` tool (direct, or via node_repl's

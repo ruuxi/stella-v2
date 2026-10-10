@@ -307,6 +307,16 @@ function ChatSurface(props: {
   const [selectedArtifact, setSelectedArtifact] = useState<ChatArtifact | null>(
     null,
   );
+  const [selectedGallery, setSelectedGallery] = useState<
+    readonly ChatArtifact[] | null
+  >(null);
+  const openArtifact = useCallback(
+    (artifact: ChatArtifact, gallery?: readonly ChatArtifact[]) => {
+      setSelectedGallery(gallery ?? null);
+      setSelectedArtifact(artifact);
+    },
+    [],
+  );
   const [appActive, setAppActive] = useState(
     () =>
       AppState.currentState !== "background" &&
@@ -429,6 +439,11 @@ function ChatSurface(props: {
   // Staleness is a function of elapsed time rather than of any state change, so
   // a task can cross the window with nothing to re-render it — hence the coarse
   // re-publish, armed only while something still claims to be running.
+  const hubConversationId = thread.conversationId ?? null;
+  const lastMessage = thread.messages.at(-1);
+  const hubRevision = lastMessage
+    ? `${thread.messages.length}:${lastMessage.id}:${lastMessage.text.length}`
+    : null;
   const hasRunningConversationTask = conversationTasks.some(
     (task) => task.status === "running",
   );
@@ -438,6 +453,8 @@ function ChatSurface(props: {
         tasks: settleStaleHubTasks(conversationTasks),
         artifacts: conversationArtifacts,
         access,
+        conversationId: hubConversationId,
+        revision: hubRevision,
       });
     };
     publish();
@@ -448,6 +465,8 @@ function ChatSurface(props: {
     conversationTasks,
     conversationArtifacts,
     access,
+    hubConversationId,
+    hubRevision,
     hasRunningConversationTask,
   ]);
   // Leaving the chat (sign-out, authority swap) clears what the chrome shows.
@@ -655,7 +674,7 @@ function ChatSurface(props: {
         onRemoveQuote={thread.removeQuote}
         maxAttachments={thread.maxAttachments}
         dictationAnonymous={anonymous}
-        onOpenArtifact={setSelectedArtifact}
+        onOpenArtifact={openArtifact}
         conversationId={thread.conversationId}
         activityTasks={thread.conversationTasks}
         onOpenActivity={requestOpenSidebar}
@@ -666,7 +685,12 @@ function ChatSurface(props: {
         visible={Boolean(selectedArtifact)}
         artifact={selectedArtifact}
         access={access}
-        onClose={() => setSelectedArtifact(null)}
+        onClose={() => {
+          setSelectedArtifact(null);
+          setSelectedGallery(null);
+        }}
+        siblings={selectedGallery ?? conversationArtifacts}
+        onNavigate={setSelectedArtifact}
       />
     </View>
   );

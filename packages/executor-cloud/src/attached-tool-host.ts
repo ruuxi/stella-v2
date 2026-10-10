@@ -665,7 +665,7 @@ export const runAttachedToolHost = (
         // The container path announces its deliverables with an
         // `output_files` event, which is what the outbox turns into the
         // conversation's files card. The attached path must announce them
-        // the same way, or a resident turn's files stay drive-only.
+        // the same way, or an attached agent's files stay drive-only.
         await postJson("/api/cloud/events", {
           turnId: input.turnId,
           attemptGeneration: input.attemptGeneration,

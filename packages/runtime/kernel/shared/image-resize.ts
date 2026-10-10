@@ -23,7 +23,7 @@ import {
   DEFAULT_JPEG_QUALITY,
   SAFE_FALLBACK_MAX_BYTES,
   SAFE_FALLBACK_MAX_EDGE,
-} from "../../ai/utils/image-caps.js";
+} from "./image-caps.js";
 import { applyExifOrientation } from "./exif-orientation.js";
 import { loadPhoton } from "./photon.js";
 

@@ -193,34 +193,13 @@ export const isCloudBrowserSuspension = (
   );
 };
 
-/** Gateway command envelope. Exact owner/turn identity is broker-derived. */
+/** Gateway command envelope. The owner and turn identity come from the run that sends it. */
 export type CloudBrowserCommandRequest = Readonly<{
   schemaVersion: 1;
   requestId: string;
   action: string;
   params: Readonly<Record<string, unknown>>;
 }>;
-
-export type CloudBrowserCommandResponse =
-  | Readonly<{
-      schemaVersion: 1;
-      outcome: "completed";
-      requestId: string;
-      data?: unknown;
-    }>
-  | Readonly<{
-      schemaVersion: 1;
-      outcome: "suspended";
-      suspension: CloudBrowserSuspension;
-    }>
-  | Readonly<{
-      schemaVersion: 1;
-      outcome: "failed";
-      requestId: string;
-      code: string;
-      message: string;
-      outcomeUnknown?: boolean;
-    }>;
 
 export type CloudBrowserResumeReceipt = Readonly<{
   schemaVersion: 1;
@@ -233,38 +212,3 @@ export type CloudBrowserResumeReceipt = Readonly<{
   result: "approved" | "canceled" | "expired" | "failed";
   safeMessage: string;
 }>;
-
-export const isCloudBrowserResumeReceipt = (
-  value: unknown,
-): value is CloudBrowserResumeReceipt => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const candidate = value as Record<string, unknown>;
-  return (
-    hasOnlyKeys(candidate, [
-      "schemaVersion",
-      "interactionId",
-      "interactionRevision",
-      "profileId",
-      "profileEpoch",
-      "toolCallId",
-      "requestDigest",
-      "result",
-      "safeMessage",
-    ]) &&
-    candidate.schemaVersion === 1 &&
-    isBoundedString(candidate.interactionId, 256) &&
-    Number.isSafeInteger(candidate.interactionRevision) &&
-    (candidate.interactionRevision as number) >= 1 &&
-    candidate.profileId === "default" &&
-    Number.isSafeInteger(candidate.profileEpoch) &&
-    (candidate.profileEpoch as number) >= 1 &&
-    isBoundedString(candidate.toolCallId, 256) &&
-    typeof candidate.requestDigest === "string" &&
-    /^[a-f0-9]{64}$/.test(candidate.requestDigest) &&
-    typeof candidate.result === "string" &&
-    ["approved", "canceled", "expired", "failed"].includes(candidate.result) &&
-    isBoundedString(candidate.safeMessage, 2_048)
-  );
-};

@@ -7,10 +7,12 @@
  *      pi.dev model-catalog refresh answers 404 (the runtime records an
  *      empty refreshed catalog and moves on, deterministically); anything
  *      else throws and is counted in `fetch.blocked`.
- *   2. Scripted fake model provider (STELLA_PERF_FAKE_PROVIDER=1). Registers
- *      the api `perf-scripted`; the bench writes a models.json provider
- *      `perf` with model `scripted` on that api and pins the orchestrator to
- *      it in preferences.json. Responses are synchronous and instant, so a
+ *   2. Scripted model server (STELLA_PERF_FAKE_PROVIDER=1). The guard
+ *      answers OpenAI-compatible chat completions at
+ *      `http://perf-scripted.invalid/v1` in process; the bench pins the
+ *      orchestrator to `local/<that base URL>/scripted` in preferences.json,
+ *      which pi-durable runs on its `local` provider exactly as it runs a
+ *      user's Ollama or LM Studio model. Responses are instant streams, so a
  *      turn's wall-clock is pure runtime overhead:
  *        - last message is a tool result        -> text "done", stop
  *        - user text contains "[perf:tool]"     -> one tool call
@@ -72,7 +74,10 @@ if (env.STELLA_PERF_MODULE_CENSUS === "1") {
 
 // ---------------------------------------------------------------- fetch
 const fetchStats = { catalog404: 0, blocked: 0, blockedUrls: [] as string[] };
-const guardedFetch = async (input: unknown): Promise<Response> => {
+const fakeStats = { calls: 0, toolCalls: 0, lastToolNames: [] as string[], lastSystemPromptChars: 0, lastMessageCount: 0 };
+const SCRIPTED_BASE_URL = "http://perf-scripted.invalid/v1";
+const scriptedModel = env.STELLA_PERF_FAKE_PROVIDER === "1" ? createScriptedModel() : null;
+const guardedFetch = async (input: unknown, init?: RequestInit): Promise<Response> => {
   const url =
     typeof input === "string"
       ? input
@@ -83,11 +88,95 @@ const guardedFetch = async (input: unknown): Promise<Response> => {
     fetchStats.catalog404 += 1;
     return new Response("not found", { status: 404 });
   }
+  if (scriptedModel && url === `${SCRIPTED_BASE_URL}/chat/completions`) {
+    const body =
+      typeof init?.body === "string"
+        ? init.body
+        : input instanceof Request
+          ? await input.text()
+          : String(init?.body ?? "");
+    return scriptedModel(JSON.parse(body));
+  }
   fetchStats.blocked += 1;
   if (fetchStats.blockedUrls.length < 20) fetchStats.blockedUrls.push(url);
   throw new Error(`perf-lab: network blocked: ${url}`);
 };
 (globalThis as { fetch: unknown }).fetch = guardedFetch;
+
+/** The scripted model: one OpenAI chat-completions stream per request. */
+function createScriptedModel() {
+  const chunkCount = Math.max(1, Number(env.STELLA_PERF_FAKE_CHUNKS ?? "8") || 8);
+  const toolName = env.STELLA_PERF_FAKE_TOOL ?? "Bash";
+  const toolArgs = env.STELLA_PERF_FAKE_TOOL_ARGS ?? '{"cmd":"true"}';
+  const replyText = "Scripted perf-lab reply. ".repeat(4).trim();
+  let callSeq = 0;
+  type ChatMessage = { role?: string; content?: unknown };
+  const textOf = (message: ChatMessage | undefined): string => {
+    const content = message?.content;
+    if (typeof content === "string") return content;
+    if (Array.isArray(content)) {
+      return content
+        .map((part) => (part && part.type === "text" ? String(part.text) : ""))
+        .join("\n");
+    }
+    return "";
+  };
+  return (request: {
+    model?: string;
+    messages?: ChatMessage[];
+    tools?: Array<{ function?: { name?: string } }>;
+  }): Response => {
+    const messages = request.messages ?? [];
+    const last = messages[messages.length - 1];
+    const lastUser = [...messages].reverse().find((m) => m?.role === "user");
+    const wantsTool = last?.role !== "tool" && textOf(lastUser).includes("[perf:tool]");
+    callSeq += 1;
+    fakeStats.calls += 1;
+    if (wantsTool) fakeStats.toolCalls += 1;
+    fakeStats.lastToolNames = (request.tools ?? []).map((tool) => String(tool.function?.name));
+    fakeStats.lastSystemPromptChars = messages
+      .filter((m) => m?.role === "system" || m?.role === "developer")
+      .reduce((total, m) => total + textOf(m).length, 0);
+    fakeStats.lastMessageCount = messages.length;
+    const chunk = (delta: Record<string, unknown>, finishReason: string | null = null) =>
+      `data: ${JSON.stringify({
+        id: `perf-${callSeq}`,
+        object: "chat.completion.chunk",
+        created: 0,
+        model: request.model ?? "scripted",
+        choices: [{ index: 0, delta, finish_reason: finishReason }],
+      })}\n\n`;
+    const events: string[] = [];
+    if (wantsTool) {
+      events.push(
+        chunk({
+          role: "assistant",
+          tool_calls: [
+            {
+              index: 0,
+              id: `perf_call_${callSeq}`,
+              type: "function",
+              function: { name: toolName, arguments: toolArgs },
+            },
+          ],
+        }),
+        chunk({}, "tool_calls"),
+      );
+    } else {
+      const text = last?.role === "tool" ? "done" : replyText;
+      const size = Math.ceil(text.length / chunkCount);
+      for (let i = 0; i < text.length; i += size) {
+        events.push(chunk(i === 0 ? { role: "assistant", content: text.slice(i, i + size) } : { content: text.slice(i, i + size) }));
+      }
+      events.push(chunk({}, "stop"));
+    }
+    events.push("data: [DONE]\n\n");
+    return new Response(events.join(""), {
+      status: 200,
+      headers: { "content-type": "text/event-stream" },
+    });
+  };
+}
 
 // ---------------------------------------------------------------- sqlite
 type SqlStat = { count: number; ms: number };
@@ -211,101 +300,6 @@ const originalStdoutWrite = process.stdout.write.bind(process.stdout);
   }
   return (originalStdoutWrite as (...a: unknown[]) => boolean)(chunk, ...rest);
 };
-
-// ---------------------------------------------------------------- fake provider
-const fakeStats = { calls: 0, toolCalls: 0, lastToolNames: [] as string[], lastSystemPromptChars: 0, lastMessageCount: 0 };
-if (env.STELLA_PERF_FAKE_PROVIDER === "1") {
-  const { registerApiProvider } = await import("../../ai/api-registry.js");
-  const { AssistantMessageEventStream } = await import(
-    "../../ai/utils/event-stream.js"
-  );
-  const chunkCount = Math.max(1, Number(env.STELLA_PERF_FAKE_CHUNKS ?? "8") || 8);
-  const toolName = env.STELLA_PERF_FAKE_TOOL ?? "Bash";
-  const toolArgs = JSON.parse(env.STELLA_PERF_FAKE_TOOL_ARGS ?? '{"cmd":"true"}');
-  const replyText = "Scripted perf-lab reply. ".repeat(4).trim();
-  let callSeq = 0;
-  const zeroUsage = () => ({
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    totalTokens: 0,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-  });
-  const userText = (message: { content?: unknown } | undefined): string => {
-    const content = message?.content;
-    if (typeof content === "string") return content;
-    if (Array.isArray(content)) {
-      return content
-        .map((part) => (part && part.type === "text" ? String(part.text) : ""))
-        .join("\n");
-    }
-    return "";
-  };
-  const fakeStream = (model: any, context: any) => {
-    const stream = new AssistantMessageEventStream();
-    const messages: any[] = context?.messages ?? [];
-    const last = messages[messages.length - 1];
-    const lastUser = [...messages].reverse().find((m) => m?.role === "user");
-    const wantsTool =
-      last?.role !== "toolResult" && userText(lastUser).includes("[perf:tool]");
-    const message: any = {
-      role: "assistant",
-      content: [],
-      api: model.api,
-      provider: model.provider,
-      model: model.id,
-      usage: zeroUsage(),
-      stopReason: "stop",
-      timestamp: Date.now(),
-    };
-    callSeq += 1;
-    fakeStats.calls += 1;
-    if (wantsTool) fakeStats.toolCalls += 1;
-    fakeStats.lastToolNames = (context?.tools ?? []).map((t: any) => t.name);
-    fakeStats.lastSystemPromptChars = String(context?.systemPrompt ?? "").length;
-    fakeStats.lastMessageCount = messages.length;
-    stream.push({ type: "start", partial: message });
-    if (wantsTool) {
-      const toolCall = {
-        type: "toolCall" as const,
-        id: `perf_call_${callSeq}`,
-        name: toolName,
-        arguments: toolArgs,
-      };
-      message.content.push(toolCall);
-      message.stopReason = "toolUse";
-      stream.push({ type: "toolcall_start", contentIndex: 0, partial: message });
-      stream.push({
-        type: "toolcall_delta",
-        contentIndex: 0,
-        delta: JSON.stringify(toolArgs),
-        partial: message,
-      });
-      stream.push({ type: "toolcall_end", contentIndex: 0, toolCall, partial: message });
-      stream.push({ type: "done", reason: "toolUse", message });
-    } else {
-      const text = last?.role === "toolResult" ? "done" : replyText;
-      const part = { type: "text" as const, text: "" };
-      message.content.push(part);
-      stream.push({ type: "text_start", contentIndex: 0, partial: message });
-      const size = Math.ceil(text.length / chunkCount);
-      for (let i = 0; i < text.length; i += size) {
-        const delta = text.slice(i, i + size);
-        part.text += delta;
-        stream.push({ type: "text_delta", contentIndex: 0, delta, partial: message });
-      }
-      stream.push({ type: "text_end", contentIndex: 0, content: text, partial: message });
-      stream.push({ type: "done", reason: "stop", message });
-    }
-    stream.end();
-    return stream;
-  };
-  registerApiProvider(
-    { api: "perf-scripted", stream: fakeStream, streamSimple: fakeStream } as any,
-    "perf-lab",
-  );
-}
 
 // ---------------------------------------------------------------- snapshots
 const preloadDoneAt = performance.now();

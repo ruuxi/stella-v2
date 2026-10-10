@@ -2,7 +2,6 @@ import { AppState, Platform } from "react-native";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
-import { router } from "expo-router";
 import {
   USER_ASK_MAX_URGENCY,
   USER_ASK_PUSH_CATEGORY,
@@ -15,6 +14,7 @@ import { getOrCreateMobileDeviceId } from "./phone-access";
 import { getNotificationsMuted } from "./notifications-prefs";
 import { focusUserAsk, getOpenUserAsks, refreshUserAsks } from "./user-asks";
 import { i18nFallback } from "../i18n";
+import { requestMainChat } from "./main-chat-request";
 
 const COMPUTER_REPLY_CATEGORY = "computer_reply";
 const AGENT_ACTIVITY_CATEGORY = "agent_activity";
@@ -274,12 +274,55 @@ export async function tearDownPushNotifications(): Promise<void> {
   }
 }
 
-/**
- * Wire up interactive notification categories and a tap handler that
- * routes the user to the right surface when they engage with a push
- * (either via the banner itself or one of the inline actions).
- */
+const handledResponses = new Set<string>();
+
+const clearLaunchResponse = (): void => {
+  try {
+    Notifications.clearLastNotificationResponse();
+  } catch {
+    return;
+  }
+};
+
+const readLaunchResponse = (): Notifications.NotificationResponse | null => {
+  try {
+    return Notifications.getLastNotificationResponse();
+  } catch {
+    return null;
+  }
+};
+
+const handleNotificationResponse = (
+  response: Notifications.NotificationResponse,
+): void => {
+  const key = `${response.notification.request.identifier}:${response.actionIdentifier}`;
+  if (handledResponses.has(key)) return;
+  handledResponses.add(key);
+  clearLaunchResponse();
+  if (!pushDeliveryEnabled()) return;
+  const data = response.notification.request.content.data as
+    | UserAskPushData
+    | null
+    | undefined;
+  const ask = readUserAskPush(data);
+  if (response.actionIdentifier === "dismiss") {
+    if (ask) stopUserAskRepeats(ask.askId);
+    return;
+  }
+  if (ask) {
+    stopUserAskRepeats(ask.askId);
+    focusUserAsk(ask.askId);
+  }
+  requestMainChat();
+};
+
 export async function installNotificationCategoriesAndListeners(): Promise<() => void> {
+  const subscription = Notifications.addNotificationResponseReceivedListener(
+    handleNotificationResponse,
+  );
+  const launchResponse = readLaunchResponse();
+  if (launchResponse) handleNotificationResponse(launchResponse);
+
   try {
     await Promise.all([
       Notifications.setNotificationCategoryAsync(
@@ -299,43 +342,5 @@ export async function installNotificationCategoriesAndListeners(): Promise<() =>
     // Best-effort; some platforms (Expo Go) just don't support categories.
   }
 
-  const subscription = Notifications.addNotificationResponseReceivedListener(
-    (response) => {
-      const data = response.notification.request.content.data as
-        | UserAskPushData
-        | null
-        | undefined;
-      if (!pushDeliveryEnabled()) return;
-      const actionId = response.actionIdentifier;
-      const ask = readUserAskPush(data);
-      if (actionId === "dismiss") {
-        if (ask) stopUserAskRepeats(ask.askId);
-        return;
-      }
-      if (ask) {
-        stopUserAskRepeats(ask.askId);
-        focusUserAsk(ask.askId);
-        try {
-          router.replace("/chat");
-        } catch {
-          return;
-        }
-        return;
-      }
-      if (data?.kind === "computer_reply" || data?.kind === "agent_activity") {
-        try {
-          router.replace("/computer");
-        } catch {
-          // Router not yet mounted on cold start; the computer screen will
-          // be the natural landing once the user opens the app.
-        }
-      }
-    },
-  );
-
   return () => subscription.remove();
 }
-
-/** Get the Expo push notification listener for navigation. */
-export const addNotificationResponseListener =
-  Notifications.addNotificationResponseReceivedListener;

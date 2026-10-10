@@ -8,8 +8,9 @@ import {
   DialogBody,
   DialogCloseButton,
 } from "@/ui/dialog";
-import { PhoneAccessConnectCard } from "@/global/settings/PhoneAccessCard";
-import { StellaEmptyState } from "@/ui/stella-character/StellaEmptyState";
+import { Button } from "@/ui/button";
+import { ExecutionDevicesCard } from "@/global/settings/ExecutionDevicesCard";
+import { GetTheApp } from "@/global/integrations/GetTheApp";
 import { useAuthSessionState } from "@/global/auth/hooks/use-auth-session-state";
 import { useT } from "@/shared/i18n";
 import "./ConnectDialog.css";
@@ -20,20 +21,18 @@ interface ConnectDialogProps {
 }
 
 /**
- * The Stella mobile app is the only connection method, so the dialog opens
- * straight onto the pair-your-phone surface (QR + connect code) with no
- * intermediate "Connect to Stella app" step. Signed-out visitors get the
- * sign-in prompt instead, since pairing requires an account.
+ * The phone app and the account's computers, and nothing else.
  *
- * This is also where the account's computers are listed, under the phone
- * steps: it is already the "your other devices" surface, and enabling one to
- * accept work belongs next to the phone it would be driven from.
+ * A phone signed in to the same account reaches these computers on its own,
+ * so there is no pairing step: the dialog offers the app's store link as a QR
+ * code, and lists every computer with the switch that lets it accept work.
+ * The dialog sizes to its content and only the body scrolls, so the header
+ * stays put on a short window.
  */
 export const ConnectDialog = ({ open, onOpenChange }: ConnectDialogProps) => {
   const t = useT();
   const navigate = useNavigate();
   const { hasConnectedAccount } = useAuthSessionState();
-  const isSignedIn = hasConnectedAccount;
 
   const handleSignIn = useCallback(() => {
     void navigate({
@@ -47,38 +46,33 @@ export const ConnectDialog = ({ open, onOpenChange }: ConnectDialogProps) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        fit
-        className="connect-dialog"
-        data-has-selection={isSignedIn || undefined}
-        data-phone-detail={isSignedIn || undefined}
-      >
+      <DialogContent fit className="connect-dialog">
         <DialogHeader>
           <DialogTitle>{t("global.integrations.connectStellaApp")}</DialogTitle>
           <DialogCloseButton />
         </DialogHeader>
         <DialogBody>
-          {isSignedIn ? (
-            <div className="connect-dialog-main">
-              <div className="connect-full-view">
-                <PhoneAccessConnectCard />
-              </div>
+          <section className="connect-section">
+            <h3 className="connect-section__title">
+              {t("global.integrations.getApp.title")}
+            </h3>
+            <div className="connect-panel">
+              <GetTheApp />
             </div>
-          ) : (
-            <div className="connect-hero-section">
-              <p className="connect-hero-tagline">
-                {t("global.integrations.heroTagline")}
-              </p>
-              <StellaEmptyState mood="idle" className="connect-hero-mark" />
-              <button
-                type="button"
-                className="pill-btn pill-btn--primary connect-signin-pill"
-                onClick={handleSignIn}
-              >
+          </section>
+
+          <section className="connect-section">
+            <h3 className="connect-section__title">
+              {t("settings.executionDevices.title")}
+            </h3>
+            {hasConnectedAccount ? (
+              <ExecutionDevicesCard />
+            ) : (
+              <Button variant="secondary" onClick={handleSignIn}>
                 {t("global.integrations.signInToConnect")}
-              </button>
-            </div>
-          )}
+              </Button>
+            )}
+          </section>
         </DialogBody>
       </DialogContent>
     </Dialog>

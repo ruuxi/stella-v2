@@ -110,19 +110,10 @@ export function CloudMemoryReimportSettings() {
     <>
       <div className="settings-card" data-cloud-memory-reimport>
         <h3 className="settings-card-title">Memory from before the erase</h3>
-        <p className="settings-card-desc">
-          Cloud Memory was erased. A computer that still has Memory from before
-          pauses its Memory sync, so that Memory isn't uploaded back. Allow the
-          upload and each such computer merges its Memory into the cloud again.
-          This does not restore what was erased from the cloud.
-        </p>
         <div className="settings-row">
           <div className="settings-row-info">
             <div className="settings-row-label">
               Upload Memory kept on computers
-            </div>
-            <div className="settings-row-sublabel">
-              Applies to every computer signed in to this account.
             </div>
             {phase === "error" ? (
               <div
@@ -163,9 +154,7 @@ export function CloudMemoryReimportSettings() {
             <div className="settings-row-info">
               <div className="settings-row-label">This computer</div>
               <div className="settings-row-sublabel" role="status">
-                Memory sync is paused here because this computer still has
-                Memory from before the erase. Erase it to start again from the
-                cloud's Memory instead.
+                Sync paused. Erase to start from the cloud's Memory.
               </div>
               {eraseState.kind === "failed" ? (
                 <div

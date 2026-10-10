@@ -72,9 +72,6 @@ export function ProviderAccountsCard() {
   return (
     <div className="settings-card">
       <h3 className="settings-card-title">{t(`${K}.cardTitle`)}</h3>
-      <div className="settings-row">
-        <div className="settings-row-sublabel">{t(`${K}.cardIntro`)}</div>
-      </div>
       <ChatGptAccountsSection
         settings={connections}
         refreshing={refreshing}
@@ -95,6 +92,7 @@ export function ProviderAccountsCard() {
               type="button"
               variant="ghost"
               className={`pill-btn${chatEngine === "stella" ? " pill-btn--active" : ""}`}
+              aria-pressed={chatEngine === "stella"}
               onClick={() => void chooseEngine("stella")}
               disabled={switching}
             >
@@ -104,6 +102,7 @@ export function ProviderAccountsCard() {
               type="button"
               variant="ghost"
               className={`pill-btn${chatEngine === "anthropic" ? " pill-btn--active" : ""}`}
+              aria-pressed={chatEngine === "anthropic"}
               onClick={() => void chooseEngine("anthropic")}
               disabled={switching || !usableProviders.has("anthropic")}
               title={usableProviders.has("anthropic") ? undefined : t(`${K}.needsClaudeCloud`)}
@@ -114,6 +113,7 @@ export function ProviderAccountsCard() {
               type="button"
               variant="ghost"
               className={`pill-btn${chatEngine === "chatgpt" ? " pill-btn--active" : ""}`}
+              aria-pressed={chatEngine === "chatgpt"}
               onClick={() => void chooseEngine("chatgpt")}
               disabled={switching || !usableProviders.has("chatgpt")}
               title={usableProviders.has("chatgpt") ? undefined : t(`${K}.needsChatgptCloud`)}

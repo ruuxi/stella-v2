@@ -5,10 +5,6 @@
  *
  * @see src/build-session/host.ts for why every call out takes `host`.
  */
-import {
-  agentComputeKey,
-  parsePersistedAgentCompute,
-} from "../agent-compute-ladder.js";
 import { classifyAgentFailureDiagnostic } from "../agent-failure-diagnostic.js";
 import { CloudHomeStore, gateHomeControl } from "../cloud-home-store.js";
 import type { CloudSkillCatalogSnapshot } from "../cloud-home-store.js";
@@ -18,7 +14,6 @@ import {
 } from "../cloud-skill-materializer.js";
 import { devAcceptanceProbesEnabled } from "../dev-acceptance-probes.js";
 import { executorSessionEnvironment } from "../executor-session-env.js";
-import { requiresExactThreadCandidate } from "../general-agent-turn.js";
 import { cloudNativeStateRoot } from "@stella/contracts/cloud-native-state";
 import {
   initialInstanceSize,
@@ -84,16 +79,13 @@ import {
   AGENT_RECOVERY_PENDING_KEY,
   AGENT_TURN_HEARTBEAT_MS,
   AGENT_WATCHDOG_DEADLINE_KEY,
-  agentComputeRecoveryClaimKey,
   agentContainerSize,
   agentExecutionMarkerKey,
   agentRecoveryIdentity,
-  cloudBrowserSuspensionMarker,
   errorMessage,
   exactTurnIdentityMatches,
   json,
   log,
-  mintAgentTurnModelGateway,
   nativeStateIntegrityKeyFor,
   nativeStateThreadHash,
   normalizeToolWorkspaceRoot,
@@ -103,22 +95,21 @@ import {
 } from "./shared/keys.js";
 import { acquireAgentContainerSlot } from "./session-sandbox.js";
 import type {
-  AgentComputeRecoveryClaim,
   AgentExecutionMarker,
   AgentExecutorResult,
   Execution,
-  PendingBrowserSuspension,
   PendingTerminal,
   TurnRequest,
 } from "./shared/types.js";
 import type { ExecutionSession } from "../sandbox-client.js";
-import { isCloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import type { CloudCliTurnRoleInput } from "@stella/contracts/cloud-orchestrator-cli";
 import {
   CLOUD_TURN_ATTEMPT_ANCHOR,
   CLOUD_TURN_ATTEMPT_DIRECTORY_FLAG,
   cloudTurnAttemptPaths,
+  cloudTurnInboxMessageName,
 } from "@stella/contracts/cloud-turn-attempt";
+import { sha256Hex } from "../hash.js";
 import type { AgentHistoryRow } from "@stella/executor-cloud/agent-history";
 import { attachedToolPaths } from "@stella/executor-cloud/attached-tool-protocol";
 import { cloudGeneralToolNames } from "@stella/executor-cloud/cloud-general-tools";
@@ -143,7 +134,6 @@ export type ContainerTurnHost = Pick<
   | "cleanupOwnerPurgedTurnStorage"
   | "confirmAgentTurnStateRestore"
   | "deleteTurnStoragePreservingExactCancellations"
-  | "deliverBrowserSuspension"
   | "deliverTerminal"
   | "destroySandboxDurably"
   | "event"
@@ -154,10 +144,8 @@ export type ContainerTurnHost = Pick<
   | "publishAgentTurnWorkspace"
   | "quiesceCurrentAgentSession"
   | "reconcileAgentCheckpointAfterQuiescence"
-  | "recoverObservedBrowserSuspension"
   | "releaseAgentSessionResources"
   | "resolveAgentTurnState"
-  | "retainPendingBrowserSuspension"
   | "runAgentAttempt"
   | "sandbox"
   | "sandboxContainerRunning"
@@ -259,19 +247,7 @@ export const quiesceCurrentAgentSession = async (
     }
     return { sandboxId, size: size ?? ("large" as const) };
   });
-  const identity = {
-    turnId: turn.turnId,
-    attemptGeneration: turn.attemptGeneration!,
-  };
-  const compute = parsePersistedAgentCompute(
-    await host.ctx.storage.get(
-      agentComputeKey(identity.turnId, identity.attemptGeneration),
-    ),
-    identity,
-  );
   const sandbox = host.sandbox(target.sandboxId, target.size, "world");
-  const executionSessionId =
-    compute?.sessionId ?? agentTurnSessionId(turn.turnId);
   if (!(await host.sandboxContainerRunning(sandbox))) return;
   // The container is this agent thread's own, but the SDK's
   // `killAllProcesses` ignores its session argument, so only this attempt's
@@ -282,7 +258,9 @@ export const quiesceCurrentAgentSession = async (
       "SIGKILL",
     )
     .catch(() => undefined);
-  await sandbox.deleteSession(executionSessionId).catch(() => undefined);
+  await sandbox
+    .deleteSession(agentTurnSessionId(turn.turnId))
+    .catch(() => undefined);
 };
 
 export const exactAgentExecutionMarker = async (
@@ -312,43 +290,14 @@ export const persistAgentExecutionMarker = async (
   turn: TurnRequest,
   marker: AgentExecutionMarker,
 ): Promise<void> => {
-  const claimKey = agentComputeRecoveryClaimKey(
-    turn.turnId,
-    turn.attemptGeneration!,
-  );
   await host.ctx.storage.transaction(async (txn) => {
-    const [current, claim] = await Promise.all([
-      txn.get<TurnRequest>("turn"),
-      txn.get<AgentComputeRecoveryClaim>(claimKey),
-    ]);
-    if (!exactTurnIdentityMatches(current, turn) || claim) {
+    if (!exactTurnIdentityMatches(await txn.get<TurnRequest>("turn"), turn)) {
       throw new AgentTurnAuthorityLostError();
     }
     await txn.put(
       agentExecutionMarkerKey(turn.turnId, turn.attemptGeneration!),
       marker,
     );
-  });
-};
-
-export const clearUnattachedAgentSandboxTuple = async (
-  host: ContainerTurnHost,
-  turn: TurnRequest,
-): Promise<void> => {
-  const attemptGeneration = turn.attemptGeneration!;
-  const identity = { turnId: turn.turnId, attemptGeneration };
-  await host.ctx.storage.transaction(async (txn) => {
-    const [current, raw] = await Promise.all([
-      txn.get<TurnRequest>("turn"),
-      txn.get(agentComputeKey(turn.turnId, attemptGeneration)),
-    ]);
-    if (!exactTurnIdentityMatches(current, turn)) {
-      throw new AgentTurnAuthorityLostError();
-    }
-    const compute = parsePersistedAgentCompute(raw, identity);
-    if (!compute?.sandboxId) {
-      await txn.delete(["sandboxId", "sandboxSize"]);
-    }
   });
 };
 
@@ -369,6 +318,113 @@ export const interruptAgentForBuilderFallback = async (
   } finally {
     host.builderFallbackRecoveries.delete(turn.turnId);
   }
+};
+
+/** Longer input belongs in a file in the agent's workspace. */
+const AGENT_MESSAGE_MAX_CHARS = 64_000;
+
+/**
+ * `POST /steer`: new input for the agent this thread runs in its container,
+ * which takes it at its next step. The message is staged in the container
+ * and renamed into the attempt's inbox (see cloud-turn-attempt.ts), which
+ * exists only while the agent takes messages: `busy` when it is starting up
+ * or finishing, `not_running` when no attempt of this thread runs here.
+ */
+export const steerContainerAgent = async (
+  host: ContainerTurnHost,
+  request: Request,
+): Promise<Response> => {
+  const body = (await request.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  const messageId = body?.messageId;
+  const text = body?.text;
+  if (
+    typeof body?.ownerId !== "string" ||
+    typeof body.ownerGeneration !== "string" ||
+    typeof messageId !== "string" ||
+    !messageId ||
+    messageId.length > 256 ||
+    typeof text !== "string" ||
+    !text.trim() ||
+    text.length > AGENT_MESSAGE_MAX_CHARS
+  ) {
+    return json({ error: "Invalid agent message." }, 400);
+  }
+  const [turn, terminal] = await Promise.all([
+    host.ctx.storage.get<TurnRequest>("turn"),
+    host.ctx.storage.get<boolean>("terminal"),
+  ]);
+  if (
+    !turn ||
+    turn.kind !== "agent" ||
+    turn.agentRole === "orchestrator" ||
+    !turn.threadId ||
+    terminal !== false ||
+    !Number.isSafeInteger(turn.attemptGeneration) ||
+    turn.ownerId !== body.ownerId ||
+    turn.ownerGeneration !== body.ownerGeneration ||
+    (turn.execution?.engine !== "anthropic" &&
+      turn.execution?.engine !== "chatgpt")
+  ) {
+    return json({ accepted: false, reason: "not_running" });
+  }
+  // The marker is written once the executor runs; before it there is no
+  // inbox to deliver to.
+  const marker = await host
+    .exactAgentExecutionMarker(turn)
+    .catch(() => undefined);
+  if (!marker) return json({ accepted: false, reason: "busy" });
+  const paths = cloudTurnAttemptPaths(
+    await nativeStateThreadHash(turn),
+    turn.attemptGeneration!,
+  );
+  const name = cloudTurnInboxMessageName(
+    Date.now(),
+    await sha256Hex(messageId),
+  );
+  // Staged beside the attempt directories, never inside one: an attempt
+  // that already finished has had its directory removed.
+  const staged = `${CLOUD_TURN_ATTEMPT_ANCHOR}/.inbox-${crypto.randomUUID()}`;
+  const sandbox = host.sandbox(marker.sandboxId, marker.size, "world");
+  // Any call into a stopped container starts it again; a lost one is the
+  // alarm's to recover.
+  if (!(await host.sandboxContainerRunning(sandbox))) {
+    return json({ accepted: false, reason: "busy" });
+  }
+  try {
+    await withInfrastructureDeadline(
+      sandbox.writeFile(staged, JSON.stringify({ text })),
+      20_000,
+      "Agent message staging did not settle.",
+    );
+    const moved = await withInfrastructureDeadline(
+      sandbox.exec(
+        `mv -T ${staged} ${paths.inbox}/${name} 2>/dev/null || { rm -f ${staged}; exit 1; }`,
+      ),
+      20_000,
+      "Agent message delivery did not settle.",
+    );
+    if (!moved.success) return json({ accepted: false, reason: "busy" });
+  } catch (error) {
+    log("error", "agent_message_delivery_failed", {
+      turnId: turn.turnId,
+      threadId: turn.threadId,
+      message: errorMessage(error),
+    });
+    return json({ accepted: false, reason: "busy" });
+  }
+  log("info", "agent_message_delivered", {
+    turnId: turn.turnId,
+    threadId: turn.threadId,
+    attemptGeneration: turn.attemptGeneration,
+  });
+  return json({
+    accepted: true,
+    turnId: turn.turnId,
+    attemptGeneration: turn.attemptGeneration,
+  });
 };
 
 export const runContainerAgentTurn = async (
@@ -450,7 +506,9 @@ export const runContainerAgentTurn = async (
     if (
       resolvedTurnState.threadRegistryPresent &&
       !turnStateThreadRestore &&
-      requiresExactThreadCandidate(turn.execution)
+      // An explicit engine rebuilds its context from canonical rows when its
+      // exact checkpoint is missing; a turn dispatched without one cannot.
+      turn.execution === undefined
     ) {
       throw new AgentTurnError(
         "This agent's saved session no longer matches its cloud conversation. Start a new agent thread to continue safely.",
@@ -620,32 +678,11 @@ export const runContainerAgentTurn = async (
               "The agent stopped unexpectedly after making workspace changes.",
             result.builderFallback,
           );
-        const recoveredSuspension = await host.recoverObservedBrowserSuspension(
-          turn,
-          fallbackReceipt,
-          execution.signal,
-        );
-        if (recoveredSuspension) {
-          // The executor process/finalizer was lost after the Gateway wait,
-          // checkpoint, and transcript all committed. Reconstruct only the
-          // secret-free result; the canonical transcript supplies the outer
-          // Code id and the durable Gateway observation supplies the rest.
-          result = {
-            outcome: "suspended",
-            ok: false,
-            finalText: "",
-            usage: result.usage ?? {},
-            checkpointMs: result.checkpointMs ?? 0,
-            turnStateCheckpoint: fallbackReceipt,
-            suspension: recoveredSuspension,
-          };
-        } else {
-          result = {
-            ...result,
-            checkpointPolicy: undefined,
-            turnStateCheckpoint: fallbackReceipt,
-          };
-        }
+        result = {
+          ...result,
+          checkpointPolicy: undefined,
+          turnStateCheckpoint: fallbackReceipt,
+        };
       } catch (error) {
         if (
           error instanceof TurnStateRegistryBookkeepingError &&
@@ -809,127 +846,10 @@ export const runContainerAgentTurn = async (
           finalText:
             `${result.finalText ?? ""}\n\nHeads up: Stella could not validate the durable workspace receipt for this turn. Please retry before continuing this agent.`.trim(),
         };
-      } else if (result.outcome === "suspended") {
-        // A human wait is resumable only from the exact checkpoint whose
-        // transcript ends at the browser tool call. Never expose a takeover
-        // for a turn whose continuation receipt cannot be reconstructed.
-        result = {
-          outcome: "completed",
-          ok: false,
-          error:
-            "Stella couldn't hand this sign-in over to you safely. Please try again.",
-        };
-      }
-    }
-
-    if (
-      result.outcome === "suspended" &&
-      result.suspension &&
-      validTurnStateCheckpointReceipt(result.turnStateCheckpoint)
-    ) {
-      const verifiedSuspension = await host.recoverObservedBrowserSuspension(
-        turn,
-        result.turnStateCheckpoint,
-        execution.signal,
-      );
-      if (
-        !verifiedSuspension ||
-        cloudBrowserSuspensionMarker(verifiedSuspension) !==
-          cloudBrowserSuspensionMarker(result.suspension)
-      ) {
-        log("error", "browser_suspension_checkpoint_mismatch", {
-          turnId: turn.turnId,
-          threadId: turn.threadId,
-        });
-        result = {
-          outcome: "completed",
-          ok: false,
-          error:
-            "Stella couldn't hand this sign-in over to you safely. Please try again.",
-          turnStateCheckpoint: result.turnStateCheckpoint,
-        };
-      } else {
-        result = { ...result, suspension: verifiedSuspension };
       }
     }
 
     const wallClockMs = Math.round(performance.now() - requestStarted);
-    if (result.outcome === "suspended" && result.suspension) {
-      const pendingBrowserSuspension: PendingBrowserSuspension = {
-        schemaVersion: 1,
-        turnId: turn.turnId,
-        attemptGeneration: turn.attemptGeneration!,
-        suspension: result.suspension,
-        payload: {
-          suspension: result.suspension,
-          usage: result.usage,
-          coldContainerStartMs,
-          restoreMs,
-          checkpointMs,
-          wallClockMs,
-          instanceType: INSTANCE_TIERS[size].instanceType,
-        },
-        createdAt: Date.now(),
-      };
-      // Stop/timeout and suspension are competing decisions. Commit the
-      // secret-free wait descriptor only while no terminal path has won,
-      // and remove the execution marker in the same transaction so alarm
-      // recovery cannot mistake this intentionally exited executor for a
-      // crashed one.
-      const retained = await host.retainPendingBrowserSuspension(
-        turn,
-        pendingBrowserSuspension,
-      );
-      await host
-        .releaseAgentSessionResources({
-          sandboxId,
-          size,
-          workload: "world",
-          sessionId,
-          daemonDirectory,
-        })
-        .catch(() => undefined);
-      if (!retained) return;
-
-      const delivered = await host.deliverBrowserSuspension(
-        turn,
-        pendingBrowserSuspension,
-      );
-      if (delivered && (await host.ownsExactTurn(turn))) {
-        if (await host.settleAgentTransientBackup(turn)) {
-          await host.deleteTurnStoragePreservingExactCancellations(turn, true);
-        } else {
-          await host.setExactTurnAlarm(turn, Date.now() + 30_000);
-        }
-      }
-      log("info", "agent_turn_suspended_for_browser_handoff", {
-        turnId: turn.turnId,
-        threadId: turn.threadId,
-        interactionId: result.suspension.interactionId,
-        wallClockMs,
-      });
-      emitCloudTurnTelemetry(host.ctx, host.env, {
-        type: "cloud.turn",
-        workload: "agent",
-        phase: "suspended",
-        wallClockMs,
-        coldContainerStartMs,
-        restoreMs,
-        checkpointMs,
-        ...(typeof result.usage?.inputTokens === "number"
-          ? { inputTokens: result.usage.inputTokens }
-          : {}),
-        ...(typeof result.usage?.outputTokens === "number"
-          ? { outputTokens: result.usage.outputTokens }
-          : {}),
-        ...(typeof result.usage?.llmCalls === "number"
-          ? { llmCalls: result.usage.llmCalls }
-          : {}),
-        instanceType: INSTANCE_TIERS[size].instanceType,
-      });
-      return;
-    }
-
     let pending: PendingTerminal;
     if (result.ok) {
       pending = {
@@ -1149,13 +1069,7 @@ export const runContainerAgentTurn = async (
  * session, restore the canonical archives (or seed a first world), verify
  * the packaged renderer still matches, and confirm the restore with the
  * owner fence.
- *
- * Shared by the eager container path and the compute ladder's lazy attach,
- * which is the whole point: a mid-turn attach has to land on exactly the
- * disk an eager boot would have produced, or the two placements would
- * disagree about what a checkpoint means. It deliberately does not emit
- * `sandbox_ready` — the eager path reports a boot, the ladder reports an
- * attach, and the payloads differ.
+ * It does not emit `sandbox_ready`; its caller reports the boot.
  */
 export const attachAgentWorld = async (
   host: ContainerTurnHost,
@@ -1472,24 +1386,13 @@ export const runAgentAttempt = async (
     }
     turnExecution.assertActive();
 
-    // A Stella or ChatGPT turn reaches the model gateway directly with a
-    // turn capability minted here, after the broker handoff is protected and
-    // right before the executor is admitted, so the capability's lifetime
-    // tracks the attempt as closely as possible. A Claude turn gets no
-    // capability: its Claude Code CLI runs on the login the owner's
+    // Only Claude turns run here (agents on Stella's models or a ChatGPT
+    // plan run on pi in their conversation), and a Claude turn holds no
+    // model capability: its Claude Code CLI runs on the login the owner's
     // container holds for the active account, and talks to Anthropic itself.
     if (!turn.execution) throw new AgentTurnAuthorityLostError();
     const orchestrator = turn.agentRole === "orchestrator";
     const admitted = turn.execution;
-    const modelGateway =
-      admitted.engine === "anthropic"
-        ? null
-        : await mintAgentTurnModelGateway(
-            host.env,
-            turn,
-            admitted,
-            orchestrator ? ["orchestrator"] : ["general"],
-          );
     const claudeAccount =
       admitted.engine === "anthropic"
         ? await claudeCloudAccountFor(host.env, turn)
@@ -1512,7 +1415,7 @@ export const runAgentAttempt = async (
     let roleInput: CloudCliTurnRoleInput = {
       role: "agent",
       systemPrompt: renderCloudAgentPrompt("agents/general.md", {
-        names: cloudGeneralToolNames(admitted.engine),
+        names: cloudGeneralToolNames(),
         history: false,
       }),
     };
@@ -1562,17 +1465,8 @@ export const runAgentAttempt = async (
             ttlMs: Math.max(1, Math.min(30 * 60_000, args.commandTimeoutMs)),
           }),
         },
-        ...(modelGateway
-          ? {
-              modelGateway: {
-                origin: modelGateway.origin,
-                capability: modelGateway.capability,
-              },
-            }
-          : {}),
         ...(claudeAccount ? { claudeAccount } : {}),
         history: args.history,
-        ...(turn.browserResume ? { browserResume: turn.browserResume } : {}),
         ...(cloudSkills ? { skills: cloudSkills } : {}),
         ...(turn.execution ? { execution: turn.execution } : {}),
       }),

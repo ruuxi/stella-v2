@@ -34,12 +34,16 @@ import { useStellaSendMessageBridge } from "./use-stella-send-message-bridge";
 import { useChatStore } from "@/context/chat-store-context";
 import { useCloudChatBridge } from "@/features/cloud/use-cloud-chat-bridge";
 import { usePiChat } from "@/features/chat/pi/use-pi-chat";
-import { useTranscriptSourceHandoff } from "./use-transcript-source-handoff";
 import {
   journaledPiTurns,
   piAgentActivityEvents,
+  piPendingLogRows,
   piPendingRows,
 } from "@/features/chat/pi/pi-chat-records";
+import {
+  mergeEvents,
+  replyFileEvents,
+} from "@/features/chat/lib/reply-file-events";
 import { getDeviceIdOrNull } from "@/platform/electron/device";
 import { cloudAttachmentsStore } from "@/features/cloud/cloud-composer-store";
 import { useOwnDeviceRemoteCancel } from "@/features/cloud/use-own-device-remote-cancel";
@@ -317,15 +321,12 @@ export function useFullShellChat({
     () => buildActivityTasks(threadActivityRecords, localTaskDecorations),
     [threadActivityRecords, localTaskDecorations],
   );
-  // The chat runs on pi-durable in the runtime unless the engine is Claude
-  // Code. A conversation stored in the cloud shows its journal whatever the
-  // engine, so a model pick never changes what the chat shows; pi adds what
-  // the journal does not hold yet. One kept on this computer shows pi's
-  // transcript on pi and the chat log otherwise.
-  const piChat = usePiChat(activeConversationId, {
-    transcript: !cloudFeaturesEnabled,
-  });
-  const piTranscript = piChat.enabled && !cloudFeaturesEnabled;
+  // The chat runs on pi-durable unless the engine is Claude Code. Whatever
+  // the engine, a conversation shows one record: the journal for one stored
+  // in the cloud, the chat log for one kept on this computer. Pi adds only
+  // what that record does not hold yet, so a model pick never changes what
+  // the chat, Activity or Files show.
+  const piChat = usePiChat(activeConversationId);
   const cloudChat = useCloudChatBridge({
     conversationId: activeConversationId,
     enabled: cloudFeaturesEnabled,
@@ -340,25 +341,7 @@ export function useFullShellChat({
     enabled: cloudFeaturesEnabled && isLocalStorage && !cloudChat.isWebShell,
     onCancel: localCancelCurrentStream,
   });
-  // On pi the transcript and its agents are the conversation's record:
-  // Activity lists the agents, Files the links in replies and agents' results.
-  const piActivities = useMemo(
-    () =>
-      piChat.enabled
-        ? piAgentActivityEvents(threadActivityRecords)
-        : EMPTY_EVENTS,
-    [piChat.enabled, threadActivityRecords],
-  );
-  const piFiles = useMemo(
-    () =>
-      piChat.enabled
-        ? [
-            ...piChat.replyFiles,
-            ...piActivities.filter((event) => event.type === "agent-completed"),
-          ].sort((a, b) => a.timestamp - b.timestamp)
-        : EMPTY_EVENTS,
-    [piChat.enabled, piChat.replyFiles, piActivities],
-  );
+  const isPrivateChat = storageMode === "local";
   const journalState = cloudChat.conversation.state;
   const ownDeviceId = useOwnDeviceId(piChat.enabled && cloudFeaturesEnabled);
   const journaledTurns = useMemo(
@@ -378,37 +361,53 @@ export function useFullShellChat({
       piChat.projection.turns,
     ],
   );
-  const journalHasOlder = journalState.hasOlder;
-  const journalStartMs = cloudChat.records[0]?.createdAtMs ?? null;
+  const recordLoaded = cloudFeaturesEnabled
+    ? journalState.recordsSource !== "none"
+    : isPrivateChat && !localMessageFeed.isInitialLoading;
+  const recordHasOlder = cloudFeaturesEnabled
+    ? journalState.hasOlder
+    : localMessageFeed.hasOlderMessages;
+  const recordStartMs = cloudFeaturesEnabled
+    ? (cloudChat.records[0]?.createdAtMs ?? null)
+    : (cloudChat.persistedMessages[0]?.timestamp ?? null);
   const piPending = useMemo(() => {
-    if (!piChat.enabled || !cloudFeaturesEnabled) return NO_PI_PENDING_ROWS;
-    if (journalState.recordsSource === "none") return NO_PI_PENDING_ROWS;
-    if (journalHasOlder && journalStartMs === null) return NO_PI_PENDING_ROWS;
-    return piPendingRows({
-      projection: piChat.projection,
-      journaled: journaledTurns,
-      canonical: cloudChat.persistedMessages,
-      sinceMs: journalHasOlder ? journalStartMs : null,
-    });
+    if (!piChat.enabled || !activeConversationId || !recordLoaded) {
+      return NO_PI_PENDING_ROWS;
+    }
+    if (recordHasOlder && recordStartMs === null) return NO_PI_PENDING_ROWS;
+    const sinceMs = recordHasOlder ? recordStartMs : null;
+    return cloudFeaturesEnabled
+      ? piPendingRows({
+          projection: piChat.projection,
+          journaled: journaledTurns,
+          canonical: cloudChat.persistedMessages,
+          sinceMs,
+        })
+      : piPendingLogRows({
+          projection: piChat.projection,
+          log: cloudChat.persistedMessages,
+          conversationId: activeConversationId,
+          sinceMs,
+        });
   }, [
+    activeConversationId,
     cloudChat.persistedMessages,
     cloudFeaturesEnabled,
-    journalHasOlder,
-    journalStartMs,
-    journalState.recordsSource,
     journaledTurns,
-    ownDeviceId,
     piChat.enabled,
     piChat.projection,
+    recordHasOlder,
+    recordLoaded,
+    recordStartMs,
   ]);
-  const journalMessages = useMemo(
+  const persistedMessages = useMemo(
     () =>
       piPending.messages.length > 0
         ? [...cloudChat.persistedMessages, ...piPending.messages]
         : cloudChat.persistedMessages,
     [cloudChat.persistedMessages, piPending.messages],
   );
-  const journalUserId = useCallback(
+  const recordUserId = useCallback(
     (userMessageId: string) =>
       piPending.journalUserIds.get(userMessageId) ?? userMessageId,
     [piPending.journalUserIds],
@@ -418,35 +417,13 @@ export function useFullShellChat({
       piPending.journalUserIds.size === 0
         ? piChat.streamingAssistants
         : piChat.streamingAssistants.map((overlay) => {
-            const userMessageId = journalUserId(overlay.userMessageId);
+            const userMessageId = recordUserId(overlay.userMessageId);
             return userMessageId === overlay.userMessageId
               ? overlay
               : { ...overlay, userMessageId };
           }),
-    [journalUserId, piChat.streamingAssistants, piPending.journalUserIds],
+    [recordUserId, piChat.streamingAssistants, piPending.journalUserIds],
   );
-  // `ready` names the head before its replay arrives: the journal is current
-  // once its rows reach that head.
-  const journalReady = cloudFeaturesEnabled
-    ? (journalState.recordsSource === "canonical" &&
-        (journalState.records.at(-1)?.seq ?? -1) >= journalState.headSeq) ||
-      journalState.status === "offline" ||
-      journalState.status === "blocked"
-    : !localMessageFeed.isInitialLoading;
-  // A conversation kept on this computer moves between pi's transcript and
-  // the chat log with the engine; the screen keeps the transcript it shows
-  // until the incoming source is current.
-  const transcript = useTranscriptSourceHandoff({
-    conversationId: activeConversationId,
-    source: piTranscript ? "pi" : "journal",
-    ready: piTranscript ? piChat.isSynced : journalReady,
-    transcript: {
-      messages: piTranscript ? piChat.messages : journalMessages,
-      activities: piChat.enabled ? piActivities : cloudChat.activities,
-      files: piChat.enabled ? piFiles : cloudChat.files,
-    },
-  });
-  const persistedMessages = transcript.messages;
   // Cloud placement can acknowledge IPC before its journal reaches this
   // window. Keep pending sends working until canonical history takes over,
   // and retire their overlays even when no SQLite write occurs on this device.
@@ -462,8 +439,34 @@ export function useFullShellChat({
         !localAdmissionSettledIds.has(event._id),
     );
   }, [localAdmissionSettledIds, localOptimisticEvents, persistedMessages]);
-  const activities = transcript.activities;
-  const persistedFiles = transcript.files;
+  // Activity and Files read the same record plus the agents pi ran in this
+  // conversation (pi's agents keep their lifecycle in its transcript), and a
+  // cloud conversation's Files also take the links in its replies, as the
+  // chat log's do for one kept on this computer.
+  const piAgentEvents = useMemo(
+    () => piAgentActivityEvents(threadActivityRecords),
+    [threadActivityRecords],
+  );
+  const activities = useMemo(
+    () => mergeEvents(cloudChat.activities, piAgentEvents),
+    [cloudChat.activities, piAgentEvents],
+  );
+  const replyFiles = useMemo(
+    () =>
+      cloudFeaturesEnabled
+        ? replyFileEvents(persistedMessages)
+        : EMPTY_EVENTS,
+    [cloudFeaturesEnabled, persistedMessages],
+  );
+  const persistedFiles = useMemo(
+    () =>
+      mergeEvents(
+        cloudChat.files,
+        replyFiles,
+        piAgentEvents.filter((event) => event.type === "agent-completed"),
+      ),
+    [cloudChat.files, piAgentEvents, replyFiles],
+  );
   const tasks = cloudChat.tasks;
   const optimisticEvents = cloudChat.isWebShell
     ? cloudChat.optimisticEvents
@@ -548,7 +551,7 @@ export function useFullShellChat({
         ? cloudChat.answerLanded || localTurnHandedOff
         : localAnswerLanded);
   const pendingUserMessageId = piChat.enabled
-    ? piChat.pendingUserMessageId && journalUserId(piChat.pendingUserMessageId)
+    ? piChat.pendingUserMessageId && recordUserId(piChat.pendingUserMessageId)
     : cloudChat.isWebShell
       ? cloudChat.pendingUserMessageId
       : localPendingUserMessageId;
@@ -567,72 +570,49 @@ export function useFullShellChat({
       ? cloudChat.cancelCurrentStream
       : localCancelCurrentStream;
   // Page only the selected history; local and cloud cursors never mix.
-  const hasOlderMessages = piTranscript
-    ? piChat.hasOlderMessages
-    : storageMode === "local"
-      ? localMessageFeed.hasOlderMessages
-      : cloudChat.conversation.state.hasOlder;
-  const hasNewerMessages =
-    storageMode === "local" && !piTranscript
-      ? localMessageFeed.hasNewerMessages
-      : false;
-  const isLoadingOlderMessages = piTranscript
-    ? piChat.isLoadingOlder
-    : storageMode === "local"
-      ? localMessageFeed.isLoadingOlder
-      : cloudChat.conversation.state.loadingOlder;
-  const isLoadingNewerMessages =
-    storageMode === "local" && !piTranscript
-      ? localMessageFeed.isLoadingNewer
-      : false;
-  const isInitialLoadingMessages = transcript.holding
-    ? false
-    : piTranscript
-      ? piChat.isInitialLoading
-      : storageMode === "local"
-        ? localMessageFeed.isInitialLoading
-        : cloudChat.isInitialLoading;
-  const loadOlderMessages = piTranscript
-    ? piChat.loadOlderMessages
-    : storageMode === "local"
-      ? localMessageFeed.loadOlder
-      : cloudChat.conversation.loadOlder;
-  const loadNewerMessages =
-    storageMode === "local" && !piTranscript
-      ? localMessageFeed.loadNewer
-      : NO_NEWER_CLOUD_MESSAGES;
-  const loadLatestMessages =
-    storageMode === "local" && !piTranscript
-      ? localMessageFeed.loadLatest
-      : NO_NEWER_CLOUD_MESSAGES;
-  const hasOlderActivity =
-    storageMode === "local"
-      ? localActivityFeed.hasOlderActivity
-      : cloudChat.hasOlderActivity;
-  const isLoadingOlderActivity =
-    storageMode === "local"
-      ? localActivityFeed.isLoadingOlder
-      : cloudChat.isLoadingOlderActivity;
-  const loadOlderActivity =
-    storageMode === "local"
-      ? localActivityFeed.loadOlder
-      : cloudChat.loadOlderActivity;
-  // Older replies' files come with the transcript's older pages.
-  const hasOlderFiles = piChat.enabled
-    ? piChat.hasOlderMessages
-    : storageMode === "local"
-      ? localFileFeed.hasOlderFiles
-      : cloudChat.conversation.state.hasOlder;
-  const isLoadingOlderFiles = piChat.enabled
-    ? piChat.isLoadingOlder
-    : storageMode === "local"
-      ? localFileFeed.isLoadingOlder
-      : cloudChat.conversation.state.loadingOlder;
-  const loadOlderFiles = piChat.enabled
-    ? piChat.loadOlderMessages
-    : storageMode === "local"
-      ? localFileFeed.loadOlder
-      : cloudChat.conversation.loadOlder;
+  const hasOlderMessages = isPrivateChat
+    ? localMessageFeed.hasOlderMessages
+    : cloudChat.conversation.state.hasOlder;
+  const hasNewerMessages = isPrivateChat
+    ? localMessageFeed.hasNewerMessages
+    : false;
+  const isLoadingOlderMessages = isPrivateChat
+    ? localMessageFeed.isLoadingOlder
+    : cloudChat.conversation.state.loadingOlder;
+  const isLoadingNewerMessages = isPrivateChat
+    ? localMessageFeed.isLoadingNewer
+    : false;
+  const isInitialLoadingMessages = isPrivateChat
+    ? localMessageFeed.isInitialLoading
+    : cloudChat.isInitialLoading;
+  const loadOlderMessages = isPrivateChat
+    ? localMessageFeed.loadOlder
+    : cloudChat.conversation.loadOlder;
+  const loadNewerMessages = isPrivateChat
+    ? localMessageFeed.loadNewer
+    : NO_NEWER_CLOUD_MESSAGES;
+  const loadLatestMessages = isPrivateChat
+    ? localMessageFeed.loadLatest
+    : NO_NEWER_CLOUD_MESSAGES;
+  const hasOlderActivity = isPrivateChat
+    ? localActivityFeed.hasOlderActivity
+    : cloudChat.hasOlderActivity;
+  const isLoadingOlderActivity = isPrivateChat
+    ? localActivityFeed.isLoadingOlder
+    : cloudChat.isLoadingOlderActivity;
+  const loadOlderActivity = isPrivateChat
+    ? localActivityFeed.loadOlder
+    : cloudChat.loadOlderActivity;
+  // Older replies' files come with the record's older pages.
+  const hasOlderFiles = isPrivateChat
+    ? localFileFeed.hasOlderFiles
+    : cloudChat.conversation.state.hasOlder;
+  const isLoadingOlderFiles = isPrivateChat
+    ? localFileFeed.isLoadingOlder
+    : cloudChat.conversation.state.loadingOlder;
+  const loadOlderFiles = isPrivateChat
+    ? localFileFeed.loadOlder
+    : cloudChat.conversation.loadOlder;
   // Visible chat timeline: SQLite-backed `persistedMessages` plus the
   // synthetic overlays (optimistic users, in-memory streaming
   // assistants, scheduler-pending) that drop off as their persisted
@@ -984,8 +964,7 @@ export function useFullShellChat({
       extraTail: cloudChat.extraTail,
       activity: {
         activities,
-        // pi's agents come whole: there is no older activity to page in.
-        hasOlder: piChat.enabled ? false : hasOlderActivity,
+        hasOlder: hasOlderActivity,
         isLoadingOlder: isLoadingOlderActivity,
         loadOlder: loadOlderActivity,
       },
@@ -1027,7 +1006,6 @@ export function useFullShellChat({
       latestCompletedTool,
       hasToolActivity,
       hasOlderActivity,
-      piChat.enabled,
       hasOlderFiles,
       hasOlderMessages,
       hasNewerMessages,

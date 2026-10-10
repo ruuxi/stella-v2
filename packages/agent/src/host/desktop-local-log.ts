@@ -20,8 +20,29 @@ import {
   type EntryId,
   type Harness,
 } from "@earendil-works/pi-durable";
-import { piMessageText, piUserHidden, piUserView, type PiUserMessage } from "@stella/contracts/pi-chat";
+import {
+  piJournalUserMessage,
+  piMessageText,
+  piTerminalNotice,
+  piUserHidden,
+  piUserView,
+  type PiUserDisplay,
+  type PiUserMessage,
+} from "@stella/contracts/pi-chat";
 import { splitReplyRefs } from "@stella/contracts/reply-refs";
+import { lifecycleWakeOutcome, lifecycleWakeTask } from "@stella/contracts/conversation-journal-projection";
+
+/** The task a `spawn_agent` result started, by its thread id. */
+const spawnedThreadId = (details: unknown, text: string): string | undefined => {
+  const fromDetails = (details as { thread_id?: unknown } | undefined)?.thread_id;
+  if (typeof fromDetails === "string" && fromDetails) return fromDetails;
+  try {
+    const parsed = (JSON.parse(text) as { thread_id?: unknown } | null)?.thread_id;
+    return typeof parsed === "string" && parsed ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 /** One message the log holds that pi did not write. */
 export type LocalLogMessage = { id: string; seq: number; role: "user" | "assistant"; text: string; timestamp: number };
@@ -33,18 +54,64 @@ export type DesktopLocalLog = {
    * pi did not write, and the last row read (`throughSeq`).
    */
   read(afterSeq: number, limit: number): Promise<{ messages: LocalLogMessage[]; throughSeq: number; complete: boolean }>;
-  /** One of pi's messages, written once per `key`. */
-  write(message: {
-    key: string;
-    role: "user" | "assistant";
-    text: string;
-    timestamp: number;
-    /** An answer's user message (its `key`). */
-    replyTo?: string;
-    /** An answer Stella went on from with a tool call. */
-    followedByToolCall?: boolean;
-  }): Promise<void>;
+  /** One of pi's rows, written once per `key`; resolves with the row's id. */
+  write(message: LocalLogWrite): Promise<string>;
 };
+
+/**
+ * A row of pi's in the log, as the agent loops write theirs: the user's
+ * message as sent (its id the one the composer gave it, and what it showed),
+ * Stella's replies, her tool calls and their results, and how a turn ended
+ * when its reply did not finish.
+ */
+export type LocalLogWrite =
+  | {
+      key: string;
+      role: "user";
+      text: string;
+      timestamp: number;
+      /** The id the sending client gave the message, kept as its row id. */
+      clientMsgId?: string;
+      display?: PiUserDisplay;
+    }
+  | {
+      key: string;
+      role: "assistant";
+      text: string;
+      timestamp: number;
+      /** An answer's user message (its row id). */
+      replyTo?: string;
+      /** An answer Stella went on from with a tool call. */
+      followedByToolCall?: boolean;
+      /** How the turn ended (failed, stopped), not words of Stella's. */
+      notice?: true;
+    }
+  | {
+      key: string;
+      role: "tool_request";
+      timestamp: number;
+      toolCallId: string;
+      toolName: string;
+      args?: Record<string, unknown>;
+    }
+  | {
+      key: string;
+      role: "lifecycle";
+      type: "agent-started" | "agent-completed" | "agent-failed" | "agent-canceled";
+      timestamp: number;
+      agentId: string;
+      payload: Record<string, unknown>;
+    }
+  | {
+      key: string;
+      role: "tool_result";
+      timestamp: number;
+      toolCallId: string;
+      toolName: string;
+      text: string;
+      details?: unknown;
+      isError?: boolean;
+    };
 
 export type LocalLogMirror = {
   /** Write what the log gained since the last import into the transcript. */
@@ -215,6 +282,8 @@ export async function localLogMirror(args: {
 
   let running = false;
   let again = false;
+  /** A `spawn_agent` call's description, by call id, for the task its result starts (often a later pass). */
+  const spawned = new Map<string, string>();
   const mirrorOnce = async () => {
     const state = await doc();
     let replyTo = state.replyTo;
@@ -230,14 +299,41 @@ export async function localLogMirror(args: {
         if (message && !fromLog(entry)) {
           const key = `${root.id}:${entry.id}`;
           if (entry.kind === "pi.user" && message.role === "user") {
-            const { text } = piUserView(message as PiUserMessage);
+            const { text, display } = piUserView(message as PiUserMessage);
+            const hidden = piUserHidden(message as PiUserMessage);
+            // An agent's report is how its task ended, as the loops log a task's end.
+            const report = hidden ? piMessageText(message) : "";
+            const task = report ? lifecycleWakeTask(report) : null;
+            const outcome = task ? lifecycleWakeOutcome(report) : null;
+            if (task && outcome) {
+              await log.write({
+                key: `${key}:agent-${outcome.kind}`,
+                role: "lifecycle",
+                type: outcome.kind === "completed" ? "agent-completed" : outcome.kind === "failed" ? "agent-failed" : "agent-canceled",
+                timestamp: message.timestamp,
+                agentId: task.threadId,
+                payload: {
+                  agentId: task.threadId,
+                  ...(task.description ? { description: task.description } : {}),
+                  ...(outcome.kind === "completed" ? { result: outcome.body } : outcome.body ? { error: outcome.body } : {}),
+                },
+              });
+            }
             // An agent's report or note and a prompt the app sent are not the user's words.
-            if (text.trim() && !piUserHidden(message as PiUserMessage)) {
-              await log.write({ key, role: "user", text: text.trim(), timestamp: message.timestamp });
-              replyTo = key;
+            if (text.trim() && !hidden) {
+              const { clientMsgId } = piJournalUserMessage(message as PiUserMessage);
+              replyTo = await log.write({
+                key,
+                role: "user",
+                text: text.trim(),
+                timestamp: message.timestamp,
+                ...(clientMsgId ? { clientMsgId } : {}),
+                ...(display ? { display } : {}),
+              });
             }
           } else if (entry.kind === "pi.assistant" && message.role === "assistant") {
             const text = splitReplyRefs(piMessageText(message)).text.trim();
+            const calls = message.content.flatMap((part) => (part.type === "toolCall" ? [part] : []));
             if (text) {
               await log.write({
                 key,
@@ -245,7 +341,61 @@ export async function localLogMirror(args: {
                 text,
                 timestamp: message.timestamp,
                 ...(replyTo ? { replyTo } : {}),
-                ...(message.content.some((part) => part.type === "toolCall") ? { followedByToolCall: true } : {}),
+                ...(calls.length > 0 ? { followedByToolCall: true } : {}),
+              });
+            }
+            for (const [index, call] of calls.entries()) {
+              const description = (call.arguments as { description?: unknown } | undefined)?.description;
+              if (call.name === "spawn_agent" && typeof description === "string") spawned.set(call.id, description.trim());
+              await log.write({
+                key: `${key}:tool:${index}`,
+                role: "tool_request",
+                timestamp: message.timestamp + index + 1,
+                toolCallId: call.id,
+                toolName: call.name,
+                ...(call.arguments ? { args: call.arguments } : {}),
+              });
+            }
+            const terminal = piTerminalNotice(message);
+            if (terminal) {
+              await log.write({
+                key: `${key}:notice`,
+                role: "assistant",
+                text: terminal.notice,
+                timestamp: message.timestamp + calls.length + 1,
+                ...(replyTo ? { replyTo } : {}),
+                notice: true,
+              });
+            }
+          } else if (entry.kind === "pi.tool-result" && message.role === "toolResult") {
+            const text = piMessageText(message);
+            await log.write({
+              key,
+              role: "tool_result",
+              timestamp: message.timestamp,
+              toolCallId: message.toolCallId,
+              toolName: message.toolName,
+              text,
+              ...(message.details !== undefined ? { details: message.details } : {}),
+              ...(message.isError ? { isError: true } : {}),
+            });
+            const threadId = message.toolName === "spawn_agent" && !message.isError ? spawnedThreadId(message.details, text) : undefined;
+            if (threadId) {
+              const description =
+                spawned.get(message.toolCallId) ??
+                (message.details as { description?: unknown } | undefined)?.description;
+              spawned.delete(message.toolCallId);
+              await log.write({
+                key: `${key}:agent-started`,
+                role: "lifecycle",
+                type: "agent-started",
+                timestamp: message.timestamp + 1,
+                agentId: threadId,
+                payload: {
+                  agentId: threadId,
+                  agentType: "general",
+                  ...(typeof description === "string" && description ? { description } : {}),
+                },
               });
             }
           }

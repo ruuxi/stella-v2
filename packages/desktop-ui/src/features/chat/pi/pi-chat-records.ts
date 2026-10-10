@@ -9,6 +9,7 @@
  */
 import {
   isPiAgentInput,
+  piTerminalNotice,
   isPiScheduledInput,
   piJournalUserMessage,
   piMessageText,
@@ -52,6 +53,8 @@ export type PiChatProjection = {
   /** The turn the next streamed assistant message belongs to. */
   turn: Turn;
   turns: PiTurnIndex[];
+  /** The transcript's own id in pi (its entries' `conversationId`), which pi's chat log rows carry. */
+  rootId: number | null;
 };
 
 /** An entry written in from elsewhere: the journal (`journalSeq`) or the chat log (`localLog`). */
@@ -65,11 +68,14 @@ export const projectPiChat = (state: Pick<PiChatState, "entries" | "requestIds">
   let turnId = "pi:0";
   let turn: Turn = { assistantMessages: 0 };
   const turns: PiTurnIndex[] = [];
+  let ending: JournalRecord | undefined;
   for (const entry of state.entries) {
     const message = entry.model?.[0];
     if (!message || message.role === "system") continue;
     const base = { seq: entry.id, turnId, createdAtMs: message.timestamp, kind: "message" as const };
     if (entry.kind === "pi.user" && message.role === "user") {
+      if (ending) records.push(ending);
+      ending = undefined;
       turnId = `pi:${entry.id}`;
       const journaled = piJournalUserMessage(message);
       // A message sent here binds by its request; one placed or imported, by the id its row carries.
@@ -115,21 +121,24 @@ export const projectPiChat = (state: Pick<PiChatState, "entries" | "requestIds">
     } else if (entry.kind === "pi.assistant" && message.role === "assistant") {
       records.push({ ...base, role: "assistant", hidden: false, payload: message as unknown as Record<string, unknown> });
       if (piMessageText(message).trim()) turn.assistantMessages += 1;
-      if (message.stopReason === "error") {
-        records.push({
-          seq: entry.id,
-          turnId,
-          createdAtMs: message.timestamp,
-          kind: "turn",
-          phase: "failed",
-          notice: `Stella couldn't answer: ${message.errorMessage ?? "the model request failed."}`,
-        });
-      }
+      // How the turn ended is its last reply's: a reply that finished after a
+      // stop marker means the turn completed.
+      const terminal = piTerminalNotice(message);
+      ending = terminal
+        ? { seq: entry.id, turnId, createdAtMs: message.timestamp, kind: "turn", phase: terminal.phase, notice: terminal.notice }
+        : undefined;
     } else if (entry.kind === "pi.tool-result" && message.role === "toolResult") {
       records.push({ ...base, role: "toolResult", hidden: false, payload: message as unknown as Record<string, unknown> });
     }
   }
-  return { records, messages: journalRecordsToMessageRecords(records), turn, turns };
+  if (ending) records.push(ending);
+  return {
+    records,
+    messages: journalRecordsToMessageRecords(records),
+    turn,
+    turns,
+    rootId: state.entries[0]?.conversationId ?? null,
+  };
 };
 
 /** This computer's pi turn as the journal holds it. */
@@ -282,7 +291,7 @@ export const piStreamingOverlay = (
 export const piAgentActivityEvents = (records: readonly DesktopThreadActivityRecord[]): EventRecord[] => {
   const events: EventRecord[] = [];
   for (const record of records) {
-    if (record.source !== "stella") continue;
+    if (record.source !== "stella" || !record.pi) continue;
     const identity = { agentId: record.threadId, attemptGeneration: record.attemptGeneration ?? 1 };
     events.push({
       _id: `pi:${record.threadId}:started`,
@@ -310,19 +319,68 @@ export const piAgentActivityEvents = (records: readonly DesktopThreadActivityRec
   return events.sort((a, b) => a.timestamp - b.timestamp || (a._id < b._id ? -1 : 1));
 };
 
+
+/** The pi entry a projected row came from: its user entry, or the entry its id ends with. */
+const rowEntryId = (message: MessageRecord, turns: ReadonlyMap<string, PiTurnIndex>): number | undefined => {
+  if (message.type === "user_message") return turns.get(message._id)?.entryId;
+  const tail = /:(\d+)$/.exec(message._id)?.[1];
+  return tail ? Number(tail) : undefined;
+};
+
 /**
- * Stella's replies that link files, in the event shape the Files panel reads
- * (the panel takes the links from the text). Agents' results come with
- * their lifecycle (`piAgentActivityEvents`).
+ * A conversation kept on this computer shows its chat log for every engine:
+ * the agent loops write Claude Code's turns there, and pi writes each of its
+ * rows there as it lands (the user's message under the id the composer gave
+ * it, the rest as `pi:<conversation>:<transcript>:<entry>`). What pi has
+ * that the log does not hold yet shows from pi until it does. Turns older
+ * than the log's loaded window stay out (`sinceMs`).
  */
-export const piReplyFileEvents = (entries: readonly PiEntry[]): EventRecord[] => {
-  const events: EventRecord[] = [];
-  for (const entry of entries) {
-    const message = entry.model?.[0];
-    if (entry.kind !== "pi.assistant" || message?.role !== "assistant" || message.stella?.hidden) continue;
-    const text = piMessageText(message);
-    if (!text.includes("](")) continue;
-    events.push({ _id: `pi:${entry.id}`, timestamp: message.timestamp, type: "assistant_message", payload: { text } });
+export const piPendingLogRows = (args: {
+  projection: PiChatProjection;
+  log: readonly MessageRecord[];
+  conversationId: string;
+  sinceMs: number | null;
+}): PiPendingRows => {
+  const { projection, log, conversationId, sinceMs } = args;
+  if (projection.messages.length === 0) return NO_PENDING_ROWS;
+  const prefix = `pi:${conversationId}:${projection.rootId ?? ""}:`;
+  const written = new Set<number>();
+  const logIds = new Set<string>();
+  const note = (id: string) => {
+    logIds.add(id);
+    if (!id.startsWith(prefix)) return;
+    const entryId = /^(\d+)/.exec(id.slice(prefix.length))?.[1];
+    if (entryId) written.add(Number(entryId));
+  };
+  for (const message of log) {
+    note(message._id);
+    for (const event of message.toolEvents) note(event._id);
   }
-  return events;
+  const turns = new Map(projection.turns.map((turn) => [turn.userMessageId, turn]));
+  const journalUserIds = new Map<string, string>();
+  const messages: MessageRecord[] = [];
+  for (const message of projection.messages) {
+    const owner =
+      message.type === "user_message"
+        ? message._id
+        : typeof message.payload?.userMessageId === "string"
+          ? message.payload.userMessageId
+          : undefined;
+    const turn = owner ? turns.get(owner) : undefined;
+    if (owner && (!turn || !turn.own)) continue;
+    if (turn && sinceMs !== null && turn.timestamp < sinceMs) continue;
+    if (!turn && sinceMs !== null) continue;
+    const entryId = rowEntryId(message, turns);
+    if (entryId === undefined || written.has(entryId) || logIds.has(message._id)) continue;
+    // A turn sent before the composer's id rode along has its user row under pi's own id.
+    const logUserId = turn && !logIds.has(turn.userMessageId) ? `${prefix}${turn.entryId}` : undefined;
+    if (turn && logUserId && logIds.has(logUserId)) {
+      journalUserIds.set(turn.userMessageId, logUserId);
+      if (message.type === "user_message") continue;
+      messages.push({ ...message, payload: { ...message.payload, userMessageId: logUserId } });
+      continue;
+    }
+    messages.push(message);
+  }
+  return messages.length === 0 && journalUserIds.size === 0 ? NO_PENDING_ROWS : { messages, journalUserIds };
 };

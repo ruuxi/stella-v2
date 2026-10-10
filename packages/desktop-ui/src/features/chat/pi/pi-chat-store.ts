@@ -11,12 +11,10 @@ import type { LocalChatAgentReport } from "@stella/contracts/local-chat";
 import type { DesktopThreadActivityRecord } from "@/features/chat/thread-activity-types";
 import {
   emptyPiChat,
-  mergePiEntries,
   reducePiChat,
   type PiChatAgentsResult,
   type PiChatEvent,
   type PiChatEventsPayload,
-  type PiChatOlderResult,
   type PiChatPlacedResult,
   type PiChatSend,
   type PiChatState,
@@ -29,10 +27,6 @@ type Watched = {
   listeners: Set<() => void>;
   /** Batches that arrived while the snapshot was on its way. */
   held?: PiChatEvent[][];
-  loading: boolean;
-  loadingOlder: boolean;
-  /** Its snapshot for the current watch has been applied: the state is current, not left from an earlier watch. */
-  synced: boolean;
 };
 
 const EMPTY: PiChatState = emptyPiChat();
@@ -40,6 +34,9 @@ const watched = new Map<string, Watched>();
 let unsubscribeEvents: (() => void) | undefined;
 
 const api = () => (typeof window === "undefined" ? undefined : window.electronAPI?.piChat);
+
+/** Whether this runtime has pi-durable at all, whatever the engine. */
+export const piChatAvailable = (): boolean => api() !== undefined;
 
 /** Whether the desktop chat runs on pi-durable now; the user's engine can move it. */
 export const piChatEnabled = (): boolean => api()?.isEnabled() === true;
@@ -55,7 +52,7 @@ const publish = (entry: Watched) => {
 const entryFor = (conversationId: string): Watched => {
   let entry = watched.get(conversationId);
   if (!entry) {
-    entry = { state: EMPTY, watchers: 0, listeners: new Set(), loading: false, loadingOlder: false, synced: false };
+    entry = { state: EMPTY, watchers: 0, listeners: new Set() };
     watched.set(conversationId, entry);
   }
   return entry;
@@ -66,24 +63,17 @@ const attach = (conversationId: string, entry: Watched) => {
   const chat = api();
   if (!chat) return;
   entry.held = [];
-  entry.loading = true;
-  entry.synced = false;
-  publish(entry);
   void chat.request({ op: "watch", conversationId }).then(
     (result) => {
       const { snapshot, hasOlder, remote } = result as PiChatWatchResult;
       let state = reducePiChat({ ...entry.state, hasOlder, remote: remote ?? [] }, [snapshot]);
       for (const events of entry.held ?? []) state = reducePiChat(state, events);
       entry.held = undefined;
-      entry.loading = false;
-      entry.synced = true;
       entry.state = state;
       publish(entry);
     },
     (error: unknown) => {
       entry.held = undefined;
-      entry.loading = false;
-      entry.synced = true;
       entry.state = { ...entry.state, failure: error instanceof Error ? error.message : String(error) };
       publish(entry);
     },
@@ -131,7 +121,6 @@ export const watchPiChat = (conversationId: string): (() => void) => {
   return () => {
     entry.watchers -= 1;
     if (entry.watchers > 0) return;
-    entry.synced = false;
     void chat.request({ op: "unwatch", conversationId }).catch(() => undefined);
   };
 };
@@ -146,36 +135,6 @@ export const subscribePiChat = (conversationId: string, listener: () => void): (
 
 export const piChatSnapshot = (conversationId: string | null): PiChatState =>
   (conversationId ? watched.get(conversationId)?.state : undefined) ?? EMPTY;
-
-export const piChatLoading = (conversationId: string | null) => {
-  const entry = conversationId ? watched.get(conversationId) : undefined;
-  return {
-    loading: entry?.loading ?? false,
-    loadingOlder: entry?.loadingOlder ?? false,
-    synced: (entry?.watchers ?? 0) > 0 && entry?.synced === true,
-  };
-};
-
-/** The next older page of the transcript. */
-export const loadOlderPiChat = async (conversationId: string): Promise<void> => {
-  const chat = api();
-  const entry = watched.get(conversationId);
-  const first = entry?.state.entries[0];
-  if (!chat || !entry || !first || !entry.state.hasOlder || entry.loadingOlder) return;
-  entry.loadingOlder = true;
-  publish(entry);
-  try {
-    const { entries, hasOlder } = (await chat.request({
-      op: "older",
-      conversationId,
-      beforeEntryId: first.id,
-    })) as PiChatOlderResult;
-    entry.state = { ...entry.state, entries: mergePiEntries(entries, entry.state.entries), hasOlder };
-  } finally {
-    entry.loadingOlder = false;
-    publish(entry);
-  }
-};
 
 /** Send a message; one the user pointed elsewhere comes back placed there. */
 export const submitPiChat = async (
@@ -216,6 +175,7 @@ export const piChatAgents = async (conversationId: string): Promise<DesktopThrea
     const latest = agent.assistantMessages[agent.assistantMessages.length - 1];
     return {
       source: "stella",
+      pi: true,
       threadId: agent.threadId,
       conversationId,
       agentType: "general",

@@ -83,7 +83,7 @@ type LocalAgentStreamOptions = {
 type StreamingAssistantsUpdate =
   | StreamingAssistantOverlay[]
   | ((current: StreamingAssistantOverlay[]) => StreamingAssistantOverlay[]);
-import { piChatEnabled, submitPiChat } from "@/features/chat/pi/pi-chat-store";
+import { abortPiChat, piChatEnabled, submitPiChat } from "@/features/chat/pi/pi-chat-store";
 export function useLocalAgentStream({
   activeConversationId,
   storageMode,
@@ -501,11 +501,15 @@ export function useLocalAgentStream({
     [startStream],
   );
   const cancelCurrentStream = useCallback(() => {
-    if (!activeRunId || !window.electronAPI?.agent.cancelChat) {
+    if (activeRunId && window.electronAPI?.agent.cancelChat) {
+      window.electronAPI.agent.cancelChat(activeRunId);
       return;
     }
-    window.electronAPI.agent.cancelChat(activeRunId);
-  }, [activeRunId]);
+    // No run here yet (the send is still being placed) or any more (it was
+    // handed to the cloud): the runtime stops what it placed for the
+    // conversation, by its exact dispatch.
+    if (activeConversationId) abortPiChat(activeConversationId);
+  }, [activeConversationId, activeRunId]);
 
   // Only lifecycle/status decoration for this conversation invalidates the
   // shell task projection. Live reasoning remains in the per-agent store.

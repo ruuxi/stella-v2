@@ -69,7 +69,11 @@ import { removeGeneratedMediaItem } from "@/shell/display/payload-to-tab-spec";
 import { bucketByRecency } from "@/shared/lib/recency-buckets";
 import { ChevronRight, Eye, LayoutList, Search, X } from "@/ui/icons";
 import { DeferredDisplayContent } from "./DeferredDisplayContent";
-import { isPayloadFileMissing, restorablePayloadFor } from "./file-tab-restore";
+import {
+  payloadFileUnavailableMessage,
+  restorablePayloadFor,
+  unrestorableFileMessage,
+} from "./file-tab-restore";
 import "./files-section.css";
 /**
  * Keep the Work panel cheap to open even after a long-running conversation.
@@ -573,7 +577,7 @@ export function WorkList({ section = "files", idleContent = null }) {
     </div>
   );
 }
-function UnavailableFile({ name, kind }) {
+function UnavailableFile({ name, kind, message }) {
   return (
     <div className="sidebar-section__empty files-unavailable" role="status">
       <span className="sidebar-section__empty-icon" aria-hidden="true">
@@ -583,9 +587,7 @@ function UnavailableFile({ name, kind }) {
       <p className="sidebar-section__empty-body files-unavailable__name" title={name}>
         {name}
       </p>
-      <p className="sidebar-section__empty-body">
-        It may have been moved or deleted.
-      </p>
+      <p className="sidebar-section__empty-body">{message}</p>
       <button
         type="button"
         className="pill-btn"
@@ -626,14 +628,18 @@ export function FilesSection({ tabId, location = null, active = false }) {
       .tabs.find((item) => item.id === tabId);
     const payload = tab ? restorablePayloadFor(tab) : null;
     if (!payload) {
-      sidebarSections.markFileUnavailable(tabId, location);
+      sidebarSections.markFileUnavailable(
+        tabId,
+        location,
+        unrestorableFileMessage(location),
+      );
       return;
     }
     let cancelled = false;
-    void isPayloadFileMissing(payload).then((missing) => {
+    void payloadFileUnavailableMessage(payload).then((message) => {
       if (cancelled) return;
-      if (missing) {
-        sidebarSections.markFileUnavailable(tabId, location);
+      if (message) {
+        sidebarSections.markFileUnavailable(tabId, location, message);
         return;
       }
       const openedId = openDisplayPayloadTab(payload, { activate: false });
@@ -659,6 +665,7 @@ export function FilesSection({ tabId, location = null, active = false }) {
           <UnavailableFile
             name={sidebarTab?.file?.title || fileNameFromDisplayTabId(location)}
             kind={sidebarTab?.file?.kind ?? "text"}
+            message={unavailable}
           />
         ) : (
           <div className="sidebar-section__viewer-body" aria-busy="true" />

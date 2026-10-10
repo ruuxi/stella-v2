@@ -317,10 +317,17 @@ if (snapshot.activeTabId === null) {
 
 const listeners = new Set<Listener>();
 
-let unavailableFileTabs: ReadonlyMap<string, string> = new Map();
+type UnavailableFileTab = {
+  location: string;
+  message: string;
+};
+
+let unavailableFileTabs: ReadonlyMap<string, UnavailableFileTab> = new Map();
 const unavailableListeners = new Set<Listener>();
 
-const setUnavailableFileTabs = (next: ReadonlyMap<string, string>): void => {
+const setUnavailableFileTabs = (
+  next: ReadonlyMap<string, UnavailableFileTab>,
+): void => {
   unavailableFileTabs = next;
   for (const listener of unavailableListeners) listener();
 };
@@ -328,7 +335,7 @@ const setUnavailableFileTabs = (next: ReadonlyMap<string, string>): void => {
 const isFileTabUnavailable = (tab: SidebarTab): boolean =>
   tab.kind === "files" &&
   tab.location !== null &&
-  unavailableFileTabs.get(tab.id) === tab.location;
+  unavailableFileTabs.get(tab.id)?.location === tab.location;
 
 const persist = (next: SidebarSectionsSnapshot): void => {
   if (typeof window === "undefined") return;
@@ -548,10 +555,15 @@ export const sidebarSections = {
     });
   },
 
-  markFileUnavailable(tabId: string, location: string): void {
-    if (unavailableFileTabs.get(tabId) === location) return;
+  markFileUnavailable(
+    tabId: string,
+    location: string,
+    message: string,
+  ): void {
+    const current = unavailableFileTabs.get(tabId);
+    if (current?.location === location && current.message === message) return;
     const next = new Map(unavailableFileTabs);
-    next.set(tabId, location);
+    next.set(tabId, { location, message });
     setUnavailableFileTabs(next);
   },
 
@@ -560,7 +572,7 @@ export const sidebarSections = {
     return () => unavailableListeners.delete(listener);
   },
 
-  getUnavailableSnapshot(): ReadonlyMap<string, string> {
+  getUnavailableSnapshot(): ReadonlyMap<string, UnavailableFileTab> {
     return unavailableFileTabs;
   },
 
@@ -578,14 +590,15 @@ export const sidebarSections = {
 export const useSidebarFileUnavailable = (
   tabId: string | undefined,
   location: string | null,
-): boolean =>
+): string | null =>
   useSyncExternalStore(
     sidebarSections.subscribeUnavailable,
-    () =>
-      tabId !== undefined &&
-      location !== null &&
-      sidebarSections.getUnavailableSnapshot().get(tabId) === location,
-    () => false,
+    () => {
+      if (tabId === undefined || location === null) return null;
+      const entry = sidebarSections.getUnavailableSnapshot().get(tabId);
+      return entry?.location === location ? entry.message : null;
+    },
+    () => null,
   );
 
 export const useSidebarTab = (tabId: string | undefined): SidebarTab | null =>

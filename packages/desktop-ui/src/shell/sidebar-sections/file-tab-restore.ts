@@ -2,9 +2,16 @@ import {
   normalizeDisplayPayload,
   type DisplayTabPayload,
 } from "@stella/contracts/desktop/display-payload";
+import {
+  deviceFileUnavailableMessage,
+  type DeviceFileNoun,
+} from "@stella/contracts/device-files";
 import { getFileEntries } from "@/features/workspace-display/files-index";
 import { isFilesPayload } from "@/features/workspace-display/payload-kind";
-import type { SidebarTab } from "@/features/workspace-display/sidebar-sections";
+import {
+  fileNameFromDisplayTabId,
+  type SidebarTab,
+} from "@/features/workspace-display/sidebar-sections";
 
 export const restorablePayloadFor = (
   tab: SidebarTab,
@@ -47,16 +54,30 @@ const localPathFor = (payload: DisplayTabPayload): string | null => {
   }
 };
 
-export const isPayloadFileMissing = async (
+const nounFor = (payload: DisplayTabPayload): DeviceFileNoun => {
+  if (payload.kind !== "media") return "file";
+  if (payload.asset.kind === "video") return "video";
+  if (payload.asset.kind === "audio") return "audio file";
+  return "file";
+};
+
+export const unrestorableFileMessage = (location: string): string =>
+  deviceFileUnavailableMessage(null, fileNameFromDisplayTabId(location));
+
+export const payloadFileUnavailableMessage = async (
   payload: DisplayTabPayload,
-): Promise<boolean> => {
+): Promise<string | null> => {
   const filePath = localPathFor(payload);
-  const readFile = window.electronAPI?.display?.readFile;
-  if (!filePath || typeof readFile !== "function") return false;
-  try {
-    const result = await readFile(filePath, { maxBytes: 1 });
-    return result.missing === true;
-  } catch {
-    return false;
+  const describe = window.electronAPI?.display?.mediaSource;
+  if (!filePath || typeof describe !== "function") return null;
+  const source = await describe(filePath).catch(() => null);
+  if (
+    !source ||
+    source.kind === "local" ||
+    source.kind === "drive" ||
+    source.kind === "unreachable"
+  ) {
+    return null;
   }
+  return deviceFileUnavailableMessage(source, filePath, nounFor(payload));
 };

@@ -73,6 +73,8 @@ export type DesktopBrain = {
   set(host: PiBrainHost): Promise<PiBrainRecord>;
   /** Carry on at `host` with Stella's brief, as a chat placed there. */
   handOff(host: PiBrainHost, brief: string): Promise<void>;
+  /** What Stella reads hidden (an agent's report or note), placed at `host`, where she runs; once per `id`. */
+  note(host: PiBrainHost, note: { id: string; text: string }): Promise<void>;
 };
 
 export type ToolResultContent = (TextContent | ImageContent)[];

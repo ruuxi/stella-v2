@@ -10,10 +10,11 @@
  * exactly that host takes the conversation's turns:
  *
  * - `cloud`: the object runs every turn. A computer sends its user's
- *   messages there as placed chats, and its own harness only imports.
+ *   messages there as placed chats, and what its agents tell Stella (their
+ *   reports and notes) as hidden ones; its own harness only imports.
  * - `device`: that computer runs every turn. The object places a message
  *   sent to it (from the phone) on that computer, and another computer
- *   places its user's messages there too.
+ *   places its user's messages and its agents' reports there too.
  *
  * No record is the old way: each sender's host answers its own messages.
  * A move is refused while the host that has the brain still runs agents,

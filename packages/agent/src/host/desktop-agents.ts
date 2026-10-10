@@ -19,6 +19,9 @@ export function desktopAgentsHost(
     agentReported?: StellaAgentsHost["agentReported"];
     agentPaused?: StellaAgentsHost["agentPaused"];
     beginAgentRun?: StellaAgentsHost["beginAgentRun"];
+    /** Reports and notes for Stella, which go where she runs. */
+    deliverReport?: StellaAgentsHost["deliverReport"];
+    deliverNote?: StellaAgentsHost["deliverNote"];
     directory?: StellaAgentsHost["directory"];
     /** Where a conversation's tools can run away from this computer. */
     execution?: StellaAgentsHost["execution"];
@@ -28,6 +31,8 @@ export function desktopAgentsHost(
     ...(options.agentReported ? { agentReported: options.agentReported } : {}),
     ...(options.agentPaused ? { agentPaused: options.agentPaused } : {}),
     ...(options.beginAgentRun ? { beginAgentRun: options.beginAgentRun } : {}),
+    ...(options.deliverReport ? { deliverReport: options.deliverReport } : {}),
+    ...(options.deliverNote ? { deliverNote: options.deliverNote } : {}),
     ...(options.directory ? { directory: options.directory } : {}),
     ...(options.execution ? { execution: options.execution } : {}),
     rootPlacement: { kind: "local" },

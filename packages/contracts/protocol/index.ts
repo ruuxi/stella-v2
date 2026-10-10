@@ -119,6 +119,8 @@ export const METHOD_NAMES = {
   HOST_CONNECTOR_CONNECT_REQUEST: "host.connectorConnect.request",
   HOST_CONNECTOR_CONNECT_CANCEL: "host.connectorConnect.cancel",
   HOST_EXECUTION_DESTINATION_SWITCH: "host.executionDestination.switch",
+  /** A hidden note for a pi conversation's Stella where she runs elsewhere (`@stella/contracts/turn-plane/pi-brain`). */
+  HOST_PI_BRAIN_NOTE: "host.piBrain.note",
   HOST_BROWSER_EXTENSION_CONNECT_REQUEST:
     "host.browserExtensionConnect.request",
   HOST_COMPUTER_USE_APP_APPROVAL_REQUEST: "host.computerUseAppApproval.request",

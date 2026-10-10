@@ -723,6 +723,19 @@ const doctorReport = async (run) => {
   return report;
 };
 
+/**
+ * The run's protected-storage key, made once and kept beside the run (owner
+ * only), so a relaunch reads what the previous launch encrypted: the device
+ * signing key above all, which a new key would make unreadable.
+ */
+const runStorageKey = (runDir) => {
+  const file = path.join(runDir, "protected-storage.key");
+  if (existsSync(file)) return readFileSync(file, "utf8").trim();
+  const key = randomBytes(32).toString("base64url");
+  writeFileSync(file, key, { mode: 0o600 });
+  return key;
+};
+
 const startElectron = async (run, { minted, modelGateway, fakeMic, browserBridge }) => {
   const { runDir, dataDir, userDataDir, cdpPort, providerHomes } = run;
   process.stderr.write("Starting Electron...\n");
@@ -773,7 +786,7 @@ const startElectron = async (run, { minted, modelGateway, fakeMic, browserBridge
       STELLA_DATA_DIR: dataDir,
       STELLA_V2_DEV_DATA_DIR: dataDir,
       STELLA_DEV_HARNESS: "1",
-      STELLA_DEV_HARNESS_STORAGE_KEY: randomBytes(32).toString("base64url"),
+      STELLA_DEV_HARNESS_STORAGE_KEY: runStorageKey(runDir),
       ...(minted
         ? { STELLA_DEV_HARNESS_SESSION_TOKEN: minted.sessionToken }
         : {}),

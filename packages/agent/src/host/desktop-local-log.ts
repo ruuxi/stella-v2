@@ -285,11 +285,13 @@ export async function localLogMirror(args: {
   /** A `spawn_agent` call's description, by call id, for the task its result starts (often a later pass). */
   const spawned = new Map<string, string>();
   /**
-   * How a turn's Stop marker (`stopStella`: an empty stopped reply, written
-   * before the run is aborted) ends it: it waits for the run to end, and a
-   * reply after it means the run finished first, so the turn did not stop.
+   * Whether a reply that did not finish (failed or stopped) is how its turn
+   * ended: it waits for the run to end, and a reply after it in the same turn
+   * means the run went on (a retry after a failed request, a reply that
+   * finished after a Stop marker from `stopStella`), so only the turn's last
+   * reply says how it ended, as the journal and the transcript view say it.
    */
-  const stopMarkerEnding = (entryId: EntryId) =>
+  const unfinishedReplyEnding = (entryId: EntryId) =>
     harness.commit(async (tx): Promise<"pending" | "superseded" | "stands"> => {
       if ((await tx.doc(LiveDoc, root.id)).run !== undefined) return "pending";
       const later = await tx.scanEntries(
@@ -376,8 +378,7 @@ export async function localLogMirror(args: {
               });
             }
             const terminal = piTerminalNotice(message);
-            const ending =
-              terminal?.phase === "canceled" && message.content.length === 0 ? await stopMarkerEnding(entry.id) : "stands";
+            const ending = terminal ? await unfinishedReplyEnding(entry.id) : "stands";
             if (ending === "pending") {
               // Taken up again when the run ends (`run_end`).
               held = true;

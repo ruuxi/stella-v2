@@ -12,7 +12,14 @@ import { DisplayFileSourceContext } from "@/shared/hooks/display-file-source";
  * lives in `./media-tab/`.
  */
 
-import { lazy, Suspense, useContext, useEffect, useMemo, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import type { OfficePreviewRef } from "@stella/contracts/office-preview";
 import { useDisplayFileBytes } from "@/shared/hooks/use-display-file-data";
 import { useT } from "@/shared/i18n";
@@ -26,7 +33,11 @@ import {
   type SourceDiffBatch,
 } from "@/features/workspace-display/source-diff-batches";
 
-import { DIFF_PREVIEW_MAX_BYTES, type PreviewResult } from "./preview-parser";
+import {
+  DIFF_PREVIEW_MAX_BYTES,
+  MARKDOWN_PREVIEW_MAX_BYTES,
+  type PreviewResult,
+} from "./preview-parser";
 import { usePreviewParser } from "./use-preview-parser";
 import { usePreviewWindow } from "./use-preview-window";
 
@@ -192,8 +203,6 @@ export const OfficeFileTabContent = ({
     </div>
   );
 };
-
-const textDecoder = new TextDecoder("utf-8");
 
 const PreviewLimitNotice = () => {
   const t = useT();
@@ -365,9 +374,6 @@ export const PdfTabContent = ({
   </div>
 );
 
-const decodeTextBytes = (bytes: Uint8Array | null): string =>
-  bytes ? textDecoder.decode(bytes) : "";
-
 export const MarkdownTabContent = ({
   filePath,
   title,
@@ -376,14 +382,23 @@ export const MarkdownTabContent = ({
   title?: string;
 }) => {
   const t = useT();
-  const { bytes, error, loading } = useDisplayFileBytes(
+  const { bytes, error, loading, truncated } = useDisplayFileBytes(
     filePath,
     t("shell.display.markdown.desktopRequired"),
+    undefined,
+    undefined,
+    MARKDOWN_PREVIEW_MAX_BYTES,
   );
-  const markdown = useMemo(() => decodeTextBytes(bytes), [bytes]);
+  const request = useMemo(
+    () => (bytes ? { kind: "markdown" as const, bytes, truncated } : null),
+    [bytes, truncated],
+  );
+  const parsed = usePreviewParser(request);
+  const markdown = parsed?.result?.text ?? "";
   const { actionStatus, handleSave, handleCopy } = useFilePreviewActions({
     sourcePath: filePath,
-    copyText: markdown,
+    // A partial document is never put on the clipboard as if it were whole.
+    ...(parsed?.result && !parsed.result.limited ? { copyText: markdown } : {}),
     suggestedName: title ?? filePath.split(/[\\/]/).pop() ?? "document.md",
   });
 
@@ -412,13 +427,15 @@ export const MarkdownTabContent = ({
           </div>
         </header>
         <div className="display-markdown-viewer">
-          {error ? (
-            <div className="display-file-preview__error">{error}</div>
-          ) : loading ? (
+          {error || parsed?.error ? (
+            <div className="display-file-preview__error">
+              {error || parsed?.error}
+            </div>
+          ) : loading || (request && !parsed) ? (
             <div className="display-file-preview__empty">
               {t("shell.display.filePreview.loading")}
             </div>
-          ) : markdown.trim().length === 0 ? (
+          ) : markdown.length === 0 ? (
             <div className="display-file-preview__empty">
               {t("shell.display.markdown.noContent")}
             </div>
@@ -428,6 +445,7 @@ export const MarkdownTabContent = ({
             </Suspense>
           )}
         </div>
+        {parsed?.result?.limited && <PreviewLimitNotice />}
       </section>
     </div>
   );

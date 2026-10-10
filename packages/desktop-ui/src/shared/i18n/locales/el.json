@@ -1391,6 +1391,7 @@
         "enableFailedTitle": "Δεν ήταν δυνατή η ενεργοποίηση του υπολογιστή",
         "enableLabel": "Ενεργοποίηση του {name}",
         "enabling": "Ενεργοποίηση…",
+        "ownSignIn": "Το {name} χρησιμοποιεί τη δική του σύνδεση στο {engine}.",
         "pairingCode": "Χρήση κωδικού σύζευξης",
         "sectionLabel": "Πού δουλεύει η Stella",
         "statusAwaitingConsent": "Αναμονή για άδεια σε εκείνον τον υπολογιστή",

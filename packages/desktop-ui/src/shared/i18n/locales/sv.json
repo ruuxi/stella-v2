@@ -1391,6 +1391,7 @@
         "enableFailedTitle": "Kunde inte aktivera den datorn",
         "enableLabel": "Aktivera {name}",
         "enabling": "Aktiverar…",
+        "ownSignIn": "{name} använder sin egen {engine}-inloggning.",
         "pairingCode": "Använd en parkopplingskod",
         "sectionLabel": "Var Stella arbetar",
         "statusAwaitingConsent": "Väntar på tillåtelse på den datorn",

@@ -1391,6 +1391,7 @@
         "enableFailedTitle": "O bilgisayar etkinleştirilemedi",
         "enableLabel": "{name} bilgisayarını etkinleştir",
         "enabling": "Etkinleştiriliyor…",
+        "ownSignIn": "{name} kendi {engine} oturumunu kullanır.",
         "pairingCode": "Eşleştirme kodu kullan",
         "sectionLabel": "Stella nerede çalışıyor",
         "statusAwaitingConsent": "O bilgisayarda izin bekleniyor",

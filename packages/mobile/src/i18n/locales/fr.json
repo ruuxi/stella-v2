@@ -1401,6 +1401,7 @@
         "enableFailedTitle": "Impossible d'activer cet ordinateur",
         "enableLabel": "Activer {name}",
         "enabling": "Activation…",
+        "ownSignIn": "{name} utilise sa propre connexion à {engine}.",
         "pairingCode": "Utiliser un code d'association",
         "sectionLabel": "Où Stella travaille",
         "statusAwaitingConsent": "En attente d'autorisation sur cet ordinateur",

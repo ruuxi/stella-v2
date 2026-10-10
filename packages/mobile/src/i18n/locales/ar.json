@@ -1431,6 +1431,7 @@
         "enableFailedTitle": "تعذّر تفعيل ذلك الكمبيوتر",
         "enableLabel": "تفعيل {name}",
         "enabling": "جارٍ التفعيل…",
+        "ownSignIn": "يستخدم {name} تسجيل دخوله الخاص إلى {engine}.",
         "pairingCode": "استخدام رمز إقران",
         "sectionLabel": "مكان عمل Stella",
         "statusAwaitingConsent": "في انتظار الإذن على ذلك الكمبيوتر",

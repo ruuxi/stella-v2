@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Kunne ikke laste inn denne tråden",
+        "errorBody": "Lukk den og åpne den igjen om et øyeblikk."
       },
       "generatedImage": {
         "generating": "Genererer...",
@@ -1389,6 +1391,7 @@
         "enableFailedTitle": "Kunne ikke aktivere den datamaskinen",
         "enableLabel": "Aktiver {name}",
         "enabling": "Aktiverer…",
+        "ownSignIn": "{name} bruker sin egen {engine}-pålogging.",
         "pairingCode": "Bruk en tilkoblingskode",
         "sectionLabel": "Hvor Stella jobber",
         "statusAwaitingConsent": "Venter på tillatelse på den datamaskinen",
@@ -2485,7 +2488,9 @@
         "skipped": "Hoppet over",
         "undoing": "Angrer…",
         "upToDate": "Ingenting venter",
-        "waiting": "Venter"
+        "waiting": "Venter",
+        "upToDateTitle": "Du er oppdatert",
+        "upToDateBody": "Nye versjoner av Stella vises her."
       },
       "updating": "Oppdaterer…"
     },
@@ -2515,7 +2520,9 @@
       "noMatches": "Ingen tilkoblinger samsvarer med søket.",
       "searchLabel": "Søk i tilkoblinger",
       "searchPlaceholder": "Søk",
-      "title": "Tilkoblinger"
+      "title": "Tilkoblinger",
+      "noMatchesTitle": "Ingen treff",
+      "noMatchesBody": "Prøv et annet navn."
     },
     "display": {
       "agentThread": {
@@ -2569,11 +2576,19 @@
       },
       "canvasShare": {
         "copyLink": "Kopier lenke",
-        "empty": "Ingen aktive delinger ennå. Publiser et canvas for å få en offentlig lenke.",
+        "empty": "Ingen offentlige lerreter ennå. Gjør et lerret offentlig for å dele lenken.",
         "expires": "Utløper {date}",
         "links": "Lenker",
         "live": "Canvaset er live",
         "loadFailed": "Kunne ikke laste inn delingene dine.",
+        "makePrivate": "Gjør privat",
+        "makePublic": "Gjør offentlig",
+        "noLink": "Dette lerretet har ingen lenke ennå. Gjør det offentlig for å få en lenke alle kan åpne.",
+        "openInBrowser": "Åpne i nettleser",
+        "privateHint": "Bare du kan åpne denne lenken.",
+        "privateLink": "Privat lenke",
+        "public": "Offentlig",
+        "publicHint": "Alle med lenken kan se den.",
         "publicLink": "Offentlig canvas-lenke",
         "publishFailed": "Kunne ikke publisere dette canvaset. Prøv igjen.",
         "publishing": "Publiserer canvas…",
@@ -2585,8 +2600,12 @@
         "toasts": {
           "copyFailed": "Kunne ikke kopiere lenken",
           "linkCopied": "Delingslenke kopiert",
+          "madePrivate": "Lenken er nå privat",
+          "madePublic": "Lenken er nå offentlig",
+          "openFailed": "Kunne ikke åpne lenken",
           "revokeFailed": "Kunne ikke oppheve denne delingen",
-          "revoked": "Deling opphevet"
+          "revoked": "Deling opphevet",
+          "visibilityFailed": "Kunne ikke endre hvem som kan åpne denne lenken"
         },
         "untitled": "Canvas uten navn"
       },
@@ -2595,7 +2614,10 @@
         "codeChanges": "Kodeendringer",
         "desktopRequired": "Forhåndsvisning av kode krever Stella-skrivebordsappen.",
         "empty": "Ingen filendringer ennå. Når en agent endrer kode, vises endringene her.",
-        "noChanges": "Fant ingen endringer."
+        "noChanges": "Fant ingen endringer.",
+        "emptyTitle": "Ingen endringer ennå",
+        "emptyBody": "Når en agent redigerer kode, vises endringene her.",
+        "noChangesTitle": "Ingen endringer"
       },
       "filePreview": {
         "copy": "Kopier",
@@ -2631,7 +2653,10 @@
         "save": "Lagre",
         "saveFailed": "Kunne ikke lagre",
         "saved": "Lagret",
-        "zoom": "Zoom inn på bildet"
+        "zoom": "Zoom inn på bildet",
+        "imageUnavailable": "Bildet er ikke tilgjengelig",
+        "videoUnavailable": "Videoen er ikke tilgjengelig",
+        "audioUnavailable": "Lyden er ikke tilgjengelig"
       },
       "office": {
         "frameTitle": "{kind}-forhåndsvisning: {title}",
@@ -2657,7 +2682,11 @@
       },
       "preview": {
         "limited": "Begrenset forhåndsvisning. Lagre eller åpne originalfilen for å se alt innholdet.",
-        "unavailable": "Kunne ikke klargjøre denne forhåndsvisningen."
+        "unavailable": "Kunne ikke klargjøre denne forhåndsvisningen.",
+        "failedTitle": "Kan ikke vise forhåndsvisning",
+        "failedBody": "Prøv igjen, eller lagre filen for å åpne den et annet sted.",
+        "unavailableTitle": "Filen er ikke tilgjengelig",
+        "emptyTitle": "Denne filen er tom"
       },
       "spreadsheet": {
         "column": "Kolonne {index}",
@@ -2679,7 +2708,9 @@
         "pendingPurge": "Venter på sletting",
         "refresh": "Oppdater",
         "title": "Papirkurv",
-        "trashedAgo": "Kastet for {time} siden"
+        "trashedAgo": "Kastet for {time} siden",
+        "emptyTitle": "Papirkurven er tom",
+        "emptyBody": "Slettede ting blir liggende her i 24 timer."
       },
       "url": {
         "eyebrow": "Direkte forhåndsvisning",

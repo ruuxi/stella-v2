@@ -158,7 +158,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Impossibile caricare questo thread",
+        "errorBody": "Chiudilo e riaprilo tra un momento."
       },
       "generatedImage": {
         "generating": "Generazione...",
@@ -1399,6 +1401,7 @@
         "enableFailedTitle": "Impossibile abilitare quel computer",
         "enableLabel": "Abilita {name}",
         "enabling": "Abilitazione…",
+        "ownSignIn": "{name} usa il proprio accesso a {engine}.",
         "pairingCode": "Usa un codice di associazione",
         "sectionLabel": "Dove lavora Stella",
         "statusAwaitingConsent": "In attesa di autorizzazione su quel computer",
@@ -2497,7 +2500,9 @@
         "skipped": "Saltati",
         "undoing": "Annullamento…",
         "upToDate": "Niente in attesa",
-        "waiting": "In attesa"
+        "waiting": "In attesa",
+        "upToDateTitle": "Tutto aggiornato",
+        "upToDateBody": "Le nuove versioni di Stella compaiono qui."
       },
       "updating": "Aggiornamento…"
     },
@@ -2527,7 +2532,9 @@
       "noMatches": "Nessun connettore corrisponde a questa ricerca.",
       "searchLabel": "Cerca connettori",
       "searchPlaceholder": "Cerca",
-      "title": "Connettori"
+      "title": "Connettori",
+      "noMatchesTitle": "Nessun risultato",
+      "noMatchesBody": "Prova un altro nome."
     },
     "display": {
       "agentThread": {
@@ -2621,7 +2628,10 @@
         "codeChanges": "Modifiche al codice",
         "desktopRequired": "L'anteprima del codice richiede l'app Stella per computer.",
         "empty": "Ancora nessuna modifica ai file. Quando un agente modifica il codice, le modifiche compaiono qui.",
-        "noChanges": "Nessuna modifica trovata."
+        "noChanges": "Nessuna modifica trovata.",
+        "emptyTitle": "Ancora nessuna modifica",
+        "emptyBody": "Quando un agente modifica il codice, le modifiche compaiono qui.",
+        "noChangesTitle": "Nessuna modifica"
       },
       "filePreview": {
         "copy": "Copia",
@@ -2657,7 +2667,10 @@
         "save": "Salva",
         "saveFailed": "Impossibile salvare",
         "saved": "Salvato",
-        "zoom": "Ingrandisci immagine"
+        "zoom": "Ingrandisci immagine",
+        "imageUnavailable": "Immagine non disponibile",
+        "videoUnavailable": "Video non disponibile",
+        "audioUnavailable": "Audio non disponibile"
       },
       "office": {
         "frameTitle": "Anteprima {kind}: {title}",
@@ -2685,7 +2698,11 @@
       },
       "preview": {
         "limited": "Anteprima limitata. Salva o apri il file originale per vedere tutto il contenuto.",
-        "unavailable": "Impossibile preparare questa anteprima."
+        "unavailable": "Impossibile preparare questa anteprima.",
+        "failedTitle": "Impossibile mostrare un'anteprima",
+        "failedBody": "Riprova, oppure salva il file per aprirlo altrove.",
+        "unavailableTitle": "File non disponibile",
+        "emptyTitle": "Questo file è vuoto"
       },
       "spreadsheet": {
         "column": "Colonna {index}",
@@ -2708,7 +2725,9 @@
         "pendingPurge": "Eliminazione in attesa",
         "refresh": "Aggiorna",
         "title": "Cestino",
-        "trashedAgo": "Spostato nel cestino {time} fa"
+        "trashedAgo": "Spostato nel cestino {time} fa",
+        "emptyTitle": "Il cestino è vuoto",
+        "emptyBody": "Gli elementi eliminati restano qui per 24 ore."
       },
       "url": {
         "eyebrow": "Anteprima dal vivo",

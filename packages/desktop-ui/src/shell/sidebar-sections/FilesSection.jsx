@@ -68,6 +68,7 @@ import {
 import { removeGeneratedMediaItem } from "@/shell/display/payload-to-tab-spec";
 import { bucketByRecency } from "@/shared/lib/recency-buckets";
 import { ChevronRight, Eye, LayoutList, Search, X } from "@/ui/icons";
+import { EmptyState } from "@/ui/empty-state/EmptyState";
 import { DeferredDisplayContent } from "./DeferredDisplayContent";
 import {
   payloadFileUnavailableMessage,
@@ -482,29 +483,23 @@ export function WorkList({ section = "files", idleContent = null }) {
       {!query && idleContent ? (
         idleContent
       ) : items.length === 0 ? (
-        <div className="sidebar-section__empty">
-          <span className="sidebar-section__empty-icon" aria-hidden="true">
-            {query ? (
-              <Search size={17} strokeWidth={1.75} />
-            ) : (
-              <LayoutList size={17} strokeWidth={1.75} />
-            )}
-          </span>
-          <p className="sidebar-section__empty-title">
-            {query
-              ? searchingOlderActivity
-                ? "Searching…"
-                : "No matches"
-              : "Nothing here yet"}
-          </p>
-          <p className="sidebar-section__empty-body">
-            {query
-              ? searchingOlderActivity
-                ? "Looking through older agent activity."
-                : "No agents or files match that search."
-              : "Files you work on with Stella will show up here."}
-          </p>
-        </div>
+        query ? (
+          <EmptyState
+            motif="search"
+            title={searchingOlderActivity ? "Searching…" : "No matches"}
+            body={
+              searchingOlderActivity
+                ? "Looking through older activity."
+                : "Try a different word."
+            }
+          />
+        ) : (
+          <EmptyState
+            motif="files"
+            title="No files yet"
+            body="Files from Stella show up here."
+          />
+        )
       ) : (
         <div ref={scrollRef} className="sidebar-section__scroll">
           <ul className="files-list__items">
@@ -577,25 +572,19 @@ export function WorkList({ section = "files", idleContent = null }) {
     </div>
   );
 }
-function UnavailableFile({ name, kind, message }) {
+function UnavailableFile({ name, message }) {
   return (
-    <div className="sidebar-section__empty files-unavailable" role="status">
-      <span className="sidebar-section__empty-icon" aria-hidden="true">
-        <DisplayTabIcon kind={kind} size={17} />
-      </span>
-      <p className="sidebar-section__empty-title">File unavailable</p>
-      <p className="sidebar-section__empty-body files-unavailable__name" title={name}>
-        {name}
-      </p>
-      <p className="sidebar-section__empty-body">{message}</p>
-      <button
-        type="button"
-        className="pill-btn"
-        onClick={() => sidebarSections.clearLocation("files")}
-      >
-        Browse files
-      </button>
-    </div>
+    <EmptyState
+      motif="unavailable"
+      title="File unavailable"
+      detail={name}
+      body={message}
+      action={{
+        label: "Browse files",
+        icon: LayoutList,
+        onClick: () => sidebarSections.clearLocation("files"),
+      }}
+    />
   );
 }
 

@@ -163,7 +163,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Toto vlákno se nepodařilo načíst",
+        "errorBody": "Zavřete ho a za chvíli otevřete znovu."
       },
       "generatedImage": {
         "generating": "Generování...",
@@ -1409,6 +1411,7 @@
         "enableFailedTitle": "Počítač se nepodařilo povolit",
         "enableLabel": "Povolit {name}",
         "enabling": "Povolování…",
+        "ownSignIn": "{name} používá vlastní přihlášení do {engine}.",
         "pairingCode": "Použít párovací kód",
         "sectionLabel": "Kde Stella pracuje",
         "statusAwaitingConsent": "Čeká se na povolení na tom počítači",
@@ -2509,7 +2512,9 @@
         "skipped": "Přeskočené",
         "undoing": "Vracení…",
         "upToDate": "Nic nečeká",
-        "waiting": "Čeká"
+        "waiting": "Čeká",
+        "upToDateTitle": "Máte nejnovější verzi",
+        "upToDateBody": "Nové verze Stelly se zobrazí tady."
       },
       "updating": "Aktualizace…"
     },
@@ -2539,7 +2544,9 @@
       "noMatches": "Hledání neodpovídá žádnému konektoru.",
       "searchLabel": "Hledat konektory",
       "searchPlaceholder": "Hledat",
-      "title": "Konektory"
+      "title": "Konektory",
+      "noMatchesTitle": "Žádné shody",
+      "noMatchesBody": "Zkuste jiný název."
     },
     "display": {
       "agentThread": {
@@ -2635,7 +2642,10 @@
         "codeChanges": "Změny v kódu",
         "desktopRequired": "Náhled kódu vyžaduje desktopovou aplikaci Stella.",
         "empty": "Zatím žádné změny souborů. Až agent upraví kód, změny se objeví tady.",
-        "noChanges": "Nebyly nalezeny žádné změny."
+        "noChanges": "Nebyly nalezeny žádné změny.",
+        "emptyTitle": "Zatím žádné změny",
+        "emptyBody": "Když agent upraví kód, změny se zobrazí tady.",
+        "noChangesTitle": "Žádné změny"
       },
       "filePreview": {
         "copy": "Kopírovat",
@@ -2671,7 +2681,10 @@
         "save": "Uložit",
         "saveFailed": "Nepodařilo se uložit",
         "saved": "Uloženo",
-        "zoom": "Přiblížit obrázek"
+        "zoom": "Přiblížit obrázek",
+        "imageUnavailable": "Obrázek není dostupný",
+        "videoUnavailable": "Video není dostupné",
+        "audioUnavailable": "Zvuk není dostupný"
       },
       "office": {
         "frameTitle": "Náhled — {kind}: {title}",
@@ -2701,7 +2714,11 @@
       },
       "preview": {
         "limited": "Náhled je omezený. Uložte nebo otevřete původní soubor, abyste viděli celý obsah.",
-        "unavailable": "Tento náhled se nepodařilo připravit."
+        "unavailable": "Tento náhled se nepodařilo připravit.",
+        "failedTitle": "Náhled nelze zobrazit",
+        "failedBody": "Zkuste to znovu, nebo soubor uložte a otevřete jinde.",
+        "unavailableTitle": "Soubor není dostupný",
+        "emptyTitle": "Tento soubor je prázdný"
       },
       "spreadsheet": {
         "column": "Sloupec {index}",
@@ -2725,7 +2742,9 @@
         "pendingPurge": "Čeká na vymazání",
         "refresh": "Obnovit",
         "title": "Koš",
-        "trashedAgo": "Smazáno před {time}"
+        "trashedAgo": "Smazáno před {time}",
+        "emptyTitle": "Koš je prázdný",
+        "emptyBody": "Smazané položky tu zůstávají 24 hodin."
       },
       "url": {
         "eyebrow": "Živý náhled",

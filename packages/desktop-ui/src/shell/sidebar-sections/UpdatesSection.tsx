@@ -16,6 +16,8 @@ import {
   useAppSourceAction,
   useNow,
 } from "@/features/app-source/AppSourceCards";
+import { EmptyState } from "@/ui/empty-state/EmptyState";
+import { Check } from "@/ui/icons";
 import "./updates-section.css";
 
 /**
@@ -184,9 +186,19 @@ export function UpdatesSection() {
   const state = useAppSourceState();
   const api = appSourceApi();
   const { pending, run } = useAppSourceAction();
-  if (!state || !api) {
+  if (
+    !state ||
+    !api ||
+    (state.waiting.length === 0 &&
+      state.skipped.length === 0 &&
+      state.recent.length === 0)
+  ) {
     return (
-      <div className="sidebar-section__empty">{t("shell.appSource.updates.upToDate")}</div>
+      <EmptyState
+        motif="updates"
+        title={t("shell.appSource.updates.upToDateTitle")}
+        body={t("shell.appSource.updates.upToDateBody")}
+      />
     );
   }
   const blocked =
@@ -196,6 +208,7 @@ export function UpdatesSection() {
       <h2 className="updates-section__heading">{t("shell.appSource.updates.waiting")}</h2>
       {state.waiting.length === 0 ? (
         <div className="updates-section__quiet">
+          <Check size={14} strokeWidth={2} aria-hidden="true" />
           {t("shell.appSource.updates.upToDate")}
         </div>
       ) : (

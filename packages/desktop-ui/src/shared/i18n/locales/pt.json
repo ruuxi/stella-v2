@@ -158,7 +158,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Não foi possível carregar esta conversa",
+        "errorBody": "Feche e abra de novo em instantes."
       },
       "generatedImage": {
         "generating": "Gerando...",
@@ -1399,6 +1401,7 @@
         "enableFailedTitle": "Não foi possível ativar esse computador",
         "enableLabel": "Ativar {name}",
         "enabling": "A ativar…",
+        "ownSignIn": "{name} usa o próprio login do {engine}.",
         "pairingCode": "Usar um código de emparelhamento",
         "sectionLabel": "Onde a Stella trabalha",
         "statusAwaitingConsent": "À espera de permissão nesse computador",
@@ -2497,7 +2500,9 @@
         "skipped": "Ignoradas",
         "undoing": "Desfazendo…",
         "upToDate": "Nada aguardando",
-        "waiting": "Aguardando"
+        "waiting": "Aguardando",
+        "upToDateTitle": "Tudo atualizado",
+        "upToDateBody": "Novas versões da Stella aparecem aqui."
       },
       "updating": "Atualizando…"
     },
@@ -2527,7 +2532,9 @@
       "noMatches": "Nenhum conector corresponde a essa pesquisa.",
       "searchLabel": "Pesquisar conectores",
       "searchPlaceholder": "Pesquisar",
-      "title": "Conectores"
+      "title": "Conectores",
+      "noMatchesTitle": "Nenhum resultado",
+      "noMatchesBody": "Tente outro nome."
     },
     "display": {
       "agentThread": {
@@ -2621,7 +2628,10 @@
         "codeChanges": "Alterações de código",
         "desktopRequired": "A prévia de código exige o app da Stella para computador.",
         "empty": "Ainda não há alterações em arquivos. Quando um agente editar código, as alterações aparecem aqui.",
-        "noChanges": "Nenhuma alteração encontrada."
+        "noChanges": "Nenhuma alteração encontrada.",
+        "emptyTitle": "Nenhuma alteração ainda",
+        "emptyBody": "Quando um agente edita código, as alterações aparecem aqui.",
+        "noChangesTitle": "Nenhuma alteração"
       },
       "filePreview": {
         "copy": "Copiar",
@@ -2657,7 +2667,10 @@
         "save": "Salvar",
         "saveFailed": "Não foi possível salvar",
         "saved": "Salvo",
-        "zoom": "Ampliar imagem"
+        "zoom": "Ampliar imagem",
+        "imageUnavailable": "Imagem indisponível",
+        "videoUnavailable": "Vídeo indisponível",
+        "audioUnavailable": "Áudio indisponível"
       },
       "office": {
         "frameTitle": "Prévia de {kind}: {title}",
@@ -2685,7 +2698,11 @@
       },
       "preview": {
         "limited": "Pré-visualização limitada. Salve ou abra o arquivo original para ver todo o conteúdo.",
-        "unavailable": "Não foi possível preparar esta pré-visualização."
+        "unavailable": "Não foi possível preparar esta pré-visualização.",
+        "failedTitle": "Não é possível mostrar uma pré-visualização",
+        "failedBody": "Tente novamente ou salve o arquivo para abri-lo em outro lugar.",
+        "unavailableTitle": "Arquivo indisponível",
+        "emptyTitle": "Este arquivo está vazio"
       },
       "spreadsheet": {
         "column": "Coluna {index}",
@@ -2708,7 +2725,9 @@
         "pendingPurge": "Limpeza pendente",
         "refresh": "Atualizar",
         "title": "Lixeira",
-        "trashedAgo": "Enviado para a lixeira há {time}"
+        "trashedAgo": "Enviado para a lixeira há {time}",
+        "emptyTitle": "A lixeira está vazia",
+        "emptyBody": "Itens excluídos ficam aqui por 24 horas."
       },
       "url": {
         "eyebrow": "Prévia ao vivo",

@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Bu ileti dizisi yüklenemedi",
+        "errorBody": "Kapatıp birazdan yeniden açın."
       },
       "generatedImage": {
         "generating": "Oluşturuluyor...",
@@ -1389,6 +1391,7 @@
         "enableFailedTitle": "O bilgisayar etkinleştirilemedi",
         "enableLabel": "{name} bilgisayarını etkinleştir",
         "enabling": "Etkinleştiriliyor…",
+        "ownSignIn": "{name} kendi {engine} oturumunu kullanır.",
         "pairingCode": "Eşleştirme kodu kullan",
         "sectionLabel": "Stella nerede çalışıyor",
         "statusAwaitingConsent": "O bilgisayarda izin bekleniyor",
@@ -2485,7 +2488,9 @@
         "skipped": "Atlananlar",
         "undoing": "Geri alınıyor…",
         "upToDate": "Bekleyen bir şey yok",
-        "waiting": "Bekliyor"
+        "waiting": "Bekliyor",
+        "upToDateTitle": "Her şey güncel",
+        "upToDateBody": "Stella'nın yeni sürümleri burada görünür."
       },
       "updating": "Güncelleniyor…"
     },
@@ -2515,7 +2520,9 @@
       "noMatches": "Bu aramayla eşleşen bağlayıcı yok.",
       "searchLabel": "Bağlayıcılarda ara",
       "searchPlaceholder": "Ara",
-      "title": "Bağlayıcılar"
+      "title": "Bağlayıcılar",
+      "noMatchesTitle": "Eşleşme yok",
+      "noMatchesBody": "Başka bir ad deneyin."
     },
     "display": {
       "agentThread": {
@@ -2569,11 +2576,19 @@
       },
       "canvasShare": {
         "copyLink": "Bağlantıyı kopyala",
-        "empty": "Henüz etkin paylaşım yok. Herkese açık bağlantı almak için bir tuval yayımlayın.",
+        "empty": "Henüz herkese açık tuval yok. Bağlantısını paylaşmak için bir tuvali herkese açık yapın.",
         "expires": "{date} tarihinde sona erer",
         "links": "Bağlantılar",
         "live": "Tuval yayında",
         "loadFailed": "Paylaşımlarınız yüklenemedi.",
+        "makePrivate": "Gizli yap",
+        "makePublic": "Herkese açık yap",
+        "noLink": "Bu tuvalin henüz bir bağlantısı yok. Herkesin açabileceği bir bağlantı almak için herkese açık yapın.",
+        "openInBrowser": "Tarayıcıda aç",
+        "privateHint": "Bu bağlantıyı yalnızca siz açabilirsiniz.",
+        "privateLink": "Gizli bağlantı",
+        "public": "Herkese açık",
+        "publicHint": "Bağlantıya sahip olan herkes görüntüleyebilir.",
         "publicLink": "Herkese açık tuval bağlantısı",
         "publishFailed": "Bu tuval yayımlanamadı. Lütfen tekrar deneyin.",
         "publishing": "Tuval yayımlanıyor…",
@@ -2585,8 +2600,12 @@
         "toasts": {
           "copyFailed": "Bağlantı kopyalanamadı",
           "linkCopied": "Paylaşım bağlantısı kopyalandı",
+          "madePrivate": "Bağlantı artık gizli",
+          "madePublic": "Bağlantı artık herkese açık",
+          "openFailed": "Bağlantı açılamadı",
           "revokeFailed": "Bu paylaşım iptal edilemedi",
-          "revoked": "Paylaşım iptal edildi"
+          "revoked": "Paylaşım iptal edildi",
+          "visibilityFailed": "Bu bağlantıyı kimin açabileceği değiştirilemedi"
         },
         "untitled": "Adsız tuval"
       },
@@ -2595,7 +2614,10 @@
         "codeChanges": "Kod değişiklikleri",
         "desktopRequired": "Kod önizlemesi Stella masaüstü uygulamasını gerektirir.",
         "empty": "Henüz dosya değişikliği yok. Bir aracı kodu düzenlediğinde değişiklikler burada görünür.",
-        "noChanges": "Değişiklik bulunamadı."
+        "noChanges": "Değişiklik bulunamadı.",
+        "emptyTitle": "Henüz değişiklik yok",
+        "emptyBody": "Bir ajan kodu düzenlediğinde değişiklikler burada görünür.",
+        "noChangesTitle": "Değişiklik yok"
       },
       "filePreview": {
         "copy": "Kopyala",
@@ -2631,7 +2653,10 @@
         "save": "Kaydet",
         "saveFailed": "Kaydedilemedi",
         "saved": "Kaydedildi",
-        "zoom": "Resmi yakınlaştır"
+        "zoom": "Resmi yakınlaştır",
+        "imageUnavailable": "Görsel kullanılamıyor",
+        "videoUnavailable": "Video kullanılamıyor",
+        "audioUnavailable": "Ses kullanılamıyor"
       },
       "office": {
         "frameTitle": "{kind} önizlemesi: {title}",
@@ -2657,7 +2682,11 @@
       },
       "preview": {
         "limited": "Önizleme sınırlı. Tüm içeriği görmek için orijinal dosyayı kaydedin veya açın.",
-        "unavailable": "Bu önizleme hazırlanamadı."
+        "unavailable": "Bu önizleme hazırlanamadı.",
+        "failedTitle": "Önizleme gösterilemiyor",
+        "failedBody": "Tekrar deneyin veya dosyayı kaydedip başka bir yerde açın.",
+        "unavailableTitle": "Dosya kullanılamıyor",
+        "emptyTitle": "Bu dosya boş"
       },
       "spreadsheet": {
         "column": "Sütun {index}",
@@ -2679,7 +2708,9 @@
         "pendingPurge": "Temizlenmeyi bekliyor",
         "refresh": "Yenile",
         "title": "Çöp Kutusu",
-        "trashedAgo": "{time} önce çöpe atıldı"
+        "trashedAgo": "{time} önce çöpe atıldı",
+        "emptyTitle": "Çöp kutusu boş",
+        "emptyBody": "Silinenler 24 saat boyunca burada kalır."
       },
       "url": {
         "eyebrow": "Canlı önizleme",

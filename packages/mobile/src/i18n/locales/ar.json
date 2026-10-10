@@ -173,7 +173,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "تعذّر تحميل هذه المحادثة",
+        "errorBody": "أغلقها وافتحها مرة أخرى بعد لحظة."
       },
       "generatedImage": {
         "generating": "جارٍ التوليد...",
@@ -1429,6 +1431,7 @@
         "enableFailedTitle": "تعذّر تفعيل ذلك الكمبيوتر",
         "enableLabel": "تفعيل {name}",
         "enabling": "جارٍ التفعيل…",
+        "ownSignIn": "يستخدم {name} تسجيل دخوله الخاص إلى {engine}.",
         "pairingCode": "استخدام رمز إقران",
         "sectionLabel": "مكان عمل Stella",
         "statusAwaitingConsent": "في انتظار الإذن على ذلك الكمبيوتر",
@@ -2533,7 +2536,9 @@
         "skipped": "تم تخطيها",
         "undoing": "جارٍ التراجع…",
         "upToDate": "لا شيء بانتظارك",
-        "waiting": "بانتظارك"
+        "waiting": "بانتظارك",
+        "upToDateTitle": "كل شيء محدّث",
+        "upToDateBody": "تظهر الإصدارات الجديدة من Stella هنا."
       },
       "updating": "جارٍ التحديث…"
     },
@@ -2563,7 +2568,9 @@
       "noMatches": "لا توجد موصلات مطابقة لهذا البحث.",
       "searchLabel": "البحث في الموصلات",
       "searchPlaceholder": "بحث",
-      "title": "الموصلات"
+      "title": "الموصلات",
+      "noMatchesTitle": "لا توجد نتائج",
+      "noMatchesBody": "جرّب اسمًا مختلفًا."
     },
     "display": {
       "agentThread": {
@@ -2625,11 +2632,19 @@
       },
       "canvasShare": {
         "copyLink": "انسخ الرابط",
-        "empty": "لا مشاركات نشطة بعد. انشر لوحة للحصول على رابط عام.",
+        "empty": "لا توجد لوحات عامة بعد. اجعل لوحة عامة لمشاركة رابطها.",
         "expires": "تنتهي في {date}",
         "links": "الروابط",
         "live": "اللوحة منشورة",
         "loadFailed": "تعذّر تحميل مشاركاتك.",
+        "makePrivate": "اجعله خاصًا",
+        "makePublic": "اجعله عامًا",
+        "noLink": "لا يوجد رابط لهذه اللوحة بعد. اجعلها عامة للحصول على رابط يمكن لأي شخص فتحه.",
+        "openInBrowser": "افتح في المتصفح",
+        "privateHint": "أنت فقط من يمكنه فتح هذا الرابط.",
+        "privateLink": "رابط خاص",
+        "public": "عام",
+        "publicHint": "يمكن لأي شخص لديه الرابط العرض.",
         "publicLink": "رابط اللوحة العام",
         "publishFailed": "تعذّر نشر هذه اللوحة. حاول مرة أخرى.",
         "publishing": "جارٍ نشر اللوحة…",
@@ -2641,8 +2656,12 @@
         "toasts": {
           "copyFailed": "تعذّر نسخ الرابط",
           "linkCopied": "تم نسخ رابط المشاركة",
+          "madePrivate": "أصبح الرابط خاصًا الآن",
+          "madePublic": "أصبح الرابط عامًا الآن",
+          "openFailed": "تعذّر فتح الرابط",
           "revokeFailed": "تعذّر إلغاء هذه المشاركة",
-          "revoked": "أُلغيت المشاركة"
+          "revoked": "أُلغيت المشاركة",
+          "visibilityFailed": "تعذّر تغيير من يمكنه فتح هذا الرابط"
         },
         "untitled": "لوحة بلا عنوان"
       },
@@ -2651,7 +2670,10 @@
         "codeChanges": "تغييرات الكود",
         "desktopRequired": "تتطلب معاينة الكود تطبيق Stella لسطح المكتب.",
         "empty": "لا تغييرات في الملفات بعد. عندما يحرّر وكيل الكود، تظهر التغييرات هنا.",
-        "noChanges": "لم يتم العثور على تغييرات."
+        "noChanges": "لم يتم العثور على تغييرات.",
+        "emptyTitle": "لا توجد تغييرات بعد",
+        "emptyBody": "عندما يعدّل وكيل الشيفرة، تظهر التغييرات هنا.",
+        "noChangesTitle": "لا توجد تغييرات"
       },
       "filePreview": {
         "copy": "نسخ",
@@ -2687,7 +2709,10 @@
         "save": "حفظ",
         "saveFailed": "تعذّر الحفظ",
         "saved": "تم الحفظ",
-        "zoom": "تكبير الصورة"
+        "zoom": "تكبير الصورة",
+        "imageUnavailable": "الصورة غير متاحة",
+        "videoUnavailable": "الفيديو غير متاح",
+        "audioUnavailable": "الصوت غير متاح"
       },
       "office": {
         "frameTitle": "معاينة {kind}: {title}",
@@ -2721,7 +2746,11 @@
       },
       "preview": {
         "limited": "المعاينة محدودة. احفظ الملف الأصلي أو افتحه لعرض المحتوى كاملاً.",
-        "unavailable": "تعذّر تجهيز هذه المعاينة."
+        "unavailable": "تعذّر تجهيز هذه المعاينة.",
+        "failedTitle": "تعذّر عرض المعاينة",
+        "failedBody": "حاول مرة أخرى، أو احفظ الملف لفتحه في مكان آخر.",
+        "unavailableTitle": "الملف غير متاح",
+        "emptyTitle": "هذا الملف فارغ"
       },
       "spreadsheet": {
         "column": "العمود {index}",
@@ -2747,7 +2776,9 @@
         "pendingPurge": "في انتظار المسح",
         "refresh": "تحديث",
         "title": "المهملات",
-        "trashedAgo": "نُقل إلى المهملات قبل {time}"
+        "trashedAgo": "نُقل إلى المهملات قبل {time}",
+        "emptyTitle": "سلة المهملات فارغة",
+        "emptyBody": "تبقى العناصر المحذوفة هنا لمدة 24 ساعة."
       },
       "url": {
         "eyebrow": "معاينة مباشرة",

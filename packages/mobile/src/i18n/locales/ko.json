@@ -148,7 +148,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "이 스레드를 불러올 수 없어요",
+        "errorBody": "닫았다가 잠시 후 다시 여세요."
       },
       "generatedImage": {
         "generating": "생성 중...",
@@ -1379,6 +1381,7 @@
         "enableFailedTitle": "해당 컴퓨터를 사용 설정할 수 없습니다",
         "enableLabel": "{name} 사용 설정",
         "enabling": "사용 설정 중…",
+        "ownSignIn": "{name}은(는) 자체 {engine} 로그인을 사용합니다.",
         "pairingCode": "페어링 코드 사용",
         "sectionLabel": "Stella가 작업하는 곳",
         "statusAwaitingConsent": "해당 컴퓨터에서 허용을 기다리는 중",
@@ -2473,7 +2476,9 @@
         "skipped": "건너뜀",
         "undoing": "실행 취소 중…",
         "upToDate": "대기 중인 항목이 없습니다",
-        "waiting": "대기 중"
+        "waiting": "대기 중",
+        "upToDateTitle": "최신 상태예요",
+        "upToDateBody": "Stella의 새 버전이 여기에 표시돼요."
       },
       "updating": "업데이트 중…"
     },
@@ -2503,7 +2508,9 @@
       "noMatches": "검색과 일치하는 커넥터가 없습니다.",
       "searchLabel": "커넥터 검색",
       "searchPlaceholder": "검색",
-      "title": "커넥터"
+      "title": "커넥터",
+      "noMatchesTitle": "일치하는 항목 없음",
+      "noMatchesBody": "다른 이름으로 시도해 보세요."
     },
     "display": {
       "agentThread": {
@@ -2553,11 +2560,19 @@
       },
       "canvasShare": {
         "copyLink": "링크 복사",
-        "empty": "아직 활성 공유가 없습니다. 캔버스를 게시하면 공개 링크가 생깁니다.",
+        "empty": "아직 공개된 캔버스가 없습니다. 캔버스를 공개로 전환하면 링크를 공유할 수 있습니다.",
         "expires": "{date} 만료",
         "links": "링크",
         "live": "캔버스가 공개되었습니다",
         "loadFailed": "공유 목록을 불러오지 못했습니다.",
+        "makePrivate": "비공개로 전환",
+        "makePublic": "공개로 전환",
+        "noLink": "이 캔버스에는 아직 링크가 없습니다. 공개로 전환하면 누구나 열 수 있는 링크가 생깁니다.",
+        "openInBrowser": "브라우저에서 열기",
+        "privateHint": "이 링크는 나만 열 수 있습니다.",
+        "privateLink": "비공개 링크",
+        "public": "공개",
+        "publicHint": "링크가 있는 누구나 볼 수 있습니다.",
         "publicLink": "공개 캔버스 링크",
         "publishFailed": "이 캔버스를 게시하지 못했습니다. 다시 시도해 주세요.",
         "publishing": "캔버스 게시 중…",
@@ -2569,8 +2584,12 @@
         "toasts": {
           "copyFailed": "링크를 복사하지 못했습니다",
           "linkCopied": "공유 링크가 복사됨",
+          "madePrivate": "링크가 비공개로 전환되었습니다",
+          "madePublic": "링크가 공개로 전환되었습니다",
+          "openFailed": "링크를 열 수 없습니다",
           "revokeFailed": "이 공유를 취소하지 못했습니다",
-          "revoked": "공유가 취소됨"
+          "revoked": "공유가 취소됨",
+          "visibilityFailed": "이 링크를 열 수 있는 사람을 변경할 수 없습니다"
         },
         "untitled": "제목 없는 캔버스"
       },
@@ -2579,7 +2598,10 @@
         "codeChanges": "코드 변경 사항",
         "desktopRequired": "코드 미리보기에는 Stella 데스크탑 앱이 필요합니다.",
         "empty": "아직 파일 변경 사항이 없습니다. 에이전트가 코드를 편집하면 변경 사항이 여기에 표시됩니다.",
-        "noChanges": "변경 사항을 찾을 수 없습니다."
+        "noChanges": "변경 사항을 찾을 수 없습니다.",
+        "emptyTitle": "아직 변경 사항이 없어요",
+        "emptyBody": "에이전트가 코드를 수정하면 변경 사항이 여기에 표시돼요.",
+        "noChangesTitle": "변경 사항 없음"
       },
       "filePreview": {
         "copy": "복사",
@@ -2615,7 +2637,10 @@
         "save": "저장",
         "saveFailed": "저장할 수 없습니다",
         "saved": "저장됨",
-        "zoom": "이미지 확대"
+        "zoom": "이미지 확대",
+        "imageUnavailable": "이미지를 사용할 수 없어요",
+        "videoUnavailable": "동영상을 사용할 수 없어요",
+        "audioUnavailable": "오디오를 사용할 수 없어요"
       },
       "office": {
         "frameTitle": "{kind} 미리보기: {title}",
@@ -2639,7 +2664,11 @@
       },
       "preview": {
         "limited": "미리보기가 제한되었습니다. 전체 내용을 보려면 원본 파일을 저장하거나 여세요.",
-        "unavailable": "이 미리보기를 준비할 수 없습니다."
+        "unavailable": "이 미리보기를 준비할 수 없습니다.",
+        "failedTitle": "미리보기를 표시할 수 없어요",
+        "failedBody": "다시 시도하거나 파일을 저장해 다른 곳에서 여세요.",
+        "unavailableTitle": "파일을 사용할 수 없어요",
+        "emptyTitle": "이 파일은 비어 있어요"
       },
       "spreadsheet": {
         "column": "열 {index}",
@@ -2660,7 +2689,9 @@
         "pendingPurge": "완전 삭제 대기 중",
         "refresh": "새로 고침",
         "title": "휴지통",
-        "trashedAgo": "{time} 전에 삭제됨"
+        "trashedAgo": "{time} 전에 삭제됨",
+        "emptyTitle": "휴지통이 비어 있어요",
+        "emptyBody": "삭제한 항목은 24시간 동안 여기에 보관돼요."
       },
       "url": {
         "eyebrow": "실시간 미리보기",

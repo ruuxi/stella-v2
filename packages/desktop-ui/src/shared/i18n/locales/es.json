@@ -158,7 +158,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "No se pudo cargar este hilo",
+        "errorBody": "Ciérralo y vuelve a abrirlo en un momento."
       },
       "generatedImage": {
         "generating": "Generando...",
@@ -1399,6 +1401,7 @@
         "enableFailedTitle": "No se pudo activar ese ordenador",
         "enableLabel": "Activar {name}",
         "enabling": "Activando…",
+        "ownSignIn": "{name} usa su propio inicio de sesión de {engine}.",
         "pairingCode": "Usar un código de vinculación",
         "sectionLabel": "Dónde trabaja Stella",
         "statusAwaitingConsent": "Esperando permiso en ese ordenador",
@@ -2497,7 +2500,9 @@
         "skipped": "Omitidas",
         "undoing": "Deshaciendo…",
         "upToDate": "No hay nada pendiente",
-        "waiting": "Pendiente"
+        "waiting": "Pendiente",
+        "upToDateTitle": "Todo está al día",
+        "upToDateBody": "Las nuevas versiones de Stella aparecen aquí."
       },
       "updating": "Actualizando…"
     },
@@ -2527,7 +2532,9 @@
       "noMatches": "Ningún conector coincide con esa búsqueda.",
       "searchLabel": "Buscar conectores",
       "searchPlaceholder": "Buscar",
-      "title": "Conectores"
+      "title": "Conectores",
+      "noMatchesTitle": "Sin coincidencias",
+      "noMatchesBody": "Prueba con otro nombre."
     },
     "display": {
       "agentThread": {
@@ -2621,7 +2628,10 @@
         "codeChanges": "Cambios de código",
         "desktopRequired": "La vista previa de código requiere la app de escritorio de Stella.",
         "empty": "Aún no hay cambios en archivos. Cuando un agente edite código, los cambios aparecerán aquí.",
-        "noChanges": "No se han encontrado cambios."
+        "noChanges": "No se han encontrado cambios.",
+        "emptyTitle": "Aún no hay cambios",
+        "emptyBody": "Cuando un agente edita código, los cambios aparecen aquí.",
+        "noChangesTitle": "Sin cambios"
       },
       "filePreview": {
         "copy": "Copiar",
@@ -2657,7 +2667,10 @@
         "save": "Guardar",
         "saveFailed": "No se pudo guardar",
         "saved": "Guardado",
-        "zoom": "Ampliar imagen"
+        "zoom": "Ampliar imagen",
+        "imageUnavailable": "Imagen no disponible",
+        "videoUnavailable": "Vídeo no disponible",
+        "audioUnavailable": "Audio no disponible"
       },
       "office": {
         "frameTitle": "Vista previa de {kind}: {title}",
@@ -2685,7 +2698,11 @@
       },
       "preview": {
         "limited": "Vista previa limitada. Guarda o abre el archivo original para ver todo el contenido.",
-        "unavailable": "No se pudo preparar esta vista previa."
+        "unavailable": "No se pudo preparar esta vista previa.",
+        "failedTitle": "No se puede mostrar una vista previa",
+        "failedBody": "Inténtalo de nuevo o guarda el archivo para abrirlo en otro lugar.",
+        "unavailableTitle": "Archivo no disponible",
+        "emptyTitle": "Este archivo está vacío"
       },
       "spreadsheet": {
         "column": "Columna {index}",
@@ -2708,7 +2725,9 @@
         "pendingPurge": "Pendiente de purga",
         "refresh": "Actualizar",
         "title": "Papelera",
-        "trashedAgo": "Enviado a la papelera hace {time}"
+        "trashedAgo": "Enviado a la papelera hace {time}",
+        "emptyTitle": "La papelera está vacía",
+        "emptyBody": "Lo eliminado se queda aquí durante 24 horas."
       },
       "url": {
         "eyebrow": "Vista previa en vivo",

@@ -11,6 +11,7 @@ import { useFilePreviewActions } from "@/features/chat/hooks/use-file-preview-ac
 import { FilePreviewCardShell } from "./FilePreviewCardShell";
 import { useDisplayFileBytes } from "@/shared/hooks/use-display-file-data";
 import { useT } from "@/shared/i18n";
+import { PreviewBoundary, PreviewProblem } from "@/shell/display/preview-states";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import "./pdf-viewer-card.css";
@@ -35,16 +36,32 @@ type LoadStatus = "loading" | "ready" | "error";
 const RESIZE_DEBOUNCE_MS = 100;
 
 export function PdfViewerCard({ filePath, title }: PdfViewerCardProps) {
+  const [attempt, setAttempt] = useState(0);
   return (
-    <PdfViewerCardContent key={filePath} filePath={filePath} title={title} />
+    <PreviewBoundary key={filePath}>
+      <PdfViewerCardContent
+        key={attempt}
+        filePath={filePath}
+        title={title}
+        onRetry={() => setAttempt((value) => value + 1)}
+      />
+    </PreviewBoundary>
   );
 }
 
-function PdfViewerCardContent({ filePath, title }: PdfViewerCardProps) {
+function PdfViewerCardContent({
+  filePath,
+  title,
+  onRetry,
+}: PdfViewerCardProps & { onRetry: () => void }) {
   const t = useT();
   const [loadStatus, setLoadStatus] = useState<LoadStatus>("loading");
   const [loadErrorMessage, setLoadErrorMessage] = useState<string | null>(null);
-  const { bytes, error: fileError } = useDisplayFileBytes(
+  const {
+    bytes,
+    error: fileError,
+    missing: fileMissing,
+  } = useDisplayFileBytes(
     filePath,
     t("app.chat.pdfViewer.hostRequired"),
   );
@@ -179,9 +196,11 @@ function PdfViewerCardContent({ filePath, title }: PdfViewerCardProps) {
       onCopy={handleCopy}
     >
       {status === "error" ? (
-        <div className="file-preview-card__placeholder file-preview-card__placeholder--error pdf-viewer-card__placeholder">
-          {errorMessage ?? t("app.chat.pdfViewer.loadFailed")}
-        </div>
+        <PreviewProblem
+          error={errorMessage ?? t("app.chat.pdfViewer.loadFailed")}
+          missing={Boolean(fileError) && fileMissing}
+          {...(fileMissing ? {} : { onRetry })}
+        />
       ) : (
         <div ref={containerRef} className="pdf-viewer-card__scroll">
           {documentFile ? (

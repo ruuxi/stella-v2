@@ -148,7 +148,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Tidak bisa memuat utas ini",
+        "errorBody": "Tutup lalu buka lagi sebentar lagi."
       },
       "generatedImage": {
         "generating": "Membuat...",
@@ -1379,6 +1381,7 @@
         "enableFailedTitle": "Tidak dapat mengaktifkan komputer itu",
         "enableLabel": "Aktifkan {name}",
         "enabling": "Mengaktifkan…",
+        "ownSignIn": "{name} memakai login {engine} miliknya sendiri.",
         "pairingCode": "Gunakan kode pemasangan",
         "sectionLabel": "Tempat Stella bekerja",
         "statusAwaitingConsent": "Menunggu izin di komputer itu",
@@ -2473,7 +2476,9 @@
         "skipped": "Dilewati",
         "undoing": "Membatalkan…",
         "upToDate": "Tidak ada yang menunggu",
-        "waiting": "Menunggu"
+        "waiting": "Menunggu",
+        "upToDateTitle": "Semua sudah terbaru",
+        "upToDateBody": "Versi baru Stella muncul di sini."
       },
       "updating": "Memperbarui…"
     },
@@ -2503,7 +2508,9 @@
       "noMatches": "Tidak ada konektor yang cocok dengan pencarian itu.",
       "searchLabel": "Cari konektor",
       "searchPlaceholder": "Cari",
-      "title": "Konektor"
+      "title": "Konektor",
+      "noMatchesTitle": "Tidak ada yang cocok",
+      "noMatchesBody": "Coba nama lain."
     },
     "display": {
       "agentThread": {
@@ -2591,7 +2598,10 @@
         "codeChanges": "Perubahan kode",
         "desktopRequired": "Pratinjau kode memerlukan aplikasi desktop Stella.",
         "empty": "Belum ada perubahan berkas. Saat agen mengedit kode, perubahannya muncul di sini.",
-        "noChanges": "Tidak ada perubahan ditemukan."
+        "noChanges": "Tidak ada perubahan ditemukan.",
+        "emptyTitle": "Belum ada perubahan",
+        "emptyBody": "Saat agen mengedit kode, perubahannya muncul di sini.",
+        "noChangesTitle": "Tidak ada perubahan"
       },
       "filePreview": {
         "copy": "Salin",
@@ -2627,7 +2637,10 @@
         "save": "Simpan",
         "saveFailed": "Tidak dapat menyimpan",
         "saved": "Tersimpan",
-        "zoom": "Perbesar gambar"
+        "zoom": "Perbesar gambar",
+        "imageUnavailable": "Gambar tidak tersedia",
+        "videoUnavailable": "Video tidak tersedia",
+        "audioUnavailable": "Audio tidak tersedia"
       },
       "office": {
         "frameTitle": "Pratinjau {kind}: {title}",
@@ -2651,7 +2664,11 @@
       },
       "preview": {
         "limited": "Pratinjau terbatas. Simpan atau buka berkas asli untuk melihat seluruh isinya.",
-        "unavailable": "Tidak dapat menyiapkan pratinjau ini."
+        "unavailable": "Tidak dapat menyiapkan pratinjau ini.",
+        "failedTitle": "Tidak bisa menampilkan pratinjau",
+        "failedBody": "Coba lagi, atau simpan file untuk membukanya di tempat lain.",
+        "unavailableTitle": "File tidak tersedia",
+        "emptyTitle": "File ini kosong"
       },
       "spreadsheet": {
         "column": "Kolom {index}",
@@ -2672,7 +2689,9 @@
         "pendingPurge": "Menunggu pembersihan",
         "refresh": "Segarkan",
         "title": "Sampah",
-        "trashedAgo": "Dibuang {time} lalu"
+        "trashedAgo": "Dibuang {time} lalu",
+        "emptyTitle": "Sampah kosong",
+        "emptyBody": "Item yang dihapus tetap di sini selama 24 jam."
       },
       "url": {
         "eyebrow": "Pratinjau langsung",

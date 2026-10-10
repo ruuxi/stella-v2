@@ -148,7 +148,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Không thể tải chuỗi này",
+        "errorBody": "Hãy đóng lại và mở lại sau giây lát."
       },
       "generatedImage": {
         "generating": "Đang tạo...",
@@ -1379,6 +1381,7 @@
         "enableFailedTitle": "Không thể bật máy tính đó",
         "enableLabel": "Bật {name}",
         "enabling": "Đang bật…",
+        "ownSignIn": "{name} dùng thông tin đăng nhập {engine} riêng của nó.",
         "pairingCode": "Dùng mã ghép nối",
         "sectionLabel": "Nơi Stella làm việc",
         "statusAwaitingConsent": "Đang chờ cho phép trên máy tính đó",
@@ -2473,7 +2476,9 @@
         "skipped": "Đã bỏ qua",
         "undoing": "Đang hoàn tác…",
         "upToDate": "Không có gì đang chờ",
-        "waiting": "Đang chờ"
+        "waiting": "Đang chờ",
+        "upToDateTitle": "Bạn đang dùng bản mới nhất",
+        "upToDateBody": "Các phiên bản mới của Stella sẽ hiện ở đây."
       },
       "updating": "Đang cập nhật…"
     },
@@ -2503,7 +2508,9 @@
       "noMatches": "Không có trình kết nối nào khớp với tìm kiếm đó.",
       "searchLabel": "Tìm trình kết nối",
       "searchPlaceholder": "Tìm kiếm",
-      "title": "Trình kết nối"
+      "title": "Trình kết nối",
+      "noMatchesTitle": "Không có kết quả",
+      "noMatchesBody": "Hãy thử tên khác."
     },
     "display": {
       "agentThread": {
@@ -2553,11 +2560,19 @@
       },
       "canvasShare": {
         "copyLink": "Sao chép liên kết",
-        "empty": "Chưa có lượt chia sẻ nào đang hoạt động. Hãy đăng một canvas để có liên kết công khai.",
+        "empty": "Chưa có canvas công khai nào. Đặt một canvas công khai để chia sẻ liên kết của nó.",
         "expires": "Hết hạn {date}",
         "links": "Liên kết",
         "live": "Canvas đã hoạt động",
         "loadFailed": "Không tải được danh sách chia sẻ của bạn.",
+        "makePrivate": "Đặt riêng tư",
+        "makePublic": "Đặt công khai",
+        "noLink": "Canvas này chưa có liên kết. Đặt công khai để có liên kết mà ai cũng mở được.",
+        "openInBrowser": "Mở trong trình duyệt",
+        "privateHint": "Chỉ bạn mới mở được liên kết này.",
+        "privateLink": "Liên kết riêng tư",
+        "public": "Công khai",
+        "publicHint": "Bất kỳ ai có liên kết đều có thể xem.",
         "publicLink": "Liên kết canvas công khai",
         "publishFailed": "Không đăng được canvas này. Vui lòng thử lại.",
         "publishing": "Đang đăng canvas…",
@@ -2569,8 +2584,12 @@
         "toasts": {
           "copyFailed": "Không sao chép được liên kết",
           "linkCopied": "Đã sao chép liên kết chia sẻ",
+          "madePrivate": "Liên kết hiện là riêng tư",
+          "madePublic": "Liên kết hiện là công khai",
+          "openFailed": "Không thể mở liên kết",
           "revokeFailed": "Không thu hồi được lượt chia sẻ này",
-          "revoked": "Đã thu hồi chia sẻ"
+          "revoked": "Đã thu hồi chia sẻ",
+          "visibilityFailed": "Không thể thay đổi ai có thể mở liên kết này"
         },
         "untitled": "Canvas chưa đặt tên"
       },
@@ -2579,7 +2598,10 @@
         "codeChanges": "Thay đổi mã",
         "desktopRequired": "Xem trước mã cần ứng dụng Stella trên máy tính.",
         "empty": "Chưa có thay đổi tệp nào. Khi một tác nhân chỉnh sửa mã, các thay đổi sẽ xuất hiện ở đây.",
-        "noChanges": "Không tìm thấy thay đổi nào."
+        "noChanges": "Không tìm thấy thay đổi nào.",
+        "emptyTitle": "Chưa có thay đổi",
+        "emptyBody": "Khi một tác tử sửa mã, các thay đổi sẽ hiện ở đây.",
+        "noChangesTitle": "Không có thay đổi"
       },
       "filePreview": {
         "copy": "Sao chép",
@@ -2615,7 +2637,10 @@
         "save": "Lưu",
         "saveFailed": "Không thể lưu",
         "saved": "Đã lưu",
-        "zoom": "Phóng to hình ảnh"
+        "zoom": "Phóng to hình ảnh",
+        "imageUnavailable": "Hình ảnh không khả dụng",
+        "videoUnavailable": "Video không khả dụng",
+        "audioUnavailable": "Âm thanh không khả dụng"
       },
       "office": {
         "frameTitle": "Xem trước {kind}: {title}",
@@ -2639,7 +2664,11 @@
       },
       "preview": {
         "limited": "Bản xem trước bị giới hạn. Hãy lưu hoặc mở tệp gốc để xem toàn bộ nội dung.",
-        "unavailable": "Không thể chuẩn bị bản xem trước này."
+        "unavailable": "Không thể chuẩn bị bản xem trước này.",
+        "failedTitle": "Không thể hiển thị bản xem trước",
+        "failedBody": "Hãy thử lại, hoặc lưu tệp để mở ở nơi khác.",
+        "unavailableTitle": "Tệp không khả dụng",
+        "emptyTitle": "Tệp này trống"
       },
       "spreadsheet": {
         "column": "Cột {index}",
@@ -2660,7 +2689,9 @@
         "pendingPurge": "Chờ xóa vĩnh viễn",
         "refresh": "Làm mới",
         "title": "Thùng rác",
-        "trashedAgo": "Đã xóa {time} trước"
+        "trashedAgo": "Đã xóa {time} trước",
+        "emptyTitle": "Thùng rác trống",
+        "emptyBody": "Mục đã xóa được giữ ở đây trong 24 giờ."
       },
       "url": {
         "eyebrow": "Xem trước trực tiếp",

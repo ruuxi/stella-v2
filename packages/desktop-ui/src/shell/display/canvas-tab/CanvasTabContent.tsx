@@ -16,6 +16,7 @@ import { openExternalUrl } from "@/platform/electron/open-external";
 import { deviceFileMissingMessage } from "@stella/contracts/device-files";
 import { CanvasIllustration } from "../illustrations/CanvasIllustration";
 import { CanvasShareBar } from "./CanvasShareBar";
+import { PreviewProblem } from "../preview-states";
 import type { CanvasHtmlItem } from "./canvas-items";
 import { classifyCanvasNavigation } from "./canvas-navigation";
 import { useT } from "@/shared/i18n";
@@ -171,8 +172,8 @@ const CanvasHeroFrameDocument = ({ item, frame, error, loading, }: {
         return () => window.removeEventListener("message", handleMessage);
     }, []);
     if (error) {
-        return (<div className="canvas-tab__frame-state canvas-tab__frame-state--error" title={item.filePath}>
-        {error || t("shell.display.canvas.loadFailed")}
+        return (<div className="canvas-tab__frame-state" title={item.filePath}>
+        <PreviewProblem error={error || t("shell.display.canvas.loadFailed")}/>
       </div>);
     }
     if (loading || !frame) {

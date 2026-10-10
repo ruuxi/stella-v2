@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Dieser Thread konnte nicht geladen werden",
+        "errorBody": "Schließe ihn und öffne ihn gleich noch einmal."
       },
       "generatedImage": {
         "generating": "Wird erzeugt...",
@@ -1389,6 +1391,7 @@
         "enableFailedTitle": "Computer konnte nicht aktiviert werden",
         "enableLabel": "{name} aktivieren",
         "enabling": "Wird aktiviert…",
+        "ownSignIn": "{name} verwendet seine eigene {engine}-Anmeldung.",
         "pairingCode": "Kopplungscode verwenden",
         "sectionLabel": "Wo Stella arbeitet",
         "statusAwaitingConsent": "Warten auf Bestätigung an diesem Computer",
@@ -2485,7 +2488,9 @@
         "skipped": "Übersprungen",
         "undoing": "Wird rückgängig gemacht…",
         "upToDate": "Nichts wartet",
-        "waiting": "Wartet"
+        "waiting": "Wartet",
+        "upToDateTitle": "Alles ist aktuell",
+        "upToDateBody": "Neue Versionen von Stella erscheinen hier."
       },
       "updating": "Wird aktualisiert…"
     },
@@ -2515,7 +2520,9 @@
       "noMatches": "Keine Connectors passen zu dieser Suche.",
       "searchLabel": "Connectors durchsuchen",
       "searchPlaceholder": "Suchen",
-      "title": "Connectors"
+      "title": "Connectors",
+      "noMatchesTitle": "Keine Treffer",
+      "noMatchesBody": "Versuche einen anderen Namen."
     },
     "display": {
       "agentThread": {
@@ -2569,11 +2576,19 @@
       },
       "canvasShare": {
         "copyLink": "Link kopieren",
-        "empty": "Noch keine aktiven Freigaben. Veröffentliche ein Canvas, um einen öffentlichen Link zu erhalten.",
+        "empty": "Noch keine öffentlichen Canvases. Mach einen Canvas öffentlich, um seinen Link zu teilen.",
         "expires": "Läuft ab {date}",
         "links": "Links",
         "live": "Canvas ist live",
         "loadFailed": "Deine Freigaben konnten nicht geladen werden.",
+        "makePrivate": "Privat machen",
+        "makePublic": "Öffentlich machen",
+        "noLink": "Dieser Canvas hat noch keinen Link. Mach ihn öffentlich, um einen Link zu erhalten, den jeder öffnen kann.",
+        "openInBrowser": "Im Browser öffnen",
+        "privateHint": "Nur du kannst diesen Link öffnen.",
+        "privateLink": "Privater Link",
+        "public": "Öffentlich",
+        "publicHint": "Jeder mit dem Link kann ihn ansehen.",
         "publicLink": "Öffentlicher Canvas-Link",
         "publishFailed": "Dieses Canvas konnte nicht veröffentlicht werden. Bitte versuch es erneut.",
         "publishing": "Canvas wird veröffentlicht…",
@@ -2585,8 +2600,12 @@
         "toasts": {
           "copyFailed": "Der Link konnte nicht kopiert werden",
           "linkCopied": "Freigabelink kopiert",
+          "madePrivate": "Link ist jetzt privat",
+          "madePublic": "Link ist jetzt öffentlich",
+          "openFailed": "Link konnte nicht geöffnet werden",
           "revokeFailed": "Diese Freigabe konnte nicht widerrufen werden",
-          "revoked": "Freigabe widerrufen"
+          "revoked": "Freigabe widerrufen",
+          "visibilityFailed": "Konnte nicht ändern, wer diesen Link öffnen kann"
         },
         "untitled": "Unbenanntes Canvas"
       },
@@ -2595,7 +2614,10 @@
         "codeChanges": "Code-Änderungen",
         "desktopRequired": "Die Code-Vorschau erfordert die Stella-Desktop-App.",
         "empty": "Noch keine Dateiänderungen. Wenn ein Agent Code bearbeitet, erscheinen die Änderungen hier.",
-        "noChanges": "Keine Änderungen gefunden."
+        "noChanges": "Keine Änderungen gefunden.",
+        "emptyTitle": "Noch keine Änderungen",
+        "emptyBody": "Wenn ein Agent Code bearbeitet, erscheinen die Änderungen hier.",
+        "noChangesTitle": "Keine Änderungen"
       },
       "filePreview": {
         "copy": "Kopieren",
@@ -2631,7 +2653,10 @@
         "save": "Speichern",
         "saveFailed": "Speichern nicht möglich",
         "saved": "Gespeichert",
-        "zoom": "Bild zoomen"
+        "zoom": "Bild zoomen",
+        "imageUnavailable": "Bild nicht verfügbar",
+        "videoUnavailable": "Video nicht verfügbar",
+        "audioUnavailable": "Audio nicht verfügbar"
       },
       "office": {
         "frameTitle": "{kind}-Vorschau: {title}",
@@ -2657,7 +2682,11 @@
       },
       "preview": {
         "limited": "Vorschau eingeschränkt. Speichere oder öffne die Originaldatei, um den gesamten Inhalt zu sehen.",
-        "unavailable": "Diese Vorschau kann nicht erstellt werden."
+        "unavailable": "Diese Vorschau kann nicht erstellt werden.",
+        "failedTitle": "Vorschau nicht möglich",
+        "failedBody": "Versuche es erneut oder speichere die Datei, um sie woanders zu öffnen.",
+        "unavailableTitle": "Datei nicht verfügbar",
+        "emptyTitle": "Diese Datei ist leer"
       },
       "spreadsheet": {
         "column": "Spalte {index}",
@@ -2679,7 +2708,9 @@
         "pendingPurge": "Löschung ausstehend",
         "refresh": "Aktualisieren",
         "title": "Papierkorb",
-        "trashedAgo": "Vor {time} in den Papierkorb gelegt"
+        "trashedAgo": "Vor {time} in den Papierkorb gelegt",
+        "emptyTitle": "Papierkorb ist leer",
+        "emptyBody": "Gelöschtes bleibt hier 24 Stunden lang."
       },
       "url": {
         "eyebrow": "Live-Vorschau",

@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Tätä ketjua ei voitu ladata",
+        "errorBody": "Sulje se ja avaa uudelleen hetken päästä."
       },
       "generatedImage": {
         "generating": "Luodaan...",
@@ -1389,6 +1391,7 @@
         "enableFailedTitle": "Tietokonetta ei voitu ottaa käyttöön",
         "enableLabel": "Ota {name} käyttöön",
         "enabling": "Otetaan käyttöön…",
+        "ownSignIn": "{name} käyttää omaa {engine}-kirjautumistaan.",
         "pairingCode": "Käytä pariliitoskoodia",
         "sectionLabel": "Missä Stella työskentelee",
         "statusAwaitingConsent": "Odotetaan lupaa kyseisellä tietokoneella",
@@ -2485,7 +2488,9 @@
         "skipped": "Ohitetut",
         "undoing": "Kumotaan…",
         "upToDate": "Mitään ei odota",
-        "waiting": "Odottaa"
+        "waiting": "Odottaa",
+        "upToDateTitle": "Kaikki on ajan tasalla",
+        "upToDateBody": "Stellan uudet versiot näkyvät tässä."
       },
       "updating": "Päivitetään…"
     },
@@ -2515,7 +2520,9 @@
       "noMatches": "Haku ei vastaa yhtään liitäntää.",
       "searchLabel": "Hae liitäntöjä",
       "searchPlaceholder": "Hae",
-      "title": "Liitännät"
+      "title": "Liitännät",
+      "noMatchesTitle": "Ei osumia",
+      "noMatchesBody": "Kokeile toista nimeä."
     },
     "display": {
       "agentThread": {
@@ -2569,11 +2576,19 @@
       },
       "canvasShare": {
         "copyLink": "Kopioi linkki",
-        "empty": "Ei vielä aktiivisia jakoja. Julkaise kanvas saadaksesi julkisen linkin.",
+        "empty": "Ei vielä julkisia kankaita. Tee kankaasta julkinen jakaaksesi sen linkin.",
         "expires": "Vanhenee {date}",
         "links": "Linkit",
         "live": "Kanvas on julkaistu",
         "loadFailed": "Jakojasi ei voitu ladata.",
+        "makePrivate": "Tee yksityiseksi",
+        "makePublic": "Tee julkiseksi",
+        "noLink": "Tällä kankaalla ei ole vielä linkkiä. Tee siitä julkinen, niin saat linkin, jonka kuka tahansa voi avata.",
+        "openInBrowser": "Avaa selaimessa",
+        "privateHint": "Vain sinä voit avata tämän linkin.",
+        "privateLink": "Yksityinen linkki",
+        "public": "Julkinen",
+        "publicHint": "Kuka tahansa, jolla on linkki, voi katsoa sitä.",
         "publicLink": "Julkinen kanvaslinkki",
         "publishFailed": "Tätä kanvasta ei voitu julkaista. Yritä uudelleen.",
         "publishing": "Julkaistaan kanvasta…",
@@ -2585,8 +2600,12 @@
         "toasts": {
           "copyFailed": "Linkkiä ei voitu kopioida",
           "linkCopied": "Jakolinkki kopioitu",
+          "madePrivate": "Linkki on nyt yksityinen",
+          "madePublic": "Linkki on nyt julkinen",
+          "openFailed": "Linkkiä ei voitu avata",
           "revokeFailed": "Tätä jakoa ei voitu peruuttaa",
-          "revoked": "Jako peruutettu"
+          "revoked": "Jako peruutettu",
+          "visibilityFailed": "Linkin avausoikeutta ei voitu muuttaa"
         },
         "untitled": "Nimetön kanvas"
       },
@@ -2595,7 +2614,10 @@
         "codeChanges": "Koodimuutokset",
         "desktopRequired": "Koodin esikatselu vaatii Stellan työpöytäsovelluksen.",
         "empty": "Ei vielä tiedostomuutoksia. Kun agentti muokkaa koodia, muutokset näkyvät tässä.",
-        "noChanges": "Muutoksia ei löytynyt."
+        "noChanges": "Muutoksia ei löytynyt.",
+        "emptyTitle": "Ei vielä muutoksia",
+        "emptyBody": "Kun agentti muokkaa koodia, muutokset näkyvät tässä.",
+        "noChangesTitle": "Ei muutoksia"
       },
       "filePreview": {
         "copy": "Kopioi",
@@ -2631,7 +2653,10 @@
         "save": "Tallenna",
         "saveFailed": "Ei voitu tallentaa",
         "saved": "Tallennettu",
-        "zoom": "Lähennä kuvaa"
+        "zoom": "Lähennä kuvaa",
+        "imageUnavailable": "Kuva ei ole saatavilla",
+        "videoUnavailable": "Video ei ole saatavilla",
+        "audioUnavailable": "Ääni ei ole saatavilla"
       },
       "office": {
         "frameTitle": "{kind}-esikatselu: {title}",
@@ -2657,7 +2682,11 @@
       },
       "preview": {
         "limited": "Esikatselu on rajattu. Tallenna tai avaa alkuperäinen tiedosto nähdäksesi koko sisällön.",
-        "unavailable": "Tätä esikatselua ei voitu valmistella."
+        "unavailable": "Tätä esikatselua ei voitu valmistella.",
+        "failedTitle": "Esikatselua ei voi näyttää",
+        "failedBody": "Yritä uudelleen tai tallenna tiedosto ja avaa se muualla.",
+        "unavailableTitle": "Tiedosto ei ole saatavilla",
+        "emptyTitle": "Tämä tiedosto on tyhjä"
       },
       "spreadsheet": {
         "column": "Sarake {index}",
@@ -2679,7 +2708,9 @@
         "pendingPurge": "Odottaa poistoa",
         "refresh": "Päivitä",
         "title": "Roskakori",
-        "trashedAgo": "Siirretty roskakoriin {time} sitten"
+        "trashedAgo": "Siirretty roskakoriin {time} sitten",
+        "emptyTitle": "Roskakori on tyhjä",
+        "emptyBody": "Poistetut säilyvät täällä 24 tuntia."
       },
       "url": {
         "eyebrow": "Live-esikatselu",

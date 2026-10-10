@@ -6,7 +6,7 @@
  * the app (`@stella/contracts/pi-chat`).
  */
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { AssistantMessage, Message, ModelThinkingLevel, TextContent } from "@earendil-works/pi-ai";
@@ -1174,6 +1174,10 @@ export function desktopChats(options: DesktopChatsOptions) {
 
   /** The conversation's agents, as the app lists them. */
   const agents = async (conversationId: string): Promise<PiChatAgentsResult> => {
+    // A conversation pi never ran has no agents of pi's; asking must not open one.
+    if (!chats.has(conversationId) && !(await stat(path.join(directory, fileName(conversationId))).catch(() => undefined))) {
+      return { agents: [] };
+    }
     const chat = await open(conversationId);
     const records = await chat.agentRecords(context);
     return {

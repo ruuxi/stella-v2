@@ -458,6 +458,22 @@ export const piMessageText = (message: PiMessage | undefined): string => {
   return message.content.map((block) => (block.type === "text" ? block.text : "")).join("");
 };
 
+/**
+ * How a turn ended when its last reply did not finish: failed with the
+ * model's own error, or stopped. Every view of the conversation (this
+ * computer's, the journal's, the chat log's) shows these same words, the
+ * same ones a cloud turn ends with when stopped.
+ */
+export const piTerminalNotice = (message: {
+  stopReason?: string;
+  errorMessage?: string;
+}): { phase: "failed" | "canceled"; notice: string } | undefined =>
+  message.stopReason === "error"
+    ? { phase: "failed", notice: `Stella couldn't answer: ${message.errorMessage?.trim() || "the model request failed."}` }
+    : message.stopReason === "aborted"
+      ? { phase: "canceled", notice: "Stopped." }
+      : undefined;
+
 /** An agent's report, which arrives as user input the user never wrote. */
 export const PI_REPORT_RE = /^\[(Agent completed|Task failed|Task canceled|Subagent paused)\]/;
 const LEADING_SYSTEM_REMINDER_RE = /^<system-reminder>[\s\S]*?<\/system-reminder>\s*/;

@@ -57,8 +57,9 @@ type DesktopChats = import("@stella/agent/host/desktop-chats").DesktopChats;
 export const piChatRouted = (session: OpenSession): boolean =>
   desktopPiChatEnabled(getAgentRuntimeEngine(session.config.get().stellaDataDirPath));
 
-/** What pi wrote into a conversation's chat log, by its row ids. */
+/** What pi wrote into a conversation's chat log, by its row ids (and `metadata.writer`, for a row keeping the sender's id). */
 const PI_LOG_ROW = "pi:";
+const PI_WRITER = "pi";
 /** The chats on this computer the pi agents' directory lists. */
 const AGENT_DIRECTORY_SESSIONS = 12;
 
@@ -71,45 +72,114 @@ const AGENT_DIRECTORY_SESSIONS = 12;
 const piLocalLog = (
   session: OpenSession,
   conversationId: string,
-): import("@stella/agent/host/desktop-local-log").DesktopLocalLog => ({
-  read: async (afterSeq, limit) => {
-    const page = session.storage.chatStore.chat.listMessagesAfterSeq(conversationId, afterSeq, limit);
-    return { ...page, messages: page.messages.filter((message) => !message.id.startsWith(PI_LOG_ROW)) };
-  },
-  write: async (message) => {
-    const eventId = `${PI_LOG_ROW}${conversationId}:${message.key}`;
-    if (session.storage.chatStore.chat.hasEvent(conversationId, eventId)) return;
-    const type = message.role === "user" ? "user_message" : "assistant_message";
-    const userMessageId = message.replyTo ? `${PI_LOG_ROW}${conversationId}:${message.replyTo}` : undefined;
-    session.storage.appendChatEventAndNotify({
-      conversationId,
-      eventId,
-      type,
-      timestamp: message.timestamp,
-      ...(userMessageId ? { requestId: userMessageId } : {}),
-      payload: prepareStoredLocalChatPayload({
+): import("@stella/agent/host/desktop-local-log").DesktopLocalLog => {
+  const rowId = (key: string) => `${PI_LOG_ROW}${conversationId}:${key}`;
+  // An answer names its user message by row id; older mirrors stored the key.
+  const userRowId = (replyTo: string) => (/^\d+:\d+$/.test(replyTo) ? rowId(replyTo) : replyTo);
+  return {
+    read: async (afterSeq, limit) => {
+      const page = session.storage.chatStore.chat.listMessagesAfterSeq(conversationId, afterSeq, limit);
+      return {
+        ...page,
+        messages: page.messages.filter((message) => !message.id.startsWith(PI_LOG_ROW) && message.writer !== PI_WRITER),
+      };
+    },
+    write: async (message) => {
+      const eventId =
+        message.role === "user" && message.clientMsgId && CLIENT_MSG_ID_PATTERN.test(message.clientMsgId)
+          ? message.clientMsgId
+          : rowId(message.key);
+      if (session.storage.chatStore.chat.hasEvent(conversationId, eventId)) return eventId;
+      const writer = { writer: PI_WRITER };
+      if (message.role === "lifecycle") {
+        session.storage.appendChatEventAndNotify({
+          conversationId,
+          eventId,
+          type: message.type,
+          requestId: message.agentId,
+          timestamp: message.timestamp,
+          payload: { ...message.payload, metadata: writer },
+        });
+        return eventId;
+      }
+      if (message.role === "tool_request" || message.role === "tool_result") {
+        const details =
+          message.role === "tool_result" && message.details && typeof message.details === "object"
+            ? (message.details as Record<string, unknown>)
+            : undefined;
+        session.storage.appendChatEventAndNotify({
+          conversationId,
+          eventId,
+          type: message.role,
+          requestId: message.toolCallId,
+          timestamp: message.timestamp,
+          payload:
+            message.role === "tool_request"
+              ? { toolName: message.toolName, ...(message.args ? { args: message.args } : {}), metadata: writer }
+              : {
+                  ...(details ?? {}),
+                  toolName: message.toolName,
+                  // Every tool result in a conversation's own transcript is the orchestrator's.
+                  agentType: "orchestrator",
+                  result: details ?? message.text,
+                  resultPreview: message.text,
+                  ...(message.isError ? { error: message.text || "Tool failed." } : {}),
+                  metadata: writer,
+                },
+        });
+        return eventId;
+      }
+      const type = message.role === "user" ? "user_message" : "assistant_message";
+      const userMessageId = message.role === "assistant" && message.replyTo ? userRowId(message.replyTo) : undefined;
+      const attachments =
+        message.role === "user"
+          ? (message.display?.attachments ?? []).map((attachment) => ({
+              ...(attachment.url ? { url: attachment.url } : {}),
+              ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
+              ...(attachment.name ? { name: attachment.name } : {}),
+              ...(attachment.path ? { path: attachment.path } : {}),
+              ...(typeof attachment.size === "number" ? { size: attachment.size } : {}),
+              kind: attachment.kind,
+            }))
+          : [];
+      session.storage.appendChatEventAndNotify({
+        conversationId,
+        eventId,
         type,
-        payload: {
-          text: message.text,
-          ...(userMessageId ? { userMessageId } : {}),
-          metadata:
-            message.role === "user"
-              ? { ui: { visibility: "visible" } }
-              : { runtime: message.followedByToolCall ? { followedByToolCall: true } : {} },
-        },
         timestamp: message.timestamp,
-      }),
-    });
-    // Off the worker's boot path: the thread runtime brings prompts and compaction with it.
-    const { resolveOrchestratorThreadKey } = await import("../../kernel/thread-runtime.js");
-    session.storage.runtimeStore.appendThreadMessage({
-      timestamp: message.timestamp,
-      threadKey: resolveOrchestratorThreadKey(conversationId),
-      role: message.role,
-      content: message.text,
-    });
-  },
-});
+        ...(userMessageId ? { requestId: userMessageId } : {}),
+        payload: prepareStoredLocalChatPayload({
+          type,
+          payload: {
+            text: message.text,
+            ...(userMessageId ? { userMessageId } : {}),
+            ...(attachments.length > 0 ? { attachments } : {}),
+            ...(message.role === "assistant" && message.notice ? { source: "pi-turn-notice" } : {}),
+            metadata:
+              message.role === "user"
+                ? {
+                    ...writer,
+                    ui: { visibility: "visible" },
+                    ...(message.display?.context ? { context: message.display.context } : {}),
+                  }
+                : { ...writer, runtime: message.followedByToolCall ? { followedByToolCall: true } : {} },
+          },
+          timestamp: message.timestamp,
+        }),
+      });
+      if (message.role === "assistant" && message.notice) return eventId;
+      // Off the worker's boot path: the thread runtime brings prompts and compaction with it.
+      const { resolveOrchestratorThreadKey } = await import("../../kernel/thread-runtime.js");
+      session.storage.runtimeStore.appendThreadMessage({
+        timestamp: message.timestamp,
+        threadKey: resolveOrchestratorThreadKey(conversationId),
+        role: message.role,
+        content: message.text,
+      });
+      return eventId;
+    },
+  };
+};
 
 const chatsBySession = new WeakMap<OpenSession, Promise<DesktopChats>>();
 /** The same chats once loaded, for synchronous checks. */

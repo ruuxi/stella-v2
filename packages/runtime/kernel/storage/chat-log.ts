@@ -1274,6 +1274,8 @@ export class ChatLog {
       role: "user" | "assistant";
       text: string;
       timestamp: number;
+      /** Who wrote the row, when it says (`metadata.writer`): pi marks its own. */
+      writer?: string;
     }>;
     throughSeq: number;
     complete: boolean;
@@ -1310,16 +1312,24 @@ export class ChatLog {
       role: "user" | "assistant";
       text: string;
       timestamp: number;
+      writer?: string;
     }> = [];
     for (const row of rows) {
-      const text = eventTextFromPayload(parseJsonRecord(row.payloadJson));
+      const payload = parseJsonRecord(row.payloadJson);
+      const text = eventTextFromPayload(payload);
       if (!text) continue;
+      const metadata = payload?.metadata;
+      const writer =
+        metadata && typeof metadata === "object" && typeof (metadata as { writer?: unknown }).writer === "string"
+          ? (metadata as { writer: string }).writer
+          : undefined;
       messages.push({
         id: row.id,
         seq: row.seq,
         role: row.type === "user_message" ? "user" : "assistant",
         text,
         timestamp: row.timestamp,
+        ...(writer ? { writer } : {}),
       });
     }
     return {

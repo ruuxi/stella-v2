@@ -16,7 +16,7 @@ import { randomUUID } from "node:crypto";
 import type { Context } from "@earendil-works/chord";
 import type { Message } from "@earendil-works/pi-ai";
 import { LiveDoc, watchEvents, type AgentEventStream, type Conversation, type EntryId, type EntryRecord, type Harness } from "@earendil-works/pi-durable";
-import { piJournalUserMessage, type PiRemoteTurn, type PiUserMessage } from "@stella/contracts/pi-chat";
+import { piJournalUserMessage, piTerminalNotice, type PiRemoteTurn, type PiUserMessage } from "@stella/contracts/pi-chat";
 import { CLIENT_MSG_ID_PATTERN } from "@stella/contracts/turn-plane/turn-start";
 import type { JournalCheckpointFirstKept } from "@stella/contracts/journal-checkpoint";
 import {
@@ -242,7 +242,6 @@ export async function journalMirror(args: {
     }
     const messages = entries.map((entry) => entry.model![0]!);
     const last = [...messages].reverse().find((message) => message.role === "assistant");
-    const stop = last?.role === "assistant" ? last.stopReason : undefined;
     await journal.finish({
       localTurnId: open.localTurnId,
       leaseToken: open.leaseToken,
@@ -252,11 +251,7 @@ export async function journalMirror(args: {
         role: message.role === "assistant" ? "assistant" : "toolResult",
         payloadJson: JSON.stringify(message),
       })),
-      ...(stop === "error"
-        ? { phase: "failed" as const, notice: "Stella couldn't answer this message." }
-        : stop === "aborted"
-          ? { phase: "canceled" as const }
-          : { phase: "completed" as const }),
+      ...((last?.role === "assistant" ? piTerminalNotice(last) : undefined) ?? { phase: "completed" as const }),
     });
     held.delete(open.localTurnId);
   };

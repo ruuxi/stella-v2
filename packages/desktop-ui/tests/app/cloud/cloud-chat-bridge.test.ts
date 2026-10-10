@@ -2,11 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { activateCloudConversationClientAuthority } from "../../../src/features/cloud/conversation-store";
 import {
-  activateCloudConversationClientAuthority,
   pendingPrompts,
-} from "../../../src/features/cloud/conversation-store";
-import {
   setCloudConversationOutboxStorageForTests,
   type CloudConversationOutboxStorage,
 } from "../../../src/features/cloud/conversation-outbox";
@@ -117,7 +115,7 @@ describe("cloud chat bridge authority", () => {
       "utf8",
     );
     const shell = fs.readFileSync(
-      path.join(SOURCE_ROOT, "shell/use-full-shell-chat.js"),
+      path.join(SOURCE_ROOT, "shell/use-full-shell-chat.ts"),
       "utf8",
     );
     const work = fs.readFileSync(
@@ -131,17 +129,17 @@ describe("cloud chat bridge authority", () => {
     );
     // Local chats page their own feed; cloud chats page the cloud bridge.
     expect(shell).toMatch(
-      /const hasOlderActivity = storageMode === "local"\s*\? localActivityFeed\.hasOlderActivity\s*: cloudChat\.hasOlderActivity;/,
+      /const hasOlderActivity =\s*storageMode === "local"\s*\? localActivityFeed\.hasOlderActivity\s*: cloudChat\.hasOlderActivity;/,
     );
     expect(shell).toMatch(
-      /const loadOlderActivity = storageMode === "local"\s*\?[^:]+: cloudChat\.loadOlderActivity;/,
+      /const loadOlderActivity =\s*storageMode === "local"\s*\?[^:]+: cloudChat\.loadOlderActivity;/,
     );
     expect(work).toContain(
       "!query || !activity.hasOlder || activity.isLoadingOlder",
     );
     expect(work).toContain("activity.loadOlder()");
     expect(work).toContain("searchingOlderActivity");
-    expect(work).toContain('"Looking through older agent activity."');
+    expect(work).toContain('"Looking through older activity."');
     expect(work).toContain("renderedAccountScopeRef.current === accountScope");
     expect(work).toContain("displaySearchStore.close()");
   });

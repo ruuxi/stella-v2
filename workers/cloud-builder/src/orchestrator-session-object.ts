@@ -5644,6 +5644,10 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
               writerKey: `pi-report:${report.requestId}`,
             });
             if (appended.inserted) this.publish(appended.record);
+            // What the agent saved to the drive and linked, as the conversation's files card.
+            if (agent.files?.length) {
+              this.publishTurnFilesCard(turnId, `pi-files:${report.requestId}`, agent.files);
+            }
             log("info", "pi_origin_report_journaled", {
               threadId: report.threadId,
               settled: report.settled === true,

@@ -1069,11 +1069,16 @@ export class PiConversationRuntime {
           return;
         }
         if (report.origin && this.#options.deliverOriginReport) {
+          // What the run delivered goes with its report, once, as for the other hosts.
+          const filesKey = deliveredFilesKey(report.threadId);
+          const files = report.settled ? undefined : await this.#options.storage.get<PiDeliveredFile[]>(filesKey);
+          const info = await this.#agentInfo(report.threadId, context);
           await this.#options.deliverOriginReport(
             { ...report, origin: report.origin },
             this.#binding?.turnId ?? this.#state?.lastTurnId ?? `pi:${authority.conversationId}`,
-            await this.#agentInfo(report.threadId, context),
+            files?.length ? { ...info, files } : info,
           );
+          if (files) await this.#options.storage.delete(filesKey);
           return;
         }
         // Only the host that started it counts what settled without a report.
@@ -1568,8 +1573,10 @@ export class PiConversationRuntime {
   async #releaseLease(agentConversationId: PiComputeKey, held: AgentLease, end: AgentRunEnd): Promise<void> {
     const { lease } = held;
     const { record } = lease;
-    const up = held.used && (await lease.ready.then(() => true, () => false));
-    if (!end.aborted && up) {
+    // A stopped run aborts a container still coming up now, not after it is up.
+    if (end.aborted) lease.abort();
+    const up = !end.aborted && held.used && (await lease.ready.then(() => true, () => false));
+    if (up) {
       try {
         // The agent's home is the world: a link to `~/drive/...` names the drive copy there.
         const linked = extractLocalFileLinkPaths(end.answer ?? "").map((linkedPath) =>

@@ -832,7 +832,6 @@
     },
     "integrations": {
       "connectStellaApp": "Stella Uygulamasına bağlan",
-      "connectStellaAppSub": "Telefonunuzdaki Stella uygulamasını bu bilgisayarla eşleştirin",
       "connectTitle": "Bağlan",
       "connected": "Bağlı",
       "credential": {
@@ -848,11 +847,16 @@
         "saving": "Kaydediliyor...",
         "title": "{provider} bağla"
       },
-      "heroTagline": "Stella'ya istediğiniz platformdan mesaj atın — doğal biçimde sohbet edin ya da işleri doğrudan bilgisayarınızda halletmesini isteyin.",
       "phoneTitle": "Telefonunuz",
       "signInHeadline": "Başlamak için giriş yapın",
       "signInSub": "{provider} bağlamak için Stella hesabınıza giriş yapın.",
-      "signInToConnect": "Bağlanmak için Stella'ya giriş yapın"
+      "signInToConnect": "Bağlanmak için Stella'ya giriş yapın",
+      "getApp": {
+        "appStoreQrAlt": "Stella'yı App Store'dan indirmek için tarayın",
+        "platformLabel": "Bir mobil platform seçin",
+        "playStoreQrAlt": "Stella'yı Google Play'den indirmek için tarayın",
+        "title": "Uygulamayı indir"
+      }
     },
     "legal": {
       "privacy": {
@@ -1019,7 +1023,6 @@
       "disconnectedLabel": "Bilgisayar bağlantısı kesildi",
       "guestHeroBody": "Stella'dan bilgisayarınızda işler yapmasını isteyin — web'de gezinsin, dosyaları yönetsin, görevleri çalıştırsın ve daha fazlası.",
       "guestHeroTitle": "Bilgisayarınız parmaklarınızın ucunda",
-      "pairLabel": "Bilgisayar eşleştir",
       "statusAsleep": "Uykuda",
       "statusChecking": "Denetleniyor…",
       "statusConnected": "Bağlandı"
@@ -1027,20 +1030,11 @@
     "desktop": {
       "connecting": "Masaüstüne bağlanılıyor",
       "deviceUnreachable": "Şu cihaza ulaşılamıyor: {platform}",
-      "enterCode": "Bilgisayarınızda görünen kodu girin.",
-      "guestBody": "Stella masaüstü uygulamasını doğrudan telefonunuzda görün. Eşleştirmeden sonra telefonunuz otomatik olarak yeniden bağlanır.",
       "guestSignInPrompt": "Başlamak için giriş yapın.",
       "limitedCapabilities": "Bazı şeyler bilgisayarınızı gerektirir",
       "linkInterrupted": "Bilgisayarınızla olan bağlantı kesildi.",
-      "pairAnother": "Başka bir bilgisayar eşleştir",
-      "pairTitle": "Telefonunuzu eşleştirin",
-      "pairing": "Bu telefon eşleştiriliyor",
       "reconnecting": "Yeniden bağlanılıyor...",
-      "repairNeeded": "Bu telefonun bilgisayarınızla yeniden eşleştirilmesi gerekiyor.",
       "retryLabel": "Yeniden bağlanmayı dene",
-      "startPairingLabel": "Bilgisayar eşleştirmeyi başlat",
-      "unavailableBodyPaired": "Stella'nın bilgisayarınızda açık ve internete bağlı olduğundan emin olun. Bağlandığında masaüstü uygulamanız tam burada, telefonunuzda görünecek.",
-      "unavailableBodyUnpaired": "Stella masaüstü uygulamasını doğrudan telefonunuzda görün. Başlamak için bilgisayarınızdaki Stella'da görünen QR kodunu tarayın — sonrasında telefonunuz otomatik olarak yeniden bağlanır.",
       "unreachable": "Masaüstüne ulaşılamıyor"
     },
     "engineAccounts": {
@@ -1153,26 +1147,17 @@
         "signInBody": "Konuşmanızı, ayarlarınızı ve bağlı bilgisayarınızı her cihazda yanınızda tutun.",
         "signInTitle": "Stella'ya giriş yapın",
         "skip": "Şimdilik geç",
-        "subscriptionsBody": "Zaten Claude veya ChatGPT için ödüyor musunuz? Bağlayın, ben de bulutta kullanayım. Bilgisayarlarınız kendi oturumlarını kullanır.",
+        "subscriptionsBody": "Mevcut Claude veya ChatGPT aboneliğini kullanmak ister misin?",
         "subscriptionsLabel": "İsteğe bağlı"
       },
       "composerPlaceholder": "Ya da bana bir şey sorun",
       "computer": {
-        "body": "Bu telefonu bilgisayarınızdaki Stella ile eşleştirin; siz dışarıdayken görevleri orada ben çalıştırayım.",
-        "connectedBody": "Her yerden isteyin, işi bilgisayarınızda ben yapayım.",
+        "body": "Bilgisayarında oturum aç, otomatik olarak bağlanır.",
         "connectedTo": "{name} ile bağlandı",
-        "guestHint": "Eşleme Stella hesabınıza bağlıdır, bu yüzden önce giriş yapın. Tam buradan devam edeceğim.",
-        "hint": "Bilgisayarınızda Stella'yı açıp Telefonu eşleştir'i seçin.",
+        "getDesktop": "Masaüstü için Stella’yı indir",
         "later": "Sonra",
-        "pair": "Bilgisayarımı eşleştir",
-        "point1": "Bir dosya bulup size göndermek",
-        "point2": "Bir dışa aktarmayı ya da indirmeyi tamamlamak",
-        "point3": "Zaten sahip olduğunuz uygulamaları kullanmak",
-        "settledConnectedDesc": "Görevleri telefonunuzdan orada çalıştırabilirim.",
-        "settledSkippedDesc": "İstediğiniz zaman Ayarlar'dan eşleştirebilirsiniz.",
         "settledSkippedTitle": "Henüz bilgisayar yok",
-        "signInToPair": "Eşlemek için giriş yapın",
-        "title": "Bilgisayarınız, cebinizde"
+        "title": "Bilgisayarında Stella"
       },
       "gmail": {
         "body": "E-postaları bul, yazışmalara yetiş ve yanıt taslakları hazırla, sadece iste.",
@@ -1391,7 +1376,6 @@
         "enableFailedTitle": "O bilgisayar etkinleştirilemedi",
         "enableLabel": "{name} bilgisayarını etkinleştir",
         "enabling": "Etkinleştiriliyor…",
-        "pairingCode": "Eşleştirme kodu kullan",
         "sectionLabel": "Stella nerede çalışıyor",
         "statusAwaitingConsent": "O bilgisayarda izin bekleniyor",
         "statusDeclined": "O bilgisayarda reddedildi",
@@ -1407,10 +1391,6 @@
       "deleteConfirmTitle": "Hesabı sil",
       "deleteFailedTitle": "Hesap silinemedi",
       "deletingAccount": "Hesap siliniyor…",
-      "forget": "Unut",
-      "forgetConfirmBody": "Bu telefon, yeniden eşleştirene kadar o bilgisayara bağlanmayı bırakacak.",
-      "forgetConfirmTitle": "Şu unutulsun mu: {name}?",
-      "forgetLabel": "Şunu unut: {name}",
       "hideEmailLabel": "E-postayı gizle",
       "loadingSession": "Oturum yükleniyor…",
       "notificationsSection": "Bildirimler",
@@ -1420,9 +1400,6 @@
       "paired": {
         "unnamedComputer": "Bilgisayar · {id}"
       },
-      "pairedEmpty": "Henüz eşleştirilmiş bilgisayar yok.",
-      "pairedOn": "Eşleştirildi: {date}",
-      "pairedSection": "Eşleştirilmiş bilgisayarlar",
       "privacyPolicy": "Gizlilik Politikası",
       "pushToggleA11y": "Anlık bildirimleri aç/kapat",
       "pushToggleLabel": "Anlık bildirimlere izin ver",
@@ -1600,6 +1577,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Hayatın büyük kısmı e-postadan geçiyor. Gmail'i bağla, sana yardım edeyim.",
         "memory": "One more thing that makes me different.",
+        "phone": "Telefonunda da varım.",
         "quickstart": "Hepsi bu kadar. Son bir şey var, o da isteğe bağlı: hızlı başlangıç.",
         "quickstartDone": "Tamam. İşte öğrendiklerim ve birlikte başlayabileceğimiz birkaç şey.",
         "quickstartFailed": "Bu sefer tarayıcını okumayı bitiremedim. Yine de başlayabiliriz, ben yol boyunca öğrenirim.",
@@ -2095,16 +2073,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Oturum açılmış bilgisayarlar burada görünür. İş göndermek için birini etkinleştir.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2242,47 +2215,6 @@
         "label": "Ekran kaydı"
       },
       "title": "İzinler"
-    },
-    "phoneAccess": {
-      "copy": "Kopyala",
-      "deviceFallback": "Telefon",
-      "errors": {
-        "createPairing": "Eşleştirme kodu oluşturulamıyor."
-      },
-      "expired": "Süresi doldu",
-      "getCode": "Kod Al",
-      "intro": {
-        "headline": "Telefonunuzu bilgisayarınıza bağlayın"
-      },
-      "pairedCount": {
-        "one": "{count} telefon eşleştirildi",
-        "other": "{count} telefon eşleştirildi"
-      },
-      "pairing": {
-        "body": "Telefondaki Stella uygulamasında QR kodunu tara veya kodu gir.",
-        "headline": "Bu kodu tarayın veya girin",
-        "qrAlt": "Telefonunuzu eşleştirmek için tarayın"
-      },
-      "preparing": "Hazırlanıyor...",
-      "remove": "Kaldır",
-      "removing": "Kaldırılıyor...",
-      "signedOut": {
-        "body": "Mobil uygulamayla eşleştirmek için Stella hesabınıza giriş yapın.",
-        "headline": "Başlamak için giriş yapın"
-      },
-      "steps": {
-        "appStoreQrAlt": "Stella'yı App Store'dan indirmek için tarayın",
-        "connect": "Telefonunuzu bağlayın",
-        "download": "Uygulamayı indirin",
-        "platformSelectorLabel": "Bir mobil platform seçin",
-        "playStoreQrAlt": "Stella'yı Google Play'den indirmek için tarayın"
-      },
-      "timeLeft": "{time} kaldı",
-      "toasts": {
-        "codeCopied": "Kod panoya kopyalandı",
-        "phoneRemoved": "Telefon kaldırıldı",
-        "removeFailed": "Telefon kaldırılamadı"
-      }
     },
     "power": {
       "description": "Stella açıkken bilgisayarınızın uyku moduna geçmesini engeller.",

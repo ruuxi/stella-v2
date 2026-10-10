@@ -824,7 +824,6 @@
     },
     "integrations": {
       "connectStellaApp": "連接到 Stella App",
-      "connectStellaAppSub": "將手機上的 Stella App 與這台電腦配對",
       "connectTitle": "連接",
       "connected": "已連接",
       "credential": {
@@ -840,11 +839,16 @@
         "saving": "正在儲存...",
         "title": "連接 {provider}"
       },
-      "heroTagline": "從你喜歡的任何平台傳訊息給 Stella — 自然地聊天，或請它直接在你的電腦上把事情做好。",
       "phoneTitle": "你的手機",
       "signInHeadline": "登入即可開始",
       "signInSub": "登入你的 Stella 帳號以連接 {provider}。",
-      "signInToConnect": "登入 Stella 以連接"
+      "signInToConnect": "登入 Stella 以連接",
+      "getApp": {
+        "appStoreQrAlt": "掃描以從 App Store 下載 Stella",
+        "platformLabel": "選擇行動平台",
+        "playStoreQrAlt": "掃描以從 Google Play 下載 Stella",
+        "title": "取得 App"
+      }
     },
     "legal": {
       "privacy": {
@@ -1009,7 +1013,6 @@
       "disconnectedLabel": "電腦已中斷連線",
       "guestHeroBody": "請 Stella 在您的電腦上做事 —— 瀏覽網頁、管理檔案、執行工作等等。",
       "guestHeroTitle": "您的電腦，隨手可用",
-      "pairLabel": "配對電腦",
       "statusAsleep": "睡眠中",
       "statusChecking": "檢查中…",
       "statusConnected": "已連線"
@@ -1017,20 +1020,11 @@
     "desktop": {
       "connecting": "正在連線到桌面版",
       "deviceUnreachable": "無法連線到您的 {platform}",
-      "enterCode": "請輸入電腦上顯示的代碼。",
-      "guestBody": "在手機上直接檢視您的 Stella 桌面應用程式。配對後，手機會自動重新連線。",
       "guestSignInPrompt": "登入即可開始。",
       "limitedCapabilities": "有些事需要您的電腦",
       "linkInterrupted": "與您電腦的連線已中斷。",
-      "pairAnother": "配對另一台電腦",
-      "pairTitle": "配對您的手機",
-      "pairing": "正在配對這支手機",
       "reconnecting": "正在重新連線...",
-      "repairNeeded": "這支手機需要重新與您的電腦配對。",
       "retryLabel": "重新嘗試連線",
-      "startPairingLabel": "開始配對電腦",
-      "unavailableBodyPaired": "請確認電腦上的 Stella 已開啟且已連上網際網路。連線成功後，桌面應用程式就會出現在您的手機上。",
-      "unavailableBodyUnpaired": "在手機上直接檢視您的 Stella 桌面應用程式。掃描電腦上 Stella 顯示的 QR Code 即可開始 —— 之後手機會自動重新連線。",
       "unreachable": "無法連線到您的桌面版"
     },
     "engineAccounts": {
@@ -1143,26 +1137,17 @@
         "signInBody": "讓您的對話、設定和已連線的電腦出現在每台裝置上。",
         "signInTitle": "登入 Stella",
         "skip": "暫時略過",
-        "subscriptionsBody": "已經在付費使用 Claude 或 ChatGPT？連結後我會在雲端使用它。你的電腦使用各自的登入。",
+        "subscriptionsBody": "使用你現有的 Claude 或 ChatGPT 訂閱?",
         "subscriptionsLabel": "選用"
       },
       "composerPlaceholder": "也可以直接問我點什麼",
       "computer": {
-        "body": "將這支手機與電腦上的 Stella 配對，您外出時，我可以在電腦上執行工作。",
-        "connectedBody": "隨時隨地開口，我來在您的電腦上完成。",
+        "body": "在電腦上登入後會自動連線。",
         "connectedTo": "已連線到 {name}",
-        "guestHint": "配對與您的 Stella 帳號綁定，請先登入。我會從這裡繼續。",
-        "hint": "在電腦上開啟 Stella，然後選擇「配對手機」。",
+        "getDesktop": "取得桌面版 Stella",
         "later": "稍後",
-        "pair": "配對我的電腦",
-        "point1": "找到檔案並傳給您",
-        "point2": "完成一次匯出或下載",
-        "point3": "使用您已有的應用程式",
-        "settledConnectedDesc": "我可以透過您的手機在那台電腦上執行工作。",
-        "settledSkippedDesc": "您可以隨時在設定中配對。",
         "settledSkippedTitle": "還沒有電腦",
-        "signInToPair": "登入後配對",
-        "title": "您的電腦，裝進口袋"
+        "title": "電腦上的 Stella"
       },
       "gmail": {
         "body": "尋找郵件、跟上對話、草擬回覆，只要開口。",
@@ -1381,7 +1366,6 @@
         "enableFailedTitle": "無法啟用那台電腦",
         "enableLabel": "啟用 {name}",
         "enabling": "正在啟用…",
-        "pairingCode": "使用配對碼",
         "sectionLabel": "Stella 在哪裡工作",
         "statusAwaitingConsent": "等待那台電腦上的許可",
         "statusDeclined": "已在那台電腦上拒絕",
@@ -1397,10 +1381,6 @@
       "deleteConfirmTitle": "刪除帳號",
       "deleteFailedTitle": "無法刪除帳號",
       "deletingAccount": "正在刪除帳號…",
-      "forget": "忘記",
-      "forgetConfirmBody": "在您重新配對之前，這支手機將不再連線到那台電腦。",
-      "forgetConfirmTitle": "要忘記 {name} 嗎？",
-      "forgetLabel": "忘記 {name}",
       "hideEmailLabel": "隱藏電子郵件",
       "loadingSession": "正在載入工作階段…",
       "notificationsSection": "通知",
@@ -1410,9 +1390,6 @@
       "paired": {
         "unnamedComputer": "電腦 · {id}"
       },
-      "pairedEmpty": "尚未配對任何電腦。",
-      "pairedOn": "配對於 {date}",
-      "pairedSection": "已配對的電腦",
       "privacyPolicy": "隱私權政策",
       "pushToggleA11y": "切換推播通知",
       "pushToggleLabel": "允許推播通知",
@@ -1590,6 +1567,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "生活中很多事都透過電子郵件進行。連接 Gmail，我就能幫你處理郵件。",
         "memory": "One more thing that makes me different.",
+        "phone": "手機上也有我。",
         "quickstart": "就這些了。還有最後一件事，可選：快速上手。",
         "quickstartDone": "好了。這是我了解到的內容，還有幾件我們可以先做的事。",
         "quickstartFailed": "這次我沒能讀完你的瀏覽器。我們可以直接開始，我會邊用邊了解。",
@@ -2085,16 +2063,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "已登入的電腦會顯示在這裡。啟用一台即可傳送工作給它。",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2232,46 +2205,6 @@
         "label": "螢幕錄製"
       },
       "title": "權限"
-    },
-    "phoneAccess": {
-      "copy": "複製",
-      "deviceFallback": "手機",
-      "errors": {
-        "createPairing": "無法建立配對代碼。"
-      },
-      "expired": "已過期",
-      "getCode": "取得代碼",
-      "intro": {
-        "headline": "將手機連接到電腦"
-      },
-      "pairedCount": {
-        "other": "已配對 {count} 支手機"
-      },
-      "pairing": {
-        "body": "在手機上的 Stella App 中掃描 QR 碼，或輸入代碼。",
-        "headline": "掃描或輸入此代碼",
-        "qrAlt": "掃描以配對你的手機"
-      },
-      "preparing": "正在準備...",
-      "remove": "移除",
-      "removing": "正在移除...",
-      "signedOut": {
-        "body": "登入你的 Stella 帳號以與行動 App 配對。",
-        "headline": "登入即可開始"
-      },
-      "steps": {
-        "appStoreQrAlt": "掃描以從 App Store 下載 Stella",
-        "connect": "連接你的手機",
-        "download": "下載 App",
-        "platformSelectorLabel": "選擇行動平台",
-        "playStoreQrAlt": "掃描以從 Google Play 下載 Stella"
-      },
-      "timeLeft": "剩餘 {time}",
-      "toasts": {
-        "codeCopied": "代碼已複製到剪貼簿",
-        "phoneRemoved": "已移除手機",
-        "removeFailed": "移除手機失敗"
-      }
     },
     "power": {
       "description": "在 Stella 開啟時阻止電腦進入睡眠。",

@@ -7,7 +7,8 @@
  * renderer-side state — the rows are never persisted as chat messages.
  *
  * Value comes first: what Stella can do, that she can change herself, and
- * the one conversation. Then the asks: sign in, Gmail, a look, the extras. The
+ * the one conversation. Then the asks: sign in, Gmail, a look, the extras, the
+ * phone app. The
  * quickstart (discovery + synthesis) closes the flow as an offer the user
  * can run or skip; it keeps going in the background if they head in early.
  */
@@ -21,6 +22,7 @@ export type OnboardingChatStep =
   | "gmail"
   | "theme"
   | "extras"
+  | "phone"
   | "quickstart";
 
 export const ONBOARDING_CHAT_STEPS: readonly OnboardingChatStep[] = [
@@ -31,6 +33,7 @@ export const ONBOARDING_CHAT_STEPS: readonly OnboardingChatStep[] = [
   "gmail",
   "theme",
   "extras",
+  "phone",
   "quickstart",
 ];
 

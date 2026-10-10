@@ -832,7 +832,6 @@
     },
     "integrations": {
       "connectStellaApp": "Verbinden met Stella-app",
-      "connectStellaAppSub": "Koppel de Stella-app op je telefoon aan deze computer",
       "connectTitle": "Verbinden",
       "connected": "Verbonden",
       "credential": {
@@ -848,11 +847,16 @@
         "saving": "Opslaan...",
         "title": "{provider} verbinden"
       },
-      "heroTagline": "Stuur Stella een bericht vanaf elk platform dat je wilt — chat gewoon, of laat het dingen doen op je computer.",
       "phoneTitle": "Je telefoon",
       "signInHeadline": "Log in om te beginnen",
       "signInSub": "Log in op je Stella-account om {provider} te verbinden.",
-      "signInToConnect": "Log in bij Stella om te verbinden"
+      "signInToConnect": "Log in bij Stella om te verbinden",
+      "getApp": {
+        "appStoreQrAlt": "Scan om Stella te downloaden uit de App Store",
+        "platformLabel": "Kies een mobiel platform",
+        "playStoreQrAlt": "Scan om Stella te downloaden via Google Play",
+        "title": "Download de app"
+      }
     },
     "legal": {
       "privacy": {
@@ -1019,7 +1023,6 @@
       "disconnectedLabel": "Computer niet verbonden",
       "guestHeroBody": "Vraag Stella om dingen te doen op je computer — het web verkennen, bestanden beheren, taken uitvoeren en meer.",
       "guestHeroTitle": "Je computer binnen handbereik",
-      "pairLabel": "Een computer koppelen",
       "statusAsleep": "In slaapstand",
       "statusChecking": "Controleren…",
       "statusConnected": "Verbonden"
@@ -1027,20 +1030,11 @@
     "desktop": {
       "connecting": "Verbinden met desktop",
       "deviceUnreachable": "Je {platform} is niet bereikbaar",
-      "enterCode": "Voer de code in die op je computer staat.",
-      "guestBody": "Bekijk je Stella-desktopapp gewoon op je telefoon. Na het koppelen maakt je telefoon automatisch opnieuw verbinding.",
       "guestSignInPrompt": "Log in om te beginnen.",
       "limitedCapabilities": "Sommige dingen hebben je computer nodig",
       "linkInterrupted": "De verbinding met je computer werd onderbroken.",
-      "pairAnother": "Nog een computer koppelen",
-      "pairTitle": "Koppel je telefoon",
-      "pairing": "Deze telefoon koppelen",
       "reconnecting": "Opnieuw verbinden...",
-      "repairNeeded": "Deze telefoon moet opnieuw met je computer worden gekoppeld.",
       "retryLabel": "Opnieuw proberen te verbinden",
-      "startPairingLabel": "Beginnen met een computer koppelen",
-      "unavailableBodyPaired": "Zorg dat Stella op je computer open is en verbinding heeft met internet. Zodra dat zo is, verschijnt je desktopapp hier op je telefoon.",
-      "unavailableBodyUnpaired": "Bekijk je Stella-desktopapp gewoon op je telefoon. Scan de QR-code die in Stella op je computer staat om te beginnen — daarna maakt je telefoon automatisch opnieuw verbinding.",
       "unreachable": "Kan je desktop niet bereiken"
     },
     "engineAccounts": {
@@ -1153,26 +1147,17 @@
         "signInBody": "Houd je gesprek, instellingen en gekoppelde computer bij de hand op elk apparaat.",
         "signInTitle": "Inloggen bij Stella",
         "skip": "Nu even niet",
-        "subscriptionsBody": "Betaal je al voor Claude of ChatGPT? Koppel het en ik gebruik het in de cloud. Je computers gebruiken hun eigen aanmeldingen.",
+        "subscriptionsBody": "Je bestaande Claude- of ChatGPT-abonnement gebruiken?",
         "subscriptionsLabel": "Optioneel"
       },
       "composerPlaceholder": "Of vraag me gewoon iets",
       "computer": {
-        "body": "Koppel deze telefoon aan Stella op je computer en ik kan daar taken uitvoeren terwijl jij onderweg bent.",
-        "connectedBody": "Vraag het me overal, dan doe ik het werk op je computer.",
+        "body": "Log in op je computer en hij maakt automatisch verbinding.",
         "connectedTo": "Verbonden met {name}",
-        "guestHint": "Koppelen hoort bij je Stella-account, dus log eerst in. Ik ga hier verder.",
-        "hint": "Open Stella op je computer en kies 'Koppel je telefoon'.",
+        "getDesktop": "Download Stella voor desktop",
         "later": "Later",
-        "pair": "Mijn computer koppelen",
-        "point1": "Een bestand zoeken en naar je sturen",
-        "point2": "Een export of download afronden",
-        "point3": "De apps gebruiken die je al hebt",
-        "settledConnectedDesc": "Ik kan daar taken uitvoeren vanaf je telefoon.",
-        "settledSkippedDesc": "Je kunt er op elk moment een koppelen in Instellingen.",
         "settledSkippedTitle": "Nog geen computer",
-        "signInToPair": "Log in om te koppelen",
-        "title": "Je computer, vanuit je broekzak"
+        "title": "Stella op je computer"
       },
       "gmail": {
         "body": "Vind e-mails, lees gesprekken bij en laat antwoorden opstellen, gewoon door het te vragen.",
@@ -1391,7 +1376,6 @@
         "enableFailedTitle": "Kon die computer niet inschakelen",
         "enableLabel": "{name} inschakelen",
         "enabling": "Inschakelen…",
-        "pairingCode": "Een koppelcode gebruiken",
         "sectionLabel": "Waar Stella werkt",
         "statusAwaitingConsent": "Wacht op toestemming op die computer",
         "statusDeclined": "Geweigerd op die computer",
@@ -1407,10 +1391,6 @@
       "deleteConfirmTitle": "Account verwijderen",
       "deleteFailedTitle": "Kon account niet verwijderen",
       "deletingAccount": "Account verwijderen…",
-      "forget": "Vergeten",
-      "forgetConfirmBody": "Deze telefoon maakt geen verbinding meer met die computer totdat je hem opnieuw koppelt.",
-      "forgetConfirmTitle": "{name} vergeten?",
-      "forgetLabel": "{name} vergeten",
       "hideEmailLabel": "E-mailadres verbergen",
       "loadingSession": "Sessie laden…",
       "notificationsSection": "Meldingen",
@@ -1420,9 +1400,6 @@
       "paired": {
         "unnamedComputer": "Computer · {id}"
       },
-      "pairedEmpty": "Nog geen computers gekoppeld.",
-      "pairedOn": "Gekoppeld op {date}",
-      "pairedSection": "Gekoppelde computers",
       "privacyPolicy": "Privacybeleid",
       "pushToggleA11y": "Pushmeldingen aan- of uitzetten",
       "pushToggleLabel": "Pushmeldingen toestaan",
@@ -1600,6 +1577,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Veel van het leven loopt via e-mail. Koppel Gmail en ik help je met de jouwe.",
         "memory": "One more thing that makes me different.",
+        "phone": "Ik ben er ook op je telefoon.",
         "quickstart": "Dat was alles. Nog één ding, en dat is optioneel: een snelstart.",
         "quickstartDone": "Klaar. Dit heb ik opgepikt, plus een paar dingen waarmee we kunnen beginnen.",
         "quickstartFailed": "Ik kon je browser deze keer niet helemaal uitlezen. We kunnen toch beginnen, dan leer ik gaandeweg.",
@@ -2095,16 +2073,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Ingelogde computers verschijnen hier. Schakel er een in om er werk naartoe te sturen.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2242,47 +2215,6 @@
         "label": "Schermopname"
       },
       "title": "Machtigingen"
-    },
-    "phoneAccess": {
-      "copy": "Kopiëren",
-      "deviceFallback": "Telefoon",
-      "errors": {
-        "createPairing": "Kan geen koppelcode aanmaken."
-      },
-      "expired": "Verlopen",
-      "getCode": "Code ophalen",
-      "intro": {
-        "headline": "Verbind je telefoon met je computer"
-      },
-      "pairedCount": {
-        "one": "{count} telefoon gekoppeld",
-        "other": "{count} telefoons gekoppeld"
-      },
-      "pairing": {
-        "body": "Scan de QR-code in de Stella-app op je telefoon, of voer de code in.",
-        "headline": "Scan of voer deze code in",
-        "qrAlt": "Scan om je telefoon te koppelen"
-      },
-      "preparing": "Voorbereiden...",
-      "remove": "Verwijderen",
-      "removing": "Verwijderen...",
-      "signedOut": {
-        "body": "Log in op je Stella-account om te koppelen met de mobiele app.",
-        "headline": "Log in om te beginnen"
-      },
-      "steps": {
-        "appStoreQrAlt": "Scan om Stella te downloaden uit de App Store",
-        "connect": "Verbind je telefoon",
-        "download": "Download de app",
-        "platformSelectorLabel": "Kies een mobiel platform",
-        "playStoreQrAlt": "Scan om Stella te downloaden via Google Play"
-      },
-      "timeLeft": "Nog {time}",
-      "toasts": {
-        "codeCopied": "Code gekopieerd naar klembord",
-        "phoneRemoved": "Telefoon verwijderd",
-        "removeFailed": "Telefoon verwijderen mislukt"
-      }
     },
     "power": {
       "description": "Voorkomt dat je computer in de sluimerstand gaat terwijl Stella open is.",

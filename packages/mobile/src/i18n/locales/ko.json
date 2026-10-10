@@ -824,7 +824,6 @@
     },
     "integrations": {
       "connectStellaApp": "Stella 앱에 연결",
-      "connectStellaAppSub": "휴대폰의 Stella 앱을 이 컴퓨터와 페어링합니다",
       "connectTitle": "연결",
       "connected": "연결됨",
       "credential": {
@@ -840,11 +839,16 @@
         "saving": "저장 중...",
         "title": "{provider} 연결"
       },
-      "heroTagline": "원하는 어떤 플랫폼에서든 Stella에게 메시지를 보내세요 — 자연스럽게 대화하거나, 컴퓨터에서 바로 일을 처리하도록 요청하세요.",
       "phoneTitle": "내 휴대폰",
       "signInHeadline": "로그인하고 시작하세요",
       "signInSub": "{provider}을(를) 연결하려면 Stella 계정에 로그인하세요.",
-      "signInToConnect": "연결하려면 Stella에 로그인하세요"
+      "signInToConnect": "연결하려면 Stella에 로그인하세요",
+      "getApp": {
+        "appStoreQrAlt": "스캔해 App Store에서 Stella 다운로드",
+        "platformLabel": "모바일 플랫폼 선택",
+        "playStoreQrAlt": "스캔해 Google Play에서 Stella 다운로드",
+        "title": "앱 받기"
+      }
     },
     "legal": {
       "privacy": {
@@ -1009,7 +1013,6 @@
       "disconnectedLabel": "컴퓨터 연결 끊김",
       "guestHeroBody": "웹 탐색, 파일 관리, 작업 실행 등 컴퓨터에서 할 일을 Stella에게 맡기세요.",
       "guestHeroTitle": "내 컴퓨터를 손안에",
-      "pairLabel": "컴퓨터 페어링",
       "statusAsleep": "잠자기",
       "statusChecking": "확인 중…",
       "statusConnected": "연결됨"
@@ -1017,20 +1020,11 @@
     "desktop": {
       "connecting": "데스크톱에 연결 중",
       "deviceUnreachable": "{platform}에 연결할 수 없음",
-      "enterCode": "컴퓨터에 표시된 코드를 입력하세요.",
-      "guestBody": "Stella 데스크톱 앱을 휴대폰에서 바로 볼 수 있습니다. 페어링 후에는 자동으로 다시 연결됩니다.",
       "guestSignInPrompt": "로그인하고 시작하세요.",
       "limitedCapabilities": "일부 기능에는 컴퓨터가 필요합니다",
       "linkInterrupted": "컴퓨터와의 연결이 중단되었습니다.",
-      "pairAnother": "다른 컴퓨터 페어링",
-      "pairTitle": "휴대폰 페어링",
-      "pairing": "이 휴대폰 페어링 중",
       "reconnecting": "다시 연결하는 중...",
-      "repairNeeded": "이 휴대폰을 컴퓨터와 다시 페어링해야 합니다.",
       "retryLabel": "다시 연결 시도",
-      "startPairingLabel": "컴퓨터 페어링 시작",
-      "unavailableBodyPaired": "컴퓨터에서 Stella가 열려 있고 인터넷에 연결되어 있는지 확인하세요. 연결되면 데스크톱 앱이 바로 이 휴대폰에 나타납니다.",
-      "unavailableBodyUnpaired": "Stella 데스크톱 앱을 휴대폰에서 바로 볼 수 있습니다. 컴퓨터의 Stella에 표시된 QR 코드를 스캔해 시작하세요. 이후에는 자동으로 다시 연결됩니다.",
       "unreachable": "데스크톱에 연결할 수 없음"
     },
     "engineAccounts": {
@@ -1143,26 +1137,17 @@
         "signInBody": "대화, 설정, 연결된 컴퓨터를 모든 기기에서 그대로 이어 가세요.",
         "signInTitle": "Stella에 로그인",
         "skip": "나중에 하기",
-        "subscriptionsBody": "이미 Claude나 ChatGPT를 구독 중인가요? 연결하면 클라우드에서 사용할게요. 컴퓨터는 각자의 로그인을 사용합니다.",
+        "subscriptionsBody": "사용 중인 Claude 또는 ChatGPT 구독을 쓰시겠어요?",
         "subscriptionsLabel": "선택 사항"
       },
       "composerPlaceholder": "아니면 그냥 물어보세요",
       "computer": {
-        "body": "이 휴대폰을 컴퓨터의 Stella와 페어링하면, 외출 중에도 제가 거기서 작업을 실행할 수 있어요.",
-        "connectedBody": "어디서든 말씀만 하세요. 컴퓨터에서 제가 작업할게요.",
+        "body": "컴퓨터에서 로그인하면 자동으로 연결돼요.",
         "connectedTo": "{name}에 연결됨",
-        "guestHint": "페어링은 Stella 계정에 연결되므로 먼저 로그인하세요. 바로 여기서 이어갈게요.",
-        "hint": "컴퓨터에서 Stella를 열고 '휴대폰 페어링'을 선택하세요.",
+        "getDesktop": "데스크톱용 Stella 받기",
         "later": "나중에",
-        "pair": "내 컴퓨터 페어링",
-        "point1": "파일을 찾아서 보내 드려요",
-        "point2": "내보내기나 다운로드를 마무리해요",
-        "point3": "이미 쓰는 앱을 그대로 써요",
-        "settledConnectedDesc": "휴대폰에서 거기에 작업을 시킬 수 있어요.",
-        "settledSkippedDesc": "설정에서 언제든 페어링할 수 있어요.",
         "settledSkippedTitle": "아직 컴퓨터 없음",
-        "signInToPair": "로그인하고 페어링",
-        "title": "주머니 속의 내 컴퓨터"
+        "title": "컴퓨터의 Stella"
       },
       "gmail": {
         "body": "이메일 찾기, 스레드 따라잡기, 답장 초안 작성까지 말만 하면 돼요.",
@@ -1381,7 +1366,6 @@
         "enableFailedTitle": "해당 컴퓨터를 사용 설정할 수 없습니다",
         "enableLabel": "{name} 사용 설정",
         "enabling": "사용 설정 중…",
-        "pairingCode": "페어링 코드 사용",
         "sectionLabel": "Stella가 작업하는 곳",
         "statusAwaitingConsent": "해당 컴퓨터에서 허용을 기다리는 중",
         "statusDeclined": "해당 컴퓨터에서 거부됨",
@@ -1397,10 +1381,6 @@
       "deleteConfirmTitle": "계정 삭제",
       "deleteFailedTitle": "계정을 삭제할 수 없음",
       "deletingAccount": "계정 삭제 중…",
-      "forget": "해제",
-      "forgetConfirmBody": "다시 페어링할 때까지 이 휴대폰은 해당 컴퓨터에 다시 연결하지 않습니다.",
-      "forgetConfirmTitle": "{name}을(를) 해제할까요?",
-      "forgetLabel": "{name} 해제",
       "hideEmailLabel": "이메일 숨기기",
       "loadingSession": "세션 불러오는 중…",
       "notificationsSection": "알림",
@@ -1410,9 +1390,6 @@
       "paired": {
         "unnamedComputer": "컴퓨터 · {id}"
       },
-      "pairedEmpty": "아직 페어링된 컴퓨터가 없습니다.",
-      "pairedOn": "{date}에 페어링",
-      "pairedSection": "페어링된 컴퓨터",
       "privacyPolicy": "개인정보 처리방침",
       "pushToggleA11y": "푸시 알림 전환",
       "pushToggleLabel": "푸시 알림 허용",
@@ -1590,6 +1567,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "생활의 많은 부분이 이메일로 오가요. Gmail을 연결하면 이메일도 도와드릴게요.",
         "memory": "One more thing that makes me different.",
+        "phone": "휴대폰에서도 만날 수 있어요.",
         "quickstart": "이게 전부예요. 마지막으로 하나만 남았고, 선택 사항이에요. 바로 퀵스타트예요.",
         "quickstartDone": "완료했어요. 제가 파악한 내용과 함께 시작해 볼 만한 일 몇 가지를 정리했어요.",
         "quickstartFailed": "이번에는 브라우저를 끝까지 읽지 못했어요. 그래도 먼저 시작해요. 하면서 배울게요.",
@@ -2085,16 +2063,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "로그인된 컴퓨터가 여기에 표시됩니다. 활성화하면 작업을 보낼 수 있습니다.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2232,46 +2205,6 @@
         "label": "화면 기록"
       },
       "title": "권한"
-    },
-    "phoneAccess": {
-      "copy": "복사",
-      "deviceFallback": "휴대폰",
-      "errors": {
-        "createPairing": "연결 코드를 만들 수 없습니다."
-      },
-      "expired": "만료됨",
-      "getCode": "코드 받기",
-      "intro": {
-        "headline": "휴대폰을 컴퓨터에 연결하세요"
-      },
-      "pairedCount": {
-        "other": "휴대폰 {count}대 연결됨"
-      },
-      "pairing": {
-        "body": "휴대폰의 Stella 앱에서 QR 코드를 스캔하거나 코드를 입력하세요.",
-        "headline": "이 코드를 스캔하거나 입력하세요",
-        "qrAlt": "스캔해 휴대폰 연결"
-      },
-      "preparing": "준비 중...",
-      "remove": "제거",
-      "removing": "제거 중...",
-      "signedOut": {
-        "body": "모바일 앱과 연결하려면 Stella 계정에 로그인하세요.",
-        "headline": "로그인하고 시작하세요"
-      },
-      "steps": {
-        "appStoreQrAlt": "스캔해 App Store에서 Stella 다운로드",
-        "connect": "휴대폰 연결",
-        "download": "앱 다운로드",
-        "platformSelectorLabel": "모바일 플랫폼 선택",
-        "playStoreQrAlt": "스캔해 Google Play에서 Stella 다운로드"
-      },
-      "timeLeft": "{time} 남음",
-      "toasts": {
-        "codeCopied": "코드가 클립보드에 복사됨",
-        "phoneRemoved": "휴대폰이 제거됨",
-        "removeFailed": "휴대폰 제거 실패"
-      }
     },
     "power": {
       "description": "Stella가 열려 있는 동안 컴퓨터가 잠자기로 전환되지 않도록 합니다.",

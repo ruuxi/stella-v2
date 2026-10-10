@@ -42,7 +42,7 @@ import {
   useOnboardingChat,
   type OnboardingEntry,
 } from "../src/components/onboarding/use-onboarding-chat";
-import { usePairingStepNeeded } from "../src/components/onboarding/use-pairing-step";
+import { useComputerStepNeeded } from "../src/components/onboarding/use-computer-step";
 import {
   createViewportStore,
   useOnScreen,
@@ -84,11 +84,11 @@ export default function OnboardingScreen() {
   const email = signedIn ? (session.data?.user?.email ?? null) : null;
 
   const splashHidden = useSplashHidden();
-  const pairingNeeded = usePairingStepNeeded(signedIn);
+  const computerStepNeeded = useComputerStepNeeded(signedIn);
   const { entries, steps, currentStep, answers, typing, handoff, answer } =
     useOnboardingChat({
       started: splashHidden,
-      skipPairing: pairingNeeded === false,
+      skipComputer: computerStepNeeded === false,
       skipGmail: !signedIn,
     });
   const [finishing, setFinishing] = useState(false);
@@ -223,8 +223,6 @@ export default function OnboardingScreen() {
                 active={active}
                 answered={answered}
                 onScreen={onScreen}
-                canPair={signedIn}
-                onSignIn={goSignIn}
                 onAnswer={(kind) => answer("computer", kind)}
               />
             )}

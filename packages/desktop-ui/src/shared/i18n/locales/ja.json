@@ -824,7 +824,6 @@
     },
     "integrations": {
       "connectStellaApp": "Stella アプリに接続",
-      "connectStellaAppSub": "スマートフォンの Stella アプリをこのコンピュータとペアリングします",
       "connectTitle": "接続",
       "connected": "接続済み",
       "credential": {
@@ -840,11 +839,16 @@
         "saving": "保存中...",
         "title": "{provider} を接続"
       },
-      "heroTagline": "好きなプラットフォームから Stella にメッセージを送れます — 自然に会話したり、コンピュータ上で作業を任せたりできます。",
       "phoneTitle": "あなたのスマートフォン",
       "signInHeadline": "サインインして始めましょう",
       "signInSub": "{provider} を接続するには、Stella アカウントにサインインしてください。",
-      "signInToConnect": "接続するには Stella にサインインしてください"
+      "signInToConnect": "接続するには Stella にサインインしてください",
+      "getApp": {
+        "appStoreQrAlt": "スキャンして App Store から Stella をダウンロード",
+        "platformLabel": "モバイルプラットフォームを選択",
+        "playStoreQrAlt": "スキャンして Google Play から Stella をダウンロード",
+        "title": "アプリを入手"
+      }
     },
     "legal": {
       "privacy": {
@@ -1009,7 +1013,6 @@
       "disconnectedLabel": "コンピュータの接続が切れました",
       "guestHeroBody": "ウェブの閲覧、ファイル整理、タスク実行など、コンピュータでの操作を Stella に頼めます。",
       "guestHeroTitle": "あなたのコンピュータを手元に",
-      "pairLabel": "コンピューターをペアリング",
       "statusAsleep": "スリープ中",
       "statusChecking": "確認中…",
       "statusConnected": "接続済み"
@@ -1017,20 +1020,11 @@
     "desktop": {
       "connecting": "デスクトップに接続しています",
       "deviceUnreachable": "{platform} に接続できません",
-      "enterCode": "コンピュータに表示されたコードを入力してください。",
-      "guestBody": "Stella デスクトップアプリを携帯でそのまま表示できます。ペアリング後は自動的に再接続されます。",
       "guestSignInPrompt": "サインインして始めましょう。",
       "limitedCapabilities": "一部の機能にはコンピュータが必要です",
       "linkInterrupted": "コンピュータとの接続が中断されました。",
-      "pairAnother": "別のコンピュータをペアリング",
-      "pairTitle": "携帯をペアリング",
-      "pairing": "この携帯をペアリングしています",
       "reconnecting": "再接続しています...",
-      "repairNeeded": "この携帯をコンピュータと再度ペアリングする必要があります。",
       "retryLabel": "もう一度接続を試す",
-      "startPairingLabel": "コンピュータのペアリングを開始",
-      "unavailableBodyPaired": "コンピュータで Stella が開いていて、インターネットに接続されていることを確認してください。接続されると、デスクトップアプリがこの携帯に表示されます。",
-      "unavailableBodyUnpaired": "Stella デスクトップアプリを携帯でそのまま表示できます。コンピュータの Stella に表示された QR コードをスキャンして始めましょう。その後は自動的に再接続されます。",
       "unreachable": "デスクトップに接続できません"
     },
     "engineAccounts": {
@@ -1143,26 +1137,17 @@
         "signInBody": "会話、設定、接続したコンピューターを、すべてのデバイスで引き継げます。",
         "signInTitle": "Stellaにサインイン",
         "skip": "今はスキップ",
-        "subscriptionsBody": "Claude や ChatGPT をすでに契約していますか？接続すれば、クラウドで使います。各コンピュータは独自のサインインを使います。",
+        "subscriptionsBody": "お持ちの Claude または ChatGPT のサブスクリプションを使いますか?",
         "subscriptionsLabel": "任意"
       },
       "composerPlaceholder": "または、気軽に何か聞いてください",
       "computer": {
-        "body": "このスマートフォンをコンピューターのStellaとペアリングすれば、外出中でもそちらで作業を進められます。",
-        "connectedBody": "どこからでも頼んでください。作業はコンピューターで行います。",
+        "body": "パソコンでサインインすると自動でつながります。",
         "connectedTo": "{name} に接続しました",
-        "guestHint": "ペアリングは Stella アカウントに紐づくため、先にサインインしてください。ここから続きを再開します。",
-        "hint": "コンピューターでStellaを開き、「スマートフォンをペアリング」を選んでください。",
+        "getDesktop": "デスクトップ版 Stella を入手",
         "later": "あとで",
-        "pair": "コンピューターをペアリング",
-        "point1": "ファイルを探して送る",
-        "point2": "書き出しやダウンロードを仕上げる",
-        "point3": "お使いのアプリをそのまま使う",
-        "settledConnectedDesc": "スマートフォンから、そちらで作業を実行できます。",
-        "settledSkippedDesc": "設定からいつでもペアリングできます。",
         "settledSkippedTitle": "コンピューターは未接続",
-        "signInToPair": "サインインしてペアリング",
-        "title": "あなたのコンピューターを、ポケットから"
+        "title": "パソコンの Stella"
       },
       "gmail": {
         "body": "メールを探したり、スレッドに追いついたり、返信の下書きを作ったり。頼むだけです。",
@@ -1381,7 +1366,6 @@
         "enableFailedTitle": "そのコンピュータを有効にできませんでした",
         "enableLabel": "{name} を有効にする",
         "enabling": "有効にしています…",
-        "pairingCode": "ペアリングコードを使う",
         "sectionLabel": "Stella が作業する場所",
         "statusAwaitingConsent": "そのコンピュータでの許可を待っています",
         "statusDeclined": "そのコンピュータで拒否されました",
@@ -1397,10 +1381,6 @@
       "deleteConfirmTitle": "アカウントを削除",
       "deleteFailedTitle": "アカウントを削除できませんでした",
       "deletingAccount": "アカウントを削除しています…",
-      "forget": "解除",
-      "forgetConfirmBody": "再度ペアリングするまで、この携帯はそのコンピュータに再接続しなくなります。",
-      "forgetConfirmTitle": "{name} を解除しますか？",
-      "forgetLabel": "{name} を解除",
       "hideEmailLabel": "メールアドレスを非表示",
       "loadingSession": "セッションを読み込んでいます…",
       "notificationsSection": "通知",
@@ -1410,9 +1390,6 @@
       "paired": {
         "unnamedComputer": "コンピュータ · {id}"
       },
-      "pairedEmpty": "ペアリング済みのコンピュータはまだありません。",
-      "pairedOn": "{date} にペアリング",
-      "pairedSection": "ペアリング済みのコンピュータ",
       "privacyPolicy": "プライバシーポリシー",
       "pushToggleA11y": "プッシュ通知を切り替える",
       "pushToggleLabel": "プッシュ通知を許可",
@@ -1590,6 +1567,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "暮らしの多くはメールで動いています。Gmail を連携すれば、メールのことも手伝えます。",
         "memory": "One more thing that makes me different.",
+        "phone": "スマホでも使えます。",
         "quickstart": "以上です。最後にひとつだけ、任意ですがクイックスタートがあります。",
         "quickstartDone": "完了しました。私が把握したことと、最初に取りかかれそうなことをいくつかご紹介します。",
         "quickstartFailed": "今回はブラウザーを最後まで読み取れませんでした。このまま始めても大丈夫です。進めながら覚えていきます。",
@@ -2085,16 +2063,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "サインイン済みのコンピュータがここに表示されます。有効にすると作業を送れます。",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2232,46 +2205,6 @@
         "label": "画面収録"
       },
       "title": "アクセス権"
-    },
-    "phoneAccess": {
-      "copy": "コピー",
-      "deviceFallback": "スマートフォン",
-      "errors": {
-        "createPairing": "ペアリングコードを作成できません。"
-      },
-      "expired": "期限切れ",
-      "getCode": "コードを取得",
-      "intro": {
-        "headline": "スマートフォンをコンピュータに接続"
-      },
-      "pairedCount": {
-        "other": "{count} 台のスマートフォンをペアリング済み"
-      },
-      "pairing": {
-        "body": "スマートフォンの Stella アプリで QR コードを読み取るか、コードを入力します。",
-        "headline": "このコードをスキャンまたは入力",
-        "qrAlt": "スキャンしてスマートフォンをペアリング"
-      },
-      "preparing": "準備中...",
-      "remove": "削除",
-      "removing": "削除中...",
-      "signedOut": {
-        "body": "Stella アカウントにサインインして、モバイルアプリとペアリングします。",
-        "headline": "サインインして始めましょう"
-      },
-      "steps": {
-        "appStoreQrAlt": "スキャンして App Store から Stella をダウンロード",
-        "connect": "スマートフォンを接続",
-        "download": "アプリをダウンロード",
-        "platformSelectorLabel": "モバイルプラットフォームを選択",
-        "playStoreQrAlt": "スキャンして Google Play から Stella をダウンロード"
-      },
-      "timeLeft": "残り {time}",
-      "toasts": {
-        "codeCopied": "コードをクリップボードにコピーしました",
-        "phoneRemoved": "スマートフォンを削除しました",
-        "removeFailed": "スマートフォンを削除できませんでした"
-      }
     },
     "power": {
       "description": "Stella を開いている間、コンピュータがスリープしないようにします。",

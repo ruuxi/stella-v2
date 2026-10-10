@@ -37,8 +37,8 @@ export type LocalChatRecentActivityRecord = LocalChatEventRecord & {
 };
 
 /**
- * Read shape backing `SessionStore.listMessages` — the same fields as
- * `LocalChatEventRecord` plus the turn-scoped `toolEvents` projection.
+ * Read shape backing `MessageWindowReader.listMessages` — the same fields
+ * as `LocalChatEventRecord` plus the turn-scoped `toolEvents` projection.
  * Renderer-facing contract lives at `runtime/contracts/local-chat.ts`
  * (`MessageRecord`); this is the storage-side mirror so callers in the
  * worker can construct one without depending on the contracts module.
@@ -69,7 +69,7 @@ export type LocalChatMessageWindow = {
 };
 
 /**
- * Read shape backing `SessionStore.listActivity` — the persisted agent-*
+ * Read shape backing `ChatLog.listActivity` — the persisted agent-*
  * lifecycle events. Kept separate from the message stream so consumers
  * never need to walk the (much larger) raw event stream.
  *
@@ -83,7 +83,7 @@ export type LocalChatActivityWindow = {
 };
 
 /**
- * Read shape backing `SessionStore.listFiles` — the `assistant_message` and
+ * Read shape backing `ChatLog.listFiles` — the `assistant_message` and
  * `agent-completed` events whose text plausibly carries markdown file
  * links. The Recent Files surfaces (Chat tab Recent Files,
  * ActivityHistoryDialog "files" section) derive their list from this
@@ -418,6 +418,15 @@ export const DEFAULT_CONVERSATION_SETTING_KEY = "default_conversation_id";
 
 export const asTrimmedString = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
+
+/** A trimmed conversation id; throws when there is none. */
+export const requireConversationId = (value: unknown): string => {
+  const conversationId = asTrimmedString(value);
+  if (!conversationId) {
+    throw new Error("conversationId is required.");
+  }
+  return conversationId;
+};
 
 export const asFiniteNumber = (value: unknown): number | null =>
   typeof value === "number" && Number.isFinite(value) ? value : null;

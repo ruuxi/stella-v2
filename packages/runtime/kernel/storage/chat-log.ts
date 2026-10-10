@@ -10,7 +10,6 @@
 import { isUiHiddenChatMessagePayload } from "@stella/contracts/chat-event-visibility";
 import {
   toReplyPreview,
-  type ConversationFocusRoot,
   type RawReplyRef,
   type ReplyCounts,
   type ReplyRef,
@@ -25,29 +24,25 @@ import {
   eventTextFromPayload,
   generateLocalId,
   parseJsonRecord,
+  requireConversationId,
   toJsonValueString,
   type CachedStatements,
   type LocalChatEventRecord,
   type SqliteDatabase,
 } from "./shared.js";
-import {
-  EAGER_TOOL_EVENT_LIMIT,
-  EAGER_TOOL_EVENT_SIDE_LIMIT,
-  compareTimelineCursor,
-  eventRoleForType,
-  projectLocalChatUpdateEventWithMetadata,
-  type Cursor,
-} from "./view.js";
+import { eventRoleForType, type Cursor } from "./view.js";
 import type {
   LocalChatEventWindow,
   LocalChatEventWindowQuery,
 } from "./event-window.js";
 
-const CUTOFF_SCAN_CEILING = 4000;
-const MAX_VISIBLE_MESSAGE_WINDOW = 500;
+export const CUTOFF_SCAN_CEILING = 4000;
 
-const CHAT_MESSAGE_TYPES = ["user_message", "assistant_message"] as const;
-const TOOL_EVENT_TYPES = [
+export const CHAT_MESSAGE_TYPES = [
+  "user_message",
+  "assistant_message",
+] as const;
+export const TOOL_EVENT_TYPES = [
   "tool_request",
   "tool_result",
   "agent-started",
@@ -56,8 +51,11 @@ const TOOL_EVENT_TYPES = [
   "agent-failed",
   "agent-canceled",
 ] as const;
-const TIMELINE_EVENT_TYPES = [...CHAT_MESSAGE_TYPES, ...TOOL_EVENT_TYPES];
-const LIFECYCLE_EVENT_TYPES = [
+export const TIMELINE_EVENT_TYPES = [
+  ...CHAT_MESSAGE_TYPES,
+  ...TOOL_EVENT_TYPES,
+];
+export const LIFECYCLE_EVENT_TYPES = [
   "agent-started",
   "agent-progress",
   "agent-completed",
@@ -69,12 +67,16 @@ const LIFECYCLE_EVENT_TYPES = [
  * writes them any more; `run_event` rows left in existing stores are
  * deleted by `sweepLegacyRunEventEntries` (entry-retention.ts).
  */
-const NON_EVENT_TYPES = ["thread_message", "run_event", "memory"] as const;
+export const NON_EVENT_TYPES = [
+  "thread_message",
+  "run_event",
+  "memory",
+] as const;
 
-const placeholders = (values: readonly unknown[]): string =>
+export const placeholders = (values: readonly unknown[]): string =>
   values.map(() => "?").join(", ");
 
-type EntryRow = {
+export type EntryRow = {
   _id: string;
   timestamp: number;
   sequence: number;
@@ -86,7 +88,7 @@ type EntryRow = {
   channelEnvelopeJson: string | null;
 };
 
-const ENTRY_SELECT = `
+export const ENTRY_SELECT = `
   entry.id AS _id,
   entry.created_at AS timestamp,
   entry.seq AS sequence,
@@ -97,23 +99,6 @@ const ENTRY_SELECT = `
   entry.payload AS payloadJson,
   entry.channel_envelope AS channelEnvelopeJson
 `;
-
-export type ChatMessageRecord = LocalChatEventRecord & {
-  toolEvents: LocalChatEventRecord[];
-  toolEventSummary?: {
-    totalCount: number;
-    loadedCount: number;
-    truncated: boolean;
-    totalCountIsLowerBound?: boolean;
-    detailLoaded?: boolean;
-  };
-};
-
-export type ChatMessageWindow = {
-  messages: ChatMessageRecord[];
-  visibleMessageCount: number;
-  nextCursor?: Cursor;
-};
 
 export const computeChatVisibility = (
   type: string,
@@ -131,7 +116,6 @@ export const computeSearchText = (
   const text = payload?.text;
   return typeof text === "string" ? text : null;
 };
-
 
 /** Reply references an assistant payload carries, if any. */
 export const readReplyRefs = (
@@ -171,6 +155,25 @@ export const readReplyRefs = (
     }
   }
   return result;
+};
+
+/**
+ * Keyset predicate for a cursor. Uses the sequence when the cursor
+ * resolves to a stored entry, and falls back to `(created_at, id)` for
+ * cursors that no longer resolve (e.g. after truncation).
+ */
+export const cursorKeyset = (
+  op: ">" | ">=" | "<" | "<=",
+  cursor: Cursor,
+): { clause: string; params: unknown[] } => {
+  if (typeof cursor.sequence === "number" && Number.isFinite(cursor.sequence)) {
+    return { clause: `entry.seq ${op} ?`, params: [cursor.sequence] };
+  }
+  const outer = op === ">" || op === ">=" ? ">" : "<";
+  return {
+    clause: `(entry.created_at ${outer} ? OR (entry.created_at = ? AND entry.id ${op} ?))`,
+    params: [cursor.timestamp, cursor.timestamp, cursor.id],
+  };
 };
 
 /** A chat's title is its newest visible message, as the history list shows it. */
@@ -338,7 +341,8 @@ export class ChatLog {
     const existing = this.getSetting(DEFAULT_CONVERSATION_SETTING_KEY);
     if (existing) {
       this.tx.immediate(() => {
-        if (!existing.startsWith("local_")) this.ensureConversation(existing, Date.now());
+        if (!existing.startsWith("local_"))
+          this.ensureConversation(existing, Date.now());
       });
       return existing;
     }
@@ -396,19 +400,23 @@ export class ChatLog {
   }
 
   setActiveDefaultConversationId(conversationId: string): void {
+    conversationId = requireConversationId(conversationId);
     const now = Date.now();
     this.tx.immediate(() => {
       // Selecting a private draft reserves its id without adding a history row.
       // appendMessage/appendEvent materializes it with the first message.
-      if (!conversationId.startsWith("local_")) this.ensureConversation(conversationId, now);
+      if (!conversationId.startsWith("local_"))
+        this.ensureConversation(conversationId, now);
       this.setSetting(DEFAULT_CONVERSATION_SETTING_KEY, conversationId);
     });
   }
 
-  listConversationSummaries(args: {
-    limit?: number;
-    cursor?: { updatedAt?: number; conversationId?: string } | null;
-  }): {
+  listConversationSummaries(
+    args: {
+      limit?: number;
+      cursor?: { updatedAt?: number; conversationId?: string } | null;
+    } = {},
+  ): {
     conversations: Array<{
       conversationId: string;
       title: string;
@@ -473,7 +481,9 @@ export class ChatLog {
       return {
         conversationId: row.conversationId,
         title: conversationTitle(row.payloadJson),
-        ...(row.latestMessageId ? { latestMessageId: row.latestMessageId } : {}),
+        ...(row.latestMessageId
+          ? { latestMessageId: row.latestMessageId }
+          : {}),
         ...(typeof row.latestMessageAt === "number"
           ? { latestMessageAt: row.latestMessageAt }
           : {}),
@@ -525,7 +535,11 @@ export class ChatLog {
          LIMIT 1`,
       )
       .get(conversationId) as
-      | { conversationId: string; updatedAt: number; payloadJson: string | null }
+      | {
+          conversationId: string;
+          updatedAt: number;
+          payloadJson: string | null;
+        }
       | undefined;
     if (!row) return null;
     return {
@@ -536,6 +550,7 @@ export class ChatLog {
   }
 
   deleteConversation(conversationId: string): boolean {
+    conversationId = requireConversationId(conversationId);
     const exists = this.conversationExists(conversationId);
     if (!exists) return false;
     const runningAgent = this.cached
@@ -599,26 +614,8 @@ export class ChatLog {
       : cursor;
   }
 
-  /**
-   * Keyset predicate for a cursor. Uses the sequence when the cursor
-   * resolves to a stored entry, and falls back to `(created_at, id)` for
-   * cursors that no longer resolve (e.g. after truncation).
-   */
-  private keyset(
-    op: ">" | ">=" | "<" | "<=",
-    cursor: Cursor,
-  ): { clause: string; params: unknown[] } {
-    if (typeof cursor.sequence === "number" && Number.isFinite(cursor.sequence)) {
-      return { clause: `entry.seq ${op} ?`, params: [cursor.sequence] };
-    }
-    const outer = op === ">" || op === ">=" ? ">" : "<";
-    return {
-      clause: `(entry.created_at ${outer} ? OR (entry.created_at = ? AND entry.id ${op} ?))`,
-      params: [cursor.timestamp, cursor.timestamp, cursor.id],
-    };
-  }
-
   getEventCursor(conversationId: string, eventIdInput: string): Cursor | null {
+    conversationId = requireConversationId(conversationId);
     const eventId = asTrimmedString(eventIdInput);
     if (!eventId) return null;
     const row = this.cached
@@ -808,12 +805,14 @@ export class ChatLog {
     timestamp?: number;
     eventId?: string;
   }): LocalChatEventRecord {
+    const conversationId = requireConversationId(args.conversationId);
     const type = asTrimmedString(args.type);
     if (!type) {
       throw new Error("type is required.");
     }
     const timestamp = asFiniteNumber(args.timestamp) ?? Date.now();
-    const eventId = asTrimmedString(args.eventId) || `local-${generateLocalId()}`;
+    const eventId =
+      asTrimmedString(args.eventId) || `local-${generateLocalId()}`;
     const payload = asObject(args.payload) ?? undefined;
     const channelEnvelope = asObject(args.channelEnvelope) ?? undefined;
     const deviceId = asTrimmedString(args.deviceId) || undefined;
@@ -822,7 +821,7 @@ export class ChatLog {
     let cursor: Cursor | null = null;
     this.tx.immediate(() => {
       cursor = this.upsertEvent({
-        conversationId: args.conversationId,
+        conversationId,
         eventId,
         type,
         timestamp,
@@ -854,6 +853,7 @@ export class ChatLog {
     eventId: string;
     patch: Record<string, unknown>;
   }): LocalChatEventRecord | null {
+    const conversationId = requireConversationId(args.conversationId);
     const eventId = asTrimmedString(args.eventId);
     if (!eventId) return null;
     let updatedRecord: LocalChatEventRecord | null = null;
@@ -863,7 +863,7 @@ export class ChatLog {
           `SELECT ${ENTRY_SELECT} FROM entry
            WHERE entry.id = ? AND entry.conversation_id = ?`,
         )
-        .get(eventId, args.conversationId) as EntryRow | undefined;
+        .get(eventId, conversationId) as EntryRow | undefined;
       if (!existingRow) {
         return;
       }
@@ -882,7 +882,7 @@ export class ChatLog {
           searchText,
           Date.now(),
           eventId,
-          args.conversationId,
+          conversationId,
         );
       updatedRecord = {
         ...this.deserializeEventRow(existingRow),
@@ -892,7 +892,12 @@ export class ChatLog {
     return updatedRecord;
   }
 
-  hasEvent(conversationId: string, eventIdInput: string, typeInput?: string): boolean {
+  hasEvent(
+    conversationId: string,
+    eventIdInput: string,
+    typeInput?: string,
+  ): boolean {
+    conversationId = requireConversationId(conversationId);
     const eventId = asTrimmedString(eventIdInput);
     if (!eventId) return false;
     const type = asTrimmedString(typeInput);
@@ -919,13 +924,16 @@ export class ChatLog {
         ? "SELECT 1 AS present FROM entry WHERE id = ? AND type = ? LIMIT 1"
         : "SELECT 1 AS present FROM entry WHERE id = ? LIMIT 1",
     );
-    return Boolean(type ? statement.get(eventId, type) : statement.get(eventId));
+    return Boolean(
+      type ? statement.get(eventId, type) : statement.get(eventId),
+    );
   }
 
   truncateConversationAtEvent(
     conversationId: string,
     eventIdInput: string,
   ): { removed: number } {
+    conversationId = requireConversationId(conversationId);
     const cursor = this.getEventCursor(conversationId, eventIdInput);
     if (!cursor) return { removed: 0 };
     let removed = 0;
@@ -964,7 +972,9 @@ export class ChatLog {
           )
           .run(threadId);
         this.cached.prepare("DELETE FROM thread WHERE id = ?").run(threadId);
-        this.cached.prepare("DELETE FROM agent WHERE thread_id = ?").run(threadId);
+        this.cached
+          .prepare("DELETE FROM agent WHERE thread_id = ?")
+          .run(threadId);
       }
     });
     return { removed };
@@ -974,6 +984,7 @@ export class ChatLog {
     conversationId: string,
     eventIdInput: string,
   ): { conversationId: string } | null {
+    conversationId = requireConversationId(conversationId);
     const cursor = this.getEventCursor(conversationId, eventIdInput);
     if (!cursor) return null;
     const rows = this.cached
@@ -984,7 +995,11 @@ export class ChatLog {
            AND entry.seq < ?
          ORDER BY entry.seq ASC`,
       )
-      .all(conversationId, ...CHAT_MESSAGE_TYPES, cursor.sequence) as EntryRow[];
+      .all(
+        conversationId,
+        ...CHAT_MESSAGE_TYPES,
+        cursor.sequence,
+      ) as EntryRow[];
     const newConversationId = conversationId.startsWith("local_")
       ? `local_${generateLocalId()}`
       : generateLocalId();
@@ -1046,6 +1061,7 @@ export class ChatLog {
   }
 
   listEvents(conversationId: string, maxItems = 200): LocalChatEventRecord[] {
+    conversationId = requireConversationId(conversationId);
     const normalizedLimit = Math.max(1, Math.floor(maxItems));
     const rows = this.cached
       .prepare(
@@ -1071,6 +1087,7 @@ export class ChatLog {
     conversationId: string,
     maxItems: number,
   ): LocalChatEventWindow {
+    conversationId = requireConversationId(conversationId);
     const windowOffset = Math.max(1, Math.floor(maxItems)) - 1;
     return {
       query: (query: LocalChatEventWindowQuery) => {
@@ -1125,12 +1142,13 @@ export class ChatLog {
     conversationId: string,
     opts: { beforeTimestampMs: number; beforeId?: string; limit?: number },
   ): LocalChatEventRecord[] {
+    conversationId = requireConversationId(conversationId);
     const normalizedLimit = Math.max(1, Math.floor(opts.limit ?? 50));
     const before = this.resolveCursorSequence(conversationId, {
       timestamp: Math.floor(opts.beforeTimestampMs),
       id: opts.beforeId ?? "",
     });
-    const keyset = this.keyset("<", before);
+    const keyset = cursorKeyset("<", before);
     const rows = this.cached
       .prepare(
         `SELECT * FROM (
@@ -1204,8 +1222,13 @@ export class ChatLog {
 
   listActivity(
     conversationId: string,
-    args: { limit?: number; beforeTimestampMs?: number; beforeId?: string } = {},
+    args: {
+      limit?: number;
+      beforeTimestampMs?: number;
+      beforeId?: string;
+    } = {},
   ): { activities: LocalChatEventRecord[] } {
+    conversationId = requireConversationId(conversationId);
     const normalizedLimit = Math.max(1, Math.floor(args.limit ?? 500));
     const clauses = [
       "entry.conversation_id = ?",
@@ -1217,7 +1240,7 @@ export class ChatLog {
         timestamp: Math.floor(args.beforeTimestampMs),
         id: args.beforeId ?? "",
       });
-      const keyset = this.keyset("<", before);
+      const keyset = cursorKeyset("<", before);
       clauses.push(keyset.clause);
       params.push(...keyset.params);
     }
@@ -1237,8 +1260,13 @@ export class ChatLog {
 
   listFiles(
     conversationId: string,
-    args: { limit?: number; beforeTimestampMs?: number; beforeId?: string } = {},
+    args: {
+      limit?: number;
+      beforeTimestampMs?: number;
+      beforeId?: string;
+    } = {},
   ): { files: LocalChatEventRecord[] } {
+    conversationId = requireConversationId(conversationId);
     const normalizedLimit = Math.max(1, Math.floor(args.limit ?? 500));
     const clauses = [
       "entry.conversation_id = ?",
@@ -1252,7 +1280,7 @@ export class ChatLog {
         timestamp: Math.floor(args.beforeTimestampMs),
         id: args.beforeId ?? "",
       });
-      const keyset = this.keyset("<", before);
+      const keyset = cursorKeyset("<", before);
       clauses.push(keyset.clause);
       params.push(...keyset.params);
     }
@@ -1271,13 +1299,16 @@ export class ChatLog {
   }
 
   getEventCount(conversationId: string): number {
+    conversationId = requireConversationId(conversationId);
     const row = this.cached
       .prepare(
         `SELECT COUNT(*) AS count FROM entry
          WHERE conversation_id = ?
            AND type NOT IN (${placeholders(NON_EVENT_TYPES)})`,
       )
-      .get(conversationId, ...NON_EVENT_TYPES) as { count?: number } | undefined;
+      .get(conversationId, ...NON_EVENT_TYPES) as
+      | { count?: number }
+      | undefined;
     return typeof row?.count === "number" ? row.count : 0;
   }
 
@@ -1291,6 +1322,7 @@ export class ChatLog {
     timestamp: number;
     deviceId?: string;
   }> {
+    conversationId = requireConversationId(conversationId);
     const normalizedLimit = Math.max(1, Math.floor(maxMessages));
     const rows = this.cached
       .prepare(
@@ -1336,775 +1368,6 @@ export class ChatLog {
       if (messages.length >= normalizedLimit) break;
     }
     return messages.reverse();
-  }
-
-  /* ------------------------------------------------------------------ */
-  /* Message windows                                                     */
-  /* ------------------------------------------------------------------ */
-
-  private fetchEntryRows(args: {
-    conversationId: string;
-    types?: readonly string[];
-    visibleOnly?: boolean;
-    from?: Cursor | null;
-    after?: Cursor | null;
-    before?: Cursor | null;
-    until?: Cursor | null;
-    limit?: number | null;
-  }): LocalChatEventRecord[] {
-    const types =
-      args.types && args.types.length > 0 ? args.types : TIMELINE_EVENT_TYPES;
-    const clauses = [
-      "entry.conversation_id = ?",
-      `entry.type IN (${placeholders(types)})`,
-    ];
-    const params: unknown[] = [args.conversationId, ...types];
-    if (args.visibleOnly) clauses.push("entry.visible = 1");
-    const bounds: Array<[Cursor | null | undefined, ">" | ">=" | "<"]> = [
-      [args.from, ">="],
-      [args.after, ">"],
-      [args.before, "<"],
-      [args.until, "<"],
-    ];
-    for (const [cursor, op] of bounds) {
-      if (!cursor) continue;
-      const k = this.keyset(
-        op,
-        this.resolveCursorSequence(args.conversationId, cursor),
-      );
-      clauses.push(k.clause);
-      params.push(...k.params);
-    }
-    const limit =
-      typeof args.limit === "number" && Number.isFinite(args.limit)
-        ? Math.max(1, Math.floor(args.limit))
-        : null;
-    if (limit !== null) params.push(limit);
-    const rows = this.cached
-      .prepare(
-        `SELECT ${ENTRY_SELECT} FROM entry
-         WHERE ${clauses.join(" AND ")}
-         ORDER BY entry.seq ASC
-         ${limit !== null ? "LIMIT ?" : ""}`,
-      )
-      .all(...params) as EntryRow[];
-    return rows.map((row) => this.deserializeEventRow(row));
-  }
-
-  private cursorFromRow(row: {
-    timestamp?: number;
-    id?: string;
-    sequence?: number;
-  }): Cursor | null {
-    return typeof row?.timestamp === "number" && typeof row.id === "string"
-      ? {
-          timestamp: row.timestamp,
-          id: row.id,
-          ...(typeof row.sequence === "number" ? { sequence: row.sequence } : {}),
-        }
-      : null;
-  }
-
-  private findVisibleMessageCutoffPaged(
-    conversationId: string,
-    maxVisibleMessages: number,
-    initialBefore: Cursor | null,
-  ): Cursor | null {
-    const before = this.resolveCursorSequence(conversationId, initialBefore);
-    const beforeKeyset = before ? this.keyset("<", before) : null;
-    const params: unknown[] = [conversationId];
-    if (beforeKeyset) params.push(...beforeKeyset.params);
-    params.push(maxVisibleMessages - 1);
-    const row = this.cached
-      .prepare(
-        `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
-         FROM entry
-         WHERE entry.conversation_id = ?
-           AND entry.visible = 1
-           ${beforeKeyset ? `AND ${beforeKeyset.clause}` : ""}
-         ORDER BY entry.seq DESC
-         LIMIT 1 OFFSET ?`,
-      )
-      .get(...params) as
-      | { timestamp?: number; id?: string; sequence?: number }
-      | undefined;
-    return row ? this.cursorFromRow(row) : null;
-  }
-
-  findVisibleMessagePageEndAfter(
-    conversationId: string,
-    maxVisibleMessages: number,
-    initialAfter: Cursor,
-  ): Cursor | null {
-    const after = this.resolveCursorSequence(conversationId, initialAfter);
-    const keyset = this.keyset(">", after);
-    const rows = this.cached
-      .prepare(
-        `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
-         FROM entry
-         WHERE entry.conversation_id = ?
-           AND entry.visible = 1
-           AND ${keyset.clause}
-         ORDER BY entry.seq ASC
-         LIMIT ?`,
-      )
-      .all(conversationId, ...keyset.params, maxVisibleMessages) as Array<{
-      timestamp?: number;
-      id?: string;
-      sequence?: number;
-    }>;
-    const row = rows.at(-1);
-    return row ? this.cursorFromRow(row) : null;
-  }
-
-  findVisibleMessageCursorAfter(
-    conversationId: string,
-    initialAfter: Cursor,
-  ): Cursor | null {
-    const after = this.resolveCursorSequence(conversationId, initialAfter);
-    const keyset = this.keyset(">", after);
-    const row = this.cached
-      .prepare(
-        `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
-         FROM entry
-         WHERE entry.conversation_id = ?
-           AND entry.visible = 1
-           AND ${keyset.clause}
-         ORDER BY entry.seq ASC
-         LIMIT 1`,
-      )
-      .get(conversationId, ...keyset.params) as
-      | { timestamp?: number; id?: string; sequence?: number }
-      | undefined;
-    return row ? this.cursorFromRow(row) : null;
-  }
-
-  findTurnFetchCutoff(
-    conversationId: string,
-    cutoff: Cursor | null,
-  ): Cursor | null {
-    if (!cutoff) return null;
-    const resolved = this.resolveCursorSequence(conversationId, cutoff);
-    const keyset = this.keyset("<=", resolved);
-    const row = this.cached
-      .prepare(
-        `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
-         FROM entry
-         WHERE entry.conversation_id = ?
-           AND entry.type = 'user_message'
-           AND entry.visible = 1
-           AND ${keyset.clause}
-         ORDER BY entry.seq DESC
-         LIMIT 1`,
-      )
-      .get(conversationId, ...keyset.params) as
-      | { timestamp?: number; id?: string; sequence?: number }
-      | undefined;
-    const cursor = row ? this.cursorFromRow(row) : null;
-    return cursor ?? resolved;
-  }
-
-  findNextUserMessageAfter(
-    conversationId: string,
-    cursor: Cursor | null,
-  ): Cursor | null {
-    if (!cursor) return null;
-    const resolved = this.resolveCursorSequence(conversationId, cursor);
-    const keyset = this.keyset(">", resolved);
-    const row = this.cached
-      .prepare(
-        `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
-         FROM entry
-         WHERE entry.conversation_id = ?
-           AND entry.type = 'user_message'
-           AND entry.visible = 1
-           AND ${keyset.clause}
-         ORDER BY entry.seq ASC
-         LIMIT 1`,
-      )
-      .get(conversationId, ...keyset.params) as
-      | { timestamp?: number; id?: string; sequence?: number }
-      | undefined;
-    return row ? this.cursorFromRow(row) : null;
-  }
-
-  findPreviousVisibleAssistantAfter(
-    conversationId: string,
-    start: Cursor | null,
-    before: Cursor | null,
-  ): Cursor | null {
-    if (!start || !before) return null;
-    const startKeyset = this.keyset(
-      ">",
-      this.resolveCursorSequence(conversationId, start),
-    );
-    const beforeKeyset = this.keyset(
-      "<",
-      this.resolveCursorSequence(conversationId, before),
-    );
-    const row = this.cached
-      .prepare(
-        `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
-         FROM entry
-         WHERE entry.conversation_id = ?
-           AND entry.type = 'assistant_message'
-           AND entry.visible = 1
-           AND ${startKeyset.clause}
-           AND ${beforeKeyset.clause}
-         ORDER BY entry.seq DESC
-         LIMIT 1`,
-      )
-      .get(conversationId, ...startKeyset.params, ...beforeKeyset.params) as
-      | { timestamp?: number; id?: string; sequence?: number }
-      | undefined;
-    return row ? this.cursorFromRow(row) : null;
-  }
-
-  findLatestTimelineCursor(
-    conversationId: string,
-    until: Cursor | null = null,
-  ): Cursor | null {
-    // Legacy non-event rows never anchor a cursor, so the result does not
-    // depend on whether they are still present.
-    const clauses = [
-      "entry.conversation_id = ?",
-      `entry.type NOT IN (${placeholders(NON_EVENT_TYPES)})`,
-    ];
-    const params: unknown[] = [conversationId, ...NON_EVENT_TYPES];
-    if (until) {
-      const k = this.keyset(
-        "<",
-        this.resolveCursorSequence(conversationId, until),
-      );
-      clauses.push(k.clause);
-      params.push(...k.params);
-    }
-    const row = this.cached
-      .prepare(
-        `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
-         FROM entry
-         WHERE ${clauses.join(" AND ")}
-         ORDER BY entry.seq DESC
-         LIMIT 1`,
-      )
-      .get(...params) as
-      | { timestamp?: number; id?: string; sequence?: number }
-      | undefined;
-    return row ? this.cursorFromRow(row) : null;
-  }
-
-  assembleMessageWindow(rows: LocalChatEventRecord[]): {
-    messages: ChatMessageRecord[];
-    visibleMessageCount: number;
-  } {
-    const messages: ChatMessageRecord[] = [];
-    let turnUserMessage: ChatMessageRecord | null = null;
-    let currentAssistant: ChatMessageRecord | null = null;
-    let pendingPreAssistantTools: LocalChatEventRecord[] = [];
-    let visibleMessageCount = 0;
-
-    const finalizePreAssistantTools = () => {
-      if (pendingPreAssistantTools.length > 0 && turnUserMessage) {
-        turnUserMessage.toolEvents = [
-          ...turnUserMessage.toolEvents,
-          ...pendingPreAssistantTools,
-        ];
-      }
-      pendingPreAssistantTools = [];
-    };
-    for (const row of rows) {
-      if (row.type === "user_message") {
-        finalizePreAssistantTools();
-        const message: ChatMessageRecord = { ...row, toolEvents: [] };
-        messages.push(message);
-        turnUserMessage = message;
-        currentAssistant = null;
-        if (!isUiHiddenChatMessagePayload((row.payload as never) ?? null)) {
-          visibleMessageCount += 1;
-        }
-        continue;
-      }
-      if (row.type === "assistant_message") {
-        const message: ChatMessageRecord = { ...row, toolEvents: [] };
-        messages.push(message);
-        const hidden = isUiHiddenChatMessagePayload(
-          (row.payload as never) ?? null,
-        );
-        if (!hidden && pendingPreAssistantTools.length > 0) {
-          message.toolEvents = [
-            ...message.toolEvents,
-            ...pendingPreAssistantTools,
-          ];
-          pendingPreAssistantTools = [];
-        }
-        if (!hidden) {
-          currentAssistant = message;
-          visibleMessageCount += 1;
-        }
-        continue;
-      }
-      if (currentAssistant) {
-        currentAssistant.toolEvents = [...currentAssistant.toolEvents, row];
-      } else {
-        pendingPreAssistantTools.push(row);
-      }
-    }
-    finalizePreAssistantTools();
-    return { messages, visibleMessageCount };
-  }
-
-  fetchBoundedToolEvents(
-    conversationId: string,
-    start: Cursor | null,
-    end: Cursor | null,
-  ): {
-    events: LocalChatEventRecord[];
-    totalCount: number;
-    eventCountTruncated: boolean;
-    detailTruncated: boolean;
-  } {
-    const clauses = [
-      "entry.conversation_id = ?",
-      `entry.type IN (${placeholders(TOOL_EVENT_TYPES)})`,
-    ];
-    const params: unknown[] = [conversationId, ...TOOL_EVENT_TYPES];
-    if (start) {
-      const k = this.keyset(
-        ">",
-        this.resolveCursorSequence(conversationId, start),
-      );
-      clauses.push(k.clause);
-      params.push(...k.params);
-    }
-    if (end) {
-      const k = this.keyset(
-        "<",
-        this.resolveCursorSequence(conversationId, end),
-      );
-      clauses.push(k.clause);
-      params.push(...k.params);
-    }
-    const select = `SELECT ${ENTRY_SELECT} FROM entry WHERE ${clauses.join(" AND ")}`;
-    const headProbeRows = this.cached
-      .prepare(`${select} ORDER BY entry.seq ASC LIMIT ${EAGER_TOOL_EVENT_LIMIT + 1}`)
-      .all(...params) as EntryRow[];
-    const eventCountTruncated = headProbeRows.length > EAGER_TOOL_EVENT_LIMIT;
-    const headRows = eventCountTruncated
-      ? headProbeRows.slice(0, EAGER_TOOL_EVENT_SIDE_LIMIT)
-      : headProbeRows;
-    const tailRows = eventCountTruncated
-      ? (this.cached
-          .prepare(
-            `${select} ORDER BY entry.seq DESC LIMIT ${EAGER_TOOL_EVENT_SIDE_LIMIT}`,
-          )
-          .all(...params) as EntryRow[])
-      : [];
-    const rowsById = new Map<string, EntryRow>();
-    for (const row of [...headRows, ...tailRows]) rowsById.set(row._id, row);
-    let payloadProjected = false;
-    const events = [...rowsById.values()]
-      .map((row) => {
-        const projected = projectLocalChatUpdateEventWithMetadata(
-          this.deserializeEventRow(row),
-        );
-        payloadProjected ||= projected.payloadProjected;
-        return projected.event;
-      })
-      .sort((a, b) =>
-        compareTimelineCursor(
-          { timestamp: a.timestamp, id: a._id, sequence: a.sequence },
-          { timestamp: b.timestamp, id: b._id, sequence: b.sequence },
-        ),
-      );
-    return {
-      events,
-      totalCount: eventCountTruncated ? events.length + 1 : events.length,
-      eventCountTruncated,
-      detailTruncated: eventCountTruncated || payloadProjected,
-    };
-  }
-
-  attachBoundedToolEvents(
-    conversationId: string,
-    window: { messages: ChatMessageRecord[]; visibleMessageCount: number },
-    upperBound: Cursor | null,
-  ): { messages: ChatMessageRecord[]; visibleMessageCount: number } {
-    if (window.messages.length === 0) return window;
-    const attachedById = new Map<string, ChatMessageRecord>();
-    let turn: ChatMessageRecord[] = [];
-    const cursorFor = (message: LocalChatEventRecord): Cursor => ({
-      timestamp: message.timestamp,
-      id: message._id,
-      ...(typeof message.sequence === "number"
-        ? { sequence: message.sequence }
-        : {}),
-    });
-    const attachTurn = (
-      messages: ChatMessageRecord[],
-      turnEnd: Cursor | null,
-    ) => {
-      if (messages.length === 0) return;
-      const user = messages.find((message) => message.type === "user_message");
-      const assistants = messages.filter(
-        (message) =>
-          message.type === "assistant_message" &&
-          !isUiHiddenChatMessagePayload((message.payload as never) ?? null),
-      );
-      const anchors = assistants.length > 0 ? assistants : user ? [user] : [];
-      anchors.forEach((anchor, index) => {
-        const start = index === 0 && user ? cursorFor(user) : cursorFor(anchor);
-        const end =
-          index + 1 < anchors.length ? cursorFor(anchors[index + 1]!) : turnEnd;
-        const { events, totalCount, eventCountTruncated, detailTruncated } =
-          this.fetchBoundedToolEvents(conversationId, start, end);
-        attachedById.set(anchor._id, {
-          ...anchor,
-          toolEvents: events,
-          toolEventSummary: {
-            totalCount,
-            loadedCount: events.length,
-            truncated: detailTruncated,
-            ...(eventCountTruncated ? { totalCountIsLowerBound: true } : {}),
-          },
-        });
-      });
-    };
-    for (const message of window.messages) {
-      if (message.type === "user_message" && turn.length > 0) {
-        attachTurn(turn, cursorFor(message));
-        turn = [];
-      }
-      turn.push(message);
-    }
-    attachTurn(turn, upperBound);
-    return {
-      ...window,
-      messages: window.messages.map(
-        (message) => attachedById.get(message._id) ?? message,
-      ),
-    };
-  }
-
-  trimMessageWindow(
-    window: { messages: ChatMessageRecord[]; visibleMessageCount: number },
-    cutoff: Cursor | null,
-  ): { messages: ChatMessageRecord[]; visibleMessageCount: number } {
-    if (!cutoff) return window;
-    let visibleMessageCount = 0;
-    const messages = window.messages.filter((message) => {
-      const keep =
-        compareTimelineCursor(
-          {
-            timestamp: message.timestamp,
-            id: message._id,
-            ...(typeof message.sequence === "number"
-              ? { sequence: message.sequence }
-              : {}),
-          },
-          cutoff,
-        ) >= 0;
-      if (
-        keep &&
-        !isUiHiddenChatMessagePayload((message.payload as never) ?? null)
-      ) {
-        visibleMessageCount += 1;
-      }
-      return keep;
-    });
-    return { messages, visibleMessageCount };
-  }
-
-  limitChangedMessageWindow(
-    window: { messages: ChatMessageRecord[]; visibleMessageCount: number },
-    after: Cursor,
-    maxVisibleMessages: number,
-  ): { messages: ChatMessageRecord[]; visibleMessageCount: number } {
-    const messages: ChatMessageRecord[] = [];
-    let visibleMessageCount = 0;
-    for (const message of window.messages) {
-      const messageChanged =
-        compareTimelineCursor(
-          {
-            timestamp: message.timestamp,
-            id: message._id,
-            ...(typeof message.sequence === "number"
-              ? { sequence: message.sequence }
-              : {}),
-          },
-          after,
-        ) > 0;
-      const toolEventsChanged = message.toolEvents.some(
-        (event) =>
-          compareTimelineCursor(
-            {
-              timestamp: event.timestamp,
-              id: event._id,
-              ...(typeof event.sequence === "number"
-                ? { sequence: event.sequence }
-                : {}),
-            },
-            after,
-          ) > 0,
-      );
-      if (!messageChanged && !toolEventsChanged) continue;
-      messages.push(message);
-      if (!isUiHiddenChatMessagePayload((message.payload as never) ?? null)) {
-        visibleMessageCount += 1;
-      }
-      if (visibleMessageCount >= maxVisibleMessages) {
-        break;
-      }
-    }
-    return { messages, visibleMessageCount };
-  }
-
-  listMessages(
-    conversationId: string,
-    args: { maxVisibleMessages?: number } = {},
-  ): ChatMessageWindow {
-    const maxVisibleMessages = Math.max(
-      1,
-      Math.min(
-        MAX_VISIBLE_MESSAGE_WINDOW,
-        Math.floor(args.maxVisibleMessages ?? 200),
-      ),
-    );
-    const cutoff = this.findVisibleMessageCutoffPaged(
-      conversationId,
-      maxVisibleMessages,
-      null,
-    );
-    const fetchCutoff = this.findTurnFetchCutoff(conversationId, cutoff);
-    const rows = this.fetchEntryRows({
-      conversationId,
-      types: CHAT_MESSAGE_TYPES,
-      visibleOnly: true,
-      from: fetchCutoff,
-    });
-    const projected = this.attachBoundedToolEvents(
-      conversationId,
-      this.assembleMessageWindow(rows),
-      null,
-    );
-    const nextCursor = this.findLatestTimelineCursor(conversationId);
-    return {
-      ...this.trimMessageWindow(projected, cutoff),
-      ...(nextCursor ? { nextCursor } : {}),
-    };
-  }
-
-  listMessagesBefore(
-    conversationId: string,
-    args: {
-      beforeTimestampMs: number;
-      beforeId: string;
-      maxVisibleMessages?: number;
-    },
-  ): ChatMessageWindow {
-    const maxVisibleMessages = Math.max(
-      1,
-      Math.min(
-        MAX_VISIBLE_MESSAGE_WINDOW,
-        Math.floor(args.maxVisibleMessages ?? 200),
-      ),
-    );
-    const before = this.resolveCursorSequence(conversationId, {
-      timestamp: Math.floor(args.beforeTimestampMs),
-      id: args.beforeId,
-    });
-    const cutoff = this.findVisibleMessageCutoffPaged(
-      conversationId,
-      maxVisibleMessages,
-      before,
-    );
-    const fetchCutoff = this.findTurnFetchCutoff(conversationId, cutoff);
-    const rows = this.fetchEntryRows({
-      conversationId,
-      types: CHAT_MESSAGE_TYPES,
-      visibleOnly: true,
-      from: fetchCutoff,
-      before,
-    });
-    const projected = this.attachBoundedToolEvents(
-      conversationId,
-      this.assembleMessageWindow(rows),
-      before,
-    );
-    return this.trimMessageWindow(projected, cutoff);
-  }
-
-  listMessagesAfter(
-    conversationId: string,
-    args: {
-      afterTimestampMs: number;
-      afterId: string;
-      afterSequence?: number;
-      maxVisibleMessages?: number;
-      includeSourceEvents?: boolean;
-    },
-  ): ChatMessageWindow & { sourceEvents: LocalChatEventRecord[] } {
-    const maxVisibleMessages = Math.max(
-      1,
-      Math.min(
-        MAX_VISIBLE_MESSAGE_WINDOW,
-        Math.floor(args.maxVisibleMessages ?? 200),
-      ),
-    );
-    const after = this.resolveCursorSequence(conversationId, {
-      timestamp: Math.floor(args.afterTimestampMs),
-      id: args.afterId,
-      ...(typeof args.afterSequence === "number"
-        ? { sequence: args.afterSequence }
-        : {}),
-    });
-    const pageEnd = this.findVisibleMessagePageEndAfter(
-      conversationId,
-      maxVisibleMessages,
-      after,
-    );
-    const until = pageEnd
-      ? this.findVisibleMessageCursorAfter(conversationId, pageEnd)
-      : null;
-    const fetchCutoff = this.findTurnFetchCutoff(conversationId, after);
-
-    const includeSourceEvents = args.includeSourceEvents !== false;
-    const messageRows = this.fetchEntryRows({
-      conversationId,
-      types: CHAT_MESSAGE_TYPES,
-      visibleOnly: true,
-      from: fetchCutoff,
-      until,
-    });
-    const sourceEvents = includeSourceEvents
-      ? this.fetchEntryRows({
-          conversationId,
-          after,
-          until,
-          limit: CUTOFF_SCAN_CEILING,
-        })
-      : messageRows.filter(
-          (event) =>
-            compareTimelineCursor(
-              {
-                timestamp: event.timestamp,
-                id: event._id,
-                sequence: event.sequence,
-              },
-              after,
-            ) > 0,
-        );
-
-    const projectionRows = includeSourceEvents
-      ? Array.from(
-          new Map(
-            [...messageRows, ...sourceEvents].map((event) => [event._id, event]),
-          ).values(),
-        ).sort((a, b) =>
-          compareTimelineCursor(
-            { timestamp: a.timestamp, id: a._id, sequence: a.sequence },
-            { timestamp: b.timestamp, id: b._id, sequence: b.sequence },
-          ),
-        )
-      : messageRows;
-    const assembled = this.assembleMessageWindow(projectionRows);
-    const projected = includeSourceEvents
-      ? assembled
-      : this.attachBoundedToolEvents(conversationId, assembled, until);
-    const lastSourceEvent = includeSourceEvents ? sourceEvents.at(-1) : null;
-    const nextCursor = lastSourceEvent
-      ? {
-          timestamp: lastSourceEvent.timestamp,
-          id: lastSourceEvent._id,
-          ...(typeof lastSourceEvent.sequence === "number"
-            ? { sequence: lastSourceEvent.sequence }
-            : {}),
-        }
-      : includeSourceEvents
-        ? null
-        : this.findLatestTimelineCursor(conversationId, until);
-    return {
-      ...this.limitChangedMessageWindow(projected, after, maxVisibleMessages),
-      sourceEvents,
-      ...(nextCursor ? { nextCursor } : {}),
-    };
-  }
-
-  listMessageToolEvents(
-    conversationId: string,
-    args: {
-      messageTimestampMs: number;
-      messageId: string;
-      messageSequence?: number;
-      afterTimestampMs?: number;
-      afterId?: string;
-      afterSequence?: number;
-      limit?: number;
-    },
-  ): {
-    events: LocalChatEventRecord[];
-    hasMore: boolean;
-    nextCursor?: Cursor;
-  } {
-    const anchor = this.resolveCursorSequence(conversationId, {
-      timestamp: Math.floor(args.messageTimestampMs),
-      id: args.messageId,
-      ...(typeof args.messageSequence === "number"
-        ? { sequence: args.messageSequence }
-        : {}),
-    });
-    const anchorRow = this.cached
-      .prepare(
-        "SELECT type FROM entry WHERE conversation_id = ? AND id = ? LIMIT 1",
-      )
-      .get(conversationId, anchor.id) as { type?: string } | undefined;
-    const turnStart = this.findTurnFetchCutoff(conversationId, anchor);
-    const previousAssistant =
-      anchorRow?.type === "assistant_message"
-        ? this.findPreviousVisibleAssistantAfter(
-            conversationId,
-            turnStart,
-            anchor,
-          )
-        : null;
-    const rangeStart = previousAssistant ? anchor : (turnStart ?? anchor);
-    const rangeEnd =
-      anchorRow?.type === "user_message"
-        ? this.findNextUserMessageAfter(conversationId, anchor)
-        : this.findVisibleMessageCursorAfter(conversationId, anchor);
-    const after = args.afterId
-      ? this.resolveCursorSequence(conversationId, {
-          timestamp: Math.floor(args.afterTimestampMs ?? 0),
-          id: args.afterId,
-          ...(typeof args.afterSequence === "number"
-            ? { sequence: args.afterSequence }
-            : {}),
-        })
-      : rangeStart;
-    const limit = Math.max(1, Math.min(100, Math.floor(args.limit ?? 50)));
-    const rows = this.fetchEntryRows({
-      conversationId,
-      types: TOOL_EVENT_TYPES,
-      after,
-      until: rangeEnd,
-      limit: limit + 1,
-    });
-    const page = rows.slice(0, limit);
-    const last = page.at(-1);
-    return {
-      events: page,
-      hasMore: rows.length > limit,
-      ...(last
-        ? {
-            nextCursor: {
-              timestamp: last.timestamp,
-              id: last._id,
-              ...(typeof last.sequence === "number"
-                ? { sequence: last.sequence }
-                : {}),
-            },
-          }
-        : {}),
-    };
   }
 
   /* ------------------------------------------------------------------ */
@@ -2157,6 +1420,7 @@ export class ChatLog {
     raw: readonly RawReplyRef[],
     options: { excludeMessageId?: string; fallbackAgentId?: string } = {},
   ): ReplyRef[] {
+    conversationId = requireConversationId(conversationId);
     const resolved: ReplyRef[] = [];
     const seen = new Set<string>();
     const push = (ref: ReplyRef) => {
@@ -2221,6 +1485,7 @@ export class ChatLog {
 
   /** Reply counts for every cited message and agent in a conversation. */
   listReplyCounts(conversationId: string): ReplyCounts {
+    conversationId = requireConversationId(conversationId);
     const rows = this.cached
       .prepare(
         `SELECT target_kind AS kind, target_key AS key, COUNT(*) AS count
@@ -2259,247 +1524,5 @@ export class ChatLog {
       }
     }
     return counts;
-  }
-
-  /**
-   * The lineage of one message or one agent thread: the root itself, the
-   * turn that spawned the agent, and every reply that cited either. A
-   * message root also carries its own turn's replies and every update on
-   * the tasks that turn spawned — from the user's side the task is the ask,
-   * and completions cite the task rather than the message. Newest first,
-   * keyset-paged on `beforeSequence`, so a long-lived thread the user keeps
-   * steering pages exactly like the main timeline.
-   */
-  listLineageMessages(
-    conversationId: string,
-    args: {
-      root: ConversationFocusRoot;
-      beforeSequence?: number;
-      limit?: number;
-    },
-  ): {
-    messages: ChatMessageRecord[];
-    visibleMessageCount: number;
-    hasOlder: boolean;
-  } {
-    const limit = Math.max(1, Math.min(200, Math.floor(args.limit ?? 80)));
-    const lineageSeqs = new Set<number>();
-    const rootSeqs: number[] = [];
-    if (args.root.kind === "message") {
-      const row = this.cached
-        .prepare(
-          `SELECT seq FROM entry
-           WHERE conversation_id = ? AND id = ?
-             AND type IN (${placeholders(CHAT_MESSAGE_TYPES)})
-           LIMIT 1`,
-        )
-        .get(conversationId, args.root.id, ...CHAT_MESSAGE_TYPES) as
-        | { seq: number }
-        | undefined;
-      if (!row) return { messages: [], visibleMessageCount: 0, hasOlder: false };
-      rootSeqs.push(row.seq);
-      const turnRows = this.cached
-        .prepare(
-          `SELECT seq FROM entry
-           WHERE conversation_id = ? AND turn_seq = ? AND visible = 1
-             AND type IN (${placeholders(CHAT_MESSAGE_TYPES)})`,
-        )
-        .all(conversationId, row.seq, ...CHAT_MESSAGE_TYPES) as Array<{ seq: number }>;
-      for (const turnRow of turnRows) lineageSeqs.add(turnRow.seq);
-      const spawned = this.cached
-        .prepare(
-          `SELECT DISTINCT json_extract(payload, '$.agentId') AS agentId FROM entry
-           WHERE conversation_id = ? AND type = 'agent-started' AND turn_seq = ?`,
-        )
-        .all(conversationId, row.seq) as Array<{ agentId: string | null }>;
-      for (const { agentId } of spawned) {
-        if (!agentId) continue;
-        const agentRefs = this.cached
-          .prepare(
-            `SELECT entry_seq AS seq FROM entry_ref
-             WHERE conversation_id = ? AND target_kind = 'agent' AND target_key = ?`,
-          )
-          .all(conversationId, agentId) as Array<{ seq: number }>;
-        for (const ref of agentRefs) lineageSeqs.add(ref.seq);
-      }
-    } else {
-      const threadId = args.root.threadId;
-      const starts = this.cached
-        .prepare(
-          `SELECT seq, turn_seq AS turnSeq FROM entry
-           WHERE conversation_id = ? AND type = 'agent-started'
-             AND json_extract(payload, '$.agentId') = ?
-           ORDER BY seq ASC`,
-        )
-        .all(conversationId, threadId) as Array<{
-        seq: number;
-        turnSeq: number | null;
-      }>;
-      for (const start of starts) {
-        if (typeof start.turnSeq === "number") rootSeqs.push(start.turnSeq);
-        // The visible row the spawn card is anchored on: the turn's last
-        // visible chat message before the start event, if any.
-        const anchor = this.cached
-          .prepare(
-            `SELECT seq FROM entry
-             WHERE conversation_id = ? AND visible = 1
-               AND type IN (${placeholders(CHAT_MESSAGE_TYPES)})
-               AND seq < ? AND seq >= ?
-             ORDER BY seq DESC LIMIT 1`,
-          )
-          .get(
-            conversationId,
-            ...CHAT_MESSAGE_TYPES,
-            start.seq,
-            start.turnSeq ?? 0,
-          ) as { seq: number } | undefined;
-        if (anchor) lineageSeqs.add(anchor.seq);
-      }
-      const agentRefs = this.cached
-        .prepare(
-          `SELECT entry_seq AS seq FROM entry_ref
-           WHERE conversation_id = ? AND target_kind = 'agent' AND target_key = ?`,
-        )
-        .all(conversationId, threadId) as Array<{ seq: number }>;
-      for (const row of agentRefs) lineageSeqs.add(row.seq);
-    }
-    for (const seq of rootSeqs) {
-      lineageSeqs.add(seq);
-      const refs = this.cached
-        .prepare(
-          `SELECT entry_seq AS seq FROM entry_ref
-           WHERE conversation_id = ? AND target_kind = 'message' AND target_key = ?`,
-        )
-        .all(conversationId, String(seq)) as Array<{ seq: number }>;
-      for (const row of refs) lineageSeqs.add(row.seq);
-    }
-    if (lineageSeqs.size === 0) {
-      return { messages: [], visibleMessageCount: 0, hasOlder: false };
-    }
-    const candidateSeqs = [...lineageSeqs]
-      .filter(
-        (seq) =>
-          typeof args.beforeSequence !== "number" || seq < args.beforeSequence,
-      )
-      .sort((a, b) => b - a)
-      .slice(0, limit + 1);
-    const hasOlder = candidateSeqs.length > limit;
-    const pageSeqs = candidateSeqs.slice(0, limit);
-    if (pageSeqs.length === 0) {
-      return { messages: [], visibleMessageCount: 0, hasOlder: false };
-    }
-    const rows = this.db
-      .prepare(
-        `SELECT ${ENTRY_SELECT} FROM entry
-         WHERE entry.conversation_id = ?
-           AND entry.type IN (${placeholders(CHAT_MESSAGE_TYPES)})
-           AND entry.visible = 1
-           AND entry.seq IN (${placeholders(pageSeqs)})
-         ORDER BY entry.seq ASC`,
-      )
-      .all(conversationId, ...CHAT_MESSAGE_TYPES, ...pageSeqs) as EntryRow[];
-    const messages: ChatMessageRecord[] = rows.map((row) => {
-      const record = this.deserializeEventRow(row);
-      const cursor: Cursor = {
-        timestamp: record.timestamp,
-        id: record._id,
-        ...(typeof record.sequence === "number"
-          ? { sequence: record.sequence }
-          : {}),
-      };
-      // Same range the main timeline attaches to an anchor: from the turn's
-      // user message when this is the turn's first assistant reply,
-      // otherwise from the row itself, up to the next visible chat message.
-      const previous = this.findPreviousVisibleMessageCursor(
-        conversationId,
-        cursor,
-      );
-      const previousIsTurnUser =
-        previous !== null &&
-        record.type === "assistant_message" &&
-        this.isUserMessageCursor(conversationId, previous);
-      const start = previousIsTurnUser ? previous : cursor;
-      const end = this.findVisibleMessageCursorAfter(conversationId, cursor);
-      const { events, totalCount, eventCountTruncated, detailTruncated } =
-        this.fetchBoundedToolEvents(conversationId, start, end);
-      return {
-        ...record,
-        toolEvents: events,
-        toolEventSummary: {
-          totalCount,
-          loadedCount: events.length,
-          truncated: detailTruncated,
-          ...(eventCountTruncated ? { totalCountIsLowerBound: true } : {}),
-        },
-      };
-    });
-    if (args.root.kind === "agent" && messages.length > 0) {
-      // A completion event lands between an unrelated row and the reply that
-      // cites the agent; pull the thread's lifecycle events onto the nearest
-      // preceding lineage row so the spawn and completion cards still render.
-      const lifecycle = this.cached
-        .prepare(
-          `SELECT ${ENTRY_SELECT} FROM entry
-           WHERE entry.conversation_id = ?
-             AND entry.type IN (${placeholders(LIFECYCLE_EVENT_TYPES)})
-             AND json_extract(entry.payload, '$.agentId') = ?
-           ORDER BY entry.seq ASC`,
-        )
-        .all(conversationId, ...LIFECYCLE_EVENT_TYPES, args.root.threadId) as EntryRow[];
-      for (const row of lifecycle) {
-        const event = projectLocalChatUpdateEventWithMetadata(
-          this.deserializeEventRow(row),
-        ).event;
-        let host = messages[0]!;
-        for (const message of messages) {
-          if ((message.sequence ?? 0) <= row.sequence) host = message;
-          else break;
-        }
-        if (host.toolEvents.some((existing) => existing._id === event._id)) {
-          continue;
-        }
-        host.toolEvents = [...host.toolEvents, event].sort((a, b) =>
-          compareTimelineCursor(
-            { timestamp: a.timestamp, id: a._id, sequence: a.sequence },
-            { timestamp: b.timestamp, id: b._id, sequence: b.sequence },
-          ),
-        );
-      }
-    }
-    return { messages, visibleMessageCount: messages.length, hasOlder };
-  }
-
-  private findPreviousVisibleMessageCursor(
-    conversationId: string,
-    before: Cursor,
-  ): Cursor | null {
-    const keyset = this.keyset(
-      "<",
-      this.resolveCursorSequence(conversationId, before),
-    );
-    const row = this.cached
-      .prepare(
-        `SELECT entry.created_at AS timestamp, entry.id AS id, entry.seq AS sequence
-         FROM entry
-         WHERE entry.conversation_id = ?
-           AND entry.visible = 1
-           AND entry.type IN (${placeholders(CHAT_MESSAGE_TYPES)})
-           AND ${keyset.clause}
-         ORDER BY entry.seq DESC
-         LIMIT 1`,
-      )
-      .get(conversationId, ...CHAT_MESSAGE_TYPES, ...keyset.params) as
-      | { timestamp?: number; id?: string; sequence?: number }
-      | undefined;
-    return row ? this.cursorFromRow(row) : null;
-  }
-
-  private isUserMessageCursor(conversationId: string, cursor: Cursor): boolean {
-    const row = this.cached
-      .prepare(
-        "SELECT type FROM entry WHERE conversation_id = ? AND id = ? LIMIT 1",
-      )
-      .get(conversationId, cursor.id) as { type?: string } | undefined;
-    return row?.type === "user_message";
   }
 }

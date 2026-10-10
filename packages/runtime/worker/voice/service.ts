@@ -292,7 +292,7 @@ export class VoiceRuntimeService {
         metadata.voiceSession = { durationMs: payload.voiceSession.durationMs };
       }
       const hasMetadata = Object.keys(metadata).length > 0;
-      chatStore.appendEvent({
+      chatStore.chat.appendEvent({
         conversationId: payload.conversationId,
         type,
         ...(payload.role === "user" && this.options.getDeviceId()
@@ -606,7 +606,7 @@ export class VoiceRuntimeService {
   }) {
     const chatStore = this.options.getChatStore?.();
     if (!chatStore) return;
-    chatStore.appendEvent({
+    chatStore.chat.appendEvent({
       conversationId: args.conversationId,
       type: args.type,
       requestId: args.requestId,

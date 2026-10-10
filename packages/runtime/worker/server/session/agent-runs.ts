@@ -209,7 +209,7 @@ export const layer = Layer.effect(
         args.responseTarget && args.responseTarget.type !== "user_turn"
           ? args.responseTarget.agentId
           : undefined;
-      const replyRefs = storage.chatStore.resolveReplyRefs(
+      const replyRefs = storage.chatStore.chat.resolveReplyRefs(
         args.conversationId,
         args.replyRefs ?? [],
         {

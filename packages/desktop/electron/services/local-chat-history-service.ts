@@ -143,15 +143,15 @@ export class LocalChatHistoryService {
   }
 
   getOrCreateDefaultConversationId(): string {
-    return this.getStore().getOrCreateDefaultConversationId();
+    return this.getStore().chat.getOrCreateDefaultConversationId();
   }
 
   createNewDefaultConversationId(): string {
-    return this.getStore().createNewDefaultConversationId();
+    return this.getStore().chat.createNewDefaultConversationId();
   }
 
   setActiveConversationId(conversationId: string): { ok: true } {
-    this.getStore().setActiveDefaultConversationId(conversationId);
+    this.getStore().chat.setActiveDefaultConversationId(conversationId);
     return { ok: true };
   }
 
@@ -159,11 +159,11 @@ export class LocalChatHistoryService {
     limit?: number;
     cursor?: ConversationSummaryCursor | null;
   }): ConversationSummaryPage {
-    return this.getStore().listConversationSummaries(args);
+    return this.getStore().chat.listConversationSummaries(args);
   }
 
   deleteConversation(conversationId: string): { deleted: boolean } {
-    return { deleted: this.getStore().deleteConversation(conversationId) };
+    return { deleted: this.getStore().chat.deleteConversation(conversationId) };
   }
 
   /**
@@ -175,7 +175,7 @@ export class LocalChatHistoryService {
   truncateConversation(args: { conversationId: string; eventId: string }): {
     removed: number;
   } {
-    const result = this.getStore().truncateConversationAtEvent(
+    const result = this.getStore().chat.truncateConversationAtEvent(
       args.conversationId,
       args.eventId,
     );
@@ -194,7 +194,7 @@ export class LocalChatHistoryService {
     conversationId: string;
     eventId: string;
   }): { conversationId: string } | null {
-    const result = this.getStore().forkConversationBeforeEvent(
+    const result = this.getStore().chat.forkConversationBeforeEvent(
       args.conversationId,
       args.eventId,
     );
@@ -208,7 +208,7 @@ export class LocalChatHistoryService {
     conversationId: string;
     maxItems?: number;
   }): LocalChatEventRecord[] {
-    return this.getStore().listEvents(
+    return this.getStore().chat.listEvents(
       args.conversationId,
       args.maxItems,
     ) as LocalChatEventRecord[];
@@ -228,7 +228,7 @@ export class LocalChatHistoryService {
     conversationId: string;
     maxVisibleMessages?: number;
   }): LocalChatMessageWindow {
-    return this.getStore().listMessages(args.conversationId, {
+    return this.getStore().messageWindows.listMessages(args.conversationId, {
       maxVisibleMessages: args.maxVisibleMessages,
     });
   }
@@ -239,11 +239,14 @@ export class LocalChatHistoryService {
     beforeId: string;
     maxVisibleMessages?: number;
   }): LocalChatMessageWindow {
-    return this.getStore().listMessagesBefore(args.conversationId, {
-      beforeTimestampMs: args.beforeTimestampMs,
-      beforeId: args.beforeId,
-      maxVisibleMessages: args.maxVisibleMessages,
-    });
+    return this.getStore().messageWindows.listMessagesBefore(
+      args.conversationId,
+      {
+        beforeTimestampMs: args.beforeTimestampMs,
+        beforeId: args.beforeId,
+        maxVisibleMessages: args.maxVisibleMessages,
+      },
+    );
   }
 
   /**
@@ -260,7 +263,7 @@ export class LocalChatHistoryService {
     maxVisibleMessages?: number;
   }): LocalChatMessageWindow {
     const { messages, visibleMessageCount, nextCursor } =
-      this.getStore().listMessagesAfter(args.conversationId, {
+      this.getStore().messageWindows.listMessagesAfter(args.conversationId, {
         afterTimestampMs: args.afterTimestampMs,
         afterId: args.afterId,
         afterSequence: args.afterSequence,
@@ -280,7 +283,10 @@ export class LocalChatHistoryService {
     afterSequence?: number;
     limit?: number;
   }) {
-    return this.getStore().listMessageToolEvents(args.conversationId, args);
+    return this.getStore().messageWindows.listMessageToolEvents(
+      args.conversationId,
+      args,
+    );
   }
 
   listActivity(args: {
@@ -289,7 +295,7 @@ export class LocalChatHistoryService {
     beforeTimestampMs?: number;
     beforeId?: string;
   }): LocalChatActivityWindow {
-    return this.getStore().listActivity(args.conversationId, {
+    return this.getStore().chat.listActivity(args.conversationId, {
       limit: args.limit,
       beforeTimestampMs: args.beforeTimestampMs,
       beforeId: args.beforeId,
@@ -315,18 +321,21 @@ export class LocalChatHistoryService {
     beforeSequence?: number;
     limit?: number;
   }): { messages: LocalChatMessageRecord[]; hasOlder: boolean } {
-    const window = this.getStore().listLineageMessages(args.conversationId, {
-      root: args.root,
-      ...(typeof args.beforeSequence === "number"
-        ? { beforeSequence: args.beforeSequence }
-        : {}),
-      ...(typeof args.limit === "number" ? { limit: args.limit } : {}),
-    });
+    const window = this.getStore().messageWindows.listLineageMessages(
+      args.conversationId,
+      {
+        root: args.root,
+        ...(typeof args.beforeSequence === "number"
+          ? { beforeSequence: args.beforeSequence }
+          : {}),
+        ...(typeof args.limit === "number" ? { limit: args.limit } : {}),
+      },
+    );
     return { messages: window.messages, hasOlder: window.hasOlder };
   }
 
   listReplyCounts(args: { conversationId: string }): ReplyCounts {
-    return this.getStore().listReplyCounts(args.conversationId);
+    return this.getStore().chat.listReplyCounts(args.conversationId);
   }
 
   /** The untruncated report an agent returned (the activity list ships a
@@ -369,7 +378,7 @@ export class LocalChatHistoryService {
     beforeTimestampMs?: number;
     beforeId?: string;
   }): LocalChatFilesWindow {
-    return this.getStore().listFiles(args.conversationId, {
+    return this.getStore().chat.listFiles(args.conversationId, {
       limit: args.limit,
       beforeTimestampMs: args.beforeTimestampMs,
       beforeId: args.beforeId,
@@ -377,11 +386,11 @@ export class LocalChatHistoryService {
   }
 
   getEventCount(args: { conversationId: string }): number {
-    return this.getStore().getEventCount(args.conversationId);
+    return this.getStore().chat.getEventCount(args.conversationId);
   }
 
   appendEvent(args: LocalChatAppendEventArgs): LocalChatEventRecord {
-    const event = this.getStore().appendEvent(args);
+    const event = this.getStore().chat.appendEvent(args);
     this.onUpdated?.({
       conversationId: args.conversationId,
       event: projectLocalChatUpdateEvent(
@@ -396,7 +405,7 @@ export class LocalChatHistoryService {
     eventId: string;
     type?: string;
   }): boolean {
-    return this.getStore().hasEvent(
+    return this.getStore().chat.hasEvent(
       args.conversationId,
       args.eventId,
       args.type,
@@ -404,7 +413,7 @@ export class LocalChatHistoryService {
   }
 
   hasEventId(args: { eventId: string; type?: string }): boolean {
-    return this.getStore().hasEventId(args.eventId, args.type);
+    return this.getStore().chat.hasEventId(args.eventId, args.type);
   }
 
   persistDiscoveryWelcome(args: { conversationId: string; message: string }): {
@@ -414,7 +423,7 @@ export class LocalChatHistoryService {
     const store = this.getStore();
     let latestEvent: LocalChatEventRecord | undefined;
     if (message.length > 0) {
-      latestEvent = store.appendEvent({
+      latestEvent = store.chat.appendEvent({
         conversationId: args.conversationId,
         type: "assistant_message",
         payload: prepareStoredLocalChatPayload({
@@ -444,9 +453,12 @@ export class LocalChatHistoryService {
     includeDeveloperArtifacts?: boolean;
   }): LocalChatSyncMessageWithArtifacts[] {
     const maxMessages = Math.max(1, Math.floor(args.maxMessages ?? 100));
-    const { messages } = this.getStore().listMessages(args.conversationId, {
-      maxVisibleMessages: maxMessages,
-    });
+    const { messages } = this.getStore().messageWindows.listMessages(
+      args.conversationId,
+      {
+        maxVisibleMessages: maxMessages,
+      },
+    );
     return buildMobileSyncMessages(
       messages,
       maxMessages,

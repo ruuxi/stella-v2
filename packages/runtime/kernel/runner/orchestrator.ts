@@ -813,7 +813,7 @@ export const createOrchestratorController = (
   ): string => {
     if (!userPrompt || !userMessageId) return userPrompt;
     try {
-      const cursor = context.runtimeStore.getEventCursor(
+      const cursor = context.runtimeStore.chat.getEventCursor(
         conversationId,
         userMessageId,
       );
@@ -1046,7 +1046,7 @@ export const createOrchestratorController = (
           ? {
               onPrepared: async () => {
                 const cancellationReason = getPlacementCancellation({
-                  store: context.runtimeStore,
+                  store: context.runtimeStore.chat,
                   kind: "chat",
                   executionId: executionPlacementRunId,
                 });
@@ -1172,7 +1172,7 @@ export const createOrchestratorController = (
     // delivered after worker restart observes this tombstone in `onPrepared`
     // and cannot resurrect the exact dispatch-scoped owner.
     persistPlacementCancellation({
-      store: context.runtimeStore,
+      store: context.runtimeStore.chat,
       kind: "chat",
       executionId: exactRunId,
       reason,

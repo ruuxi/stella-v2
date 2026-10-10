@@ -20,6 +20,7 @@
 import type { JournalRecord } from "../conversation-types.js";
 import { unwrapRpc } from "../owner-store/errors.js";
 import { slackCall, slackTry, SlackApiError, splitForSlack, uploadSlackFile } from "./api.js";
+import { splitReplyRefs, stripMessageRefTag } from "@stella/contracts/reply-refs";
 import { toolLabel } from "./format.js";
 import { STOP_ACTION, stopValue } from "./interactivity.js";
 import { loadInstallation, type SlackInstallation } from "./store.js";
@@ -34,13 +35,16 @@ export type SlackRelayBinding = {
   shared: boolean;
 };
 
-type Line = { key: string; text: string; state: "running" | "done" | "error" };
+type Line = { key: string; text: string; state: "running" | "done" | "error"; count?: number };
 
 type TurnState = {
   triggerTs?: string;
+  reactionCleared?: boolean;
   progressTs?: string;
   lines: Line[];
   phase: "running" | "completed" | "failed" | "canceled";
+  /** A turn no Slack message asked for (an agent's report, a schedule) reports into this one. */
+  hostTurnId?: string;
   updatedAt: number;
 };
 
@@ -48,11 +52,15 @@ const BINDING_KEY = "slack:binding";
 const TRIGGERS_KEY = "slack:triggers";
 const TURNS_KEY = "slack:turns";
 const AGENTS_KEY = "slack:agents";
+const CURRENT_KEY = "slack:current";
 const MAX_TRACKED = 30;
 const MAX_LINES = 14;
 const RENDER_INTERVAL_MS = 1_200;
 const TOKEN_CACHE_MS = 5 * 60_000;
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+const STALE_TURN_MS = 20 * 60_000;
+const SETTLE_DELAY_MS = 6_000;
+const STALE_AGENT_MS = 3 * 60 * 60_000;
 const AGENT_TOOLS = new Set(["spawn_agent", "send_message", "agent_status", "pause_agent"]);
 
 const errorText = (error: unknown): string =>
@@ -70,15 +78,18 @@ const assistantText = (payload: unknown): string | null => {
   if (!payload || typeof payload !== "object") return null;
   const message = payload as { $spill?: unknown; content?: unknown };
   if (message.$spill) return "_This reply is too long for Slack. Open it in Stella to read it._";
-  if (typeof message.content === "string") return message.content;
-  if (!Array.isArray(message.content)) return null;
-  const parts = message.content
-    .filter((part): part is { type: "text"; text: string } =>
-      Boolean(part && typeof part === "object" && (part as { type?: unknown }).type === "text" &&
-        typeof (part as { text?: unknown }).text === "string"),
-    )
-    .map((part) => part.text);
-  return parts.length ? parts.join("\n\n") : null;
+  let text: string | null = null;
+  if (typeof message.content === "string") text = message.content;
+  else if (Array.isArray(message.content)) {
+    const parts = message.content
+      .filter((part): part is { type: "text"; text: string } =>
+        Boolean(part && typeof part === "object" && (part as { type?: unknown }).type === "text" &&
+          typeof (part as { text?: unknown }).text === "string"),
+      )
+      .map((part) => part.text);
+    text = parts.length ? parts.join("\n\n") : null;
+  }
+  return text === null ? null : stripMessageRefTag(splitReplyRefs(text).text);
 };
 
 export class SlackRelay {
@@ -122,14 +133,24 @@ export class SlackRelay {
   tool(turnId: string, toolCallId: string, name: string, phase: "start" | "end", isError?: boolean): void {
     if (this.binding === null || AGENT_TOOLS.has(name)) return;
     this.enqueue(async () => {
-      const turn = await this.turn(turnId);
-      if (turn.phase !== "running") return;
-      const key = `tool:${toolCallId}`;
-      const line = turn.lines.find((entry) => entry.key === key);
-      if (phase === "start" && !line) turn.lines.push({ key, text: toolLabel(name), state: "running" });
-      if (phase === "end" && line) line.state = isError ? "error" : "done";
+      const host = await this.hostOf(turnId);
+      if (!host) return;
+      const state = await this.turn(host);
+      const label = toolLabel(name);
+      const key = `tool:${label}`;
+      let line = state.lines.find((entry) => entry.key === key);
+      if (phase === "start") {
+        if (!line) {
+          line = { key, text: label, state: "running", count: 0 };
+          state.lines.push(line);
+        }
+        line.count = (line.count ?? 0) + 1;
+        line.state = "running";
+      } else if (line) {
+        line.state = isError && line.state !== "done" ? "error" : "done";
+      }
       await this.saveTurns();
-      this.scheduleRender(turnId);
+      this.scheduleRender(host);
     });
   }
 
@@ -156,19 +177,51 @@ export class SlackRelay {
     return value;
   }
 
-  private async turn(turnId: string): Promise<TurnState> {
+  private async loadTurns(): Promise<Record<string, TurnState>> {
     this.turns ??= (await this.storage.get<Record<string, TurnState>>(TURNS_KEY)) ?? {};
-    const existing = this.turns[turnId];
+    return this.turns;
+  }
+
+  private async turn(turnId: string): Promise<TurnState> {
+    const turns = await this.loadTurns();
+    const existing = turns[turnId];
     if (existing) return existing;
     const created: TurnState = { lines: [], phase: "running", updatedAt: Date.now() };
-    this.turns[turnId] = created;
+    turns[turnId] = created;
     return created;
+  }
+
+  /** The Slack request a turn reports into: its own, or the latest one. */
+  private async hostOf(turnId: string): Promise<string | null> {
+    const turns = await this.loadTurns();
+    const own = turns[turnId];
+    if (own?.triggerTs) return turnId;
+    if (own?.hostTurnId) return own.hostTurnId;
+    return (await this.storage.get<string>(CURRENT_KEY)) ?? null;
   }
 
   private async saveTurns(): Promise<void> {
     if (!this.turns) return;
     this.turns = trimRecord(this.turns, MAX_TRACKED);
     await this.storage.put(TURNS_KEY, this.turns);
+  }
+
+  /** Any turn still running, or any agent a Slack request started still working. */
+  private async busy(): Promise<{ runningTurnId: string | null; agentsRunning: boolean }> {
+    const turns = await this.loadTurns();
+    const now = Date.now();
+    let runningTurnId: string | null = null;
+    let agentsRunning = false;
+    for (const [turnId, state] of Object.entries(turns)) {
+      if (state.phase === "running" && now - state.updatedAt < STALE_TURN_MS) runningTurnId = turnId;
+      if (
+        now - state.updatedAt < STALE_AGENT_MS &&
+        state.lines.some((line) => line.key.startsWith("agent:") && line.state === "running")
+      ) {
+        agentsRunning = true;
+      }
+    }
+    return { runningTurnId, agentsRunning };
   }
 
   private where(): { channel: string; thread_ts?: string } {
@@ -182,9 +235,11 @@ export class SlackRelay {
         const triggers = (await this.storage.get<Record<string, string>>(TRIGGERS_KEY)) ?? {};
         const triggerTs = triggers[record.clientMsgId];
         if (!triggerTs) return;
-        const turn = await this.turn(record.turnId);
-        turn.triggerTs = triggerTs;
+        const state = await this.turn(record.turnId);
+        state.triggerTs = triggerTs;
+        state.updatedAt = Date.now();
         await this.saveTurns();
+        await this.storage.put(CURRENT_KEY, record.turnId);
         const install = await this.token();
         if (install && this.binding!.threadTs) {
           await slackTry(install.botToken, "assistant.threads.setStatus", {
@@ -208,7 +263,17 @@ export class SlackRelay {
       return;
     }
     if (record.kind === "turn") {
-      if (record.phase === "started") return;
+      if (record.phase === "started") {
+        const state = await this.turn(record.turnId);
+        state.phase = "running";
+        state.updatedAt = Date.now();
+        if (!state.triggerTs) {
+          const host = await this.hostOf(record.turnId);
+          if (host && host !== record.turnId) state.hostTurnId = host;
+        }
+        await this.saveTurns();
+        return;
+      }
       await this.finishTurn(record.turnId, record.phase, record.notice);
     }
   }
@@ -233,48 +298,74 @@ export class SlackRelay {
     const agents = (await this.storage.get<Record<string, string>>(AGENTS_KEY)) ?? {};
     const key = `agent:${event.payload.agentId}`;
     if (event.type === "agent-started") {
-      const turn = await this.turn(turnId);
-      agents[event.payload.agentId] = turnId;
+      const host = (await this.hostOf(turnId)) ?? turnId;
+      const state = await this.turn(host);
+      agents[event.payload.agentId] = host;
       await this.storage.put(AGENTS_KEY, trimRecord(agents, MAX_TRACKED * 2));
-      const existing = turn.lines.find((line) => line.key === key);
+      const existing = state.lines.find((line) => line.key === key);
       if (existing) existing.state = "running";
-      else turn.lines.push({ key, text: `Agent: ${event.payload.description ?? "background work"}`, state: "running" });
+      else state.lines.push({ key, text: `Agent: ${event.payload.description ?? "background work"}`, state: "running" });
+      state.updatedAt = Date.now();
       await this.saveTurns();
-      this.scheduleRender(turnId);
+      this.scheduleRender(host);
       return;
     }
     if (event.type === "agent-progress") return;
-    const owningTurn = agents[event.payload.agentId] ?? turnId;
-    const turn = await this.turn(owningTurn);
-    const line = turn.lines.find((entry) => entry.key === key);
+    const host = agents[event.payload.agentId] ?? (await this.hostOf(turnId)) ?? turnId;
+    const state = await this.turn(host);
+    const line = state.lines.find((entry) => entry.key === key);
     if (!line) return;
     line.state = event.type === "agent-completed" ? "done" : "error";
     if (event.type === "agent-canceled") line.text = `${line.text} (stopped)`;
+    if (event.type === "agent-failed" && event.payload.error) line.text = `${line.text} (${event.payload.error.slice(0, 80)})`;
     await this.saveTurns();
-    this.scheduleRender(owningTurn);
+    this.scheduleRender(host);
+    this.settleSoon();
   }
 
   private async finishTurn(turnId: string, phase: string, notice?: string): Promise<void> {
-    const turn = await this.turn(turnId);
-    turn.phase = phase === "completed" ? "completed" : phase === "canceled" ? "canceled" : "failed";
-    for (const line of turn.lines) {
+    const state = await this.turn(turnId);
+    state.phase = phase === "completed" ? "completed" : phase === "canceled" ? "canceled" : "failed";
+    state.updatedAt = Date.now();
+    const host = (await this.hostOf(turnId)) ?? turnId;
+    const hostState = await this.turn(host);
+    for (const line of hostState.lines) {
       if (line.state === "running" && line.key.startsWith("tool:")) line.state = phase === "completed" ? "done" : "error";
     }
     await this.saveTurns();
-    const install = await this.token();
-    if (!install) return;
-    if (turn.triggerTs) {
-      await slackTry(install.botToken, "reactions.remove", {
-        channel: this.binding!.channelId,
-        timestamp: turn.triggerTs,
-        name: "eyes",
-      });
-    }
-    if (turn.progressTs) await this.render(turnId);
+    if (hostState.progressTs) this.scheduleRender(host);
     if (phase === "canceled") await this.postText(":octagonal_sign: Stopped.");
     else if (phase !== "completed") {
       await this.postText(`:warning: ${notice?.trim() || "Stella couldn't finish this one. Try again in a moment."}`);
     }
+    this.settleSoon();
+  }
+
+  /** An agent's report starts its wake turn a moment after the agent ends; wait for it. */
+  private settleSoon(): void {
+    this.waitUntil(scheduler.wait(SETTLE_DELAY_MS).then(() => this.enqueue(() => this.settleIfIdle())));
+  }
+
+  /** Nothing left running: the 👀 come off every request it answered. */
+  private async settleIfIdle(): Promise<void> {
+    const { runningTurnId, agentsRunning } = await this.busy();
+    if (runningTurnId || agentsRunning) return;
+    const install = await this.token();
+    if (!install) return;
+    const turns = await this.loadTurns();
+    let changed = false;
+    for (const [turnId, state] of Object.entries(turns)) {
+      if (!state.triggerTs || state.reactionCleared) continue;
+      await slackTry(install.botToken, "reactions.remove", {
+        channel: this.binding!.channelId,
+        timestamp: state.triggerTs,
+        name: "eyes",
+      });
+      state.reactionCleared = true;
+      changed = true;
+      if (state.progressTs) this.scheduleRender(turnId);
+    }
+    if (changed) await this.saveTurns();
   }
 
   private scheduleRender(turnId: string): void {
@@ -293,28 +384,33 @@ export class SlackRelay {
   }
 
   private async render(turnId: string): Promise<void> {
-    const turn = await this.turn(turnId);
-    if (!turn.lines.length) return;
+    const state = await this.turn(turnId);
+    if (!state.lines.length) return;
     const install = await this.token();
     if (!install) return;
     this.lastRender.set(turnId, Date.now());
-    const agentsRunning = turn.lines.some((line) => line.key.startsWith("agent:") && line.state === "running");
-    const header =
-      turn.phase === "running"
+    const current = (await this.storage.get<string>(CURRENT_KEY)) ?? null;
+    const { runningTurnId, agentsRunning } = await this.busy();
+    const ownAgentsRunning = state.lines.some((line) => line.key.startsWith("agent:") && line.state === "running");
+    const working = turnId === current ? Boolean(runningTurnId) || agentsRunning : state.phase === "running" || ownAgentsRunning;
+    const header = working
+      ? runningTurnId || state.phase === "running"
         ? ":hourglass_flowing_sand: *Working on it…*"
-        : turn.phase === "canceled"
-          ? ":octagonal_sign: *Stopped*"
-          : turn.phase === "failed"
-            ? ":warning: *Didn't finish*"
-            : agentsRunning
-              ? ":hourglass_flowing_sand: *Background agents still working…*"
-              : ":white_check_mark: *Done*";
-    const icon = (state: Line["state"]): string =>
-      state === "running" ? ":small_blue_diamond:" : state === "done" ? ":white_check_mark:" : ":x:";
-    const lines = turn.lines.slice(-MAX_LINES).map((line) => `${icon(line.state)} ${line.text.slice(0, 180)}`);
+        : ":hourglass_flowing_sand: *Background agents still working…*"
+      : state.phase === "canceled"
+        ? ":octagonal_sign: *Stopped*"
+        : state.phase === "failed"
+          ? ":warning: *Didn't finish*"
+          : ":white_check_mark: *Done*";
+    const icon = (line: Line): string =>
+      line.state === "running" && working ? ":small_blue_diamond:" : line.state === "error" ? ":x:" : ":white_check_mark:";
+    const lines = state.lines
+      .slice(-MAX_LINES)
+      .map((line) => `${icon(line)} ${line.text.slice(0, 180)}${(line.count ?? 1) > 1 ? ` (×${line.count})` : ""}`);
     const text = [header, ...lines].join("\n");
     const blocks: unknown[] = [{ type: "section", text: { type: "mrkdwn", text: text.slice(0, 2_900) } }];
-    if (turn.phase === "running") {
+    const stoppable = turnId === current ? runningTurnId : state.phase === "running" ? turnId : null;
+    if (working && stoppable) {
       blocks.push({
         type: "actions",
         elements: [
@@ -322,28 +418,28 @@ export class SlackRelay {
             type: "button",
             action_id: STOP_ACTION,
             text: { type: "plain_text", text: "Stop" },
-            value: stopValue(this.conversationId(), turnId),
+            value: stopValue(this.conversationId(), stoppable),
           },
         ],
       });
     }
-    if (turn.progressTs) {
+    if (state.progressTs) {
       await slackTry(install.botToken, "chat.update", {
         channel: this.binding!.channelId,
-        ts: turn.progressTs,
+        ts: state.progressTs,
         text,
         blocks,
       });
       return;
     }
-    if (turn.phase !== "running") return;
+    if (!working) return;
     const posted = await slackTry<{ ok: boolean; ts?: string }>(install.botToken, "chat.postMessage", {
       ...this.where(),
       text,
       blocks,
     });
     if (posted?.ts) {
-      turn.progressTs = posted.ts;
+      state.progressTs = posted.ts;
       await this.saveTurns();
     }
   }

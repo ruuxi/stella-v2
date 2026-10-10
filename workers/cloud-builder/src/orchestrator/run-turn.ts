@@ -35,6 +35,7 @@ import {
   CHAT_WATCHDOG_MS,
   PI_JOURNAL_IMPORT_BATCH,
   PI_MIRRORED_KEY,
+  CHECKPOINT_TURN_SCAN,
   CHAT_TURN_HEARTBEAT_MS,
   CHAT_TURN_RESUME_KEY,
   CHAT_TURN_STARTED_AT_KEY,
@@ -1150,6 +1151,20 @@ export abstract class OrchestratorRunTurn extends OrchestratorCliTurn {
         .catch(() => undefined);
       // Agents this turn started keep running after it.
       await this.piHeartbeat().catch(() => undefined);
+      // A compaction this turn (or one since the last) is every host's checkpoint.
+      await runtime
+        .publishCheckpoint(
+          () =>
+            this.journal.recentTurnIds("orchestrator", CHECKPOINT_TURN_SCAN),
+          (summary, firstKept) =>
+            this.storeJournalCheckpoint(summary, firstKept),
+          pi.contextFor(),
+        )
+        .catch((error: unknown) =>
+          log("error", "journal_checkpoint_publish_failed", {
+            message: errorMessage(error),
+          }),
+        );
       await this.placeBrainHandoff(
         turn.turnId,
         turnCancellation.aborted || executionSignal.aborted,

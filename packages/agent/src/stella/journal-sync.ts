@@ -10,6 +10,7 @@
 import type { Context } from "@earendil-works/chord";
 import type { Message } from "@earendil-works/pi-ai";
 import {
+  CompactionEntry,
   defineDoc,
   defineEntry,
   type Conversation,
@@ -18,6 +19,7 @@ import {
   type EntryRecord,
   type Harness,
 } from "@earendil-works/pi-durable";
+import type { JournalCheckpoint, JournalCheckpointFirstKept } from "@stella/contracts/journal-checkpoint";
 import { noteRemoteReport } from "./agents.ts";
 
 /** One journaled message, as a reader of the journal gets it. */
@@ -62,6 +64,8 @@ export type JournalSyncState = {
    * have read the whole journal.
    */
   seededFromSeq?: number;
+  /** The newest compaction of this transcript published as the journal's checkpoint. */
+  publishedCheckpoint?: number;
   /** The newest transcript entry mirrored into the journal. */
   mirrored?: number;
   open?: JournalOpenTurn;
@@ -93,21 +97,118 @@ export const JournalContextStartEntry = defineEntry("stella.journal-context-star
 
 const ALIGN_SCAN_PAGE = 64;
 
+/** Where the journal says a new transcript of the conversation starts. */
+export type JournalStart = {
+  /** The journal's bounded context window opens here (`Journal.contextStartSeq`). */
+  contextStartSeq: number;
+  /** The conversation's latest compaction checkpoint, published by whichever host compacted. */
+  checkpoint?: JournalCheckpoint;
+};
+
+/** How a transcript's first import seeds it (`journalImportAfter`). */
+export type JournalSeed = { fromSeq: number; checkpoint?: JournalCheckpoint };
+
 /**
  * The journal seq a transcript's import reads after: where it left off, or,
- * for one that never imported, just before the journal's context start (the
- * window the journal keeps for a turn, `contextStartSeq`). Every host seeds
- * a transcript there, so a long conversation is never replayed whole; from
- * then on the transcript's own compaction keeps its context in bounds.
+ * for one that never imported, where the conversation's context starts. That
+ * is the latest compaction checkpoint any host published, its summary
+ * followed by every message after it; before any host compacted, the
+ * journal's context window. Every host seeds a transcript the same way, so a
+ * long conversation is never replayed whole, and from then on the
+ * transcript's own compaction keeps its context in bounds.
  */
 export const journalImportAfter = async (
   state: Readonly<JournalSyncState> | undefined,
-  contextStartSeq: () => number | Promise<number>,
-): Promise<{ after: number; seededFromSeq?: number }> => {
+  start: () => JournalStart | Promise<JournalStart>,
+): Promise<{ after: number; seed?: JournalSeed }> => {
   if (state?.importedSeq !== undefined) return { after: state.importedSeq };
-  const start = await contextStartSeq();
-  return { after: start - 1, seededFromSeq: start };
+  const { contextStartSeq, checkpoint } = await start();
+  return checkpoint
+    ? { after: checkpoint.throughSeq, seed: { fromSeq: checkpoint.throughSeq + 1, checkpoint } }
+    : { after: contextStartSeq - 1, seed: { fromSeq: contextStartSeq } };
 };
+
+/** A compaction this transcript took from the journal, which is never published back. */
+const journalCheckpointOf = (entry: Pick<EntryRecord, "data"> | undefined): number | undefined => {
+  const seq = (entry?.data as { journalCheckpoint?: unknown } | undefined)?.journalCheckpoint;
+  return typeof seq === "number" ? seq : undefined;
+};
+
+const messageText = (message: Message | undefined): string => {
+  if (!message || message.role !== "user") return "";
+  if (typeof message.content === "string") return message.content;
+  return message.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+};
+
+/**
+ * This transcript's newest compaction, for the journal, when it has not
+ * published it yet: the summary as its model reads it and where the context
+ * it kept starts. `ownTurnOf` names the turn of one of this host's own
+ * prompts (an entry not written from the journal).
+ */
+export async function checkpointToPublish(
+  harness: Harness,
+  root: Conversation,
+  ownTurnOf: (
+    prompt: EntryRecord,
+  ) => JournalCheckpointFirstKept | undefined | Promise<JournalCheckpointFirstKept | undefined>,
+  context: Context,
+): Promise<{ markerId: EntryId; summary: string; firstKept: JournalCheckpointFirstKept } | undefined> {
+  const found = await harness.commit(async (tx) => {
+    const doc = await tx.doc(JournalSyncDoc, root.id);
+    const marker = await tx.latestHeadMarker(root.id);
+    if (
+      !marker ||
+      marker.kind !== CompactionEntry.kind ||
+      journalCheckpointOf(marker) !== undefined ||
+      (doc.publishedCheckpoint ?? 0) >= marker.id
+    ) {
+      return undefined;
+    }
+    const summary = messageText(marker.model?.[0]);
+    if (!summary) return undefined;
+    const kept = await tx.entry(marker.head);
+    const keptSeq = journalSeqOf(kept);
+    if (keptSeq !== undefined) return { markerId: marker.id, summary, firstKept: { seq: keptSeq } as const };
+    // One of this host's own: the prompt that opened its turn.
+    let cursor: Cursor | undefined;
+    do {
+      const page = await tx.scanEntries(
+        { conversationId: root.id, order: "descending", maxEntryId: marker.head },
+        ALIGN_SCAN_PAGE,
+        cursor,
+      );
+      for (const entry of page.items) {
+        if (entry.kind !== ENTRY_KIND.user) continue;
+        const seq = journalSeqOf(entry);
+        return seq === undefined
+          ? { markerId: marker.id, summary, prompt: entry }
+          : { markerId: marker.id, summary, firstKept: { seq } as const };
+      }
+      cursor = page.next;
+    } while (cursor !== undefined);
+    return undefined;
+  }, context);
+  if (!found) return undefined;
+  if (found.firstKept) return { markerId: found.markerId, summary: found.summary, firstKept: found.firstKept };
+  if (!found.prompt) return undefined;
+  const firstKept = await ownTurnOf(found.prompt);
+  return firstKept ? { markerId: found.markerId, summary: found.summary, firstKept } : undefined;
+}
+
+/** The compaction `checkpointToPublish` returned is in the journal now. */
+export async function noteCheckpointPublished(
+  harness: Harness,
+  root: Conversation,
+  markerId: EntryId,
+  context: Context,
+): Promise<void> {
+  await harness.commit(async (tx) => {
+    const doc = await tx.doc(JournalSyncDoc, root.id);
+    doc.publishedCheckpoint = Math.max(doc.publishedCheckpoint ?? 0, markerId);
+    return undefined;
+  }, context);
+}
 
 /**
  * Bring a transcript seeded before `journalImportAfter`, which read the whole
@@ -187,10 +288,29 @@ export async function importJournal(
   messages: readonly (JournalMessage | JournalAgentReport)[],
   throughSeq: number,
   context: Context,
-  /** The context start a first import began at (`journalImportAfter`). */
-  seededFromSeq?: number,
+  /** How a first import seeds the transcript (`journalImportAfter`). */
+  seed?: JournalSeed,
 ): Promise<number> {
-  const state = await harness.snapshot(JournalSyncDoc, root.id, context);
+  let state = await harness.snapshot(JournalSyncDoc, root.id, context);
+  const checkpoint = seed?.checkpoint;
+  if (checkpoint && state?.importedSeq === undefined) {
+    // The checkpoint's summary opens the transcript's context, as a
+    // compaction of its own would; the messages after it follow.
+    state = await harness.commit(async (tx) => {
+      const doc = await tx.doc(JournalSyncDoc, root.id);
+      if (doc.importedSeq === undefined) {
+        await tx.appendEntry(root.id, {
+          kind: CompactionEntry.kind,
+          head: "self",
+          model: [{ role: "user", content: checkpoint.summary, timestamp: Date.now() }],
+          data: { reason: "threshold", journalCheckpoint: checkpoint.throughSeq },
+        });
+        doc.seededFromSeq = seed.fromSeq;
+        doc.importedSeq = checkpoint.throughSeq;
+      }
+      return { ...doc };
+    }, context);
+  }
   const imported = state?.importedSeq ?? -1;
   const requestId = (seq: number) => (state?.epoch ? `journal:${state.epoch}:${seq}` : `journal:${seq}`);
   let written = 0;
@@ -222,7 +342,7 @@ export async function importJournal(
   if (throughSeq > imported) {
     await harness.commit(async (tx) => {
       const doc = await tx.doc(JournalSyncDoc, root.id);
-      if (doc.importedSeq === undefined && seededFromSeq !== undefined) doc.seededFromSeq = seededFromSeq;
+      if (doc.importedSeq === undefined && seed) doc.seededFromSeq = seed.fromSeq;
       doc.importedSeq = Math.max(doc.importedSeq ?? -1, throughSeq);
       return undefined;
     }, context);

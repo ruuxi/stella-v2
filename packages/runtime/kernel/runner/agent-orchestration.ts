@@ -721,6 +721,7 @@ export const createAgentOrchestration = (
           agentEngine: agentContext.agentEngine,
         }),
         toolExecutor,
+        buildAgentShellEnvironment: context.toolHost.buildAgentShellEnvironment,
         deviceId: context.deviceId,
         stellaDataDir: context.stellaDataDir,
         resolvedLlm,

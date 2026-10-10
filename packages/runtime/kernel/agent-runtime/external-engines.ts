@@ -1577,6 +1577,8 @@ const runClaudeTurnsUntilDrained = async (args: {
   hosted: ClaudeHostedTurnArgs;
   /** Request fields that stay fixed across every turn of the session. */
   turnRequest: Record<string, unknown>;
+  /** Request fields rebuilt for each turn. */
+  perTurnRequest: () => Record<string, unknown>;
   persistedSessionId: string | undefined;
   firstPrompt: ClaudeHostedPrompt;
   buildQueuedPrompt: (input: {
@@ -1695,6 +1697,7 @@ const runClaudeTurnsUntilDrained = async (args: {
     try {
       const result = await runClaudeCodeTurn({
         ...args.turnRequest,
+        ...args.perTurnRequest(),
         ...(activeSessionId ? { persistedSessionId: activeSessionId } : {}),
         prompt: nextPrompt,
         ...(nextResumeFallbackPrompt
@@ -1870,9 +1873,14 @@ const runClaudeHostedTurn = async (
     args.opts.agentType === AGENT_IDS.ORCHESTRATOR
       ? "orchestrator"
       : "worker";
+  // An agent allowlist bounds the built-ins too: they run with permissions
+  // skipped, so a read-only worker must not get a native writer or shell.
   const nativeTools = vanilla
     ? []
-    : resolveClaudeCodeNativeTools(nativeToolRole);
+    : resolveClaudeCodeNativeTools(
+        nativeToolRole,
+        args.opts.agentContext.toolsAllowlist,
+      );
   // node_repl carries the bounded deferred catalog; profiles without it get
   // the safe direct-schema fallback instead. Stella
   // tools a built-in supersedes are left out so the model sees one spelling.
@@ -1965,6 +1973,30 @@ const runClaudeHostedTurn = async (
       : args.opts.agentContext.spawnReasoningEffort,
   );
 
+  const nativeShellEnv = (): Record<string, string> =>
+    args.opts.buildAgentShellEnvironment
+      ? args.opts.buildAgentShellEnvironment(
+          {
+            executionHost: args.opts.executionHost,
+            conversationId: args.opts.conversationId,
+            deviceId: args.opts.deviceId,
+            requestId: runId,
+            runId,
+            rootRunId: args.opts.rootRunId ?? runId,
+            agentType: args.opts.agentType,
+            stellaAppDir: args.opts.stellaAppDir,
+            stellaDataDir: args.opts.stellaDataDir,
+            toolWorkspaceRoot: args.opts.toolWorkspaceRoot,
+            ...(args.opts.agentId ? { agentId: args.opts.agentId } : {}),
+          },
+          // The CLI spawns in the process cwd when it has none of its own.
+          localCliCwd ?? process.cwd(),
+        )
+      : stellaAgentShellEnvironment({
+          stellaAppDir: args.opts.stellaAppDir,
+          stellaDataDir: args.opts.stellaDataDir,
+          agentId: args.opts.agentId,
+        });
   const drained = await runClaudeTurnsUntilDrained({
     hosted: args,
     turnRequest: {
@@ -1972,17 +2004,6 @@ const runClaudeHostedTurn = async (
       sessionKey,
       modelId: claudeCodeModelId,
       stellaAppDir: args.opts.stellaAppDir,
-      // The CLI's native Bash replaces Stella's shell tool, so it needs
-      // the same Stella variables (checkout, drafts, agent id).
-      ...(args.opts.executionHost !== "sandbox"
-        ? {
-            shellEnv: stellaAgentShellEnvironment({
-              stellaAppDir: args.opts.stellaAppDir,
-              stellaDataDir: args.opts.stellaDataDir,
-              agentId: args.opts.agentId,
-            }),
-          }
-        : {}),
       ...(args.opts.cliBridgeSocketPath
         ? { cliBridgeSocketPath: args.opts.cliBridgeSocketPath }
         : {}),
@@ -2014,6 +2035,13 @@ const runClaudeHostedTurn = async (
       },
       executeTool: toolRelay.executeTool,
     },
+    // The CLI's native Bash replaces Stella's shell tool, so it needs the
+    // same environment that tool gives its commands (CLI shims on PATH,
+    // entrypoint variables, media / X auth, checkout, drafts, agent id).
+    perTurnRequest: () =>
+      args.opts.executionHost !== "sandbox"
+        ? { shellEnv: nativeShellEnv() }
+        : {},
     persistedSessionId,
     firstPrompt,
     buildQueuedPrompt: ({

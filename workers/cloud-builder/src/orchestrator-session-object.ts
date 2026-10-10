@@ -8,6 +8,7 @@ import {
   TURN_OWNER_GENERATION_HEADER,
 } from "@stella/contracts/turn-plane/turn-start";
 import { HEADER_TURN_AUTH_KIND } from "./turn-start-request.js";
+import { JOURNAL_CHECKPOINT_PATH } from "@stella/contracts/journal-checkpoint";
 import { HEADER_OWNER, parseSocketIdentity } from "./conversation-types.js";
 import { CLOUD_CLI_TURN_DO_PATHS } from "@stella/contracts/cloud-orchestrator-cli";
 import { parseExactTurnCancellationRequest } from "./execution-placement-turn-cancellation.js";
@@ -299,6 +300,9 @@ export class OrchestratorSessionObject extends OrchestratorTurnStart {
     }
     if (url.pathname === "/history/query") {
       return this.handleHistoryQuery(request);
+    }
+    if (url.pathname === JOURNAL_CHECKPOINT_PATH) {
+      return this.handleJournalCheckpoint(request);
     }
     if (url.pathname === "/pi-workspace") {
       return this.handlePiWorkspace(request);

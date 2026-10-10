@@ -53,6 +53,7 @@ export function DrawerStage({
   chevron: {
     left: number;
     top: number;
+    openCenterY: number;
     openLabel: string;
     closeLabel: string;
   };
@@ -211,12 +212,14 @@ export function DrawerStage({
 function FloatingChevron({
   left,
   top,
+  openCenterY,
   open,
   openLabel,
   closeLabel,
 }: {
   left: number;
   top: number;
+  openCenterY: number;
   open: boolean;
   openLabel: string;
   closeLabel: string;
@@ -226,13 +229,16 @@ function FloatingChevron({
   const reduce = useReducedMotion();
   const cx = left + DRAWER_CHEVRON_SIZE / 2;
   const cy = top + DRAWER_CHEVRON_SIZE / 2;
+  const openScale = reduce ? 1 : scale;
+  const settle = openCenterY - cy - (cy - height / 2) * (openScale - 1);
   const follow = useAnimatedStyle(() => {
     const v = drawerProgress.value;
     const s = reduce ? 1 : 1 - (1 - scale) * Math.min(v, 1.2);
+    const toRow = Math.min(Math.max(v, 0), 1) * settle;
     return {
       transform: [
         { translateX: (cx - width / 2) * (s - 1) + v * travel },
-        { translateY: (cy - height / 2) * (s - 1) },
+        { translateY: (cy - height / 2) * (s - 1) + toRow },
       ],
     };
   });

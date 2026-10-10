@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "यह थ्रेड लोड नहीं हो सका",
+        "errorBody": "इसे बंद करें और थोड़ी देर में फिर खोलें।"
       },
       "generatedImage": {
         "generating": "बनाया जा रहा है...",
@@ -830,7 +832,6 @@
     },
     "integrations": {
       "connectStellaApp": "Stella ऐप से कनेक्ट करें",
-      "connectStellaAppSub": "अपने फ़ोन के Stella ऐप को इस कंप्यूटर से जोड़ें",
       "connectTitle": "कनेक्ट करें",
       "connected": "कनेक्टेड",
       "credential": {
@@ -846,11 +847,16 @@
         "saving": "सहेजा जा रहा है...",
         "title": "{provider} कनेक्ट करें"
       },
-      "heroTagline": "अपनी पसंद के किसी भी प्लेटफ़ॉर्म से Stella को संदेश भेजें — सहज बातचीत करें, या अपने कंप्यूटर पर सीधे काम करवाएँ।",
       "phoneTitle": "आपका फ़ोन",
       "signInHeadline": "शुरू करने के लिए साइन इन करें",
       "signInSub": "{provider} कनेक्ट करने के लिए अपने Stella खाते में साइन इन करें।",
-      "signInToConnect": "कनेक्ट करने के लिए Stella में साइन इन करें"
+      "signInToConnect": "कनेक्ट करने के लिए Stella में साइन इन करें",
+      "getApp": {
+        "appStoreQrAlt": "App Store से Stella डाउनलोड करने के लिए स्कैन करें",
+        "platformLabel": "मोबाइल प्लेटफ़ॉर्म चुनें",
+        "playStoreQrAlt": "Google Play से Stella डाउनलोड करने के लिए स्कैन करें",
+        "title": "ऐप पाएं"
+      }
     },
     "legal": {
       "privacy": {
@@ -902,9 +908,16 @@
         "title": "यह बातचीत"
       },
       "files": {
-        "empty": "अभी कोई फ़ाइल नहीं है। Stella जो भी बनाएगी वह यहाँ दिखेगा।",
+        "empty": "Stella जो फ़ाइलें बनाती या साझा करती है, वे यहाँ दिखेंगी।",
         "emptyFiltered": "कोई फ़ाइल मेल नहीं खाती।",
-        "searchPlaceholder": "फ़ाइलें खोजें"
+        "filterAll": "सभी फ़ाइलें",
+        "filterLabel": "फ़ाइलें फ़िल्टर और क्रमबद्ध करें",
+        "searchPlaceholder": "फ़ाइलें खोजें",
+        "sortName": "नाम",
+        "sortNewest": "नई पहले",
+        "sortOldest": "पुरानी पहले",
+        "sourceCloud": "क्लाउड",
+        "sourceUpload": "आपके द्वारा भेजी गई"
       },
       "schedule": {
         "actionFailed": "यह पूरा नहीं हो सका।",
@@ -912,7 +925,9 @@
         "customCadence": "कस्टम शेड्यूल",
         "deleteConfirm": "“{title}” अब नहीं चलेगा।",
         "deleteSchedule": "शेड्यूल हटाएँ",
-        "empty": "अभी कोई शेड्यूल नहीं है। अपने कंप्यूटर पर Stella से कुछ नियमित रूप से चलाने के लिए कहें, वह यहाँ दिखेगा।",
+        "empty": "अभी तक कुछ शेड्यूल नहीं है।",
+        "emptyAction": "कुछ शेड्यूल करें",
+        "emptyActionPrompt": "मुझे याद दिलाना कि ",
         "lastRunFailed": "पिछला रन विफल रहा: {error}",
         "loadFailed": "शेड्यूल लोड नहीं हो सके।",
         "next": "अगली बार {when}",
@@ -937,6 +952,11 @@
         "stopped": "रोका गया",
         "working": "बैकग्राउंड में काम कर रहा है"
       }
+    },
+    "apps": {
+      "empty": "Stella आपके लिए जो ऐप बनाती है, वे यहाँ रहेंगे।",
+      "emptyAction": "ऐप बनाएँ",
+      "emptyActionPrompt": "मेरे लिए एक ऐप बनाओ जो "
     },
     "authCallback": {
       "backToSignIn": "साइन इन पर वापस जाएँ",
@@ -1003,7 +1023,6 @@
       "disconnectedLabel": "कंप्यूटर डिसकनेक्ट हो गया",
       "guestHeroBody": "Stella से अपने कंप्यूटर पर काम कराएँ — वेब ब्राउज़ करना, फ़ाइलें सँभालना, काम चलाना और भी बहुत कुछ।",
       "guestHeroTitle": "आपका कंप्यूटर, आपकी उँगलियों पर",
-      "pairLabel": "कंप्यूटर पेयर करें",
       "statusAsleep": "स्लीप में",
       "statusChecking": "जाँच हो रही है…",
       "statusConnected": "कनेक्टेड"
@@ -1011,20 +1030,11 @@
     "desktop": {
       "connecting": "डेस्कटॉप से कनेक्ट हो रहा है",
       "deviceUnreachable": "आपके {platform} तक नहीं पहुँचा जा सकता",
-      "enterCode": "अपने कंप्यूटर पर दिखा कोड दर्ज करें।",
-      "guestBody": "अपना Stella डेस्कटॉप ऐप सीधे फ़ोन पर देखें। पेयर करने के बाद आपका फ़ोन अपने आप फिर से कनेक्ट हो जाएगा।",
       "guestSignInPrompt": "शुरू करने के लिए साइन इन करें।",
       "limitedCapabilities": "कुछ चीज़ों के लिए आपका कंप्यूटर चाहिए",
       "linkInterrupted": "आपके कंप्यूटर से कनेक्शन टूट गया।",
-      "pairAnother": "दूसरा कंप्यूटर पेयर करें",
-      "pairTitle": "अपना फ़ोन पेयर करें",
-      "pairing": "इस फ़ोन को पेयर किया जा रहा है",
       "reconnecting": "फिर से कनेक्ट हो रहा है...",
-      "repairNeeded": "इस फ़ोन को आपके कंप्यूटर के साथ फिर से पेयर करना होगा।",
       "retryLabel": "फिर से कनेक्ट करने की कोशिश करें",
-      "startPairingLabel": "कंप्यूटर पेयर करना शुरू करें",
-      "unavailableBodyPaired": "पक्का करें कि आपके कंप्यूटर पर Stella खुली है और इंटरनेट से जुड़ी है। कनेक्ट होते ही आपका डेस्कटॉप ऐप यहीं फ़ोन पर दिखने लगेगा।",
-      "unavailableBodyUnpaired": "अपना Stella डेस्कटॉप ऐप सीधे फ़ोन पर देखें। शुरू करने के लिए कंप्यूटर पर Stella में दिख रहा QR कोड स्कैन करें — उसके बाद आपका फ़ोन अपने आप फिर से कनेक्ट हो जाएगा।",
       "unreachable": "आपके डेस्कटॉप तक नहीं पहुँच पा रहे"
     },
     "engineAccounts": {
@@ -1137,26 +1147,17 @@
         "signInBody": "अपनी बातचीत, सेटिंग्स और कनेक्टेड कंप्यूटर हर डिवाइस पर अपने साथ रखें।",
         "signInTitle": "Stella में साइन इन करें",
         "skip": "अभी नहीं",
-        "subscriptionsBody": "पहले से Claude या ChatGPT के लिए भुगतान करते हैं? इसे कनेक्ट करें और मैं इसे क्लाउड में इस्तेमाल करूंगी। आपके कंप्यूटर अपने साइन-इन इस्तेमाल करते हैं।",
+        "subscriptionsBody": "क्या अपना मौजूदा Claude या ChatGPT सब्सक्रिप्शन इस्तेमाल करें?",
         "subscriptionsLabel": "वैकल्पिक"
       },
       "composerPlaceholder": "या बस मुझसे कुछ पूछ लें",
       "computer": {
-        "body": "इस फ़ोन को अपने कंप्यूटर पर Stella के साथ पेयर कर लें, फिर आपके बाहर रहते हुए मैं वहाँ काम चला सकती हूँ।",
-        "connectedBody": "कहीं से भी कहिए, मैं आपके कंप्यूटर पर काम कर दूँगी।",
+        "body": "अपने कंप्यूटर पर साइन इन करें, वह अपने आप जुड़ जाएगा।",
         "connectedTo": "{name} से कनेक्ट है",
-        "guestHint": "जोड़ना आपके Stella खाते से जुड़ा है, इसलिए पहले साइन इन करें। मैं यहीं से आगे बढ़ूँगी।",
-        "hint": "अपने कंप्यूटर पर Stella खोलें और फ़ोन पेयर करें चुनें।",
+        "getDesktop": "डेस्कटॉप के लिए Stella पाएं",
         "later": "बाद में",
-        "pair": "मेरा कंप्यूटर पेयर करें",
-        "point1": "कोई फ़ाइल ढूँढकर आपको भेजना",
-        "point2": "कोई एक्सपोर्ट या डाउनलोड पूरा करना",
-        "point3": "आपके मौजूदा ऐप्स इस्तेमाल करना",
-        "settledConnectedDesc": "मैं आपके फ़ोन से वहाँ काम चला सकती हूँ।",
-        "settledSkippedDesc": "आप कभी भी सेटिंग्स में कंप्यूटर पेयर कर सकते हैं।",
         "settledSkippedTitle": "अभी कोई कंप्यूटर नहीं",
-        "signInToPair": "जोड़ने के लिए साइन इन करें",
-        "title": "आपका कंप्यूटर, आपकी जेब में"
+        "title": "आपके कंप्यूटर पर Stella"
       },
       "gmail": {
         "body": "ईमेल खोजें, थ्रेड्स पर अपडेट रहें और जवाबों के ड्राफ़्ट लिखवाएँ, बस कहकर।",
@@ -1375,7 +1376,6 @@
         "enableFailedTitle": "उस कंप्यूटर को सक्षम नहीं कर सके",
         "enableLabel": "{name} को सक्षम करें",
         "enabling": "सक्षम कर रहे हैं…",
-        "pairingCode": "पेयरिंग कोड का उपयोग करें",
         "sectionLabel": "Stella कहाँ काम करती है",
         "statusAwaitingConsent": "उस कंप्यूटर पर अनुमति की प्रतीक्षा है",
         "statusDeclined": "उस कंप्यूटर पर अस्वीकृत",
@@ -1391,10 +1391,6 @@
       "deleteConfirmTitle": "खाता हटाएँ",
       "deleteFailedTitle": "खाता नहीं हटाया जा सका",
       "deletingAccount": "खाता हटाया जा रहा है…",
-      "forget": "भूल जाएँ",
-      "forgetConfirmBody": "जब तक आप दोबारा पेयर नहीं करते, यह फ़ोन उस कंप्यूटर से फिर कनेक्ट नहीं होगा।",
-      "forgetConfirmTitle": "{name} को भूल जाएँ?",
-      "forgetLabel": "{name} को भूल जाएँ",
       "hideEmailLabel": "ईमेल छिपाएँ",
       "loadingSession": "सेशन लोड हो रहा है…",
       "notificationsSection": "सूचनाएँ",
@@ -1404,9 +1400,6 @@
       "paired": {
         "unnamedComputer": "कंप्यूटर · {id}"
       },
-      "pairedEmpty": "अभी कोई कंप्यूटर पेयर नहीं है।",
-      "pairedOn": "{date} को पेयर किया",
-      "pairedSection": "पेयर किए गए कंप्यूटर",
       "privacyPolicy": "गोपनीयता नीति",
       "pushToggleA11y": "पुश सूचनाएँ चालू/बंद करें",
       "pushToggleLabel": "पुश सूचनाएँ चालू करें",
@@ -1584,6 +1577,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "ज़िंदगी का बहुत कुछ ईमेल से होकर गुज़रता है। Gmail कनेक्ट करें और मैं आपके ईमेल में मदद करूँगी।",
         "memory": "One more thing that makes me different.",
+        "phone": "मैं आपके फ़ोन पर भी हूँ।",
         "quickstart": "बस इतना ही। एक आख़िरी बात, और वह भी वैकल्पिक है: क्विकस्टार्ट।",
         "quickstartDone": "हो गया। यह रहा जो मैंने सीखा, और कुछ चीज़ें जिनसे हम शुरू कर सकते हैं।",
         "quickstartFailed": "इस बार मैं आपका ब्राउज़र पूरा नहीं पढ़ पाई। हम फिर भी शुरू कर सकते हैं, और मैं साथ-साथ सीखती जाऊँगी।",
@@ -2079,16 +2073,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "साइन-इन किए कंप्यूटर यहाँ दिखते हैं। काम भेजने के लिए किसी एक को चालू करें।",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2226,47 +2215,6 @@
         "label": "स्क्रीन कैप्चर"
       },
       "title": "अनुमतियाँ"
-    },
-    "phoneAccess": {
-      "copy": "कॉपी करें",
-      "deviceFallback": "फ़ोन",
-      "errors": {
-        "createPairing": "पेयरिंग कोड नहीं बनाया जा सका।"
-      },
-      "expired": "समाप्त",
-      "getCode": "कोड लें",
-      "intro": {
-        "headline": "अपने फ़ोन को अपने कंप्यूटर से जोड़ें"
-      },
-      "pairedCount": {
-        "one": "{count} फ़ोन जुड़ा",
-        "other": "{count} फ़ोन जुड़े"
-      },
-      "pairing": {
-        "body": "फ़ोन के Stella ऐप में QR कोड स्कैन करें, या कोड डालें।",
-        "headline": "यह कोड स्कैन करें या दर्ज करें",
-        "qrAlt": "अपना फ़ोन जोड़ने के लिए स्कैन करें"
-      },
-      "preparing": "तैयार हो रहा है...",
-      "remove": "हटाएँ",
-      "removing": "हटाया जा रहा है...",
-      "signedOut": {
-        "body": "मोबाइल ऐप से जोड़ने के लिए अपने Stella खाते में साइन इन करें।",
-        "headline": "शुरू करने के लिए साइन इन करें"
-      },
-      "steps": {
-        "appStoreQrAlt": "App Store से Stella डाउनलोड करने के लिए स्कैन करें",
-        "connect": "अपना फ़ोन कनेक्ट करें",
-        "download": "ऐप डाउनलोड करें",
-        "platformSelectorLabel": "मोबाइल प्लेटफ़ॉर्म चुनें",
-        "playStoreQrAlt": "Google Play से Stella डाउनलोड करने के लिए स्कैन करें"
-      },
-      "timeLeft": "{time} शेष",
-      "toasts": {
-        "codeCopied": "कोड क्लिपबोर्ड पर कॉपी हुआ",
-        "phoneRemoved": "फ़ोन हटाया गया",
-        "removeFailed": "फ़ोन हटाने में विफल"
-      }
     },
     "power": {
       "description": "जब Stella खुली हो तब आपके कंप्यूटर को स्लीप में जाने से रोकें।",
@@ -2471,7 +2419,9 @@
         "skipped": "छोड़े गए",
         "undoing": "पूर्ववत किया जा रहा है…",
         "upToDate": "कुछ भी प्रतीक्षा में नहीं है",
-        "waiting": "प्रतीक्षा में"
+        "waiting": "प्रतीक्षा में",
+        "upToDateTitle": "आप अप टू डेट हैं",
+        "upToDateBody": "Stella के नए संस्करण यहाँ दिखेंगे।"
       },
       "updating": "अपडेट हो रहा है…"
     },
@@ -2501,7 +2451,9 @@
       "noMatches": "उस खोज से कोई कनेक्टर मेल नहीं खाता।",
       "searchLabel": "कनेक्टर खोजें",
       "searchPlaceholder": "खोजें",
-      "title": "कनेक्टर"
+      "title": "कनेक्टर",
+      "noMatchesTitle": "कोई मिलान नहीं",
+      "noMatchesBody": "कोई दूसरा नाम आज़माएँ।"
     },
     "display": {
       "agentThread": {
@@ -2555,11 +2507,19 @@
       },
       "canvasShare": {
         "copyLink": "लिंक कॉपी करें",
-        "empty": "अभी कोई सक्रिय साझाकरण नहीं। सार्वजनिक लिंक पाने के लिए कोई कैनवास प्रकाशित करें।",
+        "empty": "अभी कोई सार्वजनिक कैनवास नहीं है। किसी कैनवास का लिंक शेयर करने के लिए उसे सार्वजनिक बनाएं।",
         "expires": "{date} को समाप्त",
         "links": "लिंक",
         "live": "कैनवास लाइव है",
         "loadFailed": "आपके साझा किए गए आइटम लोड नहीं हो सके।",
+        "makePrivate": "निजी बनाएं",
+        "makePublic": "सार्वजनिक बनाएं",
+        "noLink": "इस कैनवास का अभी कोई लिंक नहीं है। इसे सार्वजनिक बनाएं ताकि ऐसा लिंक मिले जिसे कोई भी खोल सके।",
+        "openInBrowser": "ब्राउज़र में खोलें",
+        "privateHint": "यह लिंक सिर्फ़ आप खोल सकते हैं।",
+        "privateLink": "निजी लिंक",
+        "public": "सार्वजनिक",
+        "publicHint": "लिंक वाला कोई भी इसे देख सकता है।",
         "publicLink": "सार्वजनिक कैनवास लिंक",
         "publishFailed": "यह कैनवास प्रकाशित नहीं हो सका। कृपया फिर कोशिश करें।",
         "publishing": "कैनवास प्रकाशित हो रहा है…",
@@ -2571,8 +2531,12 @@
         "toasts": {
           "copyFailed": "लिंक कॉपी नहीं हो सका",
           "linkCopied": "साझा लिंक कॉपी हुआ",
+          "madePrivate": "लिंक अब निजी है",
+          "madePublic": "लिंक अब सार्वजनिक है",
+          "openFailed": "लिंक नहीं खुल सका",
           "revokeFailed": "यह साझाकरण रद्द नहीं हो सका",
-          "revoked": "साझा करना रद्द हुआ"
+          "revoked": "साझा करना रद्द हुआ",
+          "visibilityFailed": "यह लिंक कौन खोल सकता है, यह बदला नहीं जा सका"
         },
         "untitled": "बिना शीर्षक कैनवास"
       },
@@ -2581,7 +2545,10 @@
         "codeChanges": "कोड बदलाव",
         "desktopRequired": "कोड पूर्वावलोकन के लिए Stella डेस्कटॉप ऐप आवश्यक है।",
         "empty": "अभी कोई फ़ाइल बदलाव नहीं। जब कोई एजेंट कोड संपादित करेगा, बदलाव यहाँ दिखेंगे।",
-        "noChanges": "कोई बदलाव नहीं मिला।"
+        "noChanges": "कोई बदलाव नहीं मिला।",
+        "emptyTitle": "अभी कोई बदलाव नहीं",
+        "emptyBody": "जब कोई एजेंट कोड बदलता है, बदलाव यहाँ दिखते हैं।",
+        "noChangesTitle": "कोई बदलाव नहीं"
       },
       "filePreview": {
         "copy": "कॉपी करें",
@@ -2617,7 +2584,10 @@
         "save": "सहेजें",
         "saveFailed": "सहेजा नहीं जा सका",
         "saved": "सहेजा गया",
-        "zoom": "छवि ज़ूम करें"
+        "zoom": "छवि ज़ूम करें",
+        "imageUnavailable": "इमेज उपलब्ध नहीं है",
+        "videoUnavailable": "वीडियो उपलब्ध नहीं है",
+        "audioUnavailable": "ऑडियो उपलब्ध नहीं है"
       },
       "office": {
         "frameTitle": "{kind} पूर्वावलोकन: {title}",
@@ -2643,7 +2613,11 @@
       },
       "preview": {
         "limited": "प्रीव्यू सीमित है। पूरा कॉन्टेंट देखने के लिए मूल फ़ाइल सेव करें या खोलें।",
-        "unavailable": "यह प्रीव्यू तैयार नहीं किया जा सका।"
+        "unavailable": "यह प्रीव्यू तैयार नहीं किया जा सका।",
+        "failedTitle": "पूर्वावलोकन नहीं दिखा सकते",
+        "failedBody": "फिर से कोशिश करें, या फ़ाइल सहेजकर कहीं और खोलें।",
+        "unavailableTitle": "फ़ाइल उपलब्ध नहीं है",
+        "emptyTitle": "यह फ़ाइल खाली है"
       },
       "spreadsheet": {
         "column": "स्तंभ {index}",
@@ -2665,7 +2639,9 @@
         "pendingPurge": "मिटाने की प्रतीक्षा में",
         "refresh": "ताज़ा करें",
         "title": "ट्रैश",
-        "trashedAgo": "{time} पहले ट्रैश किया गया"
+        "trashedAgo": "{time} पहले ट्रैश किया गया",
+        "emptyTitle": "ट्रैश खाली है",
+        "emptyBody": "हटाई गई चीज़ें यहाँ 24 घंटे तक रहती हैं।"
       },
       "url": {
         "eyebrow": "लाइव पूर्वावलोकन",

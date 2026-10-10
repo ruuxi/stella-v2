@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Kunne ikke indlæse denne tråd",
+        "errorBody": "Luk den, og åbn den igen om et øjeblik."
       },
       "generatedImage": {
         "generating": "Genererer...",
@@ -830,7 +832,6 @@
     },
     "integrations": {
       "connectStellaApp": "Tilslut til Stella-appen",
-      "connectStellaAppSub": "Par Stella-appen på din telefon med denne computer",
       "connectTitle": "Tilslut",
       "connected": "Tilsluttet",
       "credential": {
@@ -846,11 +847,16 @@
         "saving": "Gemmer...",
         "title": "Tilslut {provider}"
       },
-      "heroTagline": "Skriv til Stella fra den platform, du vil — chat naturligt, eller bed den om at få tingene gjort direkte på din computer.",
       "phoneTitle": "Din telefon",
       "signInHeadline": "Log ind for at komme i gang",
       "signInSub": "Log ind på din Stella-konto for at tilslutte {provider}.",
-      "signInToConnect": "Log ind på Stella for at tilslutte"
+      "signInToConnect": "Log ind på Stella for at tilslutte",
+      "getApp": {
+        "appStoreQrAlt": "Scan for at downloade Stella fra App Store",
+        "platformLabel": "Vælg en mobilplatform",
+        "playStoreQrAlt": "Scan for at downloade Stella fra Google Play",
+        "title": "Hent appen"
+      }
     },
     "legal": {
       "privacy": {
@@ -902,9 +908,16 @@
         "title": "Denne samtale"
       },
       "files": {
-        "empty": "Ingen filer endnu. Alt, hvad Stella laver, vises her.",
+        "empty": "Filer, som Stella laver eller deler, vises her.",
         "emptyFiltered": "Ingen filer matcher.",
-        "searchPlaceholder": "Søg i filer"
+        "filterAll": "Alle filer",
+        "filterLabel": "Filtrer og sorter filer",
+        "searchPlaceholder": "Søg i filer",
+        "sortName": "Navn",
+        "sortNewest": "Nyeste først",
+        "sortOldest": "Ældste først",
+        "sourceCloud": "Cloud",
+        "sourceUpload": "Sendt af dig"
       },
       "schedule": {
         "actionFailed": "Det lykkedes ikke.",
@@ -912,7 +925,9 @@
         "customCadence": "Tilpasset tidsplan",
         "deleteConfirm": "”{title}” stopper med at køre.",
         "deleteSchedule": "Slet tidsplan",
-        "empty": "Ingen tidsplaner endnu. Bed Stella på din computer om at køre noget regelmæssigt, så vises det her.",
+        "empty": "Intet planlagt endnu.",
+        "emptyAction": "Planlæg noget",
+        "emptyActionPrompt": "Mind mig om at ",
         "lastRunFailed": "Seneste kørsel mislykkedes: {error}",
         "loadFailed": "Kunne ikke indlæse tidsplaner.",
         "next": "Næste {when}",
@@ -937,6 +952,11 @@
         "stopped": "Stoppet",
         "working": "Arbejder i baggrunden"
       }
+    },
+    "apps": {
+      "empty": "Apps, som Stella bygger til dig, vises her.",
+      "emptyAction": "Byg en app",
+      "emptyActionPrompt": "Byg en app til mig, der "
     },
     "authCallback": {
       "backToSignIn": "Tilbage til login",
@@ -1003,7 +1023,6 @@
       "disconnectedLabel": "Computer afbrudt",
       "guestHeroBody": "Bed Stella om at gøre ting på din computer — browse på nettet, håndtere filer, køre opgaver og meget mere.",
       "guestHeroTitle": "Din computer lige ved hånden",
-      "pairLabel": "Par en computer",
       "statusAsleep": "På vågeblus",
       "statusChecking": "Tjekker…",
       "statusConnected": "Tilsluttet"
@@ -1011,20 +1030,11 @@
     "desktop": {
       "connecting": "Opretter forbindelse til computeren",
       "deviceUnreachable": "Din {platform} kan ikke nås",
-      "enterCode": "Indtast koden, der vises på din computer.",
-      "guestBody": "Se din Stella-computerapp direkte på telefonen. Efter parringen genopretter din telefon forbindelsen automatisk.",
       "guestSignInPrompt": "Log ind for at komme i gang.",
       "limitedCapabilities": "Noget kræver din computer",
       "linkInterrupted": "Forbindelsen til din computer blev afbrudt.",
-      "pairAnother": "Par en anden computer",
-      "pairTitle": "Par din telefon",
-      "pairing": "Parrer denne telefon",
       "reconnecting": "Opretter forbindelse igen...",
-      "repairNeeded": "Denne telefon skal parres med din computer igen.",
       "retryLabel": "Prøv at oprette forbindelse igen",
-      "startPairingLabel": "Begynd at parre en computer",
-      "unavailableBodyPaired": "Sørg for, at Stella er åben på din computer og har forbindelse til internettet. Når den er tilsluttet, dukker computerappen op lige her på telefonen.",
-      "unavailableBodyUnpaired": "Se din Stella-computerapp direkte på telefonen. Scan QR-koden, der vises i Stella på din computer, for at komme i gang — derefter genopretter din telefon forbindelsen automatisk.",
       "unreachable": "Kan ikke nå din computer"
     },
     "engineAccounts": {
@@ -1137,26 +1147,17 @@
         "signInBody": "Behold din samtale, dine indstillinger og din forbundne computer på alle enheder.",
         "signInTitle": "Log ind på Stella",
         "skip": "Spring over for nu",
-        "subscriptionsBody": "Betaler du allerede for Claude eller ChatGPT? Forbind det, så bruger jeg det i skyen. Dine computere bruger deres egne logins.",
+        "subscriptionsBody": "Vil du bruge dit eksisterende Claude- eller ChatGPT-abonnement?",
         "subscriptionsLabel": "Valgfrit"
       },
       "composerPlaceholder": "Eller spørg mig bare om noget",
       "computer": {
-        "body": "Par denne telefon med Stella på din computer, så kan jeg køre opgaver dér, mens du er ude.",
-        "connectedBody": "Spørg fra hvor som helst, så udfører jeg arbejdet på din computer.",
+        "body": "Log ind på din computer, så forbinder den automatisk.",
         "connectedTo": "Forbundet til {name}",
-        "guestHint": "Parring hører til din Stella-konto, så log ind først. Jeg fortsætter lige her.",
-        "hint": "Åbn Stella på din computer, og vælg Par telefon.",
+        "getDesktop": "Hent Stella til computer",
         "later": "Senere",
-        "pair": "Par min computer",
-        "point1": "Finde en fil og sende den til dig",
-        "point2": "Gøre en eksport eller download færdig",
-        "point3": "Bruge de apps, du allerede har",
-        "settledConnectedDesc": "Jeg kan køre opgaver dér fra din telefon.",
-        "settledSkippedDesc": "Du kan parre en når som helst i Indstillinger.",
         "settledSkippedTitle": "Ingen computer endnu",
-        "signInToPair": "Log ind for at parre",
-        "title": "Din computer, fra lommen"
+        "title": "Stella på din computer"
       },
       "gmail": {
         "body": "Find e-mails, indhent tråde og skriv udkast til svar, bare ved at spørge.",
@@ -1375,7 +1376,6 @@
         "enableFailedTitle": "Kunne ikke aktivere den computer",
         "enableLabel": "Aktivér {name}",
         "enabling": "Aktiverer…",
-        "pairingCode": "Brug en parringskode",
         "sectionLabel": "Hvor Stella arbejder",
         "statusAwaitingConsent": "Venter på tilladelse på den computer",
         "statusDeclined": "Afvist på den computer",
@@ -1391,10 +1391,6 @@
       "deleteConfirmTitle": "Slet konto",
       "deleteFailedTitle": "Kunne ikke slette kontoen",
       "deletingAccount": "Sletter konto…",
-      "forget": "Glem",
-      "forgetConfirmBody": "Denne telefon holder op med at oprette forbindelse til den computer, indtil du parrer den igen.",
-      "forgetConfirmTitle": "Glem {name}?",
-      "forgetLabel": "Glem {name}",
       "hideEmailLabel": "Skjul e-mail",
       "loadingSession": "Indlæser session…",
       "notificationsSection": "Notifikationer",
@@ -1404,9 +1400,6 @@
       "paired": {
         "unnamedComputer": "Computer · {id}"
       },
-      "pairedEmpty": "Ingen computere parret endnu.",
-      "pairedOn": "Parret {date}",
-      "pairedSection": "Parrede computere",
       "privacyPolicy": "Privatlivspolitik",
       "pushToggleA11y": "Slå push-notifikationer til eller fra",
       "pushToggleLabel": "Tillad push-notifikationer",
@@ -1584,6 +1577,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Meget af livet foregår via e-mail. Forbind Gmail, så kan jeg hjælpe med din.",
         "memory": "One more thing that makes me different.",
+        "phone": "Jeg er også på din telefon.",
         "quickstart": "Det var det hele. Én sidste ting, og den er valgfri: en lynstart.",
         "quickstartDone": "Færdig. Her er, hvad jeg har lært, og et par ting, vi kunne begynde med.",
         "quickstartFailed": "Jeg kunne ikke nå at læse din browser færdig denne gang. Vi kan starte alligevel, og jeg lærer undervejs.",
@@ -2079,16 +2073,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Computere, der er logget ind, vises her. Slå en til for at sende den opgaver.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2226,47 +2215,6 @@
         "label": "Skærmoptagelse"
       },
       "title": "Tilladelser"
-    },
-    "phoneAccess": {
-      "copy": "Kopiér",
-      "deviceFallback": "Telefon",
-      "errors": {
-        "createPairing": "Kan ikke oprette en parringskode."
-      },
-      "expired": "Udløbet",
-      "getCode": "Hent kode",
-      "intro": {
-        "headline": "Forbind din telefon med din computer"
-      },
-      "pairedCount": {
-        "one": "{count} telefon parret",
-        "other": "{count} telefoner parret"
-      },
-      "pairing": {
-        "body": "Scan QR-koden i Stella-appen på telefonen, eller indtast koden.",
-        "headline": "Scan eller indtast denne kode",
-        "qrAlt": "Scan for at parre din telefon"
-      },
-      "preparing": "Forbereder...",
-      "remove": "Fjern",
-      "removing": "Fjerner...",
-      "signedOut": {
-        "body": "Log ind på din Stella-konto for at parre med mobilappen.",
-        "headline": "Log ind for at komme i gang"
-      },
-      "steps": {
-        "appStoreQrAlt": "Scan for at downloade Stella fra App Store",
-        "connect": "Forbind din telefon",
-        "download": "Download appen",
-        "platformSelectorLabel": "Vælg en mobilplatform",
-        "playStoreQrAlt": "Scan for at downloade Stella fra Google Play"
-      },
-      "timeLeft": "{time} tilbage",
-      "toasts": {
-        "codeCopied": "Kode kopieret til udklipsholder",
-        "phoneRemoved": "Telefon fjernet",
-        "removeFailed": "Kunne ikke fjerne telefonen"
-      }
     },
     "power": {
       "description": "Forhindrer computeren i at gå i dvale, mens Stella er åben.",
@@ -2471,7 +2419,9 @@
         "skipped": "Sprunget over",
         "undoing": "Fortryder…",
         "upToDate": "Intet venter",
-        "waiting": "Venter"
+        "waiting": "Venter",
+        "upToDateTitle": "Du er opdateret",
+        "upToDateBody": "Nye versioner af Stella vises her."
       },
       "updating": "Opdaterer…"
     },
@@ -2501,7 +2451,9 @@
       "noMatches": "Ingen forbindelser matcher den søgning.",
       "searchLabel": "Søg i forbindelser",
       "searchPlaceholder": "Søg",
-      "title": "Forbindelser"
+      "title": "Forbindelser",
+      "noMatchesTitle": "Ingen resultater",
+      "noMatchesBody": "Prøv et andet navn."
     },
     "display": {
       "agentThread": {
@@ -2555,11 +2507,19 @@
       },
       "canvasShare": {
         "copyLink": "Kopiér link",
-        "empty": "Ingen aktive delinger endnu. Udgiv et canvas for at få et offentligt link.",
+        "empty": "Ingen offentlige lærreder endnu. Gør et lærred offentligt for at dele dets link.",
         "expires": "Udløber {date}",
         "links": "Links",
         "live": "Canvas er live",
         "loadFailed": "Kunne ikke indlæse dine delinger.",
+        "makePrivate": "Gør privat",
+        "makePublic": "Gør offentlig",
+        "noLink": "Dette lærred har endnu ikke et link. Gør det offentligt for at få et link, som alle kan åbne.",
+        "openInBrowser": "Åbn i browser",
+        "privateHint": "Kun du kan åbne dette link.",
+        "privateLink": "Privat link",
+        "public": "Offentlig",
+        "publicHint": "Alle med linket kan se det.",
         "publicLink": "Offentligt canvas-link",
         "publishFailed": "Kunne ikke udgive dette canvas. Prøv igen.",
         "publishing": "Udgiver canvas…",
@@ -2571,8 +2531,12 @@
         "toasts": {
           "copyFailed": "Kunne ikke kopiere linket",
           "linkCopied": "Delingslink kopieret",
+          "madePrivate": "Linket er nu privat",
+          "madePublic": "Linket er nu offentligt",
+          "openFailed": "Linket kunne ikke åbnes",
           "revokeFailed": "Kunne ikke tilbagekalde denne deling",
-          "revoked": "Deling tilbagekaldt"
+          "revoked": "Deling tilbagekaldt",
+          "visibilityFailed": "Kunne ikke ændre, hvem der kan åbne dette link"
         },
         "untitled": "Canvas uden titel"
       },
@@ -2581,7 +2545,10 @@
         "codeChanges": "Kodeændringer",
         "desktopRequired": "Forhåndsvisning af kode kræver Stella-computerappen.",
         "empty": "Ingen filændringer endnu. Når en agent redigerer kode, vises ændringerne her.",
-        "noChanges": "Ingen ændringer fundet."
+        "noChanges": "Ingen ændringer fundet.",
+        "emptyTitle": "Ingen ændringer endnu",
+        "emptyBody": "Når en agent redigerer kode, vises ændringerne her.",
+        "noChangesTitle": "Ingen ændringer"
       },
       "filePreview": {
         "copy": "Kopiér",
@@ -2617,7 +2584,10 @@
         "save": "Gem",
         "saveFailed": "Kunne ikke gemme",
         "saved": "Gemt",
-        "zoom": "Zoom ind på billede"
+        "zoom": "Zoom ind på billede",
+        "imageUnavailable": "Billedet er ikke tilgængeligt",
+        "videoUnavailable": "Videoen er ikke tilgængelig",
+        "audioUnavailable": "Lyden er ikke tilgængelig"
       },
       "office": {
         "frameTitle": "Forhåndsvisning af {kind}: {title}",
@@ -2643,7 +2613,11 @@
       },
       "preview": {
         "limited": "Begrænset forhåndsvisning. Gem eller åbn den originale fil for at se alt indhold.",
-        "unavailable": "Denne forhåndsvisning kunne ikke forberedes."
+        "unavailable": "Denne forhåndsvisning kunne ikke forberedes.",
+        "failedTitle": "Kan ikke vise en forhåndsvisning",
+        "failedBody": "Prøv igen, eller gem filen og åbn den et andet sted.",
+        "unavailableTitle": "Filen er ikke tilgængelig",
+        "emptyTitle": "Denne fil er tom"
       },
       "spreadsheet": {
         "column": "Kolonne {index}",
@@ -2665,7 +2639,9 @@
         "pendingPurge": "Afventer sletning",
         "refresh": "Opdater",
         "title": "Papirkurv",
-        "trashedAgo": "Smidt ud for {time} siden"
+        "trashedAgo": "Smidt ud for {time} siden",
+        "emptyTitle": "Papirkurven er tom",
+        "emptyBody": "Slettede ting bliver her i 24 timer."
       },
       "url": {
         "eyebrow": "Direkte forhåndsvisning",

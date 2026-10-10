@@ -5,6 +5,12 @@
  * Canvas tab. You should not describe the canvas contents in chat, because
  * the user can view the artifact directly.
  *
+ * The file is always written: it is what the canvas renders from. The same
+ * document is then saved to the canvas's link (`shares.save`), private until
+ * the user makes it public, and the tool returns that URL. Signed out, with
+ * no share domain configured, or when the save fails or is slow, the tool
+ * returns the local file as it always did.
+ *
  * Orchestrator-only. The orchestrator authors the full HTML document itself
  * and passes it in; this tool just writes and renders it. The general agent
  * builds real apps via Vite/HMR; this tool exists so the orchestrator can
@@ -16,6 +22,11 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
+import { BackendClient } from "@stella/contracts/backend/client";
+import {
+  SHARE_MAX_HTML_BYTES,
+  type SavedCanvasShare,
+} from "@stella/contracts/backend/shares";
 import type { ToolDefinition } from "../types.js";
 import {
   HTML_TOOL_DESCRIPTION,
@@ -27,10 +38,41 @@ import {
 
 export type HtmlToolOptions = {
   stellaDataDir: string;
+  getCloudBackendAuth?: () => { baseUrl: string; authToken: string } | null;
 };
+
+/** The canvas is on screen already; the link is not worth a longer wait. */
+const SAVE_LINK_TIMEOUT_MS = 10_000;
 
 const asTrimmedString = (value: unknown): string =>
   typeof value === "string" ? value.trim() : "";
+
+/** The canvas's private link, or null when it cannot be made right now. */
+const saveCanvasLink = async (
+  options: HtmlToolOptions,
+  args: { canvas: string; html: string; title: string },
+): Promise<SavedCanvasShare | null> => {
+  const auth = options.getCloudBackendAuth?.();
+  if (!auth) return null;
+  if (Buffer.byteLength(args.html, "utf8") > SHARE_MAX_HTML_BYTES) return null;
+  const client = new BackendClient({
+    baseUrl: auth.baseUrl,
+    getToken: async () => auth.authToken,
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      client.call("shares.save", args),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), SAVE_LINK_TIMEOUT_MS);
+      }),
+    ]);
+  } catch {
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
 
 export const createHtmlTool = (options: HtmlToolOptions): ToolDefinition => {
   const { stellaDataDir } = options;
@@ -59,15 +101,23 @@ export const createHtmlTool = (options: HtmlToolOptions): ToolDefinition => {
       await fs.writeFile(filePath, html, "utf8");
 
       const createdAt = Date.now();
+      const link = await saveCanvasLink(options, { canvas: slug, html, title });
 
       return {
-        result: `Canvas "${title}" saved to ${filePath} and opened in the panel.`,
+        result: link
+          ? `Canvas "${title}" opened in the panel. Its link is ${link.url} (${
+              link.visibility === "public"
+                ? "public: anyone with it can view"
+                : "private: only the user can open it until they make it public from the canvas's Share menu"
+            }).`
+          : `Canvas "${title}" saved to ${filePath} and opened in the panel.`,
         details: {
           filePath,
           slug,
           title,
           createdAt,
           bytes: Buffer.byteLength(html, "utf8"),
+          ...(link ? { shareUrl: link.url, shareVisibility: link.visibility } : {}),
         },
       };
     },

@@ -148,7 +148,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Tidak bisa memuat utas ini",
+        "errorBody": "Tutup lalu buka lagi sebentar lagi."
       },
       "generatedImage": {
         "generating": "Membuat...",
@@ -822,7 +824,6 @@
     },
     "integrations": {
       "connectStellaApp": "Hubungkan ke Aplikasi Stella",
-      "connectStellaAppSub": "Pasangkan aplikasi Stella di ponsel Anda dengan komputer ini",
       "connectTitle": "Hubungkan",
       "connected": "Terhubung",
       "credential": {
@@ -838,11 +839,16 @@
         "saving": "Menyimpan...",
         "title": "Hubungkan {provider}"
       },
-      "heroTagline": "Kirim pesan ke Stella dari platform mana pun yang Anda suka — mengobrol dengan santai, atau minta dia menyelesaikan pekerjaan langsung di komputer Anda.",
       "phoneTitle": "Ponsel Anda",
       "signInHeadline": "Masuk untuk memulai",
       "signInSub": "Masuk ke akun Stella Anda untuk menghubungkan {provider}.",
-      "signInToConnect": "Masuk ke Stella untuk menghubungkan"
+      "signInToConnect": "Masuk ke Stella untuk menghubungkan",
+      "getApp": {
+        "appStoreQrAlt": "Pindai untuk mengunduh Stella dari App Store",
+        "platformLabel": "Pilih platform seluler",
+        "playStoreQrAlt": "Pindai untuk mengunduh Stella dari Google Play",
+        "title": "Dapatkan aplikasinya"
+      }
     },
     "legal": {
       "privacy": {
@@ -893,9 +899,16 @@
         "title": "Percakapan ini"
       },
       "files": {
-        "empty": "Belum ada file. Semua yang dibuat Stella muncul di sini.",
+        "empty": "File yang dibuat atau dibagikan Stella akan muncul di sini.",
         "emptyFiltered": "Tidak ada file yang cocok.",
-        "searchPlaceholder": "Cari file"
+        "filterAll": "Semua file",
+        "filterLabel": "Filter dan urutkan file",
+        "searchPlaceholder": "Cari file",
+        "sortName": "Nama",
+        "sortNewest": "Terbaru dulu",
+        "sortOldest": "Terlama dulu",
+        "sourceCloud": "Cloud",
+        "sourceUpload": "Dikirim olehmu"
       },
       "schedule": {
         "actionFailed": "Tidak berhasil.",
@@ -903,7 +916,9 @@
         "customCadence": "Jadwal kustom",
         "deleteConfirm": "“{title}” akan berhenti berjalan.",
         "deleteSchedule": "Hapus jadwal",
-        "empty": "Belum ada jadwal. Minta Stella di komputermu menjalankan sesuatu secara rutin, nanti muncul di sini.",
+        "empty": "Belum ada yang dijadwalkan.",
+        "emptyAction": "Jadwalkan sesuatu",
+        "emptyActionPrompt": "Ingatkan aku untuk ",
         "lastRunFailed": "Eksekusi terakhir gagal: {error}",
         "loadFailed": "Tidak dapat memuat jadwal.",
         "next": "Berikutnya {when}",
@@ -928,6 +943,11 @@
         "stopped": "Dihentikan",
         "working": "Bekerja di latar belakang"
       }
+    },
+    "apps": {
+      "empty": "Aplikasi yang dibuat Stella untukmu akan ada di sini.",
+      "emptyAction": "Buat aplikasi",
+      "emptyActionPrompt": "Buatkan aku aplikasi yang "
     },
     "authCallback": {
       "backToSignIn": "Kembali ke halaman masuk",
@@ -993,7 +1013,6 @@
       "disconnectedLabel": "Komputer terputus",
       "guestHeroBody": "Minta Stella melakukan berbagai hal di komputer Anda — menjelajah web, mengelola berkas, menjalankan tugas, dan lainnya.",
       "guestHeroTitle": "Komputer Anda, dalam genggaman",
-      "pairLabel": "Pasangkan komputer",
       "statusAsleep": "Tidur",
       "statusChecking": "Memeriksa…",
       "statusConnected": "Terhubung"
@@ -1001,20 +1020,11 @@
     "desktop": {
       "connecting": "Menghubungkan ke desktop",
       "deviceUnreachable": "{platform} Anda tidak terjangkau",
-      "enterCode": "Masukkan kode yang tampil di komputer Anda.",
-      "guestBody": "Lihat aplikasi desktop Stella langsung di ponsel Anda. Setelah dipasangkan, ponsel Anda akan terhubung kembali secara otomatis.",
       "guestSignInPrompt": "Masuk untuk memulai.",
       "limitedCapabilities": "Beberapa hal butuh komputer Anda",
       "linkInterrupted": "Koneksi ke komputer Anda terputus.",
-      "pairAnother": "Pasangkan komputer lain",
-      "pairTitle": "Pasangkan ponsel Anda",
-      "pairing": "Memasangkan ponsel ini",
       "reconnecting": "Menghubungkan kembali...",
-      "repairNeeded": "Ponsel ini perlu dipasangkan lagi dengan komputer Anda.",
       "retryLabel": "Coba hubungkan lagi",
-      "startPairingLabel": "Mulai memasangkan komputer",
-      "unavailableBodyPaired": "Pastikan Stella terbuka di komputer Anda dan terhubung ke internet. Setelah terhubung, aplikasi desktop Anda akan muncul di sini pada ponsel Anda.",
-      "unavailableBodyUnpaired": "Lihat aplikasi desktop Stella langsung di ponsel Anda. Pindai kode QR yang tampil di Stella pada komputer Anda untuk memulai — setelah itu ponsel Anda akan terhubung kembali secara otomatis.",
       "unreachable": "Tidak bisa menjangkau desktop Anda"
     },
     "engineAccounts": {
@@ -1127,26 +1137,17 @@
         "signInBody": "Simpan percakapan, pengaturan, dan komputer terhubung Anda di setiap perangkat.",
         "signInTitle": "Masuk ke Stella",
         "skip": "Lewati dulu",
-        "subscriptionsBody": "Sudah berlangganan Claude atau ChatGPT? Hubungkan dan saya akan menggunakannya di cloud. Komputer Anda menggunakan login masing-masing.",
+        "subscriptionsBody": "Pakai langganan Claude atau ChatGPT yang sudah kamu punya?",
         "subscriptionsLabel": "Opsional"
       },
       "composerPlaceholder": "Atau tanyakan saja sesuatu kepada saya",
       "computer": {
-        "body": "Pasangkan ponsel ini dengan Stella di komputer Anda, dan saya bisa menjalankan tugas di sana selagi Anda bepergian.",
-        "connectedBody": "Minta dari mana saja, dan saya akan mengerjakannya di komputer Anda.",
+        "body": "Masuk di komputermu dan semuanya terhubung otomatis.",
         "connectedTo": "Terhubung ke {name}",
-        "guestHint": "Pemasangan terikat ke akun Stella Anda, jadi masuk dulu. Saya lanjutkan tepat dari sini.",
-        "hint": "Di komputer Anda, buka Stella lalu pilih Pasangkan ponsel.",
+        "getDesktop": "Dapatkan Stella untuk desktop",
         "later": "Nanti",
-        "pair": "Pasangkan komputer saya",
-        "point1": "Mencari file dan mengirimkannya kepada Anda",
-        "point2": "Menyelesaikan ekspor atau unduhan",
-        "point3": "Memakai aplikasi yang sudah Anda punya",
-        "settledConnectedDesc": "Saya bisa menjalankan tugas di sana dari ponsel Anda.",
-        "settledSkippedDesc": "Anda bisa memasangkannya kapan saja di Pengaturan.",
         "settledSkippedTitle": "Belum ada komputer",
-        "signInToPair": "Masuk untuk memasangkan",
-        "title": "Komputer Anda, dari saku Anda"
+        "title": "Stella di komputermu"
       },
       "gmail": {
         "body": "Cari email, ikuti percakapan, dan buat draf balasan, cukup dengan meminta.",
@@ -1365,7 +1366,6 @@
         "enableFailedTitle": "Tidak dapat mengaktifkan komputer itu",
         "enableLabel": "Aktifkan {name}",
         "enabling": "Mengaktifkan…",
-        "pairingCode": "Gunakan kode pemasangan",
         "sectionLabel": "Tempat Stella bekerja",
         "statusAwaitingConsent": "Menunggu izin di komputer itu",
         "statusDeclined": "Ditolak di komputer itu",
@@ -1381,10 +1381,6 @@
       "deleteConfirmTitle": "Hapus akun",
       "deleteFailedTitle": "Tidak bisa menghapus akun",
       "deletingAccount": "Menghapus akun…",
-      "forget": "Lupakan",
-      "forgetConfirmBody": "Ponsel ini tidak akan terhubung lagi ke komputer itu sampai Anda memasangkannya kembali.",
-      "forgetConfirmTitle": "Lupakan {name}?",
-      "forgetLabel": "Lupakan {name}",
       "hideEmailLabel": "Sembunyikan email",
       "loadingSession": "Memuat sesi…",
       "notificationsSection": "Notifikasi",
@@ -1394,9 +1390,6 @@
       "paired": {
         "unnamedComputer": "Komputer · {id}"
       },
-      "pairedEmpty": "Belum ada komputer yang dipasangkan.",
-      "pairedOn": "Dipasangkan {date}",
-      "pairedSection": "Komputer terpasang",
       "privacyPolicy": "Kebijakan Privasi",
       "pushToggleA11y": "Alihkan notifikasi push",
       "pushToggleLabel": "Izinkan notifikasi push",
@@ -1574,6 +1567,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Banyak urusan hidup lewat email. Hubungkan Gmail dan aku bisa membantu mengurusnya.",
         "memory": "One more thing that makes me different.",
+        "phone": "Aku juga ada di ponselmu.",
         "quickstart": "Itu saja. Satu hal terakhir, dan ini opsional: panduan mulai cepat.",
         "quickstartDone": "Selesai. Ini yang saya pelajari, dan beberapa hal yang bisa kita mulai.",
         "quickstartFailed": "Kali ini saya tidak bisa selesai membaca browser Anda. Kita tetap bisa mulai, dan saya akan belajar seiring berjalan.",
@@ -2069,16 +2063,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Komputer yang sudah masuk muncul di sini. Aktifkan satu untuk mengirim tugas.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2216,46 +2205,6 @@
         "label": "Rekam layar"
       },
       "title": "Izin"
-    },
-    "phoneAccess": {
-      "copy": "Salin",
-      "deviceFallback": "Ponsel",
-      "errors": {
-        "createPairing": "Tidak dapat membuat kode pemasangan."
-      },
-      "expired": "Kedaluwarsa",
-      "getCode": "Dapatkan Kode",
-      "intro": {
-        "headline": "Hubungkan ponsel Anda ke komputer Anda"
-      },
-      "pairedCount": {
-        "other": "{count} ponsel dipasangkan"
-      },
-      "pairing": {
-        "body": "Pindai kode QR di aplikasi Stella di ponsel, atau masukkan kodenya.",
-        "headline": "Pindai atau masukkan kode ini",
-        "qrAlt": "Pindai untuk memasangkan ponsel Anda"
-      },
-      "preparing": "Menyiapkan...",
-      "remove": "Hapus",
-      "removing": "Menghapus...",
-      "signedOut": {
-        "body": "Masuk ke akun Stella Anda untuk memasangkan dengan aplikasi seluler.",
-        "headline": "Masuk untuk memulai"
-      },
-      "steps": {
-        "appStoreQrAlt": "Pindai untuk mengunduh Stella dari App Store",
-        "connect": "Hubungkan ponsel Anda",
-        "download": "Unduh aplikasinya",
-        "platformSelectorLabel": "Pilih platform seluler",
-        "playStoreQrAlt": "Pindai untuk mengunduh Stella dari Google Play"
-      },
-      "timeLeft": "{time} tersisa",
-      "toasts": {
-        "codeCopied": "Kode disalin ke papan klip",
-        "phoneRemoved": "Ponsel dihapus",
-        "removeFailed": "Gagal menghapus ponsel"
-      }
     },
     "power": {
       "description": "Mencegah komputer Anda tidur selama Stella terbuka.",
@@ -2459,7 +2408,9 @@
         "skipped": "Dilewati",
         "undoing": "Membatalkan…",
         "upToDate": "Tidak ada yang menunggu",
-        "waiting": "Menunggu"
+        "waiting": "Menunggu",
+        "upToDateTitle": "Semua sudah terbaru",
+        "upToDateBody": "Versi baru Stella muncul di sini."
       },
       "updating": "Memperbarui…"
     },
@@ -2489,7 +2440,9 @@
       "noMatches": "Tidak ada konektor yang cocok dengan pencarian itu.",
       "searchLabel": "Cari konektor",
       "searchPlaceholder": "Cari",
-      "title": "Konektor"
+      "title": "Konektor",
+      "noMatchesTitle": "Tidak ada yang cocok",
+      "noMatchesBody": "Coba nama lain."
     },
     "display": {
       "agentThread": {
@@ -2539,11 +2492,19 @@
       },
       "canvasShare": {
         "copyLink": "Salin tautan",
-        "empty": "Belum ada berbagi aktif. Terbitkan sebuah kanvas untuk mendapatkan tautan publik.",
+        "empty": "Belum ada kanvas publik. Jadikan kanvas publik untuk membagikan tautannya.",
         "expires": "Kedaluwarsa {date}",
         "links": "Tautan",
         "live": "Kanvas sudah tayang",
         "loadFailed": "Tidak dapat memuat item yang Anda bagikan.",
+        "makePrivate": "Jadikan privat",
+        "makePublic": "Jadikan publik",
+        "noLink": "Kanvas ini belum punya tautan. Jadikan publik untuk mendapatkan tautan yang bisa dibuka siapa saja.",
+        "openInBrowser": "Buka di browser",
+        "privateHint": "Hanya kamu yang bisa membuka tautan ini.",
+        "privateLink": "Tautan privat",
+        "public": "Publik",
+        "publicHint": "Siapa pun yang punya tautan dapat melihatnya.",
         "publicLink": "Tautan kanvas publik",
         "publishFailed": "Tidak dapat menerbitkan kanvas ini. Silakan coba lagi.",
         "publishing": "Menerbitkan kanvas…",
@@ -2555,8 +2516,12 @@
         "toasts": {
           "copyFailed": "Tidak dapat menyalin tautan",
           "linkCopied": "Tautan berbagi disalin",
+          "madePrivate": "Tautan sekarang privat",
+          "madePublic": "Tautan sekarang publik",
+          "openFailed": "Tidak dapat membuka tautan",
           "revokeFailed": "Tidak dapat mencabut berbagi ini",
-          "revoked": "Berbagi dicabut"
+          "revoked": "Berbagi dicabut",
+          "visibilityFailed": "Tidak dapat mengubah siapa yang bisa membuka tautan ini"
         },
         "untitled": "Kanvas tanpa judul"
       },
@@ -2565,7 +2530,10 @@
         "codeChanges": "Perubahan kode",
         "desktopRequired": "Pratinjau kode memerlukan aplikasi desktop Stella.",
         "empty": "Belum ada perubahan berkas. Saat agen mengedit kode, perubahannya muncul di sini.",
-        "noChanges": "Tidak ada perubahan ditemukan."
+        "noChanges": "Tidak ada perubahan ditemukan.",
+        "emptyTitle": "Belum ada perubahan",
+        "emptyBody": "Saat agen mengedit kode, perubahannya muncul di sini.",
+        "noChangesTitle": "Tidak ada perubahan"
       },
       "filePreview": {
         "copy": "Salin",
@@ -2601,7 +2569,10 @@
         "save": "Simpan",
         "saveFailed": "Tidak dapat menyimpan",
         "saved": "Tersimpan",
-        "zoom": "Perbesar gambar"
+        "zoom": "Perbesar gambar",
+        "imageUnavailable": "Gambar tidak tersedia",
+        "videoUnavailable": "Video tidak tersedia",
+        "audioUnavailable": "Audio tidak tersedia"
       },
       "office": {
         "frameTitle": "Pratinjau {kind}: {title}",
@@ -2625,7 +2596,11 @@
       },
       "preview": {
         "limited": "Pratinjau terbatas. Simpan atau buka berkas asli untuk melihat seluruh isinya.",
-        "unavailable": "Tidak dapat menyiapkan pratinjau ini."
+        "unavailable": "Tidak dapat menyiapkan pratinjau ini.",
+        "failedTitle": "Tidak bisa menampilkan pratinjau",
+        "failedBody": "Coba lagi, atau simpan file untuk membukanya di tempat lain.",
+        "unavailableTitle": "File tidak tersedia",
+        "emptyTitle": "File ini kosong"
       },
       "spreadsheet": {
         "column": "Kolom {index}",
@@ -2646,7 +2621,9 @@
         "pendingPurge": "Menunggu pembersihan",
         "refresh": "Segarkan",
         "title": "Sampah",
-        "trashedAgo": "Dibuang {time} lalu"
+        "trashedAgo": "Dibuang {time} lalu",
+        "emptyTitle": "Sampah kosong",
+        "emptyBody": "Item yang dihapus tetap di sini selama 24 jam."
       },
       "url": {
         "eyebrow": "Pratinjau langsung",

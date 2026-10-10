@@ -21,6 +21,7 @@ import { AgentLifecycleStatusIcon } from "@/features/chat/components/AgentLifecy
 import { useT } from "@/shared/i18n";
 import { openConversationFocus } from "@/features/chat/services/conversation-focus-store";
 import { useThreadActivityRecords } from "@/features/chat/hooks/use-thread-activity-records";
+import { useAgentCard } from "@/features/cloud/use-agent-title";
 import type { AgentCompletionSection } from "@/features/chat/lib/agent-completion";
 import "./reply-preview.css";
 
@@ -75,7 +76,7 @@ export const ReplyPreview = memo(function ReplyPreview({
               key={`c:${section.completionEventId ?? section.agentId}`}
               reference={{ kind: "agent", threadId: section.agentId, title: section.title }}
               conversationId={conversationId}
-              status={activity.get(section.agentId)?.status ?? "completed"}
+              status={activity.get(section.agentId)?.status}
               liveTitle={activity.get(section.agentId)?.description ?? section.title}
               completionEventId={section.completionEventId}
             />
@@ -162,10 +163,14 @@ function AgentReplyPreview({
   completionEventId?: string;
 }) {
   const t = useT();
-  const title =
-    liveTitle?.trim() ||
-    (reference.title !== reference.threadId ? reference.title.trim() : "") ||
-    t("app.chat.focus.agentFallback");
+  const card = useAgentCard(
+    conversationId,
+    reference.threadId,
+    [liveTitle, reference.title],
+    status,
+  );
+  const title = card.title || t("app.chat.focus.agentFallback");
+  const shownStatus = card.status ?? "completed";
   const open = useCallback(() => {
     openConversationFocus({
       conversationId,
@@ -176,11 +181,11 @@ function AgentReplyPreview({
   // The glyph alone carries the task's state; a word beside it said the
   // same thing twice. Its meaning stays available to assistive tech.
   const statusLabel =
-    status === "running"
+    shownStatus === "running"
       ? t("app.chat.replyPreview.statusRunning")
-      : status === "error"
+      : shownStatus === "error"
         ? t("app.chat.replyPreview.statusFailed")
-        : status === "canceled"
+        : shownStatus === "canceled"
           ? t("app.chat.replyPreview.statusPaused")
           : t("app.chat.replyPreview.statusDone");
   return (
@@ -201,9 +206,9 @@ function AgentReplyPreview({
             role="img"
             aria-label={statusLabel}
             title={statusLabel}
-            data-status={status ?? "completed"}
+            data-status={shownStatus}
           >
-            <AgentLifecycleStatusIcon status={status ?? "completed"} />
+            <AgentLifecycleStatusIcon status={shownStatus} />
           </span>
           <span className="reply-preview__agent-title">{title}</span>
         </button>

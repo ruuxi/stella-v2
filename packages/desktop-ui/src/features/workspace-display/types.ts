@@ -7,6 +7,7 @@
  */
 
 import type { ReactNode } from "react";
+import type { DisplayTabPayload } from "@stella/contracts/desktop/display-payload";
 
 /**
  * Discriminator for the kind of content a tab is showing. Used for icons,
@@ -61,6 +62,7 @@ export type DisplayTabSpec = {
    * can know "is there already a tab for this exact file path?"
    */
   metadata?: Record<string, unknown>;
+  payload?: DisplayTabPayload;
 };
 
 export type DisplayTab = DisplayTabSpec & {

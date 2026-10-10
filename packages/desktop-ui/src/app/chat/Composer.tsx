@@ -30,6 +30,7 @@ import {
   ScreenshotPreviewOverlay,
 } from "./ScreenshotPreview";
 import { useDictation } from "@/features/dictation/hooks/use-dictation";
+import { useDictationPaste } from "@/features/dictation/hooks/use-dictation-paste";
 import {
   DictationCancelButton,
   DictationRecordingBar,
@@ -120,7 +121,6 @@ function ComposerImpl({
   onSendRef.current = onSend;
 
   const dictation = useDictation({
-    message,
     setMessage,
     // Dictation stays available even while the orchestrator is busy
     // (mid-turn / streaming) — the mic is intentionally NOT gated on
@@ -168,9 +168,15 @@ function ComposerImpl({
   // the transcription finishes but the message is never sent/queued.
   const dictationInFlight = dictation.isRecording || dictation.isTranscribing;
   const canSubmitWithDictation = canSubmit || dictationInFlight;
+  useDictationPaste({
+    active: dictationInFlight,
+    setMessage,
+    setChatContext,
+  });
   const hasText = message.trim().length > 0;
   const dictationBelow = dictation.isRecordingVisible && hasText;
   const dictationInline = dictation.isRecordingVisible && !hasText;
+  const dictationOwnsControls = dictationBelow && dictation.showControls;
   // A pinned model picker keeps the toolbar row visible even while the
   // textarea is empty. Dictation also needs the expanded shape: its live
   // transcript occupies the text area above the waveform and controls.
@@ -395,47 +401,51 @@ function ComposerImpl({
 
                   <div className="composer-toolbar-right">
                     {modelPinned && <MiniModelPicker />}
-                    <div className="composer-voice-controls">
-                      {dictation.isTranscribing && (
-                        <DictationCancelButton onClick={dictation.cancel} />
-                      )}
-                      <MemoComposerMicButton
-                        className="composer-mic"
-                        isTranscribing={dictation.isTranscribing}
-                        disabled={dictation.isTranscribing}
-                        onClick={dictation.toggle}
-                        onPointerEnter={dictation.prewarm}
-                        onFocus={dictation.prewarm}
-                        title={
-                          dictation.error
-                            ? t("app.chat.composer.dictationError", {
-                                error: dictation.error,
-                              })
-                            : undefined
-                        }
-                      />
-                      {showRealtimeVoice && (
-                        <ComposerRealtimeVoiceButton
-                          className="composer-realtime-voice"
-                          active={Boolean(uiState.isVoiceRtcActive)}
-                          onClick={toggleRealtimeVoice}
-                        />
-                      )}
-                    </div>
-                    {showStop && (
-                      <ComposerStopButton
-                        className="composer-stop"
-                        onClick={requestStop}
-                        title={t("app.chat.composer.stop")}
-                        aria-label={t("app.chat.composer.stop")}
-                      />
-                    )}
-                    {showRealtimeVoice ? null : (
-                      <MemoComposerSubmitButton
-                        className="composer-submit"
-                        disabled={!canSubmitWithDictation}
-                        animated
-                      />
+                    {dictationOwnsControls ? null : (
+                      <>
+                        <div className="composer-voice-controls">
+                          {dictation.isTranscribing && (
+                            <DictationCancelButton onClick={dictation.cancel} />
+                          )}
+                          <MemoComposerMicButton
+                            className="composer-mic"
+                            isTranscribing={dictation.isTranscribing}
+                            disabled={dictation.isTranscribing}
+                            onClick={dictation.toggle}
+                            onPointerEnter={dictation.prewarm}
+                            onFocus={dictation.prewarm}
+                            title={
+                              dictation.error
+                                ? t("app.chat.composer.dictationError", {
+                                    error: dictation.error,
+                                  })
+                                : undefined
+                            }
+                          />
+                          {showRealtimeVoice && (
+                            <ComposerRealtimeVoiceButton
+                              className="composer-realtime-voice"
+                              active={Boolean(uiState.isVoiceRtcActive)}
+                              onClick={toggleRealtimeVoice}
+                            />
+                          )}
+                        </div>
+                        {showStop && (
+                          <ComposerStopButton
+                            className="composer-stop"
+                            onClick={requestStop}
+                            title={t("app.chat.composer.stop")}
+                            aria-label={t("app.chat.composer.stop")}
+                          />
+                        )}
+                        {showRealtimeVoice ? null : (
+                          <MemoComposerSubmitButton
+                            className="composer-submit"
+                            disabled={!canSubmitWithDictation}
+                            animated
+                          />
+                        )}
+                      </>
                     )}
                   </div>
                 </div>

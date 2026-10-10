@@ -143,7 +143,14 @@ export const buildBuiltinTools = (
   tools.push(createWebTool({ webSearch: options.webSearch }));
 
   // Orchestrator coordination surface
-  tools.push(createHtmlTool({ stellaDataDir: options.stellaDataDir }));
+  tools.push(
+    createHtmlTool({
+      stellaDataDir: options.stellaDataDir,
+      ...(options.getCloudBackendAuth
+        ? { getCloudBackendAuth: options.getCloudBackendAuth }
+        : {}),
+    }),
+  );
   tools.push(
     createMapTool({
       ...(options.getCloudBackendAuth

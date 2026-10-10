@@ -439,6 +439,11 @@ function ChatSurface(props: {
   // Staleness is a function of elapsed time rather than of any state change, so
   // a task can cross the window with nothing to re-render it — hence the coarse
   // re-publish, armed only while something still claims to be running.
+  const hubConversationId = thread.conversationId ?? null;
+  const lastMessage = thread.messages.at(-1);
+  const hubRevision = lastMessage
+    ? `${thread.messages.length}:${lastMessage.id}:${lastMessage.text.length}`
+    : null;
   const hasRunningConversationTask = conversationTasks.some(
     (task) => task.status === "running",
   );
@@ -448,6 +453,8 @@ function ChatSurface(props: {
         tasks: settleStaleHubTasks(conversationTasks),
         artifacts: conversationArtifacts,
         access,
+        conversationId: hubConversationId,
+        revision: hubRevision,
       });
     };
     publish();
@@ -458,6 +465,8 @@ function ChatSurface(props: {
     conversationTasks,
     conversationArtifacts,
     access,
+    hubConversationId,
+    hubRevision,
     hasRunningConversationTask,
   ]);
   // Leaving the chat (sign-out, authority swap) clears what the chrome shows.

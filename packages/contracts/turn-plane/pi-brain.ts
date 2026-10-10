@@ -6,16 +6,28 @@
  * the new host carries on from the journal.
  *
  * The conversation's object keeps the record, the one place every device
- * reads (`GET|POST /conversations/:id/pi-brain`). Once it names a host,
- * exactly that host takes the conversation's turns:
+ * reads (`GET|POST /conversations/:id/pi-brain`). The rule:
+ *
+ * - No record: Stella follows the sender. Each sender's host answers its
+ *   own messages (a computer its user's, the object the phone's).
+ * - A record: that host takes the conversation's turns, unless it is
+ *   unavailable (a computer offline or not ready, the cloud out of reach),
+ *   and then she follows the sender again. The record stays, so once that
+ *   host is back it takes turns again.
+ *
+ * While it is available, the host a record names:
  *
  * - `cloud`: the object runs every turn. A computer sends its user's
- *   messages there as placed chats, and its own harness only imports.
+ *   messages there as placed chats, and what its agents tell Stella (their
+ *   reports and notes) as hidden ones; its own harness only imports.
  * - `device`: that computer runs every turn. The object places a message
  *   sent to it (from the phone) on that computer, and another computer
- *   places its user's messages there too.
+ *   places its user's messages and its agents' reports there too.
  *
- * No record is the old way: each sender's host answers its own messages.
+ * A hand-off brief placed after a move goes to the new host as it stands:
+ * the move is refused while that host can't take work, and a brief that
+ * finds it gone is answered where the owner gate falls back to.
+ *
  * A move is refused while the host that has the brain still runs agents,
  * whose reports would wake Stella there.
  */

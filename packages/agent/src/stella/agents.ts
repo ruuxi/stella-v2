@@ -671,7 +671,7 @@ export function stellaAgents(host: StellaAgentsHost) {
       destination: Type.Optional(
         Type.String({
           description:
-            'Where the agent runs: "cloud", or a device_id from the connected devices list. Omit to run it where your tools run. With a device_id the agent stays with you and only its tools (shell and files) run on that computer, which must be online.',
+            'Where the agent runs: "cloud", or a device_id from the connected devices list. Omit to run it where your tools run. With a device_id the agent stays with you and only its tools (shell and files) run on that computer, which must be online. An agent\'s agent always stays with it, so for one "cloud" also moves only its tools.',
         }),
       ),
       whole_agent: Type.Optional(
@@ -687,7 +687,8 @@ export function stellaAgents(host: StellaAgentsHost) {
       const caller = await roleOf(api, api.conversationId, context);
       const depth = caller.depth + 1;
       if (depth > MAX_AGENT_DEPTH) throw new Error("This agent is at the nesting limit and cannot start agents of its own.");
-      const placed = host.place(parseSpawnDestination(args.destination, args.whole_agent), await callerPlacement(api, context));
+      const destination = parseSpawnDestination(args.destination, args.whole_agent);
+      const placed = host.place(destination, await callerPlacement(api, context));
       if ("error" in placed) throw new Error(placed.error);
       let placement: StellaPlacement = placed;
       const callerAgent = await api.agent(context);
@@ -699,11 +700,13 @@ export function stellaAgents(host: StellaAgentsHost) {
           ? { model: { provider: STELLA_PROVIDER_ID, modelId: stellaModelId("general", requested) } }
           : childRun(callerAgent);
       const description = args.description.trim() || "agent";
-      const remote = host.remote?.(placement);
+      // An agent's agent stays with it, its tools where it asked or where its
+      // caller's run (the cloud, a computer), so its report climbs the chain
+      // like any other. Only a whole agent leaves, and only Stella starts one.
+      const whole = caller.agentType === "orchestrator" || (destination.kind === "device" && destination.whole === true);
+      const remote = whole ? host.remote?.(placement) : undefined;
       if (remote) {
-        // Its report comes back to the orchestrator only. An agent's agent
-        // with its tools on a computer keeps its brain here, so its report
-        // climbs the chain like any other.
+        // Its report comes back to the orchestrator only.
         if (caller.agentType !== "orchestrator") {
           throw new Error(
             "Only Stella can start a whole agent somewhere else. Leave out whole_agent: the agent then stays with you and runs its tools there.",

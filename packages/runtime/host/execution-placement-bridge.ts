@@ -1,5 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { BackendClient } from "@stella/contracts/backend/client";
+import {
+  SOCKET_KEEPALIVE_PING,
+  SOCKET_KEEPALIVE_PONG,
+} from "@stella/contracts/backend/protocol";
 import WebSocket from "ws";
 import {
   DEVICE_PRESENCE_PING_INTERVAL_MS,
@@ -1157,6 +1161,21 @@ export class ExecutionPlacementBridge {
   // Presence socket
   // -------------------------------------------------------------------------
 
+  /**
+   * The platform answers this without waking the owner's object, which is
+   * what lets it hibernate between heartbeats. The gate reads the time of the
+   * last answer as this device's last-seen time.
+   */
+  private sendKeepalive(): void {
+    const socket = this.socket;
+    if (!socket || socket.readyState !== 1 || !this.socketProven) return;
+    try {
+      socket.send(SOCKET_KEEPALIVE_PING);
+    } catch (error) {
+      this.log("warn", "A device presence keepalive could not be sent.", error);
+    }
+  }
+
   private send(frame: DevicePresenceDeviceFrame): boolean {
     const socket = this.socket;
     if (!socket || socket.readyState !== 1) return false;
@@ -1266,6 +1285,7 @@ export class ExecutionPlacementBridge {
           typeof data === "string"
             ? data
             : Buffer.from(data as ArrayBufferLike).toString("utf8");
+        if (text === SOCKET_KEEPALIVE_PONG) return;
         const value = JSON.parse(text) as unknown;
         if (!value || typeof value !== "object" || Array.isArray(value)) return;
         frame = value as DevicePresenceServerFrame;
@@ -1361,7 +1381,7 @@ export class ExecutionPlacementBridge {
         this.socketPingTimer = forkInterval(
           DEVICE_PRESENCE_PING_INTERVAL_MS,
           () => {
-            this.send({ type: "ping" });
+            this.sendKeepalive();
           },
         );
         await this.resumeAfterConnect();

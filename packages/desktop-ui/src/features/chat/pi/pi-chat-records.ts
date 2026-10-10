@@ -54,7 +54,12 @@ export const projectPiChat = (state: Pick<PiChatState, "entries" | "requestIds">
       const journaled = piJournalUserMessage(message);
       // A message sent here binds by its request; one placed or imported, by the id its row carries.
       const clientMsgId = state.requestIds[entry.id] ?? journaled.clientMsgId;
-      const { message: payload, hidden } = journaled;
+      const { hidden } = journaled;
+      const origin = (message as { originUserMessageId?: unknown }).originUserMessageId;
+      const payload =
+        typeof origin === "string" && origin
+          ? { ...journaled.message, originUserMessageId: origin }
+          : journaled.message;
       // A reply to an agent's report or note shows; a turn the app started stays out whole.
       const automation = hidden && !isPiAgentInput(message);
       turn = {

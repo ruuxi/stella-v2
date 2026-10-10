@@ -178,6 +178,8 @@ export type PiChatSend = {
   storageMode?: "cloud" | "local";
   /** Where the user asked this message to run (the composer's destination). */
   executionTarget?: { mode: "automatic" } | { mode: "cloud" } | { mode: "device"; deviceId: string };
+  /** Where the conversation's Stella runs could not take this send, so this computer answers it, as with no record. */
+  followSender?: boolean;
 };
 
 /** A send that went to run elsewhere: its turn comes back through the journal. */
@@ -208,9 +210,7 @@ export type PiChatRequest =
    * Where the conversation's brain runs (`PiChatBrainResult`): a send for a
    * conversation whose Stella runs elsewhere is placed there.
    */
-  | { op: "brain"; conversationId: string }
-  /** The user moves Stella herself: to the cloud, or to this computer (`PiChatBrainResult`). */
-  | { op: "moveBrain"; conversationId: string; to: "cloud" | "here" };
+  | { op: "brain"; conversationId: string };
 
 /**
  * Where a conversation's Stella runs (`@stella/contracts/turn-plane/pi-brain`):
@@ -446,6 +446,7 @@ export const piMessageText = (message: PiMessage | undefined): string => {
 
 /** An agent's report, which arrives as user input the user never wrote. */
 export const PI_REPORT_RE = /^\[(Agent completed|Task failed|Task canceled|Subagent paused)\]/;
+const LEADING_SYSTEM_REMINDER_RE = /^<system-reminder>[\s\S]*?<\/system-reminder>\s*/;
 
 /**
  * A note an agent sent with `send_message`, as `formatAgentMessage`
@@ -454,8 +455,10 @@ export const PI_REPORT_RE = /^\[(Agent completed|Task failed|Task canceled|Subag
 const AGENT_NOTE_RE = /^<agent-message from="[^"\n]*" thread_id="[^"\n]*">\n[\s\S]*\n<\/agent-message>$/;
 
 /** Text from Stella's agents, not the user: an agent's report, or a note an agent sent. */
-export const isPiAgentText = (text: string): boolean =>
-  PI_REPORT_RE.test(text.trimStart()) || AGENT_NOTE_RE.test(text.trim());
+export const isPiAgentText = (text: string): boolean => {
+  const body = text.trimStart().replace(LEADING_SYSTEM_REMINDER_RE, "");
+  return PI_REPORT_RE.test(body) || AGENT_NOTE_RE.test(text.trim());
+};
 
 /**
  * A user message an agent sent: one of its text parts is a report or a note.

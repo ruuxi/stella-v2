@@ -363,6 +363,10 @@ export const createStellaHostRunner = (
       Boolean(context.backend.client()),
     hasDurableLifecycleEvent:
       taskOrchestration.hasDurableExternalLifecycleEvent,
+    reportsLocally: (row) =>
+      row.placement === "computer" &&
+      row.executorDeviceId === null &&
+      !context.runtimeStore.getAgentRecord?.(row.threadId),
     onLifecycleEvent: taskOrchestration.handleExternalAgentLifecycleEvent,
     onControlReceipt: (row) => {
       context.runtimeStore.putCloudAgentThreadControl({
@@ -486,6 +490,10 @@ export const createStellaHostRunner = (
     setHasConnectedAccount,
     setCloudSyncEnabled: (enabled) => {
       context.state.cloudSyncEnabled = Boolean(enabled);
+    },
+    setPiReportDelivery: (delivery) => {
+      if (delivery) context.state.piReportDelivery = delivery;
+      else delete context.state.piReportDelivery;
     },
     start: runtimeInitialization.start,
     stop: async () => {

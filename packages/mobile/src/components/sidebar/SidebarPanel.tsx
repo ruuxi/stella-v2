@@ -14,9 +14,16 @@ import { fonts } from "../../theme/fonts";
 import { fadeHex } from "../../theme/oklch";
 import { useColors } from "../../theme/theme-context";
 import { Icon } from "../Icon";
+import { StellaMarkHero } from "../stella-mark/StellaMarkHero";
 import { Rise, SIDEBAR_PLACES, SidebarPlaceRow } from "./SidebarNav";
 
 const AVATAR = 52;
+const BRAND_MARK = 40;
+const BRAND_TOP = 18;
+const BRAND_ROW = 44;
+
+export const SIDEBAR_BRAND_CENTER = BRAND_TOP + BRAND_ROW / 2;
+const PLACES_FROM_TOP = [...SIDEBAR_PLACES].reverse();
 
 export function SidebarPanel({
   width,
@@ -53,12 +60,45 @@ export function SidebarPanel({
           styles.content,
           {
             paddingBottom: insets.bottom + 18,
-            paddingTop: insets.top + 18,
+            paddingTop: insets.top + BRAND_TOP,
           },
         ]}
         showsVerticalScrollIndicator={false}
         alwaysBounceVertical={false}
       >
+        <Rise i={i++} animated={animated}>
+          <View
+            style={styles.brand}
+            accessible
+            accessibilityRole="header"
+            accessibilityLabel="Stella"
+          >
+            <StellaMarkHero
+              size={BRAND_MARK}
+              faceColor={colors.background}
+              shape="soft"
+            />
+            <Text style={styles.wordmark} maxFontSizeMultiplier={1}>
+              Stella
+            </Text>
+          </View>
+        </Rise>
+
+        <View style={styles.spacer} />
+
+        {PLACES_FROM_TOP.map((place) => (
+          <Rise key={place} i={i++} animated={animated}>
+            <SidebarPlaceRow
+              place={place}
+              active={activeTab === place}
+              meta={metas[place]}
+              onSelect={onSelectTab}
+            />
+          </Rise>
+        ))}
+
+        <View style={styles.rule} />
+
         <Rise i={i++} animated={animated}>
           <Pressable
             accessibilityRole="button"
@@ -109,26 +149,6 @@ export function SidebarPanel({
           </Pressable>
         </Rise>
 
-        <View style={styles.rule} />
-
-        {SIDEBAR_PLACES.map((place) => (
-          <Rise key={place} i={i++} animated={animated}>
-            <SidebarPlaceRow
-              place={place}
-              active={activeTab === place}
-              meta={metas[place]}
-              onSelect={onSelectTab}
-            />
-          </Rise>
-        ))}
-
-        <View style={styles.spacer} />
-
-        <Rise i={i++} animated={animated}>
-          <Text style={styles.wordmark} maxFontSizeMultiplier={1}>
-            Stella
-          </Text>
-        </Rise>
       </ScrollView>
       <LinearGradient
         pointerEvents="none"
@@ -213,20 +233,25 @@ const makeStyles = (colors: Colors) =>
     rule: {
       backgroundColor: colors.border,
       height: StyleSheet.hairlineWidth,
-      marginBottom: 10,
-      marginTop: 24,
+      marginBottom: 20,
+      marginTop: 14,
       opacity: 0.8,
     },
     spacer: {
       flex: 1,
       minHeight: 24,
     },
+    brand: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 12,
+      height: BRAND_ROW,
+    },
     wordmark: {
       color: colors.text,
       fontFamily: fonts.display.regular,
-      fontSize: 30,
-      letterSpacing: -0.4,
-      opacity: 0.3,
+      fontSize: 32,
+      letterSpacing: -0.6,
     },
     topFade: {
       left: 0,

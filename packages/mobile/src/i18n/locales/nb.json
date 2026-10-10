@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Kunne ikke laste inn denne tråden",
+        "errorBody": "Lukk den og åpne den igjen om et øyeblikk."
       },
       "generatedImage": {
         "generating": "Genererer...",
@@ -830,7 +832,6 @@
     },
     "integrations": {
       "connectStellaApp": "Koble til Stella-appen",
-      "connectStellaAppSub": "Koble Stella-appen på telefonen din til denne datamaskinen",
       "connectTitle": "Koble til",
       "connected": "Tilkoblet",
       "credential": {
@@ -846,11 +847,16 @@
         "saving": "Lagrer...",
         "title": "Koble til {provider}"
       },
-      "heroTagline": "Send meldinger til Stella fra hvilken plattform du vil – prat naturlig, eller be henne få ting gjort rett på datamaskinen din.",
       "phoneTitle": "Telefonen din",
       "signInHeadline": "Logg på for å komme i gang",
       "signInSub": "Logg på Stella-kontoen din for å koble til {provider}.",
-      "signInToConnect": "Logg på Stella for å koble til"
+      "signInToConnect": "Logg på Stella for å koble til",
+      "getApp": {
+        "appStoreQrAlt": "Skann for å laste ned Stella fra App Store",
+        "platformLabel": "Velg en mobilplattform",
+        "playStoreQrAlt": "Skann for å laste ned Stella fra Google Play",
+        "title": "Last ned appen"
+      }
     },
     "legal": {
       "privacy": {
@@ -902,9 +908,16 @@
         "title": "Denne samtalen"
       },
       "files": {
-        "empty": "Ingen filer ennå. Alt Stella lager dukker opp her.",
+        "empty": "Filer som Stella lager eller deler, vises her.",
         "emptyFiltered": "Ingen filer samsvarer.",
-        "searchPlaceholder": "Søk i filer"
+        "filterAll": "Alle filer",
+        "filterLabel": "Filtrer og sorter filer",
+        "searchPlaceholder": "Søk i filer",
+        "sortName": "Navn",
+        "sortNewest": "Nyeste først",
+        "sortOldest": "Eldste først",
+        "sourceCloud": "Sky",
+        "sourceUpload": "Sendt av deg"
       },
       "schedule": {
         "actionFailed": "Det gikk ikke.",
@@ -912,7 +925,9 @@
         "customCadence": "Tilpasset tidsplan",
         "deleteConfirm": "«{title}» slutter å kjøre.",
         "deleteSchedule": "Slett tidsplan",
-        "empty": "Ingen tidsplaner ennå. Be Stella på datamaskinen din om å kjøre noe regelmessig, så dukker det opp her.",
+        "empty": "Ingenting planlagt ennå.",
+        "emptyAction": "Planlegg noe",
+        "emptyActionPrompt": "Minn meg på å ",
         "lastRunFailed": "Siste kjøring mislyktes: {error}",
         "loadFailed": "Kunne ikke laste tidsplaner.",
         "next": "Neste {when}",
@@ -937,6 +952,11 @@
         "stopped": "Stoppet",
         "working": "Jobber i bakgrunnen"
       }
+    },
+    "apps": {
+      "empty": "Apper som Stella bygger for deg, vises her.",
+      "emptyAction": "Bygg en app",
+      "emptyActionPrompt": "Bygg en app til meg som "
     },
     "authCallback": {
       "backToSignIn": "Tilbake til innlogging",
@@ -1003,7 +1023,6 @@
       "disconnectedLabel": "Datamaskin frakoblet",
       "guestHeroBody": "Be Stella gjøre ting på datamaskinen din — surfe på nettet, håndtere filer, kjøre oppgaver og mer.",
       "guestHeroTitle": "Datamaskinen din, rett ved hånden",
-      "pairLabel": "Koble til en datamaskin",
       "statusAsleep": "Sover",
       "statusChecking": "Sjekker…",
       "statusConnected": "Tilkoblet"
@@ -1011,20 +1030,11 @@
     "desktop": {
       "connecting": "Kobler til skrivebordet",
       "deviceUnreachable": "Får ikke kontakt med {platform}",
-      "enterCode": "Skriv inn koden som vises på datamaskinen.",
-      "guestBody": "Se Stella-skrivebordsappen rett på telefonen. Etter tilkoblingen kobler telefonen seg til automatisk.",
       "guestSignInPrompt": "Logg inn for å komme i gang.",
       "limitedCapabilities": "Noe krever datamaskinen din",
       "linkInterrupted": "Forbindelsen til datamaskinen ble brutt.",
-      "pairAnother": "Koble til en annen datamaskin",
-      "pairTitle": "Koble til telefonen din",
-      "pairing": "Kobler til denne telefonen",
       "reconnecting": "Kobler til igjen...",
-      "repairNeeded": "Denne telefonen må kobles til datamaskinen din på nytt.",
       "retryLabel": "Prøv å koble til igjen",
-      "startPairingLabel": "Start tilkobling av en datamaskin",
-      "unavailableBodyPaired": "Sørg for at Stella er åpen på datamaskinen og koblet til internett. Når den er tilkoblet, vises skrivebordsappen rett her på telefonen.",
-      "unavailableBodyUnpaired": "Se Stella-skrivebordsappen rett på telefonen. Skann QR-koden som vises i Stella på datamaskinen for å komme i gang — deretter kobler telefonen seg til automatisk.",
       "unreachable": "Får ikke kontakt med skrivebordet"
     },
     "engineAccounts": {
@@ -1137,26 +1147,17 @@
         "signInBody": "Ha samtalen, innstillingene og den tilkoblede datamaskinen din på alle enheter.",
         "signInTitle": "Logg inn på Stella",
         "skip": "Hopp over nå",
-        "subscriptionsBody": "Betaler du allerede for Claude eller ChatGPT? Koble det til, så bruker jeg det i skyen. Datamaskinene dine bruker sine egne pålogginger.",
+        "subscriptionsBody": "Vil du bruke det eksisterende Claude- eller ChatGPT-abonnementet ditt?",
         "subscriptionsLabel": "Valgfritt"
       },
       "composerPlaceholder": "Eller bare spør meg om noe",
       "computer": {
-        "body": "Koble denne telefonen til Stella på datamaskinen din, så kan jeg utføre oppgaver der mens du er ute.",
-        "connectedBody": "Spør meg hvor som helst, så gjør jeg jobben på datamaskinen din.",
+        "body": "Logg inn på datamaskinen, så kobles den til automatisk.",
         "connectedTo": "Koblet til {name}",
-        "guestHint": "Tilkoblingen hører til Stella-kontoen din, så logg inn først. Jeg fortsetter akkurat her.",
-        "hint": "Åpne Stella på datamaskinen din og velg «Koble til telefonen din».",
+        "getDesktop": "Last ned Stella for datamaskin",
         "later": "Senere",
-        "pair": "Koble til datamaskinen min",
-        "point1": "Finne en fil og sende den til deg",
-        "point2": "Gjøre ferdig en eksport eller en nedlasting",
-        "point3": "Bruke appene du allerede har",
-        "settledConnectedDesc": "Jeg kan utføre oppgaver der fra telefonen din.",
-        "settledSkippedDesc": "Du kan koble til en når som helst i Innstillinger.",
         "settledSkippedTitle": "Ingen datamaskin ennå",
-        "signInToPair": "Logg inn for å koble til",
-        "title": "Datamaskinen din, rett fra lomma"
+        "title": "Stella på datamaskinen din"
       },
       "gmail": {
         "body": "Finn e-poster, hold deg oppdatert på tråder og lag utkast til svar, bare ved å spørre.",
@@ -1375,7 +1376,6 @@
         "enableFailedTitle": "Kunne ikke aktivere den datamaskinen",
         "enableLabel": "Aktiver {name}",
         "enabling": "Aktiverer…",
-        "pairingCode": "Bruk en tilkoblingskode",
         "sectionLabel": "Hvor Stella jobber",
         "statusAwaitingConsent": "Venter på tillatelse på den datamaskinen",
         "statusDeclined": "Avslått på den datamaskinen",
@@ -1391,10 +1391,6 @@
       "deleteConfirmTitle": "Slett konto",
       "deleteFailedTitle": "Kunne ikke slette kontoen",
       "deletingAccount": "Sletter kontoen…",
-      "forget": "Glem",
-      "forgetConfirmBody": "Denne telefonen vil slutte å koble seg til den datamaskinen til du kobler den til på nytt.",
-      "forgetConfirmTitle": "Glemme {name}?",
-      "forgetLabel": "Glem {name}",
       "hideEmailLabel": "Skjul e-post",
       "loadingSession": "Laster økt…",
       "notificationsSection": "Varsler",
@@ -1404,9 +1400,6 @@
       "paired": {
         "unnamedComputer": "Datamaskin · {id}"
       },
-      "pairedEmpty": "Ingen datamaskiner er koblet til ennå.",
-      "pairedOn": "Tilkoblet {date}",
-      "pairedSection": "Tilkoblede datamaskiner",
       "privacyPolicy": "Personvernerklæring",
       "pushToggleA11y": "Slå push-varsler av eller på",
       "pushToggleLabel": "Tillat push-varsler",
@@ -1584,6 +1577,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Mye av livet går via e-post. Koble til Gmail, så kan jeg hjelpe deg med din.",
         "memory": "One more thing that makes me different.",
+        "phone": "Jeg er på telefonen din også.",
         "quickstart": "Det var alt. Én siste ting, og den er valgfri: en hurtigstart.",
         "quickstartDone": "Ferdig. Her er det jeg har lært, og noen ting vi kan begynne med.",
         "quickstartFailed": "Jeg fikk ikke lest ferdig nettleseren din denne gangen. Vi kan begynne likevel, så lærer jeg underveis.",
@@ -2079,16 +2073,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Påloggede datamaskiner vises her. Slå på en for å sende den arbeid.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2226,47 +2215,6 @@
         "label": "Skjermopptak"
       },
       "title": "Tillatelser"
-    },
-    "phoneAccess": {
-      "copy": "Kopier",
-      "deviceFallback": "Telefon",
-      "errors": {
-        "createPairing": "Kunne ikke opprette en paringskode."
-      },
-      "expired": "Utløpt",
-      "getCode": "Hent kode",
-      "intro": {
-        "headline": "Koble telefonen til datamaskinen"
-      },
-      "pairedCount": {
-        "one": "{count} telefon paret",
-        "other": "{count} telefoner paret"
-      },
-      "pairing": {
-        "body": "Skann QR-koden i Stella-appen på telefonen, eller skriv inn koden.",
-        "headline": "Skann eller skriv inn denne koden",
-        "qrAlt": "Skann for å pare telefonen"
-      },
-      "preparing": "Klargjør...",
-      "remove": "Fjern",
-      "removing": "Fjerner...",
-      "signedOut": {
-        "body": "Logg på Stella-kontoen din for å pare med mobilappen.",
-        "headline": "Logg på for å komme i gang"
-      },
-      "steps": {
-        "appStoreQrAlt": "Skann for å laste ned Stella fra App Store",
-        "connect": "Koble til telefonen",
-        "download": "Last ned appen",
-        "platformSelectorLabel": "Velg en mobilplattform",
-        "playStoreQrAlt": "Skann for å laste ned Stella fra Google Play"
-      },
-      "timeLeft": "{time} igjen",
-      "toasts": {
-        "codeCopied": "Koden ble kopiert til utklippstavlen",
-        "phoneRemoved": "Telefonen ble fjernet",
-        "removeFailed": "Kunne ikke fjerne telefonen"
-      }
     },
     "power": {
       "description": "Hindrer datamaskinen i å gå i dvale mens Stella er åpen.",
@@ -2471,7 +2419,9 @@
         "skipped": "Hoppet over",
         "undoing": "Angrer…",
         "upToDate": "Ingenting venter",
-        "waiting": "Venter"
+        "waiting": "Venter",
+        "upToDateTitle": "Du er oppdatert",
+        "upToDateBody": "Nye versjoner av Stella vises her."
       },
       "updating": "Oppdaterer…"
     },
@@ -2501,7 +2451,9 @@
       "noMatches": "Ingen tilkoblinger samsvarer med søket.",
       "searchLabel": "Søk i tilkoblinger",
       "searchPlaceholder": "Søk",
-      "title": "Tilkoblinger"
+      "title": "Tilkoblinger",
+      "noMatchesTitle": "Ingen treff",
+      "noMatchesBody": "Prøv et annet navn."
     },
     "display": {
       "agentThread": {
@@ -2555,11 +2507,19 @@
       },
       "canvasShare": {
         "copyLink": "Kopier lenke",
-        "empty": "Ingen aktive delinger ennå. Publiser et canvas for å få en offentlig lenke.",
+        "empty": "Ingen offentlige lerreter ennå. Gjør et lerret offentlig for å dele lenken.",
         "expires": "Utløper {date}",
         "links": "Lenker",
         "live": "Canvaset er live",
         "loadFailed": "Kunne ikke laste inn delingene dine.",
+        "makePrivate": "Gjør privat",
+        "makePublic": "Gjør offentlig",
+        "noLink": "Dette lerretet har ingen lenke ennå. Gjør det offentlig for å få en lenke alle kan åpne.",
+        "openInBrowser": "Åpne i nettleser",
+        "privateHint": "Bare du kan åpne denne lenken.",
+        "privateLink": "Privat lenke",
+        "public": "Offentlig",
+        "publicHint": "Alle med lenken kan se den.",
         "publicLink": "Offentlig canvas-lenke",
         "publishFailed": "Kunne ikke publisere dette canvaset. Prøv igjen.",
         "publishing": "Publiserer canvas…",
@@ -2571,8 +2531,12 @@
         "toasts": {
           "copyFailed": "Kunne ikke kopiere lenken",
           "linkCopied": "Delingslenke kopiert",
+          "madePrivate": "Lenken er nå privat",
+          "madePublic": "Lenken er nå offentlig",
+          "openFailed": "Kunne ikke åpne lenken",
           "revokeFailed": "Kunne ikke oppheve denne delingen",
-          "revoked": "Deling opphevet"
+          "revoked": "Deling opphevet",
+          "visibilityFailed": "Kunne ikke endre hvem som kan åpne denne lenken"
         },
         "untitled": "Canvas uten navn"
       },
@@ -2581,7 +2545,10 @@
         "codeChanges": "Kodeendringer",
         "desktopRequired": "Forhåndsvisning av kode krever Stella-skrivebordsappen.",
         "empty": "Ingen filendringer ennå. Når en agent endrer kode, vises endringene her.",
-        "noChanges": "Fant ingen endringer."
+        "noChanges": "Fant ingen endringer.",
+        "emptyTitle": "Ingen endringer ennå",
+        "emptyBody": "Når en agent redigerer kode, vises endringene her.",
+        "noChangesTitle": "Ingen endringer"
       },
       "filePreview": {
         "copy": "Kopier",
@@ -2617,7 +2584,10 @@
         "save": "Lagre",
         "saveFailed": "Kunne ikke lagre",
         "saved": "Lagret",
-        "zoom": "Zoom inn på bildet"
+        "zoom": "Zoom inn på bildet",
+        "imageUnavailable": "Bildet er ikke tilgjengelig",
+        "videoUnavailable": "Videoen er ikke tilgjengelig",
+        "audioUnavailable": "Lyden er ikke tilgjengelig"
       },
       "office": {
         "frameTitle": "{kind}-forhåndsvisning: {title}",
@@ -2643,7 +2613,11 @@
       },
       "preview": {
         "limited": "Begrenset forhåndsvisning. Lagre eller åpne originalfilen for å se alt innholdet.",
-        "unavailable": "Kunne ikke klargjøre denne forhåndsvisningen."
+        "unavailable": "Kunne ikke klargjøre denne forhåndsvisningen.",
+        "failedTitle": "Kan ikke vise forhåndsvisning",
+        "failedBody": "Prøv igjen, eller lagre filen for å åpne den et annet sted.",
+        "unavailableTitle": "Filen er ikke tilgjengelig",
+        "emptyTitle": "Denne filen er tom"
       },
       "spreadsheet": {
         "column": "Kolonne {index}",
@@ -2665,7 +2639,9 @@
         "pendingPurge": "Venter på sletting",
         "refresh": "Oppdater",
         "title": "Papirkurv",
-        "trashedAgo": "Kastet for {time} siden"
+        "trashedAgo": "Kastet for {time} siden",
+        "emptyTitle": "Papirkurven er tom",
+        "emptyBody": "Slettede ting blir liggende her i 24 timer."
       },
       "url": {
         "eyebrow": "Direkte forhåndsvisning",

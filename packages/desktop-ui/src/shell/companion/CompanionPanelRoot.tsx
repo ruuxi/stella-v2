@@ -126,7 +126,6 @@ export function CompanionPanelRoot() {
   }, [api, messageRef, setMessage]);
 
   const dictation = useDictation({
-    message,
     setMessage,
     commitOnShortcutStop: true,
     onCommit: sendCurrent,

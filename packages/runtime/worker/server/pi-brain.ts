@@ -3,7 +3,9 @@
  * this computer (`@stella/agent/host/desktop-execution`): read from and set
  * on the conversation's object (`@stella/contracts/turn-plane/pi-brain`).
  * Stella's brief continues on the new host through the host's placement, the
- * same hand-off `switch_destination` always made.
+ * same hand-off `switch_destination` always made, and so does what her
+ * agents here tell her once she runs elsewhere, unless that host can't take
+ * it now: then this computer does.
  */
 import type { DesktopBrain } from "@stella/agent/host/desktop-execution";
 import { METHOD_NAMES } from "@stella/contracts/protocol";
@@ -52,6 +54,21 @@ export const brainFor = (
         { retryOnDisconnect: true },
       )) as { ok?: boolean; error?: string } | null;
       if (!result?.ok) throw new Error(result?.error ?? "Stella's brief could not be handed on.");
+    },
+    note: async (host, note) => {
+      const result = (await hostBus.request(
+        METHOD_NAMES.HOST_PI_BRAIN_NOTE,
+        {
+          conversationId,
+          target: host.host === "cloud" ? { mode: "cloud" } : { mode: "device", deviceId: host.deviceId },
+          prompt: note.text,
+          id: note.id,
+        },
+        { retryOnDisconnect: true },
+      )) as { ok?: boolean; unavailable?: boolean; error?: string } | null;
+      if (result?.ok) return true;
+      if (result?.unavailable) return false;
+      throw new Error(result?.error ?? "The note could not reach where Stella runs.");
     },
   };
 };

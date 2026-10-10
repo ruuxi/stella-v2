@@ -408,6 +408,16 @@ export const piDeliverAgentMessage = async (
   message: { threadId: string; text: string; messageId: string },
 ) => (await piChatsFor(session, hostBus)).deliverAgentMessage(message.threadId, message.text, message.messageId);
 
+export const piDeliverReport = async (
+  session: OpenSession,
+  hostBus: HostBus.Interface,
+  report: { conversationId: string; requestId: string; text: string },
+): Promise<void> =>
+  await (await piChatsFor(session, hostBus)).deliverReport(report.conversationId, {
+    requestId: report.requestId,
+    text: report.text,
+  });
+
 /**
  * Why a placement was canceled before it ran here, if it was: the cancel is
  * kept on disk, so a run delivered after it (even after a restart) never
@@ -471,5 +481,6 @@ export const piChatRequest = async (
   });
   return await chats.submit(request.conversationId, request.requestId, piUserContent(payload, prepared), {
     ...(payload.locale ? { locale: payload.locale } : {}),
+    ...(request.send.followSender ? { followSender: true } : {}),
   });
 };

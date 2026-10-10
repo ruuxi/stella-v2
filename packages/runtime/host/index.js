@@ -13,7 +13,7 @@ import { LocalSchedulerService } from "../kernel/local-scheduler-service.js";
 import { createCloudSchedules, isCloudScheduleId, isCloudSchedulePayload, } from "./cloud-schedules.js";
 import { createScheduleScriptAuthEnv } from "../kernel/shared/schedule-scripts.js";
 import { AGENT_STREAM_EVENT_TYPES } from "@stella/contracts/agent-runtime";
-import { createExecutionPlacementBridge, placementLocalAgentThreadId, placementLocalChatRunId, placementRemoteThreadAgentId, } from "./execution-placement-bridge.js";
+import { createExecutionPlacementBridge, PlacementRouteError, placementLocalAgentThreadId, placementLocalChatRunId, placementRemoteThreadAgentId, } from "./execution-placement-bridge.js";
 import { isExecutionPlacementEligible } from "./execution-placement-eligibility.js";
 import { isCloudHandedOff } from "./placed-dispatch.js";
 import { AGENT_RUN_RPC_OPTIONS } from "./agent-run-request.js";
@@ -147,6 +147,12 @@ const placedChatTarget = (send, ownDeviceId) => {
     }
     return null;
 };
+/**
+ * A placement that failed because where it went is out of reach (no network,
+ * placement not ready here, the cloud failing), not one the owner gate
+ * refused for the request itself.
+ */
+const placementUnavailable = (error) => !(error instanceof PlacementRouteError) || error.retryable;
 export class StellaRuntimeHost {
     options;
     workerMode = "child";
@@ -1420,6 +1426,46 @@ export class StellaRuntimeHost {
         });
         return { ok: true };
     }
+    /**
+     * What Stella reads hidden (an agent's report or note) in a pi
+     * conversation whose brain runs elsewhere: placed there as a chat, as
+     * this computer places its user's sends, once per `id`.
+     */
+    async placePiBrainNote(params) {
+        const conversationId = typeof params?.conversationId === "string" ? params.conversationId.trim() : "";
+        const requested = params?.target && typeof params.target === "object" ? params.target : null;
+        const deviceId = typeof requested?.deviceId === "string" ? requested.deviceId.trim() : "";
+        const target = requested?.mode === "cloud"
+            ? { mode: "cloud" }
+            : requested?.mode === "device" && deviceId && deviceId !== this.deviceIdentity?.deviceId
+                ? { mode: "device", deviceId }
+                : null;
+        const prompt = typeof params?.prompt === "string" ? params.prompt.trim() : "";
+        const id = typeof params?.id === "string" ? params.id.trim() : "";
+        if (!conversationId || !target || !prompt || !id) {
+            return { ok: false, error: "A conversation, another host, a note and its id are required." };
+        }
+        try {
+            await this.startPlacedChat({
+                conversationId,
+                userPrompt: prompt,
+                requestId: id,
+                userMessageEventId: id,
+                storageMode: "cloud",
+                // Journaled hidden there: the user did not write it.
+                handoff: true,
+            }, target);
+            return { ok: true };
+        }
+        catch (error) {
+            // Out of reach: the conversation here takes it instead.
+            return {
+                ok: false,
+                ...(placementUnavailable(error) ? { unavailable: true } : {}),
+                error: error instanceof Error ? error.message : String(error),
+            };
+        }
+    }
     async startChat(payload) {
         const target = placedChatTarget(payload, this.deviceIdentity?.deviceId);
         if (target) return await this.startPlacedChat(payload, target);
@@ -1441,30 +1487,44 @@ export class StellaRuntimeHost {
         // the worker reads closely until it shows.
         let target = request?.op === "submit" ? placedChatTarget(request.send, this.deviceIdentity?.deviceId) : null;
         // A conversation whose Stella runs elsewhere (the cloud, another
-        // computer) answers there: this computer takes none of its turns.
+        // computer) answers there: this computer takes none of its turns
+        // while that host can take them.
+        let brainTarget = false;
         if (request?.op === "submit" && !target && request.send?.storageMode !== "local") {
             const brain = await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_PI_CHAT, { op: "brain", conversationId: request.conversationId }, {
                 ensureWorker: true,
                 recordActivity: false,
             }).catch(() => null);
-            if (brain && brain.here === false && brain.target) target = brain.target;
+            if (brain && brain.here === false && brain.target) {
+                target = brain.target;
+                brainTarget = true;
+            }
         }
         if (target) {
             const send = request.send ?? {};
-            const placed = await this.startPlacedChat({
-                conversationId: request.conversationId,
-                userPrompt: request.text,
-                requestId: request.requestId,
-                userMessageEventId: request.requestId,
-                ...(typeof send.selectedText === "string" ? { selectedText: send.selectedText } : {}),
-                ...(Array.isArray(send.attachments) && send.attachments.length ? { attachments: send.attachments } : {}),
-                ...(send.locale ? { locale: send.locale } : {}),
-            }, target);
-            void this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_PI_CHAT, { op: "follow", conversationId: request.conversationId }, {
-                ensureWorker: true,
-                recordActivity: false,
-            }).catch(() => undefined);
-            return { placed: { runId: placed.runId, userMessageId: placed.userMessageId } };
+            try {
+                const placed = await this.startPlacedChat({
+                    conversationId: request.conversationId,
+                    userPrompt: request.text,
+                    requestId: request.requestId,
+                    userMessageEventId: request.requestId,
+                    ...(typeof send.selectedText === "string" ? { selectedText: send.selectedText } : {}),
+                    ...(Array.isArray(send.attachments) && send.attachments.length ? { attachments: send.attachments } : {}),
+                    ...(send.locale ? { locale: send.locale } : {}),
+                }, target);
+                void this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_PI_CHAT, { op: "follow", conversationId: request.conversationId }, {
+                    ensureWorker: true,
+                    recordActivity: false,
+                }).catch(() => undefined);
+                return { placed: { runId: placed.runId, userMessageId: placed.userMessageId } };
+            }
+            catch (error) {
+                // Where Stella runs is out of reach: this computer answers, as
+                // with no record, which stays for once that host is back.
+                if (!brainTarget || !placementUnavailable(error)) throw error;
+                console.warn("[pi-chat] Where Stella runs could not take this message; this computer answers it.", error);
+                request = { ...request, send: { ...send, followSender: true } };
+            }
         }
         if (request?.op === "abort") await this.cancelPiPlacements(request.conversationId, request.dispatchIds);
         return await this.requestWorker(METHOD_NAMES.INTERNAL_WORKER_PI_CHAT, request, {
@@ -2032,6 +2092,9 @@ export class StellaRuntimeHost {
         });
         peer.registerRequestHandler(METHOD_NAMES.HOST_EXECUTION_DESTINATION_SWITCH, async (params) => {
             return await this.switchExecutionDestination(params);
+        });
+        peer.registerRequestHandler(METHOD_NAMES.HOST_PI_BRAIN_NOTE, async (params) => {
+            return await this.placePiBrainNote(params);
         });
         peer.registerRequestHandler(METHOD_NAMES.HOST_CONNECTOR_CONNECT_REQUEST, async (params) => {
             if (!this.options.hostHandlers.requestConnectorConnection) {

@@ -158,7 +158,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "לא ניתן לטעון את השרשור הזה",
+        "errorBody": "סגרו אותו ופתחו שוב בעוד רגע."
       },
       "generatedImage": {
         "generating": "מייצר...",
@@ -838,7 +840,6 @@
     },
     "integrations": {
       "connectStellaApp": "התחבר לאפליקציית Stella",
-      "connectStellaAppSub": "שייך את אפליקציית Stella שבטלפון שלך למחשב הזה",
       "connectTitle": "חיבור",
       "connected": "מחובר",
       "credential": {
@@ -854,11 +855,16 @@
         "saving": "שומר...",
         "title": "חבר את {provider}"
       },
-      "heroTagline": "שלח הודעות ל-Stella מכל פלטפורמה שתרצה — שוחח בטבעיות, או בקש ממנה לבצע דברים ישירות במחשב שלך.",
       "phoneTitle": "הטלפון שלך",
       "signInHeadline": "התחבר כדי להתחיל",
       "signInSub": "התחבר לחשבון Stella שלך כדי לחבר את {provider}.",
-      "signInToConnect": "התחבר ל-Stella כדי לחבר"
+      "signInToConnect": "התחבר ל-Stella כדי לחבר",
+      "getApp": {
+        "appStoreQrAlt": "סרוק כדי להוריד את Stella מה-App Store",
+        "platformLabel": "בחר פלטפורמה לנייד",
+        "playStoreQrAlt": "סרוק כדי להוריד את Stella מ-Google Play",
+        "title": "הורדת האפליקציה"
+      }
     },
     "legal": {
       "privacy": {
@@ -911,9 +917,16 @@
         "title": "השיחה הזו"
       },
       "files": {
-        "empty": "אין עדיין קבצים. כל מה ש־ Stella מייצרת יופיע כאן.",
+        "empty": "קבצים ש-Stella יוצרת או משתפת יופיעו כאן.",
         "emptyFiltered": "אין קבצים תואמים.",
-        "searchPlaceholder": "חיפוש קבצים"
+        "filterAll": "כל הקבצים",
+        "filterLabel": "סינון ומיון קבצים",
+        "searchPlaceholder": "חיפוש קבצים",
+        "sortName": "שם",
+        "sortNewest": "החדשים ביותר קודם",
+        "sortOldest": "הישנים ביותר קודם",
+        "sourceCloud": "ענן",
+        "sourceUpload": "נשלחו על ידך"
       },
       "schedule": {
         "actionFailed": "זה לא הצליח.",
@@ -921,7 +934,9 @@
         "customCadence": "תזמון מותאם אישית",
         "deleteConfirm": "”{title}“ יפסיק לפעול.",
         "deleteSchedule": "מחיקת התזמון",
-        "empty": "אין עדיין תזמונים. בקשו מ־ Stella במחשב להריץ משהו באופן קבוע והוא יופיע כאן.",
+        "empty": "עדיין לא תוזמן דבר.",
+        "emptyAction": "לתזמן משהו",
+        "emptyActionPrompt": "תזכירי לי ",
         "lastRunFailed": "ההרצה האחרונה נכשלה: {error}",
         "loadFailed": "לא ניתן היה לטעון את התזמונים.",
         "next": "ההרצה הבאה {when}",
@@ -946,6 +961,11 @@
         "stopped": "הופסק",
         "working": "עובד ברקע"
       }
+    },
+    "apps": {
+      "empty": "אפליקציות ש-Stella בונה בשבילך יופיעו כאן.",
+      "emptyAction": "לבנות אפליקציה",
+      "emptyActionPrompt": "תבני לי אפליקציה ש"
     },
     "authCallback": {
       "backToSignIn": "חזרה להתחברות",
@@ -1013,7 +1033,6 @@
       "disconnectedLabel": "המחשב מנותק",
       "guestHeroBody": "בקשו מ-Stella לעשות דברים במחשב שלכם — לגלוש ברשת, לנהל קבצים, להריץ משימות ועוד.",
       "guestHeroTitle": "המחשב שלכם, בהישג יד",
-      "pairLabel": "צימוד מחשב",
       "statusAsleep": "במצב שינה",
       "statusChecking": "בודק…",
       "statusConnected": "מחובר"
@@ -1021,20 +1040,11 @@
     "desktop": {
       "connecting": "מתחבר למחשב",
       "deviceUnreachable": "אין גישה למכשיר {platform}",
-      "enterCode": "הזינו את הקוד שמופיע במחשב שלכם.",
-      "guestBody": "ראו את אפליקציית Stella למחשב ישירות בטלפון. אחרי החיבור הטלפון יתחבר מחדש אוטומטית.",
       "guestSignInPrompt": "התחברו כדי להתחיל.",
       "limitedCapabilities": "לחלק מהדברים צריך את המחשב שלכם",
       "linkInterrupted": "החיבור למחשב שלכם נקטע.",
-      "pairAnother": "חיבור מחשב נוסף",
-      "pairTitle": "חברו את הטלפון שלכם",
-      "pairing": "מחבר את הטלפון הזה",
       "reconnecting": "מתחבר מחדש...",
-      "repairNeeded": "צריך לחבר את הטלפון הזה למחשב שלכם שוב.",
       "retryLabel": "נסו להתחבר שוב",
-      "startPairingLabel": "התחלת חיבור של מחשב",
-      "unavailableBodyPaired": "ודאו ש-Stella פתוחה במחשב שלכם ומחוברת לאינטרנט. ברגע שיהיה חיבור, אפליקציית המחשב תופיע כאן בטלפון.",
-      "unavailableBodyUnpaired": "ראו את אפליקציית Stella למחשב ישירות בטלפון. סרקו את קוד ה-QR שמופיע ב-Stella במחשב כדי להתחיל — ואחר כך הטלפון יתחבר מחדש אוטומטית.",
       "unreachable": "אין גישה למחשב שלכם"
     },
     "engineAccounts": {
@@ -1147,26 +1157,17 @@
         "signInBody": "שמרו את השיחה, ההגדרות והמחשב המחובר שלכם בכל מכשיר.",
         "signInTitle": "התחברו ל-Stella",
         "skip": "לא עכשיו",
-        "subscriptionsBody": "כבר משלמים על Claude או ChatGPT? חברו אותו ואשתמש בו בענן. המחשבים שלכם משתמשים בחיבורים משלהם.",
+        "subscriptionsBody": "להשתמש במינוי הקיים שלך ל-Claude או ל-ChatGPT?",
         "subscriptionsLabel": "אופציונלי"
       },
       "composerPlaceholder": "או פשוט שאלו אותי משהו",
       "computer": {
-        "body": "חברו את הטלפון הזה ל-Stella במחשב, ואוכל להריץ שם משימות בזמן שאתם בחוץ.",
-        "connectedBody": "בקשו מכל מקום, ואעשה את העבודה במחשב שלכם.",
+        "body": "התחברו במחשב והוא יתחבר אוטומטית.",
         "connectedTo": "מחובר אל {name}",
-        "guestHint": "הצימוד שייך לחשבון Stella שלכם, אז התחברו קודם. אמשיך בדיוק מכאן.",
-        "hint": "במחשב, פתחו את Stella ובחרו באפשרות חיבור טלפון.",
+        "getDesktop": "הורדת Stella למחשב",
         "later": "אחר כך",
-        "pair": "חיבור המחשב שלי",
-        "point1": "למצוא קובץ ולשלוח אותו אליכם",
-        "point2": "לסיים ייצוא או הורדה",
-        "point3": "להשתמש באפליקציות שכבר יש לכם",
-        "settledConnectedDesc": "אוכל להריץ שם משימות מהטלפון שלכם.",
-        "settledSkippedDesc": "אפשר לחבר מחשב בכל זמן דרך ההגדרות.",
         "settledSkippedTitle": "עוד אין מחשב",
-        "signInToPair": "התחברו כדי לצמד",
-        "title": "המחשב שלכם, מהכיס"
+        "title": "Stella במחשב שלך"
       },
       "gmail": {
         "body": "מצא הודעות, התעדכן בשרשורים וכתוב טיוטות תשובה, פשוט בבקשה.",
@@ -1385,7 +1386,6 @@
         "enableFailedTitle": "לא ניתן להפעיל את המחשב",
         "enableLabel": "הפעלת {name}",
         "enabling": "מפעיל…",
-        "pairingCode": "שימוש בקוד צימוד",
         "sectionLabel": "איפה Stella עובדת",
         "statusAwaitingConsent": "ממתין לאישור באותו מחשב",
         "statusDeclined": "נדחה באותו מחשב",
@@ -1401,10 +1401,6 @@
       "deleteConfirmTitle": "מחיקת חשבון",
       "deleteFailedTitle": "לא ניתן היה למחוק את החשבון",
       "deletingAccount": "מוחק חשבון…",
-      "forget": "שכח",
-      "forgetConfirmBody": "הטלפון הזה יפסיק להתחבר מחדש למחשב הזה עד שתחברו אותו שוב.",
-      "forgetConfirmTitle": "לשכוח את {name}?",
-      "forgetLabel": "שכח את {name}",
       "hideEmailLabel": "הסתרת האימייל",
       "loadingSession": "טוען התחברות…",
       "notificationsSection": "התראות",
@@ -1414,9 +1410,6 @@
       "paired": {
         "unnamedComputer": "מחשב · {id}"
       },
-      "pairedEmpty": "עדיין אין מחשבים מחוברים.",
-      "pairedOn": "חובר ב-{date}",
-      "pairedSection": "מחשבים מחוברים",
       "privacyPolicy": "מדיניות הפרטיות",
       "pushToggleA11y": "החלפת מצב התראות דחיפה",
       "pushToggleLabel": "אפשרו התראות דחיפה",
@@ -1594,6 +1587,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "הרבה מהחיים עובר דרך האימייל. חבר את Gmail ואעזור לך עם שלך.",
         "memory": "One more thing that makes me different.",
+        "phone": "אני גם בטלפון שלך.",
         "quickstart": "זה הכול. עוד דבר אחד, והוא אופציונלי: התחלה מהירה.",
         "quickstartDone": "סיימתי. הנה מה שלמדתי, וכמה דברים שאפשר להתחיל מהם.",
         "quickstartFailed": "הפעם לא הצלחתי לסיים לקרוא את הדפדפן שלך. אפשר להתחיל בכל זאת, ואני אלמד תוך כדי תנועה.",
@@ -2089,16 +2083,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "מחשבים מחוברים מופיעים כאן. הפעילו אחד כדי לשלוח אליו עבודה.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2236,48 +2225,6 @@
         "label": "צילום מסך"
       },
       "title": "הרשאות"
-    },
-    "phoneAccess": {
-      "copy": "העתק",
-      "deviceFallback": "טלפון",
-      "errors": {
-        "createPairing": "לא ניתן ליצור קוד חיבור."
-      },
-      "expired": "פג תוקף",
-      "getCode": "קבל קוד",
-      "intro": {
-        "headline": "חבר את הטלפון שלך למחשב"
-      },
-      "pairedCount": {
-        "one": "טלפון {count} מחובר",
-        "other": "{count} טלפונים מחוברים",
-        "two": "{count} טלפונים מחוברים"
-      },
-      "pairing": {
-        "body": "סרקו את קוד ה-QR באפליקציית Stella בטלפון, או הזינו את הקוד.",
-        "headline": "סרוק או הזן את הקוד הזה",
-        "qrAlt": "סרוק כדי לחבר את הטלפון שלך"
-      },
-      "preparing": "מכין...",
-      "remove": "הסר",
-      "removing": "מסיר...",
-      "signedOut": {
-        "body": "התחבר לחשבון Stella שלך כדי להתחבר לאפליקציה בנייד.",
-        "headline": "התחבר כדי להתחיל"
-      },
-      "steps": {
-        "appStoreQrAlt": "סרוק כדי להוריד את Stella מה-App Store",
-        "connect": "חבר את הטלפון שלך",
-        "download": "הורד את האפליקציה",
-        "platformSelectorLabel": "בחר פלטפורמה לנייד",
-        "playStoreQrAlt": "סרוק כדי להוריד את Stella מ-Google Play"
-      },
-      "timeLeft": "נותרו {time}",
-      "toasts": {
-        "codeCopied": "הקוד הועתק ללוח",
-        "phoneRemoved": "הטלפון הוסר",
-        "removeFailed": "הסרת הטלפון נכשלה"
-      }
     },
     "power": {
       "description": "מונע מהמחשב להיכנס למצב שינה בזמן ש-Stella פתוחה.",
@@ -2483,7 +2430,9 @@
         "skipped": "דולגו",
         "undoing": "מבטל…",
         "upToDate": "אין דבר שממתין",
-        "waiting": "ממתין"
+        "waiting": "ממתין",
+        "upToDateTitle": "הכול מעודכן",
+        "upToDateBody": "גרסאות חדשות של Stella יופיעו כאן."
       },
       "updating": "מעדכן…"
     },
@@ -2513,7 +2462,9 @@
       "noMatches": "אין מחברים שתואמים לחיפוש הזה.",
       "searchLabel": "חיפוש מחברים",
       "searchPlaceholder": "חיפוש",
-      "title": "מחברים"
+      "title": "מחברים",
+      "noMatchesTitle": "אין התאמות",
+      "noMatchesBody": "נסו שם אחר."
     },
     "display": {
       "agentThread": {
@@ -2569,11 +2520,19 @@
       },
       "canvasShare": {
         "copyLink": "העתק קישור",
-        "empty": "אין עדיין שיתופים פעילים. פרסם קנבס כדי לקבל קישור ציבורי.",
+        "empty": "עדיין אין קנבסים ציבוריים. הפוך קנבס לציבורי כדי לשתף את הקישור שלו.",
         "expires": "פג ב-{date}",
         "links": "קישורים",
         "live": "הקנבס פורסם",
         "loadFailed": "לא ניתן היה לטעון את השיתופים שלך.",
+        "makePrivate": "הפוך לפרטי",
+        "makePublic": "הפוך לציבורי",
+        "noLink": "לקנבס הזה עדיין אין קישור. הפוך אותו לציבורי כדי לקבל קישור שכל אחד יכול לפתוח.",
+        "openInBrowser": "פתח בדפדפן",
+        "privateHint": "רק אתה יכול לפתוח את הקישור הזה.",
+        "privateLink": "קישור פרטי",
+        "public": "ציבורי",
+        "publicHint": "כל מי שיש לו את הקישור יכול לצפות.",
         "publicLink": "קישור ציבורי לקנבס",
         "publishFailed": "לא ניתן היה לפרסם את הקנבס הזה. נסה שוב.",
         "publishing": "מפרסם קנבס…",
@@ -2585,8 +2544,12 @@
         "toasts": {
           "copyFailed": "לא ניתן היה להעתיק את הקישור",
           "linkCopied": "קישור השיתוף הועתק",
+          "madePrivate": "הקישור פרטי עכשיו",
+          "madePublic": "הקישור ציבורי עכשיו",
+          "openFailed": "לא ניתן לפתוח את הקישור",
           "revokeFailed": "לא ניתן היה לבטל את השיתוף הזה",
-          "revoked": "השיתוף בוטל"
+          "revoked": "השיתוף בוטל",
+          "visibilityFailed": "לא ניתן לשנות מי יכול לפתוח את הקישור הזה"
         },
         "untitled": "קנבס ללא שם"
       },
@@ -2595,7 +2558,10 @@
         "codeChanges": "שינויי קוד",
         "desktopRequired": "התצוגה המקדימה של הקוד דורשת את אפליקציית שולחן העבודה של Stella.",
         "empty": "אין עדיין שינויים בקבצים. כשסוכן עורך קוד, השינויים מופיעים כאן.",
-        "noChanges": "לא נמצאו שינויים."
+        "noChanges": "לא נמצאו שינויים.",
+        "emptyTitle": "עדיין אין שינויים",
+        "emptyBody": "כשסוכן עורך קוד, השינויים מופיעים כאן.",
+        "noChangesTitle": "אין שינויים"
       },
       "filePreview": {
         "copy": "העתק",
@@ -2631,7 +2597,10 @@
         "save": "שמור",
         "saveFailed": "לא ניתן היה לשמור",
         "saved": "נשמר",
-        "zoom": "הגדלת התמונה"
+        "zoom": "הגדלת התמונה",
+        "imageUnavailable": "התמונה אינה זמינה",
+        "videoUnavailable": "הסרטון אינו זמין",
+        "audioUnavailable": "השמע אינו זמין"
       },
       "office": {
         "frameTitle": "תצוגה מקדימה של {kind}: {title}",
@@ -2659,7 +2628,11 @@
       },
       "preview": {
         "limited": "התצוגה המקדימה מוגבלת. שמרו או פתחו את הקובץ המקורי כדי לראות את כל התוכן.",
-        "unavailable": "לא ניתן להכין את התצוגה המקדימה הזו."
+        "unavailable": "לא ניתן להכין את התצוגה המקדימה הזו.",
+        "failedTitle": "לא ניתן להציג תצוגה מקדימה",
+        "failedBody": "נסו שוב, או שמרו את הקובץ כדי לפתוח אותו במקום אחר.",
+        "unavailableTitle": "הקובץ אינו זמין",
+        "emptyTitle": "הקובץ הזה ריק"
       },
       "spreadsheet": {
         "column": "עמודה {index}",
@@ -2682,7 +2655,9 @@
         "pendingPurge": "ממתין למחיקה",
         "refresh": "רענן",
         "title": "אשפה",
-        "trashedAgo": "הועבר לאשפה לפני {time}"
+        "trashedAgo": "הועבר לאשפה לפני {time}",
+        "emptyTitle": "האשפה ריקה",
+        "emptyBody": "פריטים שנמחקו נשארים כאן 24 שעות."
       },
       "url": {
         "eyebrow": "תצוגה מקדימה חיה",

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pause, Play } from "@/ui/icons";
 import { localMediaUrl } from "@/shared/hooks/local-media-url";
+import { useLocalMediaFailure } from "@/shared/hooks/use-local-media-failure";
 
 const CANVAS_HEIGHT = 44;
 const BAR_GAP = 1;
@@ -20,6 +21,7 @@ export const WaveformTile = ({
   const frameRef = useRef<number | null>(null);
   const [armed, setArmed] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const { failure, onError } = useLocalMediaFailure(filePath, "audio file");
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -95,7 +97,11 @@ export const WaveformTile = ({
         <canvas ref={canvasRef} className="media-tile__wave-canvas" />
         <div ref={cursorRef} className="media-tile__wave-cursor" aria-hidden="true" />
       </div>
-      {durationLabel ? (
+      {failure ? (
+        <span className="media-tile__wave-time" role="status" title={failure}>
+          Unavailable
+        </span>
+      ) : durationLabel ? (
         <span className="media-tile__wave-time">{durationLabel}</span>
       ) : null}
       {armed ? (
@@ -103,6 +109,11 @@ export const WaveformTile = ({
           ref={audioRef}
           src={localMediaUrl(filePath)}
           preload="auto"
+          onError={() => {
+            setPlaying(false);
+            stopTicking();
+            onError();
+          }}
           onPlay={() => {
             setPlaying(true);
             stopTicking();

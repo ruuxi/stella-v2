@@ -11,6 +11,7 @@
  */
 import { useRef, useSyncExternalStore } from "react";
 import {
+  fileNameFromDisplayTabId,
   sidebarSections,
   useSidebarActiveTabId,
   useSidebarOpenTabs,
@@ -63,7 +64,11 @@ export function SidebarTopNav() {
       case "files": {
         if (!tab.location) return "Files";
         const displayTab = displayTabs.find((d) => d.id === tab.location);
-        return displayTab?.title || "File";
+        return (
+          displayTab?.title ||
+          tab.file?.title ||
+          fileNameFromDisplayTabId(tab.location)
+        );
       }
     }
   };
@@ -71,7 +76,8 @@ export function SidebarTopNav() {
   const renderIcon = (tab: SidebarTab) => {
     if (tab.kind === "files" && tab.location) {
       const displayTab = displayTabs.find((d) => d.id === tab.location);
-      if (displayTab) return <DisplayTabIcon kind={displayTab.kind} size={15} />;
+      const kind = displayTab?.kind ?? tab.file?.kind;
+      if (kind) return <DisplayTabIcon kind={kind} size={15} />;
     }
     const { Icon } = SIDEBAR_SECTION_META[tab.kind];
     return <Icon size={15} strokeWidth={1.75} />;

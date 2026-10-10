@@ -37,6 +37,7 @@ import { piAgentActivityEvents } from "@/features/chat/pi/pi-chat-records";
 import { cloudAttachmentsStore } from "@/features/cloud/cloud-composer-store";
 import { useOwnDeviceRemoteCancel } from "@/features/cloud/use-own-device-remote-cancel";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
+import { acceptedUserMessageIds } from "@/features/chat/lib/accepted-user-message-ids";
 const MAX_RETAINED_TAB_STATE = 20;
 /**
  * How long, after opening/switching into a conversation that lands at the
@@ -235,6 +236,7 @@ export function useFullShellChat({
     taskDecorations: localTaskDecorations,
     optimisticEvents: localOptimisticEvents,
     acknowledgeMessages: acknowledgeLocalMessages,
+    admissionSettledIds: localAdmissionSettledIds,
     runtimeStatusText: localRuntimeStatusText,
     isCompacting: localIsCompacting,
     activeToolCallId: localActiveToolCallId,
@@ -286,10 +288,12 @@ export function useFullShellChat({
     acknowledgeLocalMessages(persistedMessages);
   }, [acknowledgeLocalMessages, persistedMessages, localOptimisticEvents]);
   const awaitingMessageAdmission = useMemo(() => {
-    const persistedIds = new Set(persistedMessages.map((message) => message._id));
+    const persistedIds = acceptedUserMessageIds(persistedMessages);
     return localOptimisticEvents.some((event) =>
-      event.type === "user_message" && !persistedIds.has(event._id));
-  }, [localOptimisticEvents, persistedMessages]);
+      event.type === "user_message" &&
+      !persistedIds.has(event._id) &&
+      !localAdmissionSettledIds.has(event._id));
+  }, [localAdmissionSettledIds, localOptimisticEvents, persistedMessages]);
   // On pi the transcript and its agents are the conversation's record:
   // Activity lists the agents, Files the links in replies and agents' results.
   const piActivities = useMemo(

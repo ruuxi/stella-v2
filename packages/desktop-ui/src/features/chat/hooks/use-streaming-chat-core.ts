@@ -24,6 +24,7 @@ import {
   type QueuedUserMessage,
 } from "./queued-user-messages";
 import { useQueuedDequeueClock } from "./use-queued-dequeue-clock";
+import { acceptedUserMessageIds } from "../lib/accepted-user-message-ids";
 
 export type { QueuedUserMessage } from "./queued-user-messages";
 
@@ -45,6 +46,10 @@ type UseStreamingChatOptions = {
 };
 
 const createLocalMessageId = () => `local-${crypto.randomUUID()}`;
+
+const ADMISSION_GRACE_AFTER_RUN_MS = 30_000;
+
+const EMPTY_SETTLED_IDS: ReadonlySet<string> = new Set();
 
 /**
  * Bounded preview of quoted / "Ask Stella" context stored on the sent message.
@@ -162,6 +167,9 @@ export function useStreamingChatCore({
   const queueDrainPausedRef = useRef(false);
   const pendingSendRef = useRef<symbol | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const [admissionSettledIds, setAdmissionSettledIds] =
+    useState<ReadonlySet<string>>(EMPTY_SETTLED_IDS);
+  const admissionTimersRef = useRef(new Map<string, number>());
   const activeConversationIdRef = useRef(activeConversationId);
   activeConversationIdRef.current = activeConversationId;
   const { isLocalStorage, storageMode } = useChatStore();
@@ -222,6 +230,23 @@ export function useStreamingChatCore({
           current.filter((message) => message._id !== event.userMessageId),
         );
       }
+      const finishedMessageId = event.userMessageId;
+      if (
+        finishedMessageId &&
+        event.outcome === "completed" &&
+        !admissionTimersRef.current.has(finishedMessageId)
+      ) {
+        const timer = window.setTimeout(() => {
+          admissionTimersRef.current.delete(finishedMessageId);
+          setAdmissionSettledIds((current) => {
+            if (current.has(finishedMessageId)) return current;
+            const next = new Set(current);
+            next.add(finishedMessageId);
+            return next;
+          });
+        }, ADMISSION_GRACE_AFTER_RUN_MS);
+        admissionTimersRef.current.set(finishedMessageId, timer);
+      }
       if (
         event.userMessageId &&
         drainingQueuedMessageIdRef.current === event.userMessageId
@@ -277,7 +302,22 @@ export function useStreamingChatCore({
     setOptimisticEvents([]);
     setQueuedUserMessages([]);
     setPendingUserMessageId(null);
+    for (const timer of admissionTimersRef.current.values()) {
+      window.clearTimeout(timer);
+    }
+    admissionTimersRef.current.clear();
+    setAdmissionSettledIds(EMPTY_SETTLED_IDS);
   }, [activeConversationId, setPendingUserMessageId]);
+
+  useEffect(
+    () => () => {
+      for (const timer of admissionTimersRef.current.values()) {
+        window.clearTimeout(timer);
+      }
+      admissionTimersRef.current.clear();
+    },
+    [],
+  );
 
   const clearOptimisticMessage = useCallback(
     (messageId: string) => {
@@ -437,9 +477,7 @@ export function useStreamingChatCore({
   ]);
 
   const acknowledgeMessages = useCallback((messages: readonly MessageRecord[]) => {
-    const persistedIds = new Set(
-      messages.map((message) => message._id),
-    );
+    const persistedIds = acceptedUserMessageIds(messages);
     setOptimisticEvents((current) => {
       const next = current.filter((event) => !persistedIds.has(event._id));
       return next.length === current.length ? current : next;
@@ -451,9 +489,7 @@ export function useStreamingChatCore({
   }, [acknowledgeMessages, optimisticEvents, persistedMessages]);
 
   useEffect(() => {
-    const persistedIds = new Set(
-      persistedMessages.map((message) => message._id),
-    );
+    const persistedIds = acceptedUserMessageIds(persistedMessages);
     const queuedPayloads = queuedStreamPayloadsRef.current.filter(
       (message) => !persistedIds.has(message.id),
     );
@@ -598,6 +634,7 @@ export function useStreamingChatCore({
     taskDecorations,
     optimisticEvents,
     acknowledgeMessages,
+    admissionSettledIds,
     queuedUserMessages,
     runtimeStatusText,
     isCompacting,

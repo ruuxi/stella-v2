@@ -8,6 +8,8 @@ import {
   type CloudSocketStatus,
 } from "@stella/contracts/cloud-connection-notice";
 import { journalWorkingActivity } from "@stella/contracts/journal-working-activity";
+import { journalAgents } from "@stella/contracts/agent-titles";
+import { publishJournalAgents } from "./journal-agent-store";
 import {
   useCallback,
   useEffect,
@@ -337,6 +339,11 @@ export function useCloudChatBridge({
     () => journalRecordsToMessageRecords(completeRecords),
     [completeRecords],
   );
+  const journalConversationId = conversation.state.conversationId;
+  useEffect(() => {
+    if (!enabled || !journalConversationId) return;
+    publishJournalAgents(journalConversationId, journalAgents(completeRecords));
+  }, [completeRecords, enabled, journalConversationId]);
   const activeUserIds = useMemo(
     () => activeCloudUserMessageIds(completeRecords),
     [completeRecords],

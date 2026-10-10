@@ -5,6 +5,7 @@ import { AgentReportSheet, ReplyFocus, type AgentReplyRef } from "./ReplyFocus";
 import { ReplyPreview, replyTitle, type ReplyAgentStatus } from "./ReplyPreview";
 import { ReplyFilePills } from "./ReplyFilePills";
 import { mobileReplyContexts, type MobileReplyContexts } from "../lib/mobile-reply-context";
+import { useAgentReplyTitles } from "../lib/use-agent-reply-titles";
 import {
   type ReactNode,
   type Ref,
@@ -3236,7 +3237,7 @@ export type ComposerModelPickerConfig = {
 };
 
 export function ChatPane({
-  messages,
+  messages: projectedMessages,
   streaming,
   workingIndicator,
   offline = false,
@@ -3282,6 +3283,7 @@ export function ChatPane({
   // Transcript file links open on the preferred paired computer even when the
   // voice route itself is the phone's cloud session.
   const desktopAccess = desktopAccessProp ?? realtimeVoiceDesktopAccess;
+  const messages = useAgentReplyTitles(conversationId, projectedMessages);
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const t = useT();

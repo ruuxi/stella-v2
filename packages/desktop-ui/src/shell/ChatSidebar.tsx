@@ -30,6 +30,7 @@ import {
   ComposerTextarea,
 } from "@/features/chat/ComposerPrimitives";
 import { useDictation } from "@/features/dictation/hooks/use-dictation";
+import { useDictationPaste } from "@/features/dictation/hooks/use-dictation-paste";
 import {
   DictationCancelButton,
   DictationRecordingBar,
@@ -623,7 +624,6 @@ const SidebarComposerForm = memo(function SidebarComposerForm({
   const submitFromDictationRef = useRef<() => void>(() => {});
 
   const dictation = useDictation({
-    message: inputText,
     setMessage: setInputText,
     // Dictation stays available even while the orchestrator is busy
     // (mid-turn / streaming) — the mic is intentionally NOT gated on
@@ -668,9 +668,15 @@ const SidebarComposerForm = memo(function SidebarComposerForm({
   // swallowed and the message is never sent/queued.
   const dictationInFlight = dictation.isRecording || dictation.isTranscribing;
   const canSubmitWithDictation = composerState.canSubmit || dictationInFlight;
+  useDictationPaste({
+    active: dictationInFlight,
+    setMessage: setInputText,
+    setChatContext,
+  });
   const hasText = inputText.trim().length > 0;
   const dictationBelow = dictation.isRecordingVisible && hasText;
   const dictationInline = dictation.isRecordingVisible && !hasText;
+  const dictationOwnsControls = dictationBelow && dictation.showControls;
   const formExpanded = sidebarExpanded || dictationBelow;
 
   // Keep the pill shape in sync when `inputText` changes outside of
@@ -756,37 +762,41 @@ const SidebarComposerForm = memo(function SidebarComposerForm({
             </div>
 
             <div className="composer-toolbar-right">
-              {dictation.isTranscribing && (
-                <DictationCancelButton onClick={dictation.cancel} />
+              {dictationOwnsControls ? null : (
+                <>
+                  {dictation.isTranscribing && (
+                    <DictationCancelButton onClick={dictation.cancel} />
+                  )}
+                  <MemoComposerMicButton
+                    className="composer-mic"
+                    isTranscribing={dictation.isTranscribing}
+                    disabled={dictation.isTranscribing}
+                    onClick={dictation.toggle}
+                    onPointerEnter={dictation.prewarm}
+                    onFocus={dictation.prewarm}
+                    title={
+                      dictation.error
+                        ? t("shell.chatSidebar.dictationError", {
+                            error: dictation.error,
+                          })
+                        : undefined
+                    }
+                  />
+                  {showStop && (
+                    <ComposerStopButton
+                      className="composer-stop"
+                      onClick={requestStop}
+                      title={t("shell.chatSidebar.stop")}
+                      aria-label={t("shell.chatSidebar.stop")}
+                    />
+                  )}
+                  <MemoComposerSubmitButton
+                    className="composer-submit"
+                    disabled={!canSubmitWithDictation}
+                    animated
+                  />
+                </>
               )}
-              <MemoComposerMicButton
-                className="composer-mic"
-                isTranscribing={dictation.isTranscribing}
-                disabled={dictation.isTranscribing}
-                onClick={dictation.toggle}
-                onPointerEnter={dictation.prewarm}
-                onFocus={dictation.prewarm}
-                title={
-                  dictation.error
-                    ? t("shell.chatSidebar.dictationError", {
-                        error: dictation.error,
-                      })
-                    : undefined
-                }
-              />
-              {showStop && (
-                <ComposerStopButton
-                  className="composer-stop"
-                  onClick={requestStop}
-                  title={t("shell.chatSidebar.stop")}
-                  aria-label={t("shell.chatSidebar.stop")}
-                />
-              )}
-              <MemoComposerSubmitButton
-                className="composer-submit"
-                disabled={!canSubmitWithDictation}
-                animated
-              />
             </div>
           </div>
 

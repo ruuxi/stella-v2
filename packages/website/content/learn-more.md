@@ -23,7 +23,7 @@ Every public claim on this page should be checked against the current Stella mon
 - Stella's managed model provider routes prompts and responses through Stella infrastructure and third-party providers. Stella does not intentionally retain provider request content as a model-training product, but may temporarily buffer responses and retains usage metadata for billing, limits, security, and reliability. Providers may retain submitted data under their own policies and configurations.
 - BYOK and local model paths avoid the Stella managed model proxy for those model calls. Local credentials are stored locally in encrypted form.
 - Anonymous managed-model usage is limited server-side with a salted hash of a device or client identifier plus request counts. Current retention for that anonymous usage row is seven days from last use.
-- The mobile app works without a paired computer. Pairing enables tasks on that computer.
+- The mobile app works without a computer. Sign in to Stella on a computer with the same account to run tasks there.
 
 ## Public Page Copy
 
@@ -77,7 +77,7 @@ Behind the scenes, Stella can split work into smaller jobs, run specialized agen
 
 **Browser.** Open Stella in your browser to chat, start tasks, and work with files. No installation needed.
 
-**Mobile app.** Use Stella from your phone without a paired computer. Connect the desktop app for tasks on that computer.
+**Mobile app.** Use Stella from your phone, with or without a computer. Sign in to the desktop app with the same account for tasks on that computer.
 
 ### Privacy
 

@@ -458,7 +458,7 @@ const localPayloadToTabSpec = (
 };
 
 export const payloadToTabSpec = (payload: DisplayTabPayload): DisplayTabSpec => {
-  const spec = localPayloadToTabSpec(payload);
+  const spec = { ...localPayloadToTabSpec(payload), payload };
   if (!payload.cloudDrivePath) return spec;
   const path = payload.cloudDrivePath;
   const cloudSpec = { ...spec, id: `drive:${spec.id}`, render: () =>

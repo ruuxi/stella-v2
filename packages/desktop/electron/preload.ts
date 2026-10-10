@@ -13,6 +13,10 @@ import type {
 import type { OfficePreviewSnapshot } from "@stella/contracts/office-preview";
 import type { EvidenceCardSet } from "@stella/contracts/chat-evidence";
 import type {
+  DeviceFileMissingReason,
+  DeviceFileSource,
+} from "@stella/contracts/device-files";
+import type {
   ChatGptProfileSummary,
   ChatGptProfilesState,
 } from "@stella/contracts/chatgpt-siwc-types";
@@ -118,6 +122,7 @@ import {
   IPC_DISPLAY_CANVAS_FILE_URL,
   IPC_DISPLAY_CANVAS_HTML_URL,
   IPC_DISPLAY_LIST_CANVAS_HTML,
+  IPC_DISPLAY_MEDIA_SOURCE,
   IPC_DISPLAY_OPEN_SHARED_CANVAS,
   IPC_DISPLAY_TRASH_FORCE_DELETE,
   IPC_DISPLAY_TRASH_LIST,
@@ -440,8 +445,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
             truncated: boolean;
             missing: false;
           }
-        | { missing: true; mimeType: string; path: string }
+        | {
+            missing: true;
+            mimeType: string;
+            path: string;
+            reason?: DeviceFileMissingReason;
+          }
       >,
+    mediaSource: (filePath: string) =>
+      ipcRenderer.invoke(IPC_DISPLAY_MEDIA_SOURCE, {
+        filePath,
+      }) as Promise<DeviceFileSource>,
     listCanvasHtml: () =>
       ipcRenderer.invoke(IPC_DISPLAY_LIST_CANVAS_HTML) as Promise<
         Array<{
@@ -461,7 +475,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       } | null>,
     canvasFileUrl: (filePath: string) =>
       ipcRenderer.invoke(IPC_DISPLAY_CANVAS_FILE_URL, { filePath }) as Promise<
-        { url: string } | { missing: true }
+        { url: string } | { missing: true; message?: string }
       >,
     canvasHtmlUrl: (html: string) =>
       ipcRenderer.invoke(IPC_DISPLAY_CANVAS_HTML_URL, { html }) as Promise<{

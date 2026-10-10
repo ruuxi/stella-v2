@@ -1,12 +1,13 @@
 /**
- * Stella's system prompt as pi-durable sections.
+ * Stella's prompt as pi-durable sections.
  *
  * What the desktop pinned as resident startup documents and the cloud froze
  * per turn (personality, memory, skills, execution context, media access)
  * are named sections here. pi-durable renders them before each request and
  * stores only the ones that changed, as positional `pi.system` entries, so
  * an unchanged prompt costs nothing and a changed memory file sends just
- * that file again.
+ * that file again. Only the preamble stays in the system prompt; the rest is
+ * sent as resident context after it (`resident-context.ts`).
  */
 import type { Context } from "@earendil-works/chord";
 import { defineExtension, section, type PromptInput, type PromptSection } from "@earendil-works/pi-durable";
@@ -25,6 +26,7 @@ import { shapeResidentMemoryDoc } from "@stella/runtime/kernel/memory/resident-d
 import { responseLanguageSection } from "@stella/runtime/kernel/runner/locale-prompt";
 import { StellaAgentDoc, type StellaAgentRole } from "./agent-doc.ts";
 import { processableImagesHook } from "./processable-images.ts";
+import { residentContextHook } from "./resident-context.ts";
 import type { StellaAgentPromptId, StellaContextSources } from "./context.ts";
 import { renderCloudDestination, renderDeviceDestination, SWITCH_DESTINATION_TOOL_NAME } from "./execution.ts";
 import { placementOf, StellaPlacementDoc } from "./placement.ts";
@@ -63,7 +65,7 @@ export function stellaPromptExtension(sources: StellaContextSources) {
   return defineExtension({
     name: STELLA_PROMPT_EXTENSION,
     // Every Stella conversation selects this extension, so its requests all pass here.
-    hooks: [processableImagesHook],
+    hooks: [processableImagesHook, residentContextHook],
     sections: [
       section(
         "preamble",

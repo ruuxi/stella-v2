@@ -19,6 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/ui/dropdown-menu";
 import { useT } from "@/shared/i18n";
+import { showOpenPathError } from "@/features/chat/lib/open-local-path";
 import "./open-with-menu.css";
 
 type Opener = {
@@ -76,7 +77,12 @@ export const OpenWithMenu = ({
     (openerId: string) => {
       const api = window.electronAPI?.system;
       if (!api?.openWithExternal) return;
-      void api.openWithExternal(filePath, openerId);
+      void api
+        .openWithExternal(filePath, openerId)
+        .then((result) => {
+          if (!result?.ok && result?.error) showOpenPathError(result.error);
+        })
+        .catch(() => undefined);
     },
     [filePath],
   );

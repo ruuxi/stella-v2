@@ -1,8 +1,7 @@
 import type { EvidenceCard } from "@stella/contracts/chat-evidence";
 import { fileDisplayName } from "@stella/contracts/file-display-name";
 import { Archive, FileSpreadsheet, FileText, Folder, Globe } from "@/ui/icons";
-import { openDisplayPayloadTab } from "@/features/workspace-display/open-payload";
-import { buildPayloadFromBarePath } from "@/features/chat/lib/derive-turn-resource";
+import { openLocalPathOrExplain } from "@/features/chat/lib/open-local-path";
 
 const GlyphFor = ({ card }: { card: EvidenceCard }) => {
   if (card.kind === "table") return <FileSpreadsheet size={13} />;
@@ -25,9 +24,7 @@ export const AttachmentPill = ({ card }: { card: EvidenceCard }) => (
     title={card.sourcePaths.join(", ")}
     onClick={() => {
       const target = card.sourcePaths[0];
-      if (!target) return;
-      const payload = buildPayloadFromBarePath(target, Date.now());
-      if (payload) openDisplayPayloadTab(payload);
+      if (target) openLocalPathOrExplain(target);
     }}
   >
     <span className="attachment-pill__glyph" aria-hidden="true">

@@ -1,8 +1,11 @@
+import type { TaskLifecycleStatus } from "@stella/contracts/agent-runtime";
+import { agentThreadStatus } from "@stella/contracts/agent-titles";
 import { isPrivateConversationId } from "@/features/chat/services/chat-storage-preference";
 import { fallbackTaskDescription } from "@/features/chat/lib/event-transforms";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
 import { useBackendView } from "@/platform/backend/use-backend-view";
 import { cloudConversationBelongsToOwnerSubject } from "./cloud-conversation-selection";
+import { useJournalAgent } from "./journal-agent-store";
 
 const plainTitle = (value: string | undefined, threadId: string): string => {
   const title = value?.trim() ?? "";
@@ -21,25 +24,51 @@ const firstTitle = (
   return "";
 };
 
+export type AgentCard = {
+  title?: string;
+  status?: TaskLifecycleStatus;
+};
+
+export function useAgentCard(
+  conversationId: string,
+  threadId: string,
+  candidates: readonly (string | undefined)[],
+  localStatus?: TaskLifecycleStatus,
+): AgentCard {
+  const { isCloudConversationReady, ownerSubject } = useCloudConversationSession();
+  const journal = useJournalAgent(conversationId, threadId);
+  const titles = [...candidates, journal?.title];
+  const derived = fallbackTaskDescription(threadId);
+  const known = firstTitle(titles, threadId, (title) => title !== derived);
+  const lookup = useBackendView(
+    "agentThreads.get",
+    (!known || (!localStatus && (!journal?.status || journal.status === "running"))) &&
+      threadId &&
+      isCloudConversationReady &&
+      !isPrivateConversationId(conversationId)
+      ? { conversationId, threadId }
+      : "skip",
+  );
+  const thread =
+    lookup.value && cloudConversationBelongsToOwnerSubject(lookup.value, ownerSubject)
+      ? lookup.value
+      : null;
+  const title =
+    known ||
+    (thread ? plainTitle(thread.description, threadId) : "") ||
+    firstTitle(titles, threadId, () => true);
+  const status =
+    localStatus ?? (thread ? agentThreadStatus(thread.status) : undefined) ?? journal?.status;
+  return {
+    ...(title ? { title } : {}),
+    ...(status ? { status } : {}),
+  };
+}
+
 export function useAgentTitle(
   conversationId: string,
   threadId: string,
   candidates: readonly (string | undefined)[],
 ): string | undefined {
-  const { isCloudConversationReady, ownerSubject } = useCloudConversationSession();
-  const derived = fallbackTaskDescription(threadId);
-  const known = firstTitle(candidates, threadId, (title) => title !== derived);
-  const lookup = useBackendView(
-    "agentThreads.get",
-    !known && threadId && isCloudConversationReady && !isPrivateConversationId(conversationId)
-      ? { conversationId, threadId }
-      : "skip",
-  );
-  if (known) return known;
-  const thread = lookup.value;
-  const indexed =
-    thread && cloudConversationBelongsToOwnerSubject(thread, ownerSubject)
-      ? plainTitle(thread.description, threadId)
-      : "";
-  return indexed || firstTitle(candidates, threadId, () => true) || undefined;
+  return useAgentCard(conversationId, threadId, candidates, "completed").title;
 }

@@ -160,7 +160,11 @@ export const userAskResolutionResult = (
       result: {
         outcome: "answered",
         ...(resolution.responses
-          ? { answers: userAskReadableAnswers(questions, resolution.responses) }
+          ? {
+              answers: userAskReadableAnswers(questions, resolution.responses),
+              shownToUser:
+                "The chat already shows the user these answers. Don't repeat them back; act on them.",
+            }
           : {}),
         ...(resolution.values ? { values: resolution.values } : {}),
         ...(resolution.handles ? { handles: resolution.handles } : {}),

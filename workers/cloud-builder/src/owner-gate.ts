@@ -16,7 +16,11 @@ import type { OwnerCaller, OwnerHost, OwnerPurgeMode, OwnerRegistry } from "./ow
 import { createGateHost, parseDeviceAgentDispatchKey } from "./owner-store/gate-host.js";
 import { RpcError, toBackendError } from "./owner-store/errors.js";
 import { applyOwnerEventsToStore } from "./owner-store/owner-events.js";
-import type { RpcResponse } from "@stella/contracts/backend/protocol";
+import {
+  SOCKET_KEEPALIVE_PING,
+  SOCKET_KEEPALIVE_PONG,
+  type RpcResponse,
+} from "@stella/contracts/backend/protocol";
 import {
   HEADER_ANONYMOUS,
   HEADER_IDENTITY_LEVEL,
@@ -825,6 +829,28 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   private deviceToolRelayState?: DeviceToolRelay;
   private ownerStoreState?: OwnerStore;
   private ownerHostState?: OwnerHost;
+
+  constructor(ctx: DurableObjectState, env: OwnerGateEnv) {
+    super(ctx, env);
+    // Keepalives from the live socket and device presence sockets are
+    // answered by the platform, so a connected but idle owner can hibernate.
+    // A JSON heartbeat ran this object every 10 seconds, which never let it
+    // go idle long enough to hibernate and billed it around the clock. Set on
+    // every cold start, as the conversation hub does, so whether the pair
+    // survives eviction never matters.
+    try {
+      ctx.setWebSocketAutoResponse(
+        new WebSocketRequestResponsePair(
+          SOCKET_KEEPALIVE_PING,
+          SOCKET_KEEPALIVE_PONG,
+        ),
+      );
+    } catch (error) {
+      log("error", "owner_gate_autoresponse_failed", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   /** The domains this object serves. Test fixtures substitute their own. */
   protected backendRegistry(): OwnerRegistry {
     return ownerRegistry;
@@ -1913,6 +1939,23 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     }
   }
 
+  /**
+   * When a proven device was last heard from. Current devices' keepalives
+   * are answered by the platform without waking this object, so the time of
+   * the last auto-response counts alongside the last frame handled here.
+   */
+  private lastSeenAt(socket: WebSocket, attachment: PresenceAttachment): number {
+    let seen = attachment.lastSeenAtMs;
+    if (attachment.phase !== "connected") return seen;
+    try {
+      const answered = this.ctx.getWebSocketAutoResponseTimestamp(socket);
+      if (answered) seen = Math.max(seen, answered.getTime());
+    } catch {
+      // No timestamp; the last handled frame stands.
+    }
+    return seen;
+  }
+
   private send(socket: WebSocket, frame: DevicePresenceServerFrame): void {
     try {
       socket.send(JSON.stringify(frame));
@@ -2089,8 +2132,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     message: string | ArrayBuffer,
   ): Promise<void> {
     if (this.ownerStore().isLiveSocket(socket)) {
-      await this.ownerStore().onLiveMessage(socket, message);
-      await this.scheduleAlarm(Date.now());
+      const deadlinesMayHaveMoved = await this.ownerStore().onLiveMessage(
+        socket,
+        message,
+      );
+      if (deadlinesMayHaveMoved) await this.scheduleAlarm(Date.now());
       return;
     }
     const text =
@@ -2278,8 +2324,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     }
     attachment.lastSeenAtMs = now;
     if (frame.type === "ping") {
+      // Older devices' JSON keepalive. The attachment is where it lands:
+      // `presenceRow` reads last-seen from the socket, so this costs no write.
       socket.serializeAttachment(attachment);
-      this.touchPresence(attachment.deviceId, now);
       this.send(socket, { type: "pong", serverTimeMs: now });
       return;
     }
@@ -2503,15 +2550,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     );
   }
 
-  private touchPresence(deviceId: string, now: number): void {
-    this.ctx.storage.sql.exec(
-      `UPDATE device_presence SET last_seen_at = ?, updated_at = ? WHERE device_id = ?`,
-      now,
-      now,
-      deviceId,
-    );
-  }
-
   /**
    * A device that goes away keeps its row (so the destinations list can say
    * "offline" rather than "unknown") but is immediately ineligible.
@@ -2536,7 +2574,27 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         deviceId,
       )
       .toArray()[0];
-    return row ? presenceState(row) : undefined;
+    if (!row) return undefined;
+    const state = presenceState(row);
+    if (!state.connected) return state;
+    // The row's `last_seen_at` is only written when presence changes; between
+    // changes the socket knows when the device was last heard from.
+    for (const socket of this.sockets(deviceId)) {
+      const attachment = this.attachment(socket);
+      if (
+        attachment?.phase === "connected" &&
+        attachment.connectionId === row.connection_id
+      ) {
+        return {
+          ...state,
+          lastSeenAt: Math.max(
+            state.lastSeenAt,
+            this.lastSeenAt(socket, attachment),
+          ),
+        };
+      }
+    }
+    return state;
   }
 
   private selectedDeviceRefusal(args: {
@@ -4531,11 +4589,17 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     for (const socket of this.sockets()) {
       const attachment = this.attachment(socket);
       if (!attachment) continue;
-      next = Math.min(
-        next,
-        attachment.lastSeenAtMs + DEVICE_PRESENCE_STALE_AFTER_MS,
-        attachment.authExpiresAtMs,
-      );
+      next = Math.min(next, attachment.authExpiresAtMs);
+      // A proven device going quiet needs no wake of its own: every reader
+      // checks staleness against `presenceRow`, in-flight device calls have
+      // their own deadlines, and waking to re-check would undo hibernation.
+      // Only a handshake that never finishes is reaped on a timer.
+      if (attachment.phase !== "connected") {
+        next = Math.min(
+          next,
+          attachment.lastSeenAtMs + DEVICE_PRESENCE_STALE_AFTER_MS,
+        );
+      }
     }
     // Each column is one `MIN` seek into a partial index, so a wake reads a
     // handful of rows no matter how many terminal dispatches this object has
@@ -4630,7 +4694,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         );
         continue;
       }
-      if (attachment.lastSeenAtMs + DEVICE_PRESENCE_STALE_AFTER_MS <= now) {
+      if (
+        this.lastSeenAt(socket, attachment) + DEVICE_PRESENCE_STALE_AFTER_MS <=
+        now
+      ) {
         await this.dropSocket(
           socket,
           attachment,

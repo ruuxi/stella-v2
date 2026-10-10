@@ -47,9 +47,9 @@
   filter: blur(14px);
   transform: translate3d(0, 0.1em, 0);
   transition:
-    opacity 300ms ease,
-    filter 340ms ease,
-    transform 340ms ease;
+    opacity 150ms ease,
+    filter 170ms ease,
+    transform 170ms ease;
 }
 
 .name[data-on="1"] {
@@ -57,9 +57,9 @@
   filter: blur(0);
   transform: none;
   transition:
-    opacity 700ms cubic-bezier(0.2, 0.7, 0.2, 1) 280ms,
-    filter 800ms cubic-bezier(0.2, 0.7, 0.2, 1) 280ms,
-    transform 900ms cubic-bezier(0.2, 0.9, 0.2, 1) 280ms;
+    opacity 350ms cubic-bezier(0.2, 0.7, 0.2, 1) 140ms,
+    filter 400ms cubic-bezier(0.2, 0.7, 0.2, 1) 140ms,
+    transform 450ms cubic-bezier(0.2, 0.9, 0.2, 1) 140ms;
 }
 
 .view {
@@ -71,7 +71,7 @@
 
 .stage {
   --morph: cubic-bezier(0.72, 0, 0.18, 1);
-  --t: 950ms;
+  --t: 475ms;
   position: absolute;
   left: 50%;
   top: 50%;
@@ -168,7 +168,7 @@
   left: 50%;
   z-index: 3;
   background: #0e0e12;
-  transition: opacity 300ms ease;
+  transition: opacity 150ms ease;
 }
 
 .notch {
@@ -192,7 +192,7 @@
 .stage[data-device="computer"] .notch,
 .stage[data-device="phone"] .island {
   opacity: 1;
-  transition-delay: 600ms;
+  transition-delay: 300ms;
 }
 
 .backdrop {
@@ -299,14 +299,14 @@
   opacity: 0;
   transition:
     height var(--t) var(--morph),
-    opacity 200ms ease;
+    opacity 100ms ease;
 }
 
 .stage[data-device="phone"] .phoneStatus {
   opacity: 1;
   transition:
     height var(--t) var(--morph),
-    opacity 300ms ease 600ms;
+    opacity 150ms ease 300ms;
 }
 
 .phoneStatus i {
@@ -340,12 +340,12 @@
   display: flex;
   gap: 7px;
   opacity: 0;
-  transition: opacity 250ms ease;
+  transition: opacity 125ms ease;
 }
 
 .stage[data-device="computer"] .appLights {
   opacity: 1;
-  transition-delay: 650ms;
+  transition-delay: 325ms;
 }
 
 .appMark {
@@ -431,7 +431,7 @@
   margin: 0;
   max-width: 80%;
   border-radius: 1.26em;
-  transition: opacity 360ms ease, transform 520ms cubic-bezier(0.2, 1, 0.3, 1);
+  transition: opacity 180ms ease, transform 260ms cubic-bezier(0.2, 1, 0.3, 1);
 }
 
 .me {
@@ -454,7 +454,7 @@
 
 .me[data-on="1"],
 .her[data-on="1"] {
-  animation: msgIn 520ms cubic-bezier(0.2, 1, 0.3, 1) both;
+  animation: msgIn 260ms cubic-bezier(0.2, 1, 0.3, 1) both;
 }
 
 @keyframes msgIn {
@@ -496,12 +496,12 @@
   border-radius: 4px;
   background: var(--w-fg);
   opacity: 0;
-  transition: opacity 300ms ease;
+  transition: opacity 150ms ease;
 }
 
 .stage[data-device="phone"] .homebar {
   opacity: 1;
-  transition-delay: 600ms;
+  transition-delay: 300ms;
 }
 
 .base {
@@ -516,7 +516,7 @@
   transform: scaleX(1);
   transition:
     transform var(--t) var(--morph),
-    opacity 400ms ease;
+    opacity 200ms ease;
 }
 
 .base span {
@@ -538,7 +538,7 @@
 .stage[data-device="computer"] .base {
   transition:
     transform var(--t) var(--morph),
-    opacity 400ms ease 300ms;
+    opacity 200ms ease 150ms;
 }
 
 @media (max-width: 900px) {

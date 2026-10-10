@@ -16,7 +16,7 @@ const MESSAGES = [
 ];
 
 const DEVICES = ["computer", "phone", "browser"] as const;
-const HOLD_MS = 4200;
+const HOLD_MS = 2100;
 const THEMES: WindowThemeKey[] = [
   { id: "dracula", dark: true },
   { id: "nightowl", dark: true },
@@ -126,7 +126,7 @@ export function DevicesAct() {
                           className={m.me ? d.me : d.her}
                           data-on={i < shown ? "1" : "0"}
                           style={{
-                            animationDelay: i >= shown - 2 && device > 0 ? `${900 + (i % 2) * 600}ms` : "0ms",
+                            animationDelay: i >= shown - 2 && device > 0 ? `${450 + (i % 2) * 300}ms` : "0ms",
                           }}
                         >
                           {m.text}

@@ -65,11 +65,15 @@
     if (!shell) return;
     var params = new URLSearchParams(window.location.search);
     var surface = null;
+    var lastPath = "/chat";
     try {
       surface = window.localStorage.getItem("stella.chatHomeSurface");
+      var last = window.localStorage.getItem("stella:lastLocation");
+      if (last && last.charAt(0) === "/") lastPath = last.split(/[?#]/)[0];
     } catch (error) {}
     if (
       surface === "chat" ||
+      (lastPath !== "/chat" && lastPath !== "/") ||
       params.get("mobile") === "1" ||
       params.get("window") === "mini" ||
       document.documentElement.getAttribute("data-platform") === "mobile"

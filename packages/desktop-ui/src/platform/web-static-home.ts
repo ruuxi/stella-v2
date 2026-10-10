@@ -175,7 +175,8 @@ export function adoptStaticHome(): void {
       handOff(chat, "chat");
       return;
     }
-    if (performance.now() - startedAt > GIVE_UP_MS) {
+    const offChat = Boolean(document.querySelector("#root .route-outlet-surface--active"));
+    if (offChat || performance.now() - startedAt > GIVE_UP_MS) {
       window.__stellaStaticHandoff = { at: performance.now(), target: "none", chars: draft.value.length, dx: 0, dy: 0, dw: 0, dh: 0 };
       release();
       return;

@@ -45,6 +45,9 @@ type TurnState = {
   phase: "running" | "completed" | "failed" | "canceled";
   /** A turn no Slack message asked for (an agent's report, a schedule) reports into this one. */
   hostTurnId?: string;
+  startedAt?: number;
+  /** Stella has said something in the thread for this request. */
+  acked?: boolean;
   updatedAt: number;
 };
 
@@ -60,6 +63,8 @@ const TOKEN_CACHE_MS = 5 * 60_000;
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 const STALE_TURN_MS = 20 * 60_000;
 const SETTLE_DELAY_MS = 6_000;
+/** Give Stella's first words a head start over the checklist. */
+const PROGRESS_GRACE_MS = 6_000;
 const STALE_AGENT_MS = 3 * 60 * 60_000;
 const AGENT_TOOLS = new Set(["spawn_agent", "send_message", "agent_status", "pause_agent"]);
 
@@ -89,8 +94,18 @@ const assistantText = (payload: unknown): string | null => {
       .map((part) => part.text);
     text = parts.length ? parts.join("\n\n") : null;
   }
-  return text === null ? null : stripMessageRefTag(splitReplyRefs(text).text);
+  return text === null ? null : forSlack(stripMessageRefTag(splitReplyRefs(text).text));
 };
+
+/**
+ * Links Slack can't open (drive and workspace paths, which Stella's own apps
+ * turn into file chips) become their label; the files themselves are uploaded
+ * into the thread.
+ */
+const forSlack = (text: string): string =>
+  text.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/gu, (whole, label: string, target: string) =>
+    /^(https?:|mailto:)/iu.test(target) ? whole : label,
+  );
 
 export class SlackRelay {
   private binding: SlackRelayBinding | null | undefined;
@@ -237,6 +252,7 @@ export class SlackRelay {
         if (!triggerTs) return;
         const state = await this.turn(record.turnId);
         state.triggerTs = triggerTs;
+        state.startedAt = Date.now();
         state.updatedAt = Date.now();
         await this.saveTurns();
         await this.storage.put(CURRENT_KEY, record.turnId);
@@ -252,7 +268,17 @@ export class SlackRelay {
       }
       if (record.role === "assistant" && !record.hidden) {
         const text = assistantText(record.payload)?.trim();
-        if (text) await this.postText(text);
+        if (!text) return;
+        await this.postText(text);
+        const host = await this.hostOf(record.turnId);
+        if (host) {
+          const state = await this.turn(host);
+          if (!state.acked) {
+            state.acked = true;
+            await this.saveTurns();
+            if (!state.progressTs && state.lines.length) this.scheduleRender(host);
+          }
+        }
       }
       return;
     }
@@ -433,6 +459,12 @@ export class SlackRelay {
       return;
     }
     if (!working) return;
+    const waited = Date.now() - (state.startedAt ?? 0);
+    if (!state.acked && waited < PROGRESS_GRACE_MS) {
+      this.lastRender.delete(turnId);
+      this.waitUntil(scheduler.wait(PROGRESS_GRACE_MS - waited).then(() => this.scheduleRender(turnId)));
+      return;
+    }
     const posted = await slackTry<{ ok: boolean; ts?: string }>(install.botToken, "chat.postMessage", {
       ...this.where(),
       text,

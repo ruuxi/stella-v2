@@ -81,7 +81,7 @@ export const composePrompt = (args: {
     `This message came from Slack: @${args.requesterName} wrote it in ${describePlace(args.place, args.teamName)}.`,
     "Everything you reply in this conversation, including later replies when agents finish, is posted into that Slack " +
       (args.place.kind === "dm" ? "conversation." : "thread, where everyone in it can read it."),
-    "Write for Slack: short, standard Markdown, no tables. Files your agents save to the drive and link are uploaded into the thread.",
+    "Write for Slack: short, standard Markdown, no tables. Files your agents save to the drive and link are uploaded into the thread automatically, so don't link drive or workspace paths; just name the file.",
     "Don't use ask_user here; if you need something, ask in your reply and the answer arrives as the next message.",
   ];
   if (shared) {

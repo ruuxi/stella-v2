@@ -1,0 +1,75 @@
+{
+  "display_information": {
+    "name": "Stella",
+    "description": "Tag Stella in Slack and she does the work.",
+    "long_description": "Mention @Stella in a channel or send her a direct message. Stella works on the request with your own Stella account, posts progress in the thread, and posts results back when her background agents finish. Connect your Stella account the first time you use it.",
+    "background_color": "#14141f"
+  },
+  "features": {
+    "app_home": {
+      "home_tab_enabled": true,
+      "messages_tab_enabled": true,
+      "messages_tab_read_only_enabled": false
+    },
+    "bot_user": {
+      "display_name": "Stella",
+      "always_online": true
+    },
+    "slash_commands": [
+      {
+        "command": "/stella",
+        "url": "https://auth.stella.sh/api/slack/commands",
+        "description": "Connect or disconnect your Stella account, or check status",
+        "usage_hint": "connect | disconnect | status",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "redirect_urls": [
+      "https://auth.stella.sh/api/slack/oauth/callback"
+    ],
+    "scopes": {
+      "bot": [
+        "app_mentions:read",
+        "channels:history",
+        "channels:read",
+        "chat:write",
+        "commands",
+        "files:read",
+        "files:write",
+        "groups:history",
+        "groups:read",
+        "im:history",
+        "im:read",
+        "im:write",
+        "mpim:history",
+        "reactions:write",
+        "users:read",
+        "users:read.email"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "request_url": "https://auth.stella.sh/api/slack/events",
+      "bot_events": [
+        "app_home_opened",
+        "app_mention",
+        "app_uninstalled",
+        "message.channels",
+        "message.groups",
+        "message.im",
+        "message.mpim",
+        "tokens_revoked"
+      ]
+    },
+    "interactivity": {
+      "is_enabled": true,
+      "request_url": "https://auth.stella.sh/api/slack/interactivity"
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

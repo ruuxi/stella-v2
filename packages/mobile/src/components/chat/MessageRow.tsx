@@ -760,6 +760,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
     const pastedTexts = item.pastedTexts ?? [];
     const hasBubbleBody =
       showText ||
+      pastedTexts.length > 0 ||
       showThumbs ||
       attachmentPreviews.length > 0 ||
       documentNames.length > 0;
@@ -825,6 +826,26 @@ export const ChatMessageRow = memo(function ChatMessageRow({
           </View>
         ) : null}
         {showText ? <UserMessageText text={item.text} styles={styles} /> : null}
+        {pastedTexts.length > 0 ? (
+          <View style={[styles.userPasteStrip, showText && styles.userPastesBelow]}>
+            {pastedTexts.map((pasted, index) => (
+              <View
+                key={`pasted-${index}`}
+                style={styles.userPasteChip}
+                accessibilityLabel={`Pasted text, ${describePastedText(pasted)}`}
+              >
+                <Icon name="file-text" size={13} color={colors.userBubbleText} />
+                <Text
+                  style={styles.userPasteText}
+                  numberOfLines={1}
+                  maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
+                >
+                  {`Pasted text · ${describePastedText(pasted)}`}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
       </>
     );
     if (menuClone) {
@@ -853,27 +874,6 @@ export const ChatMessageRow = memo(function ChatMessageRow({
               </Text>
             </View>
           ) : null}
-          {pastedTexts.map((pasted, index) => (
-            <View
-              key={`pasted-${index}`}
-              style={[styles.quoteChip, styles.userQuoteChip]}
-              accessibilityLabel={`Pasted text, ${describePastedText(pasted)}`}
-            >
-              <Icon
-                name="file-text"
-                size={13}
-                color={colors.textMuted}
-                style={styles.quoteChipIcon}
-              />
-              <Text
-                style={styles.quoteChipText}
-                numberOfLines={1}
-                maxFontSizeMultiplier={CONTENT_MAX_FONT_SCALE}
-              >
-                {`Pasted text · ${describePastedText(pasted)}`}
-              </Text>
-            </View>
-          ))}
           {!hasBubbleBody ? null : isSelecting && showText ? (
             // "Select" mode: the bubble body becomes a native selection
             // surface (with a Copy pill), so a substring can be lifted out.
@@ -1275,6 +1275,32 @@ export const makeMessageRowStyles = (colors: Colors) =>
       gap: 6,
     },
     userThumbsAbove: { marginBottom: 8 },
+    userPastesBelow: { marginTop: 6 },
+    userPasteStrip: {
+      alignSelf: "flex-end",
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 6,
+      justifyContent: "flex-end",
+    },
+    userPasteChip: {
+      alignItems: "center",
+      backgroundColor: fadeHex(colors.userBubbleText, 0.16),
+      borderColor: fadeHex(colors.userBubbleText, 0.28),
+      borderRadius: 10,
+      borderWidth: StyleSheet.hairlineWidth,
+      flexDirection: "row",
+      gap: 5,
+      maxWidth: 240,
+      paddingHorizontal: 9,
+      paddingVertical: 5,
+    },
+    userPasteText: {
+      color: colors.userBubbleText,
+      flexShrink: 1,
+      fontFamily: fonts.sans.medium,
+      fontSize: 13,
+    },
     userThumbImage: {
       backgroundColor: colors.muted,
       borderRadius: 8,

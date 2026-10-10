@@ -784,3 +784,36 @@ button.event-context-chip--overflow:focus-visible {
   cursor: grabbing;
   background: color-mix(in srgb, var(--foreground) 35%, transparent);
 }
+
+/* Pasted text rides inside the sent bubble, under any typed text. */
+.event-item__pastes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin: 4px 0 3px;
+}
+
+.event-item.user .event-item__pastes:first-child {
+  margin: 2px 0;
+}
+
+.event-item.user.event-item--with-pastes {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.event-item.user.event-item--with-pastes > :not(.event-item__pastes) {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.event-item.user .context-pill {
+  color: var(--chat-user-bubble-text);
+  border-color: color-mix(in srgb, var(--chat-user-bubble-text) 28%, transparent);
+  background: color-mix(in srgb, var(--chat-user-bubble-text) 14%, transparent);
+}
+
+.event-item.user .context-pill__icon {
+  color: var(--chat-user-bubble-text);
+}

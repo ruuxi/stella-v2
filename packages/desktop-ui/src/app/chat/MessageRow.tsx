@@ -501,12 +501,6 @@ export const UserMessageRow = memo(
         node: <ContextPill kind="activity" label={activityLabel} />,
       });
     }
-    pastedTexts.forEach((descriptor, index) => {
-      chips.push({
-        key: `pasted-text-${index}`,
-        node: <UserPastedTextChip descriptor={descriptor} />,
-      });
-    });
     if (row.quotedText?.trim()) {
       chips.push({
         key: "quoted-text",
@@ -587,7 +581,7 @@ export const UserMessageRow = memo(
             text OR attachment/context chips — so attachment-only messages keep
             the same actions. Copy falls back to the attachment when there is
             no text to copy. */}
-        {(text.trim() || chips.length > 0) && (
+        {(text.trim() || chips.length > 0 || pastedTexts.length > 0) && (
           <div className="message-line message-line--user">
             <MessageActions
               text={text}
@@ -597,11 +591,23 @@ export const UserMessageRow = memo(
               copyAttachment={copyAttachment ?? undefined}
               onReply={reply ?? undefined}
             />
-            {text.trim() && (
-              <div className="event-item user chat-bubble-text">
-                <UserMessageBody text={text} />
+            {text.trim() || pastedTexts.length > 0 ? (
+              <div
+                className={`event-item user chat-bubble-text${pastedTexts.length > 0 ? " event-item--with-pastes" : ""}`}
+              >
+                {text.trim() ? <UserMessageBody text={text} /> : null}
+                {pastedTexts.length > 0 ? (
+                  <div className="event-item__pastes">
+                    {pastedTexts.map((descriptor, index) => (
+                      <UserPastedTextChip
+                        key={`pasted-text-${index}`}
+                        descriptor={descriptor}
+                      />
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            )}
+            ) : null}
           </div>
         )}
       </div>

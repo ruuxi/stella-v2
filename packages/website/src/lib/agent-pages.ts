@@ -11,6 +11,7 @@
 // the HTML pages do (`@/lib/legal-text`).
 
 import { changelogEntries } from "@/app/learn-more/changelog-entries";
+import { ANSWER_PAGES, FAQ } from "@/lib/answers";
 import {
   LEGAL_TITLES,
   PRIVACY_POLICY,
@@ -314,6 +315,37 @@ function renderLegal(title: string, route: string, body: string): string {
 }
 
 /* ------------------------------------------------------------------ */
+/*  FAQ — /faq.md, and appended to /index.md                           */
+/* ------------------------------------------------------------------ */
+
+function faqBody(): string {
+  return FAQ.map((item) => `### ${item.q}\n${item.a}`).join("\n\n");
+}
+
+function renderFaq(): string {
+  return `${header(
+    "Stella — frequently asked questions",
+    "/#faq",
+    "Direct answers about price, platforms, computer use, open source, models and agents.",
+  )}\n${faqBody()}\n`;
+}
+
+function renderAnswerPage(page: (typeof ANSWER_PAGES)[number]): string {
+  const lines = [
+    `## ${page.headline}`,
+    "",
+    `Source: ${abs(`/ai/${page.slug}`)}`,
+    "",
+    page.answer,
+    "",
+    ...page.points.map((point) => `- **${point.title}** — ${point.body}`),
+    "",
+    ...page.questions.flatMap((item) => [`### ${item.q}`, item.a, ""]),
+  ];
+  return lines.join("\n");
+}
+
+/* ------------------------------------------------------------------ */
 /*  Registry + llms.txt                                               */
 /* ------------------------------------------------------------------ */
 
@@ -333,7 +365,15 @@ export const AGENT_PAGES: AgentPage[] = [
     mdPath: "/index.md",
     label: "Home",
     description: "What Stella is and what it can do.",
-    markdown: HOME_MD,
+    markdown: `${HOME_MD.trimEnd()}\n\n## Questions\n\n${faqBody()}\n`,
+  },
+  {
+    route: "/#faq",
+    mdPath: "/faq.md",
+    label: "FAQ",
+    description:
+      "Direct answers: price, platforms (Mac, Windows, Linux, phone, web), computer use, open source, models and agents.",
+    markdown: renderFaq(),
   },
   {
     route: "/learn-more",
@@ -387,19 +427,42 @@ export const AGENT_PAGES: AgentPage[] = [
   },
 ];
 
+const SUMMARY = [
+  "> Stella is a personal AI assistant that uses your computer, browses the web, works with your",
+  "> files and makes images, video, music and 3D, all from one ongoing chat. It runs on Mac,",
+  "> Windows, Linux (including Arch and Omarchy), iPhone, Android and the web.",
+  "",
+  "Key facts:",
+  "- Price: Free plan $0, no credit card, no trial. Go $5/month (10x usage). Pro $15/month (highest limits, image/video/3D/voice generation, multiple agents in parallel).",
+  "- Computer use: on macOS and Windows Stella sees the screen, clicks and types in your apps. On Linux it works with files, terminal and browser.",
+  "- Open source: Apache 2.0. The desktop app runs from its own source and can redesign its own interface on request.",
+  "- Models: Stella's own models by default, or Claude Code, a ChatGPT plan, your own API keys (Anthropic, OpenAI, Google, xAI, Moonshot, Z.AI, OpenRouter, GitHub Copilot) or local models.",
+  "- Get it: https://stella.sh (desktop download), `curl -fsSL https://stella.sh/install.sh | sh` on Linux, iPhone and Android apps, or https://stella.sh/chat in a browser.",
+];
+
 /** llms.txt index so agents can discover every markdown page in one fetch. */
 export function renderLlmsTxt(): string {
-  const lines = [
-    "# Stella",
-    "",
-    "> Stella is a personal AI assistant for browser, desktop, and mobile. One ongoing chat",
-    "> coordinates work across your computer, files, browser, apps, and media.",
-    "> Each page below has a clean markdown version for agents.",
-    "",
-    "## Pages",
-  ];
+  const lines = ["# Stella", "", ...SUMMARY, "", "## Pages"];
   for (const page of AGENT_PAGES) {
     lines.push(`- [${page.label}](${abs(page.mdPath)}): ${page.description}`);
   }
+  lines.push("", "## Answers");
+  for (const page of ANSWER_PAGES) {
+    lines.push(`- [${page.headline.replace(/\.$/, "")}](${abs(`/ai/${page.slug}`)}): ${page.metaDescription}`);
+  }
+  lines.push("", "## Optional", `- [Everything in one file](${abs("/llms-full.txt")}): The pages and answers above, in full.`);
   return `${lines.join("\n")}\n`;
+}
+
+/** Every marketing page, the FAQ and the answer pages in one document. */
+export function renderLlmsFull(): string {
+  const skip = new Set(["/learn-more/whats-new.md", "/privacy.md", "/terms.md", "/faq.md"]);
+  const parts = ["# Stella", "", ...SUMMARY, ""];
+  for (const page of AGENT_PAGES) {
+    if (skip.has(page.mdPath)) continue;
+    parts.push(page.markdown.trim(), "");
+  }
+  parts.push("# Answers", "");
+  for (const page of ANSWER_PAGES) parts.push(renderAnswerPage(page));
+  return `${parts.join("\n").trimEnd()}\n`;
 }

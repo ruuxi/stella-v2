@@ -13,7 +13,7 @@ import "./globals.css";
 
 const siteUrl = getSiteUrl();
 const description =
-  "Stella is your personal AI assistant, available in your browser, desktop app, and mobile app. Chat, create, and get work done with background agents.";
+  "Stella is a personal AI assistant that uses your computer, browses the web, works with your files and makes images and video, all from one chat. For Mac, Windows, Linux, iPhone, Android and the web. Free. Open source.";
 const sans = Manrope({
   variable: "--font-sans",
   subsets: ["latin"],
@@ -50,7 +50,7 @@ const mono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   metadataBase: siteUrl,
   title: {
-    default: "Stella — Your personal AI assistant",
+    default: "Stella — The AI assistant that uses your computer. Free.",
     template: "%s | Stella",
   },
   description,
@@ -142,13 +142,31 @@ const jsonLd = {
       description,
       url: siteUrl.origin,
       applicationCategory: "BusinessApplication",
-      operatingSystem: "macOS, Windows",
+      operatingSystem: "macOS, Windows, Linux, iOS, Android, Web",
+      license: "https://www.apache.org/licenses/LICENSE-2.0",
+      isAccessibleForFree: true,
       publisher: { "@id": `${siteUrl.origin}/#organization` },
-      offers: {
-        "@type": "Offer",
-        price: "0",
-        priceCurrency: "USD",
-      },
+      featureList: [
+        "Uses your computer: sees the screen, clicks and types in your apps (macOS, Windows)",
+        "Browses the web and fills in forms",
+        "Creates and edits documents, spreadsheets, presentations and PDFs",
+        "One ongoing chat with background agents",
+        "Multiple agents working in parallel (Pro)",
+        "Image, video, music and 3D generation (Pro)",
+        "Dictation and “Hey Stella” wake word",
+        "Runs on Stella's models, Claude Code, a ChatGPT plan, your own API keys or local models",
+        "Redesigns its own interface on request",
+        "Open source under Apache 2.0",
+      ],
+      offers: [
+        { "@type": "Offer", name: "Free", price: "0", priceCurrency: "USD" },
+        { "@type": "Offer", name: "Go", price: "5", priceCurrency: "USD", description: "Per month" },
+        { "@type": "Offer", name: "Pro", price: "15", priceCurrency: "USD", description: "Per month" },
+      ],
+      sameAs: [
+        "https://apps.apple.com/us/app/stella-your-ai/id6761148311",
+        "https://play.google.com/store/apps/details?id=com.fromyou.stella",
+      ],
     },
   ],
 };

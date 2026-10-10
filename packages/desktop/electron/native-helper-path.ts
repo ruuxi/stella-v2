@@ -34,6 +34,14 @@ export const invalidateNativeHelperPathCache = (): void => {
   missingHelperUntil.clear()
 }
 
+/** Every directory native helpers may run from, whether or not it exists. */
+export const nativeHelperDirectories = (): string[] => [
+  path.join(process.resourcesPath, 'native', 'out', platformDir),
+  path.join(__dirname, '..', '..', '..', 'native', 'out', platformDir),
+  path.join(__dirname, '..', '..', 'native', 'out', platformDir),
+  path.join(__dirname, '..', 'native', 'out', platformDir),
+].map((directory) => path.resolve(directory))
+
 export const resolveNativeHelperPath = (baseName: string): string | null => {
   const cached = resolvedHelperPaths.get(baseName)
   if (cached !== undefined) {

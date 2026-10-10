@@ -49,6 +49,11 @@ export type RuntimeClientServerOptions = {
   /** A client asked the runtime to exit. */
   onShutdownRequested?: () => void;
   /**
+   * The app is quitting: interrupt its work now and exit once it has
+   * detached. Without this, a quit is handled as `onShutdownRequested`.
+   */
+  onQuitRequested?: () => Promise<void>;
+  /**
    * This runtime's identity. When set, an attach naming another instance or
    * root is refused, and the attach result reports the `serverId`.
    */
@@ -148,9 +153,14 @@ export class RuntimeClientServer {
     peer.registerRequestHandler(RUNTIME_CLIENT_METHODS.CALL, (params) =>
       this.handleCall(peer, params),
     );
-    peer.registerRequestHandler(RUNTIME_CLIENT_METHODS.SHUTDOWN, () => {
+    peer.registerRequestHandler(RUNTIME_CLIENT_METHODS.SHUTDOWN, async (params) => {
       if (!this.clients.includes(peer)) {
         throw invalidParams("Attach before stopping the runtime.");
+      }
+      const quit = (params as { mode?: unknown } | null)?.mode === "quit";
+      if (quit && this.options.onQuitRequested) {
+        await this.options.onQuitRequested();
+        return { ok: true };
       }
       // After the reply goes out.
       setImmediate(() => this.options.onShutdownRequested?.());

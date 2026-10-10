@@ -345,6 +345,7 @@ export class RuntimeHostAdapter {
         this.clearLocalChatSessions();
         await this.host.stop({
             shutdownRuntime: options.shutdownRuntime === true,
+            quit: options.quit === true,
             ...(options.exitTimeoutMs !== undefined ? { exitTimeoutMs: options.exitTimeoutMs } : {}),
         });
     }

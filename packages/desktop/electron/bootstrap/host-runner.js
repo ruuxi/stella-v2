@@ -155,6 +155,8 @@ const spawnAutomationDaemonFromHost = async (params) => {
                 ...extraEnv,
                 STELLA_COMPUTER_SESSION: sessionId,
                 STELLA_COMPUTER_STATE_DIR: stateDir,
+                // The daemon exits if this process dies without stopping it.
+                STELLA_PARENT_PID: String(process.pid),
             },
         });
         await new Promise((resolve, reject) => {

@@ -657,6 +657,7 @@ async fn run_socket_server(
         .map_err(|e| format!("Failed to secure browser daemon socket: {}", e))?;
 
     let (shutdown_tx, mut shutdown_rx) = mpsc::unbounded_channel::<()>();
+    super::parent_watch::spawn_parent_watch(shutdown_tx.clone());
     let mut daemon_state = DaemonState::new_with_stream(stream_client, stream_server);
     daemon_state.daemon_shutdown_tx = Some(shutdown_tx);
     let state: std::sync::Arc<tokio::sync::Mutex<DaemonState>> =
@@ -758,6 +759,7 @@ async fn run_socket_server(
     let _ = fs::write(&port_path, port.to_string());
 
     let (shutdown_tx, mut shutdown_rx) = mpsc::unbounded_channel::<()>();
+    super::parent_watch::spawn_parent_watch(shutdown_tx.clone());
     let mut daemon_state = DaemonState::new_with_stream(stream_client, stream_server);
     daemon_state.daemon_shutdown_tx = Some(shutdown_tx);
     let state: std::sync::Arc<tokio::sync::Mutex<DaemonState>> =

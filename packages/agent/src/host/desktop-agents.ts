@@ -75,18 +75,30 @@ const isPidAlive = (pid: number) => {
   }
 };
 
-/**
- * How a command's processes end, for a timeout, an abort or `cleanup`: the
- * whole tree, TERM before KILL, including descendants that left the
- * command's process group (pi-durable's own default only SIGKILLs the group).
- */
-const killCommandTree = (pid: number) => terminateProcessTree(pid, { isRootRunning: () => isPidAlive(pid) });
-
 /** One environment per working directory; agents on this computer share it. */
 export function desktopEnvironments(defaultCwd: string) {
   const envs = new Map<string, NodeExecutionEnv>();
+  /**
+   * Terminations still running. pi starts one without waiting when a command
+   * times out or is aborted (a closing harness aborts every command), and its
+   * command then counts as settled, so `cleanup()` alone would not wait for it.
+   */
+  const terminations = new Set<Promise<void>>();
+  /**
+   * How a command's processes end, for a timeout, an abort or `cleanup`: the
+   * whole tree, TERM before KILL, including descendants that left the
+   * command's process group (pi-durable's own default only SIGKILLs the group).
+   */
+  const killCommandTree = (pid: number) => {
+    const termination = terminateProcessTree(pid, { isRootRunning: () => isPidAlive(pid) }).finally(() => {
+      terminations.delete(termination);
+    });
+    terminations.add(termination);
+    return termination;
+  };
   const terminateCommands = async (context: Context) => {
     await Promise.all([...envs.values()].map((env) => env.cleanup(context)));
+    while (terminations.size > 0) await Promise.allSettled([...terminations]);
   };
   return {
     /** End every command the agents have running here, with everything it started. */

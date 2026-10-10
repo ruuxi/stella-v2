@@ -1,4 +1,7 @@
+import path from "node:path";
 import { getMainLogger } from "../observability/main-logger.js";
+import { sweepOrphanedHelpers } from "../services/orphaned-helpers.js";
+import { resolveLegacyStellaBrowserBinaryPath, resolveStellaBrowserBinaryPath, } from "../utils/stella-browser-paths.js";
 import { getTotalSystemMemoryMb, isLowMemoryWindowsDevice, } from "../resource-profile.js";
 import { getCompanionEnabled } from "@stella/runtime/kernel/preferences/local-preferences";
 const OVERLAY_STARTUP_WARM_DELAY_MS = 5_000;
@@ -61,6 +64,23 @@ const createDeferredStartupTasks = (context) => {
                     elapsedMs: Math.round(process.uptime() * 1000),
                 });
                 state.startHostRunner?.();
+            },
+        },
+        {
+            // A previous Stella killed without quitting (a crash, a force
+            // quit) left its helpers running; stop them now rather than at the
+            // next quit. In the background: nothing here waits on it.
+            label: "orphaned-helpers",
+            run: () => {
+                const browserBinaryDirectories = [
+                    resolveStellaBrowserBinaryPath(),
+                    resolveLegacyStellaBrowserBinaryPath(),
+                ]
+                    .filter((binaryPath) => Boolean(binaryPath))
+                    .map((binaryPath) => path.dirname(binaryPath));
+                void sweepOrphanedHelpers({ browserBinaryDirectories }).catch((error) => {
+                    console.debug("[startup] Orphaned helper sweep failed:", error instanceof Error ? error.message : String(error));
+                });
             },
         },
         {

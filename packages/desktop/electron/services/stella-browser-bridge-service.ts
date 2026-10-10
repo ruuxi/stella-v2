@@ -721,6 +721,8 @@ export class StellaBrowserBridgeService {
         env: {
           ...process.env,
           STELLA_BROWSER_SOCKET_DIR: this.namespace.socketDir,
+          // The daemon exits by itself if this process dies without stopping it.
+          STELLA_BROWSER_PARENT_PID: String(process.pid),
           STELLA_BROWSER_EXT_PORT: String(extPort),
           STELLA_BROWSER_EXT_TOKEN: STELLA_BROWSER_BRIDGE_TOKEN,
           STELLA_BROWSER_CONTROL_TOKEN: this.controlToken,
@@ -811,6 +813,8 @@ export class StellaBrowserBridgeService {
         env: {
           ...process.env,
           STELLA_BROWSER_SOCKET_DIR: this.namespace.socketDir,
+          // The daemon exits by itself if this process dies without stopping it.
+          STELLA_BROWSER_PARENT_PID: String(process.pid),
           STELLA_BROWSER_CONTROL_TOKEN: controlToken,
           STELLA_BROWSER_EXTENSION_PROXY_SESSION: STELLA_BROWSER_BRIDGE_SESSION,
           STELLA_BROWSER_EXTENSION_DELEGATE_TOKEN: extensionDelegateToken,

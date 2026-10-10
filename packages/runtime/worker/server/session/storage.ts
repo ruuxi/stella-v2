@@ -39,7 +39,7 @@ export interface Interface {
    * Idle-time checkpoint / ANALYZE / one-time VACUUM of `stella.sqlite`.
    * Started by WorkerSessions once the session is published (it needs the
    * worker-wide idle signal and the attached-client count); its
-   * `holdsWorkerAlive()` feeds `hasActiveWork`. Stopped by this finalizer.
+   * `holdsWorkerAlive()` is the idle-shutdown keep-alive. Stopped by this finalizer.
    */
   readonly maintenance: DatabaseMaintenance;
   /**

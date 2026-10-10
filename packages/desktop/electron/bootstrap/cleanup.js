@@ -30,7 +30,7 @@ export const registerBootstrapProcessCleanups = (context) => {
                 }), RUNTIME_SHELLS_SHUTDOWN_TIMEOUT_MS, () => {
                     console.warn("[cleanup] Runtime shell teardown exceeded the quit bound; stopping the runtime anyway.");
                 });
-                await runner.stop({ shutdownRuntime: true, exitTimeoutMs: RUNTIME_EXIT_TIMEOUT_MS });
+                await runner.stop({ shutdownRuntime: true, quit: true, exitTimeoutMs: RUNTIME_EXIT_TIMEOUT_MS });
             })().catch((error) => {
                 console.warn("[cleanup] Runtime shutdown failed:", error);
             });

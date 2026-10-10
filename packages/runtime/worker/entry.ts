@@ -193,7 +193,8 @@ const main = async () => {
       ...(cliArgs.idleShutdownMs
         ? { idleShutdownMs: cliArgs.idleShutdownMs }
         : {}),
-      shouldKeepAlive: () => runtimeServer.hasActiveWork(),
+      interruptWork: () => runtimeServer.interruptWork(),
+      shouldKeepAlive: () => runtimeServer.holdsWorkerAlive(),
       onShutdown: async (reason) => {
         // Closing interrupts in-flight turns and ends their commands; pi
         // keeps the interrupted work pending for the next launch. A teardown
@@ -298,6 +299,7 @@ const main = async () => {
               onShutdownRequested: () => {
                 void runtimeLifecycle.shutdown("restart");
               },
+              onQuitRequested: () => runtimeLifecycle.requestQuit(),
             }),
         ),
         (acquired) => Effect.promise(() => acquired.close()),

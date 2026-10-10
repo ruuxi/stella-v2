@@ -7,11 +7,10 @@ export const CHAT_APP_PATH = "/chat-app/index.html";
  * that credential once into the same-origin renderer iframe and immediately
  * erase it from the public address bar.
  *
- * Self-contained (globals and arguments only) because it also runs as an
- * inline script straight after the iframe in the server HTML. That starts the
- * renderer download during HTML parse instead of after the page's own
- * JavaScript loads and hydrates. A no-op once the frame has a source, so the
- * hydrated fallback never navigates the frame twice.
+ * Self-contained (globals and arguments only) because it runs as an inline
+ * script straight after the iframe in the static /chat shell (route.ts), so
+ * the renderer download starts during HTML parse. A no-op once the frame has
+ * a source.
  *
  * An owner who changed Stella's UI has their own renderer under
  * `/chat-app/u/<fork>/<tree>/`; the renderer stores that path in

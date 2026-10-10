@@ -748,6 +748,9 @@ const startElectron = async (run, { minted, modelGateway, fakeMic, browserBridge
       "--use-fake-ui-for-media-stream",
       `--use-file-for-fake-audio-capture=${fakeMic}`,
     );
+    if (process.platform === "darwin") {
+      electronArgs.push("--disable-features=AudioServiceSandbox");
+    }
   }
   electronArgs.push("--remote-allow-origins=*");
   // Main-process inspector for evaluating in main (e.g. hot-update checks).
@@ -1082,9 +1085,10 @@ const dispatchKey = (run, spec) =>
       type: "keyDown",
       ...spec,
     });
+    const { commands: _commands, ...upSpec } = spec;
     await cdpSend(ws, 11, "Input.dispatchKeyEvent", {
       type: "keyUp",
-      ...spec,
+      ...upSpec,
     });
   });
 
@@ -1158,6 +1162,14 @@ const MODIFIERS = {
   Shift: 8,
 };
 
+const EDITING_COMMANDS = {
+  KeyA: "selectAll",
+  KeyC: "copy",
+  KeyV: "paste",
+  KeyX: "cut",
+  KeyZ: "undo",
+};
+
 const parseKeyChord = (value) => {
   if (!value) fail("drive press requires --key <key-or-chord>.");
   const parts = value.split("+").filter(Boolean);
@@ -1191,7 +1203,13 @@ const parseKeyChord = (value) => {
       `Unknown key ${keyName}. Use a named key, KeyA-KeyZ, Digit0-Digit9, or a chord such as Meta+KeyN.`,
     );
   }
-  return { ...spec, modifiers };
+  const editingCommand =
+    modifiers === MODIFIERS.Meta || modifiers === MODIFIERS.Control
+      ? EDITING_COMMANDS[spec.code]
+      : undefined;
+  return editingCommand
+    ? { ...spec, modifiers, commands: [editingCommand] }
+    : { ...spec, modifiers };
 };
 
 const cmdPress = async (options) => {

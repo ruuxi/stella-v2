@@ -1381,7 +1381,6 @@
         "enableFailedTitle": "そのコンピュータを有効にできませんでした",
         "enableLabel": "{name} を有効にする",
         "enabling": "有効にしています…",
-        "ownSignIn": "{name} は独自の {engine} サインインを使います。",
         "pairingCode": "ペアリングコードを使う",
         "sectionLabel": "Stella が作業する場所",
         "statusAwaitingConsent": "そのコンピュータでの許可を待っています",

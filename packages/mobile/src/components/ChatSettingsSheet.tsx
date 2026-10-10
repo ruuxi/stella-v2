@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TopSheet } from "./TopSheet";
@@ -18,9 +18,8 @@ import { useColors } from "../theme/theme-context";
  * One page, read top to bottom: where turns run (Cloud and every computer, as
  * a row of chips), then which brain runs them (one card per provider, the
  * chosen one open with its models, thinking and accounts), then the composer
- * shortcut. Where and which brain change together — a computer runs Claude
- * Code and ChatGPT on its own sign-in — so they share a page instead of
- * hiding behind each other's tab.
+ * shortcut. Where and which brain change together, so they share a page
+ * instead of hiding behind each other's tab.
  *
  * The sheet hugs its content up to the usual cap, leaving the scrim band
  * below it as the way out.
@@ -39,7 +38,6 @@ export function ChatSettingsSheet({
   const session = authClient.useSession();
   const computer = useComputerControl();
   const signedIn = Boolean(session.data?.user) && !isGuest();
-  const [deviceLabel, setDeviceLabel] = useState<string | null>(null);
   const showDestinations = computer !== null || signedIn;
 
   return (
@@ -55,22 +53,13 @@ export function ChatSettingsSheet({
               <Text style={[settingsStyles.sectionLabel, styles.firstLabel]}>
                 {t("mobile.settings.computer.sectionLabel")}
               </Text>
-              <DestinationChips
-                control={computer}
-                signedIn={signedIn}
-                onSummaryChange={(summary) =>
-                  setDeviceLabel(summary.deviceLabel)
-                }
-              />
+              <DestinationChips control={computer} signedIn={signedIn} />
             </>
           ) : null}
 
           {computer?.model ? (
             <>
-              <ProviderCards
-                settings={computer.model.settings}
-                deviceLabel={deviceLabel}
-              />
+              <ProviderCards settings={computer.model.settings} />
               <View style={[settingsStyles.group, styles.composerGroup]}>
                 <View style={settingsStyles.row}>
                   <Text style={[settingsStyles.rowLabel, styles.flex]}>

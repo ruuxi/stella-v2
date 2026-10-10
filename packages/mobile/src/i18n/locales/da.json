@@ -1391,7 +1391,6 @@
         "enableFailedTitle": "Kunne ikke aktivere den computer",
         "enableLabel": "Aktivér {name}",
         "enabling": "Aktiverer…",
-        "ownSignIn": "{name} bruger sit eget {engine}-login.",
         "pairingCode": "Brug en parringskode",
         "sectionLabel": "Hvor Stella arbejder",
         "statusAwaitingConsent": "Venter på tilladelse på den computer",

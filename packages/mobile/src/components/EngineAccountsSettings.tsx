@@ -892,14 +892,8 @@ function ProviderSection({
           <Text style={settingsStyles.rowLabel}>{t(section.connectKey)}</Text>
         </Pressable>
       </View>
-      {!chatgpt ? (
-        <Text
-          style={[
-            settingsStyles.rowSub,
-            styles.sectionNote,
-            embedded && styles.embeddedNote,
-          ]}
-        >
+      {!chatgpt && !embedded ? (
+        <Text style={[settingsStyles.rowSub, styles.sectionNote]}>
           {t("mobile.engineAccounts.claudeNote")}
         </Text>
       ) : null}
@@ -1079,7 +1073,6 @@ const makeStyles = (colors: Colors) =>
       borderTopColor: fadeHex(colors.border, 0.8),
       borderTopWidth: StyleSheet.hairlineWidth,
     },
-    embeddedNote: { marginBottom: 14, marginTop: 4 },
     embeddedPasteCard: { marginBottom: 12, marginHorizontal: 12, marginTop: 0 },
     flexLabel: { flex: 1 },
   });

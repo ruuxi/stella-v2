@@ -1411,7 +1411,6 @@
         "enableFailedTitle": "Nie udało się włączyć tego komputera",
         "enableLabel": "Włącz {name}",
         "enabling": "Włączanie…",
-        "ownSignIn": "{name} używa własnego logowania do {engine}.",
         "pairingCode": "Użyj kodu parowania",
         "sectionLabel": "Gdzie pracuje Stella",
         "statusAwaitingConsent": "Oczekiwanie na zgodę na tym komputerze",

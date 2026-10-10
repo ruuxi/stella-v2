@@ -11,7 +11,6 @@ import {
 } from "react-native";
 import { useIsFocused } from "expo-router";
 import { Icon, type IconName } from "../Icon";
-import { PairPhoneSheet } from "../PairPhoneSheet";
 import {
   listExecutionDevices,
   type AutomaticExecutionTarget,
@@ -52,14 +51,9 @@ const STATUS_KEYS: Readonly<Record<ComputerRowStatusKind, string>> = {
   offline: "mobile.settings.computer.statusOffline",
 };
 
-export type DestinationSummary = {
-  /** The picked computer's name, or `null` while turns run in the cloud. */
-  deviceLabel: string | null;
-};
-
 /**
- * Where the chat's turns run, as one horizontal row of chips: pair, Cloud,
- * then every computer on the account.
+ * Where the chat's turns run, as one horizontal row of chips: Cloud, then
+ * every computer on the account.
  *
  * The list is the account's device list rather than this phone's pairings, so
  * a computer the owner has never paired with this phone still appears. A chip
@@ -67,21 +61,21 @@ export type DestinationSummary = {
  * choice, so tapping it explains why and offers what this phone can do about
  * it (Enable, Forget). Running work on a computer is consent, and only the
  * Enable tap here (or the prompt on that computer's own screen) grants it.
+ *
+ * There is no pairing step: a computer signed in to the account is listed
+ * here, and picking it attaches this phone to it on the spot.
  */
 export function DestinationChips({
   control,
   signedIn,
-  onSummaryChange,
 }: {
   control: ComputerControl | null;
   signedIn: boolean;
-  onSummaryChange?: (summary: DestinationSummary) => void;
 }) {
   const colors = useColors();
   const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const focused = useIsFocused();
-  const [pairSheetOpen, setPairSheetOpen] = useState(false);
   const [destinations, setDestinations] = useState<
     ExecutionDeviceDestination[] | undefined
   >(undefined);
@@ -179,13 +173,6 @@ export function DestinationChips({
     target.mode === "device"
       ? rows.find((row) => row.deviceId === target.deviceId && row.available)
       : undefined;
-  const selectedLabel = selectedRow ? labelFor(selectedRow) : null;
-
-  const summaryRef = useRef(onSummaryChange);
-  summaryRef.current = onSummaryChange;
-  useEffect(() => {
-    summaryRef.current?.({ deviceLabel: selectedLabel });
-  }, [selectedLabel]);
 
   if (!control && !signedIn) return null;
 
@@ -294,31 +281,12 @@ export function DestinationChips({
   const cloudSelected = !selectedRow;
 
   return (
-    <>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.scroller}
         contentContainerStyle={styles.row}
       >
-        {control ? (
-          <Pressable
-            onPress={() => {
-              tapLight();
-              setPairSheetOpen(true);
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={t("mobile.settings.computer.pairingCode")}
-            style={({ pressed }) => [
-              styles.chip,
-              styles.addChip,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Icon name="plus" size={18} color={colors.text} />
-          </Pressable>
-        ) : null}
-
         <Chip
           icon="globe"
           label={t("mobile.settings.computer.cloud")}
@@ -353,21 +321,6 @@ export function DestinationChips({
           );
         })}
       </ScrollView>
-
-      {control ? (
-        <PairPhoneSheet
-          visible={pairSheetOpen}
-          onClose={() => setPairSheetOpen(false)}
-          onPaired={(next) => {
-            setPairSheetOpen(false);
-            control.onRepaired(next);
-          }}
-          preferredAccess={control.access}
-          pairedDesktops={control.pairedDesktops}
-          onSwitchDesktop={control.onRepaired}
-        />
-      ) : null}
-    </>
   );
 }
 
@@ -396,7 +349,11 @@ function Chip({
   styles: ReturnType<typeof makeStyles>;
   colors: Colors;
 }) {
-  const tint = selected ? colors.accent : available ? colors.text : colors.textMuted;
+  const tint = selected
+    ? colors.accentForeground
+    : available
+      ? colors.text
+      : colors.textMuted;
   return (
     <Pressable
       onPress={onPress}
@@ -459,14 +416,9 @@ const makeStyles = (colors: Colors) =>
       height: CHIP_HEIGHT,
       paddingHorizontal: 13,
     },
-    addChip: {
-      justifyContent: "center",
-      paddingHorizontal: 0,
-      width: CHIP_HEIGHT,
-    },
     chipSelected: {
-      backgroundColor: colors.accentSoft,
-      borderColor: colors.selectBorder,
+      backgroundColor: colors.accent,
+      borderColor: colors.accent,
     },
     chipLabel: {
       fontFamily: fonts.sans.medium,

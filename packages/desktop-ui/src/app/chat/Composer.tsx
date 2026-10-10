@@ -30,6 +30,7 @@ import {
   ScreenshotPreviewOverlay,
 } from "./ScreenshotPreview";
 import { useDictation } from "@/features/dictation/hooks/use-dictation";
+import { useDictationPaste } from "@/features/dictation/hooks/use-dictation-paste";
 import {
   DictationCancelButton,
   DictationRecordingBar,
@@ -120,7 +121,6 @@ function ComposerImpl({
   onSendRef.current = onSend;
 
   const dictation = useDictation({
-    message,
     setMessage,
     // Dictation stays available even while the orchestrator is busy
     // (mid-turn / streaming) — the mic is intentionally NOT gated on
@@ -168,6 +168,11 @@ function ComposerImpl({
   // the transcription finishes but the message is never sent/queued.
   const dictationInFlight = dictation.isRecording || dictation.isTranscribing;
   const canSubmitWithDictation = canSubmit || dictationInFlight;
+  useDictationPaste({
+    active: dictationInFlight,
+    setMessage,
+    setChatContext,
+  });
   const hasText = message.trim().length > 0;
   const dictationBelow = dictation.isRecordingVisible && hasText;
   const dictationInline = dictation.isRecordingVisible && !hasText;

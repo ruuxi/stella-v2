@@ -34,7 +34,12 @@ import { useChatStore } from "@/context/chat-store-context";
 import { useCloudChatBridge } from "@/features/cloud/use-cloud-chat-bridge";
 import { usePiChat } from "@/features/chat/pi/use-pi-chat";
 import { useTranscriptSourceHandoff } from "./use-transcript-source-handoff";
-import { piAgentActivityEvents } from "@/features/chat/pi/pi-chat-records";
+import {
+  journaledPiTurns,
+  piAgentActivityEvents,
+  piPendingRows,
+} from "@/features/chat/pi/pi-chat-records";
+import { getDeviceIdOrNull } from "@/platform/electron/device";
 import { cloudAttachmentsStore } from "@/features/cloud/cloud-composer-store";
 import { useOwnDeviceRemoteCancel } from "@/features/cloud/use-own-device-remote-cancel";
 import { useCloudConversationSession } from "@/global/auth/hooks/use-cloud-conversation-session";
@@ -51,6 +56,22 @@ const OPEN_BOTTOM_STABLE_FRAMES = 3;
 const NO_NEWER_CLOUD_MESSAGES = () => false;
 const EMPTY_STREAMING_ASSISTANTS = [];
 const EMPTY_EVENTS = [];
+const NO_JOURNALED_TURNS = new Map();
+const NO_PI_PENDING_ROWS = { messages: [], journalUserIds: new Map() };
+const useOwnDeviceId = (enabled) => {
+  const [deviceId, setDeviceId] = useState(null);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    let cancelled = false;
+    void getDeviceIdOrNull().then((next) => {
+      if (!cancelled) setDeviceId(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled]);
+  return enabled ? deviceId : null;
+};
 const hasNonWhitespaceText = (text) => text.trim().length > 0;
 const setBoundedTabMemory = (memory, conversationId, value) => {
   memory.delete(conversationId);
@@ -262,12 +283,18 @@ export function useFullShellChat({
     () => buildActivityTasks(threadActivityRecords, localTaskDecorations),
     [threadActivityRecords, localTaskDecorations],
   );
-  // The chat runs on pi-durable in the runtime (unless the engine is Claude
-  // Code) and renders from there; the journal bridge stays off.
-  const piChat = usePiChat(activeConversationId);
+  // The chat runs on pi-durable in the runtime unless the engine is Claude
+  // Code. A conversation stored in the cloud shows its journal whatever the
+  // engine, so a model pick never changes what the chat shows; pi adds what
+  // the journal does not hold yet. One kept on this computer shows pi's
+  // transcript on pi and the chat log otherwise.
+  const piChat = usePiChat(activeConversationId, {
+    transcript: !cloudFeaturesEnabled,
+  });
+  const piTranscript = piChat.enabled && !cloudFeaturesEnabled;
   const cloudChat = useCloudChatBridge({
     conversationId: activeConversationId,
-    enabled: cloudFeaturesEnabled && !piChat.enabled,
+    enabled: cloudFeaturesEnabled,
     localMessages: localPersistedMessages,
     localActivities,
     localFiles: localPersistedFiles,
@@ -293,6 +320,55 @@ export function useFullShellChat({
     [piChat.enabled, piChat.replyFiles, piActivities],
   );
   const journalState = cloudChat.conversation.state;
+  const ownDeviceId = useOwnDeviceId(piChat.enabled && cloudFeaturesEnabled);
+  const journaledTurns = useMemo(
+    () => piChat.enabled && cloudFeaturesEnabled
+      ? journaledPiTurns(cloudChat.records, piChat.projection.turns, ownDeviceId)
+      : NO_JOURNALED_TURNS,
+    [cloudChat.records, cloudFeaturesEnabled, ownDeviceId, piChat.enabled, piChat.projection.turns],
+  );
+  const journalHasOlder = journalState.hasOlder;
+  const journalStartMs = cloudChat.records[0]?.createdAtMs ?? null;
+  const piPending = useMemo(() => {
+    if (!piChat.enabled || !cloudFeaturesEnabled) return NO_PI_PENDING_ROWS;
+    if (journalState.recordsSource === "none") return NO_PI_PENDING_ROWS;
+    if (journalHasOlder && journalStartMs === null) return NO_PI_PENDING_ROWS;
+    return piPendingRows({
+      projection: piChat.projection,
+      journaled: journaledTurns,
+      canonical: cloudChat.persistedMessages,
+      sinceMs: journalHasOlder ? journalStartMs : null,
+    });
+  }, [
+    cloudChat.persistedMessages,
+    cloudFeaturesEnabled,
+    journalHasOlder,
+    journalStartMs,
+    journalState.recordsSource,
+    journaledTurns,
+    ownDeviceId,
+    piChat.enabled,
+    piChat.projection,
+  ]);
+  const journalMessages = useMemo(
+    () => piPending.messages.length > 0
+      ? [...cloudChat.persistedMessages, ...piPending.messages]
+      : cloudChat.persistedMessages,
+    [cloudChat.persistedMessages, piPending.messages],
+  );
+  const journalUserId = useCallback(
+    (userMessageId) => piPending.journalUserIds.get(userMessageId) ?? userMessageId,
+    [piPending.journalUserIds],
+  );
+  const piStreamingAssistants = useMemo(
+    () => piPending.journalUserIds.size === 0
+      ? piChat.streamingAssistants
+      : piChat.streamingAssistants.map((overlay) => {
+          const userMessageId = journalUserId(overlay.userMessageId);
+          return userMessageId === overlay.userMessageId ? overlay : { ...overlay, userMessageId };
+        }),
+    [journalUserId, piChat.streamingAssistants, piPending.journalUserIds],
+  );
   // `ready` names the head before its replay arrives: the journal is current
   // once its rows reach that head.
   const journalReady = cloudFeaturesEnabled
@@ -301,16 +377,15 @@ export function useFullShellChat({
       journalState.status === "offline" ||
       journalState.status === "blocked"
     : !localMessageFeed.isInitialLoading;
-  // A model pick can move the chat between pi and the journal; the screen
-  // keeps the transcript it shows until the incoming source is current.
+  // A conversation kept on this computer moves between pi's transcript and
+  // the chat log with the engine; the screen keeps the transcript it shows
+  // until the incoming source is current.
   const transcript = useTranscriptSourceHandoff({
     conversationId: activeConversationId,
-    source: piChat.enabled ? "pi" : "journal",
-    ready: piChat.enabled ? piChat.isSynced : journalReady,
+    source: piTranscript ? "pi" : "journal",
+    ready: piTranscript ? piChat.isSynced : journalReady,
     transcript: {
-      messages: piChat.enabled
-        ? piChat.messages
-        : cloudChat.persistedMessages,
+      messages: piTranscript ? piChat.messages : journalMessages,
       activities: piChat.enabled ? piActivities : cloudChat.activities,
       files: piChat.enabled ? piFiles : cloudChat.files,
     },
@@ -338,7 +413,7 @@ export function useFullShellChat({
   // The web shell has no in-memory overlay: a cloud reply becomes visible when
   // its journal row commits, not before.
   const streamingAssistants = piChat.enabled
-    ? piChat.streamingAssistants
+    ? piStreamingAssistants
     : cloudChat.isWebShell
       ? EMPTY_STREAMING_ASSISTANTS
       : localStreamingAssistants;
@@ -395,7 +470,7 @@ export function useFullShellChat({
       ? piChat.answerLanded
       : useCloudRun ? (cloudChat.answerLanded || localTurnHandedOff) : localAnswerLanded);
   const pendingUserMessageId = piChat.enabled
-    ? piChat.pendingUserMessageId
+    ? piChat.pendingUserMessageId && journalUserId(piChat.pendingUserMessageId)
     : cloudChat.isWebShell
       ? cloudChat.pendingUserMessageId
       : localPendingUserMessageId;
@@ -414,38 +489,38 @@ export function useFullShellChat({
       ? cloudChat.cancelCurrentStream
       : localCancelCurrentStream;
   // Page only the selected history; local and cloud cursors never mix.
-  const hasOlderMessages = piChat.enabled
+  const hasOlderMessages = piTranscript
     ? piChat.hasOlderMessages
     : storageMode === "local"
       ? localMessageFeed.hasOlderMessages
       : cloudChat.conversation.state.hasOlder;
-  const hasNewerMessages = storageMode === "local" && !piChat.enabled
+  const hasNewerMessages = storageMode === "local" && !piTranscript
     ? localMessageFeed.hasNewerMessages
     : false;
-  const isLoadingOlderMessages = piChat.enabled
+  const isLoadingOlderMessages = piTranscript
     ? piChat.isLoadingOlder
     : storageMode === "local"
       ? localMessageFeed.isLoadingOlder
       : cloudChat.conversation.state.loadingOlder;
-  const isLoadingNewerMessages = storageMode === "local" && !piChat.enabled
+  const isLoadingNewerMessages = storageMode === "local" && !piTranscript
     ? localMessageFeed.isLoadingNewer
     : false;
   const isInitialLoadingMessages = transcript.holding
     ? false
-    : piChat.enabled
+    : piTranscript
     ? piChat.isInitialLoading
     : storageMode === "local"
       ? localMessageFeed.isInitialLoading
       : cloudChat.isInitialLoading;
-  const loadOlderMessages = piChat.enabled
+  const loadOlderMessages = piTranscript
     ? piChat.loadOlderMessages
     : storageMode === "local"
       ? localMessageFeed.loadOlder
       : cloudChat.conversation.loadOlder;
-  const loadNewerMessages = storageMode === "local" && !piChat.enabled
+  const loadNewerMessages = storageMode === "local" && !piTranscript
     ? localMessageFeed.loadNewer
     : NO_NEWER_CLOUD_MESSAGES;
-  const loadLatestMessages = storageMode === "local" && !piChat.enabled
+  const loadLatestMessages = storageMode === "local" && !piTranscript
     ? localMessageFeed.loadLatest
     : NO_NEWER_CLOUD_MESSAGES;
   const hasOlderActivity = storageMode === "local"

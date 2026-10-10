@@ -208,7 +208,15 @@ export function FilesPage() {
   const filtering =
     query.trim().length > 0 || sourceFilter !== "all";
   const hasAnything = rows.length > 0;
-  const firstLoad = journal.loading && !hasAnything;
+  // Older files are paged in by the list's onEndReached, which never mounts
+  // while nothing is resident; keep reaching back until a file turns up or
+  // the history runs out.
+  const seekingOlder = !hasAnything && journal.hasMore;
+  const firstLoad = (journal.loading || seekingOlder) && !hasAnything;
+  const { loading: journalLoading, loadingMore, loadMore } = journal;
+  useEffect(() => {
+    if (seekingOlder && !journalLoading && !loadingMore) loadMore();
+  }, [journalLoading, loadMore, loadingMore, seekingOlder]);
 
   const menuItems = useMemo<NativeMenuItem[]>(() => {
     const choose = (next: SourceFilter) => () => setSourceFilter(next);

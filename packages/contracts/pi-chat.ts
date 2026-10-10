@@ -353,10 +353,16 @@ const reduceOne = (state: PiChatState, event: PiChatEvent): PiChatState => {
       for (const slot of event.tools) {
         tools[slot.callId] = { name: slot.name, status: slot.status, ...(slot.output ? { output: slot.output } : {}) };
       }
+      // The snapshot names no request ids, so a live run keeps what this watch
+      // saw queued; an idle pi with an empty inbox has nothing queued or
+      // compacting, whatever finished while nobody watched.
+      const idle = event.run === undefined;
       return {
         ...state,
         entries: mergePiEntries(state.entries, event.entries),
-        running: event.run !== undefined,
+        running: !idle,
+        ...(idle && event.inbox.length === 0 ? { queued: [] } : {}),
+        ...(idle ? { compacting: false } : {}),
         ...(event.generation?.message ? { streaming: event.generation.message } : { streaming: undefined }),
         ...(event.generation?.retry ? { retry: event.generation.retry } : { retry: undefined }),
         tools,

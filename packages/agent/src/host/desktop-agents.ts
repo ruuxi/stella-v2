@@ -66,17 +66,6 @@ export function desktopAgentsHost(
   };
 }
 
-/**
- * The commands an environment has running. pi-durable keeps them as
- * process-group leaders but only exposes a SIGKILL-the-group cleanup, which
- * misses descendants that left the group; `terminateCommands` takes the pids
- * and ends each whole tree gracefully instead.
- */
-const runningCommandPids = (env: NodeExecutionEnv): number[] | null => {
-  const pids = (env as unknown as { activeChildPids?: unknown }).activeChildPids;
-  return pids instanceof Set ? [...pids].filter((pid): pid is number => typeof pid === "number") : null;
-};
-
 const isPidAlive = (pid: number) => {
   try {
     process.kill(pid, 0);
@@ -86,20 +75,18 @@ const isPidAlive = (pid: number) => {
   }
 };
 
+/**
+ * How a command's processes end, for a timeout, an abort or `cleanup`: the
+ * whole tree, TERM before KILL, including descendants that left the
+ * command's process group (pi-durable's own default only SIGKILLs the group).
+ */
+const killCommandTree = (pid: number) => terminateProcessTree(pid, { isRootRunning: () => isPidAlive(pid) });
+
 /** One environment per working directory; agents on this computer share it. */
 export function desktopEnvironments(defaultCwd: string) {
   const envs = new Map<string, NodeExecutionEnv>();
   const terminateCommands = async (context: Context) => {
-    await Promise.all(
-      [...envs.values()].map(async (env) => {
-        const pids = runningCommandPids(env);
-        if (!pids) {
-          await env.cleanup(context);
-          return;
-        }
-        await Promise.all(pids.map((pid) => terminateProcessTree(pid, { isRootRunning: () => isPidAlive(pid) })));
-      }),
-    );
+    await Promise.all([...envs.values()].map((env) => env.cleanup(context)));
   };
   return {
     /** End every command the agents have running here, with everything it started. */
@@ -112,14 +99,13 @@ export function desktopEnvironments(defaultCwd: string) {
       if (!env) {
         // An agent's own folder exists once it first works there.
         if (cwd) await mkdir(directory, { recursive: true }).catch(() => undefined);
-        env = new NodeExecutionEnv({ cwd: directory });
+        env = new NodeExecutionEnv({ cwd: directory, killProcessTree: killCommandTree });
         envs.set(directory, env);
       }
       return env;
     },
     cleanup: async (context: Context) => {
       await terminateCommands(context);
-      for (const env of envs.values()) await env.cleanup(context);
       envs.clear();
     },
   };

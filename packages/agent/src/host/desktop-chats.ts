@@ -1336,6 +1336,10 @@ export function desktopChats(options: DesktopChatsOptions) {
           return brainPlacement(request.conversationId);
       }
     },
+    /** End every shell command the chats' agents have running on this computer. */
+    async terminateCommands(): Promise<void> {
+      await environments.terminateCommands(context);
+    },
     async close(): Promise<void> {
       const opened = await Promise.all([...chats.values()].map((chat) => chat.catch(() => undefined)));
       chats.clear();

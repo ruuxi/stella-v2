@@ -201,7 +201,7 @@ export type ShellRecord = {
   exitCode: number | null;
   startedAt: number;
   completedAt: number | null;
-  kill: () => void;
+  kill: () => void | Promise<void>;
 };
 
 export type AgentRecord = {

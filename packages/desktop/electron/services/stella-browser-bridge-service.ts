@@ -549,7 +549,10 @@ export class StellaBrowserBridgeService {
 
     // Only close a daemon this instance started: whatever else answers on
     // the socket belongs to another instance (or nobody we can vouch for).
-    if (this.daemonProcess) {
+    // Hold the daemon past its own exit: a graceful close clears
+    // `daemonProcess`, but anything it started can still be running.
+    const daemon = this.daemonProcess;
+    if (daemon) {
       const closePromise = this.sendCommand({
         id: randomUUID(),
         action: "close",
@@ -557,7 +560,7 @@ export class StellaBrowserBridgeService {
 
       await Promise.race([closePromise, delay(1_500)]).catch(() => undefined);
     }
-    await this.killDaemonProcess();
+    await stopChildProcessTree(daemon);
     await this.stopOrphanedBundledDaemons();
     this.daemonProcess = null;
     releaseBrowserBridgeOwner(
@@ -724,6 +727,7 @@ export class StellaBrowserBridgeService {
         },
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
+        detached: process.platform !== "win32",
       },
     );
 
@@ -821,6 +825,7 @@ export class StellaBrowserBridgeService {
         },
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
+        detached: process.platform !== "win32",
       },
     );
     const backend: AgentBackendRecord = {
@@ -936,9 +941,7 @@ export class StellaBrowserBridgeService {
       ).catch(() => undefined),
       delay(1_100),
     ]).catch(() => undefined);
-    if (!backend.process.killed && backend.process.exitCode === null) {
-      await stopChildProcessTree(backend.process).catch(() => undefined);
-    }
+    await stopChildProcessTree(backend.process).catch(() => undefined);
   }
 
   private resetCdpRouting() {
@@ -1336,9 +1339,6 @@ export class StellaBrowserBridgeService {
   }
 
   private async killDaemonProcess() {
-    if (!this.daemonProcess || this.daemonProcess.killed) {
-      return;
-    }
     await stopChildProcessTree(this.daemonProcess);
   }
 

@@ -3,6 +3,7 @@ import { METHOD_NAMES } from "@stella/contracts/protocol";
 import { RunnerUnavailableError } from "../errors.js";
 import * as WorkerSessions from "../sessions.js";
 import { fromPromise, type WorkerRpcHandlers } from "../rpc.js";
+import { terminatePiChatCommands } from "../pi-chats.js";
 
 /**
  * Runner-hosted operations that require the runner to EXIST but not to have
@@ -15,11 +16,19 @@ const runnerNow = Effect.flatMap(
 );
 
 export const runnerOpsHandlers: WorkerRpcHandlers = {
+  // Every command an agent has running on this computer: the runner's shell
+  // sessions and the commands of the desktop chats' agents.
   [METHOD_NAMES.INTERNAL_WORKER_KILL_ALL_SHELLS]: () =>
-    Effect.map(runnerNow, (runner) => {
-      runner.killAllShells();
-      return { ok: true };
-    }),
+    Effect.flatMap(
+      WorkerSessions.sessionOrFail(() => new RunnerUnavailableError()),
+      (session) =>
+        fromPromise(() =>
+          Promise.all([
+            session.runnerCell.get()?.killAllShells(),
+            terminatePiChatCommands(session),
+          ]),
+        ).pipe(Effect.as({ ok: true })),
+    ),
 
   [METHOD_NAMES.INTERNAL_WORKER_KILL_SHELL_BY_PORT]: (params) =>
     Effect.map(runnerNow, (runner) => {

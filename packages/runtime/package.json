@@ -55,6 +55,8 @@
     "./kernel/runner/background-exit-wake.js": "./kernel/runner/background-exit-wake.ts",
     "./kernel/shared/join-timeout": "./kernel/shared/join-timeout.ts",
     "./kernel/shared/join-timeout.js": "./kernel/shared/join-timeout.ts",
+    "./kernel/shared/process-tree": "./kernel/shared/process-tree.ts",
+    "./kernel/shared/process-tree.js": "./kernel/shared/process-tree.ts",
     "./kernel/storage/llm-credentials": "./kernel/storage/llm-credentials.ts",
     "./kernel/storage/llm-oauth-credentials": "./kernel/storage/llm-oauth-credentials.ts",
     "./kernel/storage/llm-oauth-credentials.js": "./kernel/storage/llm-oauth-credentials.ts",

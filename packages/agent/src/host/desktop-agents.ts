@@ -12,6 +12,7 @@ import type { Context } from "@earendil-works/chord";
 import type { EnvTarget } from "@earendil-works/pi-durable";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { defaultAgentDirectory } from "@stella/runtime/kernel/agents/agent-directory";
+import { terminateProcessTree } from "@stella/runtime/kernel/shared/process-tree";
 import type { RemoteAgentHost, StellaAgentsHost } from "../stella/agents.ts";
 
 export function desktopAgentsHost(
@@ -65,10 +66,44 @@ export function desktopAgentsHost(
   };
 }
 
+/**
+ * The commands an environment has running. pi-durable keeps them as
+ * process-group leaders but only exposes a SIGKILL-the-group cleanup, which
+ * misses descendants that left the group; `terminateCommands` takes the pids
+ * and ends each whole tree gracefully instead.
+ */
+const runningCommandPids = (env: NodeExecutionEnv): number[] | null => {
+  const pids = (env as unknown as { activeChildPids?: unknown }).activeChildPids;
+  return pids instanceof Set ? [...pids].filter((pid): pid is number => typeof pid === "number") : null;
+};
+
+const isPidAlive = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException)?.code === "EPERM";
+  }
+};
+
 /** One environment per working directory; agents on this computer share it. */
 export function desktopEnvironments(defaultCwd: string) {
   const envs = new Map<string, NodeExecutionEnv>();
+  const terminateCommands = async (context: Context) => {
+    await Promise.all(
+      [...envs.values()].map(async (env) => {
+        const pids = runningCommandPids(env);
+        if (!pids) {
+          await env.cleanup(context);
+          return;
+        }
+        await Promise.all(pids.map((pid) => terminateProcessTree(pid, { isRootRunning: () => isPidAlive(pid) })));
+      }),
+    );
+  };
   return {
+    /** End every command the agents have running here, with everything it started. */
+    terminateCommands,
     env: async ({ cwd }: EnvTarget, _context: Context) => {
       // A conversation whose tools run elsewhere reaches them through its
       // tools (`desktopCoding`); its prompt still reads this one.
@@ -83,6 +118,7 @@ export function desktopEnvironments(defaultCwd: string) {
       return env;
     },
     cleanup: async (context: Context) => {
+      await terminateCommands(context);
       for (const env of envs.values()) await env.cleanup(context);
       envs.clear();
     },

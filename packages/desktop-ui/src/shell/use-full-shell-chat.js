@@ -33,6 +33,7 @@ import { useStellaSendMessageBridge } from "./use-stella-send-message-bridge";
 import { useChatStore } from "@/context/chat-store-context";
 import { useCloudChatBridge } from "@/features/cloud/use-cloud-chat-bridge";
 import { usePiChat } from "@/features/chat/pi/use-pi-chat";
+import { useTranscriptSourceHandoff } from "./use-transcript-source-handoff";
 import { piAgentActivityEvents } from "@/features/chat/pi/pi-chat-records";
 import { cloudAttachmentsStore } from "@/features/cloud/cloud-composer-store";
 import { useOwnDeviceRemoteCancel } from "@/features/cloud/use-own-device-remote-cancel";
@@ -278,22 +279,6 @@ export function useFullShellChat({
     enabled: cloudFeaturesEnabled && isLocalStorage && !cloudChat.isWebShell,
     onCancel: localCancelCurrentStream,
   });
-  const persistedMessages = piChat.enabled
-    ? piChat.messages
-    : cloudChat.persistedMessages;
-  // Cloud placement can acknowledge IPC before its journal reaches this
-  // window. Keep pending sends working until canonical history takes over,
-  // and retire their overlays even when no SQLite write occurs on this device.
-  useEffect(() => {
-    acknowledgeLocalMessages(persistedMessages);
-  }, [acknowledgeLocalMessages, persistedMessages, localOptimisticEvents]);
-  const awaitingMessageAdmission = useMemo(() => {
-    const persistedIds = acceptedUserMessageIds(persistedMessages);
-    return localOptimisticEvents.some((event) =>
-      event.type === "user_message" &&
-      !persistedIds.has(event._id) &&
-      !localAdmissionSettledIds.has(event._id));
-  }, [localAdmissionSettledIds, localOptimisticEvents, persistedMessages]);
   // On pi the transcript and its agents are the conversation's record:
   // Activity lists the agents, Files the links in replies and agents' results.
   const piActivities = useMemo(
@@ -307,8 +292,45 @@ export function useFullShellChat({
       : EMPTY_EVENTS,
     [piChat.enabled, piChat.replyFiles, piActivities],
   );
-  const activities = piChat.enabled ? piActivities : cloudChat.activities;
-  const persistedFiles = piChat.enabled ? piFiles : cloudChat.files;
+  const journalState = cloudChat.conversation.state;
+  // `ready` names the head before its replay arrives: the journal is current
+  // once its rows reach that head.
+  const journalReady = cloudFeaturesEnabled
+    ? (journalState.recordsSource === "canonical" &&
+        (journalState.records.at(-1)?.seq ?? -1) >= journalState.headSeq) ||
+      journalState.status === "offline" ||
+      journalState.status === "blocked"
+    : !localMessageFeed.isInitialLoading;
+  // A model pick can move the chat between pi and the journal; the screen
+  // keeps the transcript it shows until the incoming source is current.
+  const transcript = useTranscriptSourceHandoff({
+    conversationId: activeConversationId,
+    source: piChat.enabled ? "pi" : "journal",
+    ready: piChat.enabled ? piChat.isSynced : journalReady,
+    transcript: {
+      messages: piChat.enabled
+        ? piChat.messages
+        : cloudChat.persistedMessages,
+      activities: piChat.enabled ? piActivities : cloudChat.activities,
+      files: piChat.enabled ? piFiles : cloudChat.files,
+    },
+  });
+  const persistedMessages = transcript.messages;
+  // Cloud placement can acknowledge IPC before its journal reaches this
+  // window. Keep pending sends working until canonical history takes over,
+  // and retire their overlays even when no SQLite write occurs on this device.
+  useEffect(() => {
+    acknowledgeLocalMessages(persistedMessages);
+  }, [acknowledgeLocalMessages, persistedMessages, localOptimisticEvents]);
+  const awaitingMessageAdmission = useMemo(() => {
+    const persistedIds = acceptedUserMessageIds(persistedMessages);
+    return localOptimisticEvents.some((event) =>
+      event.type === "user_message" &&
+      !persistedIds.has(event._id) &&
+      !localAdmissionSettledIds.has(event._id));
+  }, [localAdmissionSettledIds, localOptimisticEvents, persistedMessages]);
+  const activities = transcript.activities;
+  const persistedFiles = transcript.files;
   const tasks = cloudChat.tasks;
   const optimisticEvents = cloudChat.isWebShell
     ? cloudChat.optimisticEvents
@@ -408,7 +430,9 @@ export function useFullShellChat({
   const isLoadingNewerMessages = storageMode === "local" && !piChat.enabled
     ? localMessageFeed.isLoadingNewer
     : false;
-  const isInitialLoadingMessages = piChat.enabled
+  const isInitialLoadingMessages = transcript.holding
+    ? false
+    : piChat.enabled
     ? piChat.isInitialLoading
     : storageMode === "local"
       ? localMessageFeed.isInitialLoading

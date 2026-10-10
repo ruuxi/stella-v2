@@ -36,8 +36,8 @@ export const usePiChat = (conversationId: string | null) => {
   );
   const state = useSyncExternalStore(enabled ? subscribe : NO_SUBSCRIPTION, () => piChatSnapshot(conversationId));
   const loading = useSyncExternalStore(enabled ? subscribe : NO_SUBSCRIPTION, () => {
-    const { loading, loadingOlder } = piChatLoading(conversationId);
-    return loading ? (loadingOlder ? 3 : 1) : loadingOlder ? 2 : 0;
+    const { loading, loadingOlder, synced } = piChatLoading(conversationId);
+    return (loading ? 1 : 0) | (loadingOlder ? 2 : 0) | (synced ? 4 : 0);
   });
 
   // Streamed text changes only `streaming`; the rows rebuild on new entries.
@@ -112,6 +112,8 @@ export const usePiChat = (conversationId: string | null) => {
     cancelCurrentStream: cancel,
     hasOlderMessages: state.hasOlder,
     isInitialLoading: (loading & 1) === 1 && state.entries.length === 0,
+    /** This watch's snapshot is in: the transcript is current, not one left from an earlier watch. */
+    isSynced: enabled && (loading & 4) === 4,
     isLoadingOlder,
     loadOlderMessages: loadOlder,
   };

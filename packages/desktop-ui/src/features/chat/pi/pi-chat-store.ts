@@ -31,6 +31,8 @@ type Watched = {
   held?: PiChatEvent[][];
   loading: boolean;
   loadingOlder: boolean;
+  /** Its snapshot for the current watch has been applied: the state is current, not left from an earlier watch. */
+  synced: boolean;
 };
 
 const EMPTY: PiChatState = emptyPiChat();
@@ -53,7 +55,7 @@ const publish = (entry: Watched) => {
 const entryFor = (conversationId: string): Watched => {
   let entry = watched.get(conversationId);
   if (!entry) {
-    entry = { state: EMPTY, watchers: 0, listeners: new Set(), loading: false, loadingOlder: false };
+    entry = { state: EMPTY, watchers: 0, listeners: new Set(), loading: false, loadingOlder: false, synced: false };
     watched.set(conversationId, entry);
   }
   return entry;
@@ -65,6 +67,7 @@ const attach = (conversationId: string, entry: Watched) => {
   if (!chat) return;
   entry.held = [];
   entry.loading = true;
+  entry.synced = false;
   publish(entry);
   void chat.request({ op: "watch", conversationId }).then(
     (result) => {
@@ -73,12 +76,14 @@ const attach = (conversationId: string, entry: Watched) => {
       for (const events of entry.held ?? []) state = reducePiChat(state, events);
       entry.held = undefined;
       entry.loading = false;
+      entry.synced = true;
       entry.state = state;
       publish(entry);
     },
     (error: unknown) => {
       entry.held = undefined;
       entry.loading = false;
+      entry.synced = true;
       entry.state = { ...entry.state, failure: error instanceof Error ? error.message : String(error) };
       publish(entry);
     },
@@ -126,6 +131,7 @@ export const watchPiChat = (conversationId: string): (() => void) => {
   return () => {
     entry.watchers -= 1;
     if (entry.watchers > 0) return;
+    entry.synced = false;
     void chat.request({ op: "unwatch", conversationId }).catch(() => undefined);
   };
 };
@@ -143,7 +149,11 @@ export const piChatSnapshot = (conversationId: string | null): PiChatState =>
 
 export const piChatLoading = (conversationId: string | null) => {
   const entry = conversationId ? watched.get(conversationId) : undefined;
-  return { loading: entry?.loading ?? false, loadingOlder: entry?.loadingOlder ?? false };
+  return {
+    loading: entry?.loading ?? false,
+    loadingOlder: entry?.loadingOlder ?? false,
+    synced: (entry?.watchers ?? 0) > 0 && entry?.synced === true,
+  };
 };
 
 /** The next older page of the transcript. */

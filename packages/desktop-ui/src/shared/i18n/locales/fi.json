@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Tätä ketjua ei voitu ladata",
+        "errorBody": "Sulje se ja avaa uudelleen hetken päästä."
       },
       "generatedImage": {
         "generating": "Luodaan...",
@@ -830,7 +832,6 @@
     },
     "integrations": {
       "connectStellaApp": "Yhdistä Stella-sovellukseen",
-      "connectStellaAppSub": "Paritä puhelimesi Stella-sovellus tämän tietokoneen kanssa",
       "connectTitle": "Yhdistä",
       "connected": "Yhdistetty",
       "credential": {
@@ -846,11 +847,16 @@
         "saving": "Tallennetaan...",
         "title": "Yhdistä {provider}"
       },
-      "heroTagline": "Viestittele Stellan kanssa haluamallasi alustalla — juttele vapaasti tai pyydä sitä hoitamaan asioita suoraan tietokoneellasi.",
       "phoneTitle": "Puhelimesi",
       "signInHeadline": "Kirjaudu sisään aloittaaksesi",
       "signInSub": "Kirjaudu Stella-tiliisi yhdistääksesi: {provider}.",
-      "signInToConnect": "Kirjaudu Stellaan yhdistääksesi"
+      "signInToConnect": "Kirjaudu Stellaan yhdistääksesi",
+      "getApp": {
+        "appStoreQrAlt": "Skannaa ladataksesi Stellan App Storesta",
+        "platformLabel": "Valitse mobiilialusta",
+        "playStoreQrAlt": "Skannaa ladataksesi Stellan Google Playsta",
+        "title": "Hanki sovellus"
+      }
     },
     "legal": {
       "privacy": {
@@ -902,9 +908,16 @@
         "title": "Tämä keskustelu"
       },
       "files": {
-        "empty": "Ei vielä tiedostoja. Kaikki Stellan tuottama näkyy täällä.",
+        "empty": "Stellan tekemät tai jakamat tiedostot näkyvät täällä.",
         "emptyFiltered": "Mikään tiedosto ei vastaa hakua.",
-        "searchPlaceholder": "Hae tiedostoja"
+        "filterAll": "Kaikki tiedostot",
+        "filterLabel": "Suodata ja lajittele tiedostot",
+        "searchPlaceholder": "Hae tiedostoja",
+        "sortName": "Nimi",
+        "sortNewest": "Uusin ensin",
+        "sortOldest": "Vanhin ensin",
+        "sourceCloud": "Pilvi",
+        "sourceUpload": "Sinun lähettämäsi"
       },
       "schedule": {
         "actionFailed": "Se ei onnistunut.",
@@ -912,7 +925,9 @@
         "customCadence": "Mukautettu aikataulu",
         "deleteConfirm": "”{title}” ei enää suoriteta.",
         "deleteSchedule": "Poista aikataulu",
-        "empty": "Ei vielä aikatauluja. Pyydä Stellaa tietokoneellasi ajamaan jotain säännöllisesti, niin se näkyy täällä.",
+        "empty": "Mitään ei ole vielä ajastettu.",
+        "emptyAction": "Ajasta jotain",
+        "emptyActionPrompt": "Muistuta minua ",
         "lastRunFailed": "Viimeisin ajo epäonnistui: {error}",
         "loadFailed": "Aikatauluja ei voitu ladata.",
         "next": "Seuraava {when}",
@@ -937,6 +952,11 @@
         "stopped": "Pysäytetty",
         "working": "Työskentelee taustalla"
       }
+    },
+    "apps": {
+      "empty": "Stellan sinulle rakentamat sovellukset näkyvät täällä.",
+      "emptyAction": "Rakenna sovellus",
+      "emptyActionPrompt": "Rakenna minulle sovellus, joka "
     },
     "authCallback": {
       "backToSignIn": "Takaisin kirjautumiseen",
@@ -1003,7 +1023,6 @@
       "disconnectedLabel": "Tietokoneen yhteys katkaistu",
       "guestHeroBody": "Pyydä Stellaa tekemään asioita tietokoneellasi — selaamaan verkkoa, hallitsemaan tiedostoja, suorittamaan tehtäviä ja paljon muuta.",
       "guestHeroTitle": "Tietokoneesi sormenpäissäsi",
-      "pairLabel": "Yhdistä tietokone",
       "statusAsleep": "Lepotilassa",
       "statusChecking": "Tarkistetaan…",
       "statusConnected": "Yhdistetty"
@@ -1011,20 +1030,11 @@
     "desktop": {
       "connecting": "Yhdistetään työpöytään",
       "deviceUnreachable": "Laitetta {platform} ei tavoiteta",
-      "enterCode": "Syötä tietokoneellasi näkyvä koodi.",
-      "guestBody": "Näe Stellan työpöytäsovellus suoraan puhelimessasi. Pariliitoksen jälkeen puhelin yhdistää uudelleen automaattisesti.",
       "guestSignInPrompt": "Kirjaudu sisään päästäksesi alkuun.",
       "limitedCapabilities": "Osa asioista vaatii tietokoneesi",
       "linkInterrupted": "Yhteys tietokoneeseesi katkesi.",
-      "pairAnother": "Pariliitä toinen tietokone",
-      "pairTitle": "Pariliitä puhelimesi",
-      "pairing": "Pariliitetään tätä puhelinta",
       "reconnecting": "Yhdistetään uudelleen...",
-      "repairNeeded": "Tämä puhelin täytyy pariliittää tietokoneesi kanssa uudelleen.",
       "retryLabel": "Yritä yhdistää uudelleen",
-      "startPairingLabel": "Aloita tietokoneen pariliitos",
-      "unavailableBodyPaired": "Varmista, että Stella on auki tietokoneellasi ja yhdistettynä internetiin. Kun yhteys on muodostettu, työpöytäsovellus näkyy suoraan tässä puhelimessasi.",
-      "unavailableBodyUnpaired": "Näe Stellan työpöytäsovellus suoraan puhelimessasi. Skannaa tietokoneellasi Stellassa näkyvä QR-koodi päästäksesi alkuun — sen jälkeen puhelin yhdistää uudelleen automaattisesti.",
       "unreachable": "Työpöytää ei tavoiteta"
     },
     "engineAccounts": {
@@ -1137,26 +1147,17 @@
         "signInBody": "Pidä keskustelusi, asetuksesi ja yhdistetty tietokoneesi mukanasi jokaisella laitteella.",
         "signInTitle": "Kirjaudu Stellaan",
         "skip": "Ohita toistaiseksi",
-        "subscriptionsBody": "Maksatko jo Claudesta tai ChatGPT:stä? Yhdistä se, niin käytän sitä pilvessä. Tietokoneesi käyttävät omia kirjautumisiaan.",
+        "subscriptionsBody": "Käytetäänkö nykyistä Claude- tai ChatGPT-tilaustasi?",
         "subscriptionsLabel": "Valinnainen"
       },
       "composerPlaceholder": "Tai kysy minulta jotain",
       "computer": {
-        "body": "Pariliitä tämä puhelin tietokoneesi Stellan kanssa, niin voin suorittaa siellä tehtäviä, kun olet liikkeellä.",
-        "connectedBody": "Pyydä missä tahansa, niin teen työn tietokoneellasi.",
+        "body": "Kirjaudu sisään tietokoneella, niin se yhdistyy automaattisesti.",
         "connectedTo": "Yhdistetty: {name}",
-        "guestHint": "Pariliitos kuuluu Stella-tiliisi, joten kirjaudu ensin sisään. Jatkan tästä kohdasta.",
-        "hint": "Avaa Stella tietokoneellasi ja valitse Pariliitä puhelin.",
+        "getDesktop": "Hanki Stella tietokoneelle",
         "later": "Myöhemmin",
-        "pair": "Pariliitä tietokoneeni",
-        "point1": "Löytää tiedosto ja lähettää se sinulle",
-        "point2": "Saada vienti tai lataus valmiiksi",
-        "point3": "Käyttää jo olemassa olevia sovelluksiasi",
-        "settledConnectedDesc": "Voin suorittaa siellä tehtäviä puhelimestasi käsin.",
-        "settledSkippedDesc": "Voit pariliittää sellaisen milloin tahansa asetuksissa.",
         "settledSkippedTitle": "Ei vielä tietokonetta",
-        "signInToPair": "Kirjaudu ja pariliitä",
-        "title": "Tietokoneesi taskustasi"
+        "title": "Stella tietokoneellasi"
       },
       "gmail": {
         "body": "Etsi viestejä, pysy keskustelujen tasalla ja luonnostele vastauksia pelkällä pyynnöllä.",
@@ -1375,7 +1376,6 @@
         "enableFailedTitle": "Tietokonetta ei voitu ottaa käyttöön",
         "enableLabel": "Ota {name} käyttöön",
         "enabling": "Otetaan käyttöön…",
-        "pairingCode": "Käytä pariliitoskoodia",
         "sectionLabel": "Missä Stella työskentelee",
         "statusAwaitingConsent": "Odotetaan lupaa kyseisellä tietokoneella",
         "statusDeclined": "Hylätty kyseisellä tietokoneella",
@@ -1391,10 +1391,6 @@
       "deleteConfirmTitle": "Poista tili",
       "deleteFailedTitle": "Tiliä ei voitu poistaa",
       "deletingAccount": "Poistetaan tiliä…",
-      "forget": "Unohda",
-      "forgetConfirmBody": "Tämä puhelin lakkaa yhdistämästä kyseiseen tietokoneeseen, kunnes pariliität sen uudelleen.",
-      "forgetConfirmTitle": "Unohdetaanko laite {name}?",
-      "forgetLabel": "Unohda laite {name}",
       "hideEmailLabel": "Piilota sähköposti",
       "loadingSession": "Ladataan istuntoa…",
       "notificationsSection": "Ilmoitukset",
@@ -1404,9 +1400,6 @@
       "paired": {
         "unnamedComputer": "Tietokone · {id}"
       },
-      "pairedEmpty": "Yhtään tietokonetta ei ole vielä pariliitetty.",
-      "pairedOn": "Pariliitetty {date}",
-      "pairedSection": "Pariliitetyt tietokoneet",
       "privacyPolicy": "Tietosuojakäytäntö",
       "pushToggleA11y": "Ota push-ilmoitukset käyttöön tai poista käytöstä",
       "pushToggleLabel": "Salli push-ilmoitukset",
@@ -1464,8 +1457,6 @@
       "cantRightNow": "En juuri nyt",
       "deadline": "{time} jäljellä",
       "deadlinePassed": "Aika loppui",
-      "deadlineWithDefault": "{time} jäljellä — muuten ”{option}”",
-      "defaultOption": "Oletus",
       "hideSecret": "Piilota {label}",
       "missingFields": "Täytä kaikki pakolliset kentät.",
       "notification": {
@@ -1478,14 +1469,11 @@
       "plain": "Lähetetään selkokielisenä",
       "revealSecret": "Näytä {label}",
       "sealFailed": "Sitä ei voitu salata tällä laitteella.",
-      "send": "Lähetä",
       "sendSecurely": "Lähetä turvallisesti",
       "sending": "Lähetetään…",
       "sensitive": "Salattu päästä päähän",
       "sensitiveToggleA11y": "Salaa {label}",
       "sensitiveUnavailable": "Tämä laite ei voi vielä salata sitä",
-      "somethingElse": "Jotain muuta",
-      "somethingElsePlaceholder": "Kerro Stellalle, mitä tehdä sen sijaan",
       "unnamedComputer": "Tietokone · {id}",
       "waitingBadge": "Odottaa sinua"
     }
@@ -1584,6 +1572,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Suuri osa elämästä kulkee sähköpostin kautta. Yhdistä Gmail, niin autan sinua sen kanssa.",
         "memory": "One more thing that makes me different.",
+        "phone": "Olen myös puhelimessasi.",
         "quickstart": "Siinä kaikki. Vielä yksi asia, ja se on valinnainen: pikaopastus.",
         "quickstartDone": "Valmis. Tämän opin, ja tässä muutamia asioita, joista voisimme aloittaa.",
         "quickstartFailed": "En saanut selaintasi luettua loppuun tällä kertaa. Voimme aloittaa silti, ja opin matkan varrella.",
@@ -2079,16 +2068,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Kirjautuneet tietokoneet näkyvät tässä. Ota yksi käyttöön lähettääksesi sille töitä.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2226,47 +2210,6 @@
         "label": "Näytön tallennus"
       },
       "title": "Käyttöoikeudet"
-    },
-    "phoneAccess": {
-      "copy": "Kopioi",
-      "deviceFallback": "Puhelin",
-      "errors": {
-        "createPairing": "Parituskoodia ei voitu luoda."
-      },
-      "expired": "Vanhentunut",
-      "getCode": "Hae koodi",
-      "intro": {
-        "headline": "Yhdistä puhelimesi tietokoneeseesi"
-      },
-      "pairedCount": {
-        "one": "{count} puhelin paritettu",
-        "other": "{count} puhelinta paritettu"
-      },
-      "pairing": {
-        "body": "Skannaa QR-koodi puhelimen Stella-sovelluksessa tai syötä koodi.",
-        "headline": "Skannaa tai syötä tämä koodi",
-        "qrAlt": "Skannaa paritellaksesi puhelimesi"
-      },
-      "preparing": "Valmistellaan...",
-      "remove": "Poista",
-      "removing": "Poistetaan...",
-      "signedOut": {
-        "body": "Kirjaudu Stella-tilillesi paritellaksesi mobiilisovelluksen kanssa.",
-        "headline": "Kirjaudu sisään aloittaaksesi"
-      },
-      "steps": {
-        "appStoreQrAlt": "Skannaa ladataksesi Stellan App Storesta",
-        "connect": "Yhdistä puhelimesi",
-        "download": "Lataa sovellus",
-        "platformSelectorLabel": "Valitse mobiilialusta",
-        "playStoreQrAlt": "Skannaa ladataksesi Stellan Google Playsta"
-      },
-      "timeLeft": "{time} jäljellä",
-      "toasts": {
-        "codeCopied": "Koodi kopioitu leikepöydälle",
-        "phoneRemoved": "Puhelin poistettu",
-        "removeFailed": "Puhelimen poistaminen epäonnistui"
-      }
     },
     "power": {
       "description": "Estää tietokonetta siirtymästä lepotilaan, kun Stella on auki.",
@@ -2471,7 +2414,9 @@
         "skipped": "Ohitetut",
         "undoing": "Kumotaan…",
         "upToDate": "Mitään ei odota",
-        "waiting": "Odottaa"
+        "waiting": "Odottaa",
+        "upToDateTitle": "Kaikki on ajan tasalla",
+        "upToDateBody": "Stellan uudet versiot näkyvät tässä."
       },
       "updating": "Päivitetään…"
     },
@@ -2501,7 +2446,9 @@
       "noMatches": "Haku ei vastaa yhtään liitäntää.",
       "searchLabel": "Hae liitäntöjä",
       "searchPlaceholder": "Hae",
-      "title": "Liitännät"
+      "title": "Liitännät",
+      "noMatchesTitle": "Ei osumia",
+      "noMatchesBody": "Kokeile toista nimeä."
     },
     "display": {
       "agentThread": {
@@ -2555,11 +2502,19 @@
       },
       "canvasShare": {
         "copyLink": "Kopioi linkki",
-        "empty": "Ei vielä aktiivisia jakoja. Julkaise kanvas saadaksesi julkisen linkin.",
+        "empty": "Ei vielä julkisia kankaita. Tee kankaasta julkinen jakaaksesi sen linkin.",
         "expires": "Vanhenee {date}",
         "links": "Linkit",
         "live": "Kanvas on julkaistu",
         "loadFailed": "Jakojasi ei voitu ladata.",
+        "makePrivate": "Tee yksityiseksi",
+        "makePublic": "Tee julkiseksi",
+        "noLink": "Tällä kankaalla ei ole vielä linkkiä. Tee siitä julkinen, niin saat linkin, jonka kuka tahansa voi avata.",
+        "openInBrowser": "Avaa selaimessa",
+        "privateHint": "Vain sinä voit avata tämän linkin.",
+        "privateLink": "Yksityinen linkki",
+        "public": "Julkinen",
+        "publicHint": "Kuka tahansa, jolla on linkki, voi katsoa sitä.",
         "publicLink": "Julkinen kanvaslinkki",
         "publishFailed": "Tätä kanvasta ei voitu julkaista. Yritä uudelleen.",
         "publishing": "Julkaistaan kanvasta…",
@@ -2571,8 +2526,12 @@
         "toasts": {
           "copyFailed": "Linkkiä ei voitu kopioida",
           "linkCopied": "Jakolinkki kopioitu",
+          "madePrivate": "Linkki on nyt yksityinen",
+          "madePublic": "Linkki on nyt julkinen",
+          "openFailed": "Linkkiä ei voitu avata",
           "revokeFailed": "Tätä jakoa ei voitu peruuttaa",
-          "revoked": "Jako peruutettu"
+          "revoked": "Jako peruutettu",
+          "visibilityFailed": "Linkin avausoikeutta ei voitu muuttaa"
         },
         "untitled": "Nimetön kanvas"
       },
@@ -2581,7 +2540,10 @@
         "codeChanges": "Koodimuutokset",
         "desktopRequired": "Koodin esikatselu vaatii Stellan työpöytäsovelluksen.",
         "empty": "Ei vielä tiedostomuutoksia. Kun agentti muokkaa koodia, muutokset näkyvät tässä.",
-        "noChanges": "Muutoksia ei löytynyt."
+        "noChanges": "Muutoksia ei löytynyt.",
+        "emptyTitle": "Ei vielä muutoksia",
+        "emptyBody": "Kun agentti muokkaa koodia, muutokset näkyvät tässä.",
+        "noChangesTitle": "Ei muutoksia"
       },
       "filePreview": {
         "copy": "Kopioi",
@@ -2616,7 +2578,11 @@
         "revealInFinder": "Näytä Finderissa",
         "save": "Tallenna",
         "saveFailed": "Ei voitu tallentaa",
-        "saved": "Tallennettu"
+        "saved": "Tallennettu",
+        "zoom": "Lähennä kuvaa",
+        "imageUnavailable": "Kuva ei ole saatavilla",
+        "videoUnavailable": "Video ei ole saatavilla",
+        "audioUnavailable": "Ääni ei ole saatavilla"
       },
       "office": {
         "frameTitle": "{kind}-esikatselu: {title}",
@@ -2642,7 +2608,11 @@
       },
       "preview": {
         "limited": "Esikatselu on rajattu. Tallenna tai avaa alkuperäinen tiedosto nähdäksesi koko sisällön.",
-        "unavailable": "Tätä esikatselua ei voitu valmistella."
+        "unavailable": "Tätä esikatselua ei voitu valmistella.",
+        "failedTitle": "Esikatselua ei voi näyttää",
+        "failedBody": "Yritä uudelleen tai tallenna tiedosto ja avaa se muualla.",
+        "unavailableTitle": "Tiedosto ei ole saatavilla",
+        "emptyTitle": "Tämä tiedosto on tyhjä"
       },
       "spreadsheet": {
         "column": "Sarake {index}",
@@ -2664,7 +2634,9 @@
         "pendingPurge": "Odottaa poistoa",
         "refresh": "Päivitä",
         "title": "Roskakori",
-        "trashedAgo": "Siirretty roskakoriin {time} sitten"
+        "trashedAgo": "Siirretty roskakoriin {time} sitten",
+        "emptyTitle": "Roskakori on tyhjä",
+        "emptyBody": "Poistetut säilyvät täällä 24 tuntia."
       },
       "url": {
         "eyebrow": "Live-esikatselu",
@@ -2759,22 +2731,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "{time} jäljellä"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Käytä tätä vastausta",
+      "default": "Oletus",
+      "next": "Seuraava kysymys",
+      "previous": "Edellinen kysymys",
+      "progress": "{current}/{total}",
+      "sending": "Lähetetään…",
+      "skip": "Ohita",
+      "skipped": "Ohitettu",
+      "somethingElse": "Jotain muuta",
+      "submit": "Lähetä"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

@@ -16,17 +16,24 @@ import { randomUUID } from "node:crypto";
 import type { Context } from "@earendil-works/chord";
 import type { Message } from "@earendil-works/pi-ai";
 import { LiveDoc, watchEvents, type AgentEventStream, type Conversation, type EntryId, type EntryRecord, type Harness } from "@earendil-works/pi-durable";
-import { piJournalUserMessage, type PiRemoteTurn, type PiUserMessage } from "@stella/contracts/pi-chat";
+import { piJournalUserMessage, piTerminalNotice, type PiRemoteTurn, type PiUserMessage } from "@stella/contracts/pi-chat";
 import { CLIENT_MSG_ID_PATTERN } from "@stella/contracts/turn-plane/turn-start";
+import type { JournalCheckpointFirstKept } from "@stella/contracts/journal-checkpoint";
 import {
+  checkpointToPublish,
   importJournal,
+  journalImportAfter,
+  noteCheckpointPublished,
   journalSeqOf,
   JournalSyncDoc,
   type JournalAgentReport,
   type JournalMessage,
   type JournalOpenTurn,
+  type JournalStart,
   type JournalSyncState,
 } from "../stella/journal-sync.ts";
+import { NO_MESSAGE_ID, recordMessageId } from "../stella/message-ids.ts";
+import { stopStella } from "../stella/stop.ts";
 
 /** One journal record as `history.read` returns it; only messages are imported. */
 export type JournalReadRecord = {
@@ -52,8 +59,10 @@ const AGENT_OPERATION = /^pia:/;
 export type DesktopJournal = {
   /** This computer, which a cloud agent's report card names when it is for it. */
   deviceId: string;
-  /** Where the conversation's bounded model context starts, for a first import. */
-  contextStartSeq(): Promise<number>;
+  /** Where a new transcript of the conversation starts (`journalImportAfter`). */
+  start(): Promise<JournalStart>;
+  /** This transcript's newest compaction, as the conversation's checkpoint. */
+  publishCheckpoint(checkpoint: { summary: string; firstKept: JournalCheckpointFirstKept }): Promise<void>;
   /** Records after `afterSeq`, ascending, a batch at a time. */
   read(afterSeq: number): Promise<{ records: JournalReadRecord[]; complete: boolean }>;
   /** This computer's own mirrored turns and voice lines, which are not imported back. */
@@ -66,7 +75,12 @@ export type DesktopJournal = {
     /** Reacquire the lease of a turn a previous process opened, under its owner epoch. */
     adopt?: boolean;
     ownerGeneration?: string;
-  }): Promise<{ leaseToken: string; ownerGeneration: string }>;
+  }): Promise<{
+    leaseToken: string;
+    ownerGeneration: string;
+    /** The journal seq of a visible prompt, its `message #N` id, when it could be read. */
+    promptSeq?: number;
+  }>;
   finish(turn: {
     localTurnId: string;
     leaseToken: string;
@@ -167,11 +181,12 @@ export async function journalMirror(args: {
     }, context);
 
   const importNow = async () => {
-    const imported = (await doc()).importedSeq;
-    let after: number = imported ?? (await journal.contextStartSeq()) - 1;
-    // A first import starts at a prompt: a window may open mid-turn, on tool
-    // results whose calls it no longer holds.
-    let atPrompt = imported !== undefined;
+    const start = await journalImportAfter(await doc(), journal.start);
+    let after: number = start.after;
+    // A first import from the journal's window starts at a prompt: it may
+    // open mid-turn, on tool results whose calls it no longer holds. After a
+    // checkpoint, its summary comes first.
+    let atPrompt = start.seed === undefined || start.seed.checkpoint !== undefined;
     let stoppedElsewhere = false;
     for (;;) {
       const page = await journal.read(after);
@@ -183,6 +198,10 @@ export async function journalMirror(args: {
           continue;
         }
         if (journal.ownTurn(record.turnId)) {
+          // One of this computer's prompts, which its begin may not have numbered.
+          if (record.kind === "message" && record.role === "user" && record.clientMsgId && !record.hidden) {
+            await recordMessageId(harness, root.id, record.clientMsgId, record.seq, context);
+          }
           // Stopped from another device (the phone's Stop) while it runs here.
           const open = [...held].some((localTurnId) => record.turnId.endsWith(`:${localTurnId}`));
           if (open && record.kind === "turn" && record.phase === "canceled") stoppedElsewhere = true;
@@ -205,11 +224,11 @@ export async function journalMirror(args: {
         messages.push(message);
       }
       const through: number = page.records.at(-1)?.seq ?? after;
-      await importJournal(harness, root, messages, through, context);
+      await importJournal(harness, root, messages, through, context, start.seed);
       if (page.complete || through <= after) break;
       after = through;
     }
-    if (stoppedElsewhere) await root.abort(context);
+    if (stoppedElsewhere) await stopStella(harness, root, context);
     const turns = remoteTurns();
     const seen = JSON.stringify(turns);
     if (seen !== remoteSeen) {
@@ -233,7 +252,6 @@ export async function journalMirror(args: {
     }
     const messages = entries.map((entry) => entry.model![0]!);
     const last = [...messages].reverse().find((message) => message.role === "assistant");
-    const stop = last?.role === "assistant" ? last.stopReason : undefined;
     await journal.finish({
       localTurnId: open.localTurnId,
       leaseToken: open.leaseToken,
@@ -243,11 +261,7 @@ export async function journalMirror(args: {
         role: message.role === "assistant" ? "assistant" : "toolResult",
         payloadJson: JSON.stringify(message),
       })),
-      ...(stop === "error"
-        ? { phase: "failed" as const, notice: "Stella couldn't answer this message." }
-        : stop === "aborted"
-          ? { phase: "canceled" as const }
-          : { phase: "completed" as const }),
+      ...((last?.role === "assistant" ? piTerminalNotice(last) : undefined) ?? { phase: "completed" as const }),
     });
     held.delete(open.localTurnId);
   };
@@ -327,6 +341,9 @@ export async function journalMirror(args: {
                 return undefined;
               });
             if (ack) held.add(localTurnId);
+            if (journaled.clientMsgId && !journaled.hidden) {
+              await recordMessageId(harness, root.id, journaled.clientMsgId, ack?.promptSeq ?? NO_MESSAGE_ID, context);
+            }
             open = ack
               ? { localTurnId, leaseToken: ack.leaseToken, ownerGeneration: ack.ownerGeneration, entries: [] }
               : undefined;
@@ -352,6 +369,24 @@ export async function journalMirror(args: {
         delete current.open;
       });
     }
+    await publishCheckpoint(syncId).catch(report);
+  };
+
+  /**
+   * A compaction is the conversation's checkpoint for every other host: its
+   * summary and where the context it kept starts in the journal. One of this
+   * computer's own prompts is the journal turn it opened (`pi:<syncId>:<entry>`).
+   */
+  const publishCheckpoint = async (syncId: string) => {
+    const pending = await checkpointToPublish(
+      harness,
+      root,
+      (prompt) => ({ localTurnId: `pi:${syncId}:${prompt.id}` }),
+      context,
+    );
+    if (!pending) return;
+    await journal.publishCheckpoint({ summary: pending.summary, firstKept: pending.firstKept });
+    await noteCheckpointPublished(harness, root, pending.markerId, context);
   };
 
   const sync = () => {

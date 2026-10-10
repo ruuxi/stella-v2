@@ -21,6 +21,10 @@ import {
 import { SessionStore } from "../storage/session-store.js";
 import type { SqliteDatabase } from "../storage/shared.js";
 import { createReadinessLatch } from "../shared/readiness-latch.js";
+import {
+  loadLocalPreferences,
+  saveLocalPreferences,
+} from "../preferences/local-preferences.js";
 import { persistThreadCustomMessage } from "../agent-runtime/thread-memory.js";
 import { resolveOrchestratorThreadKey } from "../thread-runtime.js";
 
@@ -41,6 +45,13 @@ const openStore = (root?: string) => {
     getDesktopDatabasePath(dataDir),
   ) as unknown as SqliteDatabase;
   initializeDesktopDatabase(db);
+  // On Stella's own engine (pi) a report goes to the pi chat. These boots
+  // wire the orchestrator-turn path (`sendMessage`) that chat on Claude Code
+  // takes, so the data dir selects that engine.
+  saveLocalPreferences(dataDir, {
+    ...loadLocalPreferences(dataDir),
+    agentRuntimeEngine: "claude_code_local",
+  });
   openStores.push({ db, root: dataDir });
   return { db, store: new SessionStore(db), root: dataDir };
 };
@@ -66,7 +77,6 @@ const buildContext = (
   ({
     state: {
       localAgentManager: null,
-      orchestratorSessions: new Map(),
       runCallbacksByRunId: new Map(),
       supervisor: { adoptChild: () => {} },
       ...state,
@@ -78,15 +88,22 @@ const buildContext = (
       type: string;
       payload?: unknown;
     }) => {
-      if (event.eventId && store.hasEvent(event.conversationId, event.eventId))
+      if (
+        event.eventId &&
+        store.chat.hasEvent(event.conversationId, event.eventId)
+      )
         return;
-      store.appendEvent({ ...event, timestamp: Date.now() } as never);
+      store.chat.appendEvent({ ...event, timestamp: Date.now() } as never);
     },
     stellaDataDir: root,
     toolHost: { listRunningShellSessionsOwnedBy: () => [] },
   }) as never;
 
-const countReminders = (db: SqliteDatabase, threadId: string, eventId: string) =>
+const countReminders = (
+  db: SqliteDatabase,
+  threadId: string,
+  eventId: string,
+) =>
   (
     db
       .prepare(
@@ -138,7 +155,12 @@ describe("keyed lifecycle reminder lookup", () => {
       "x".repeat(200_000),
     );
     store.appendThreadMessages([
-      { threadKey: CONVERSATION, timestamp: 9_000, role: "user", content: "tail" },
+      {
+        threadKey: CONVERSATION,
+        timestamp: 9_000,
+        role: "user",
+        content: "tail",
+      },
     ]);
 
     const indexed = buildContext(store, root);
@@ -176,7 +198,10 @@ describe("keyed lifecycle reminder lookup", () => {
         scanned,
         probe(eventId) as never,
       );
-      expect({ eventId, found: viaIndex }).toEqual({ eventId, found: expected });
+      expect({ eventId, found: viaIndex }).toEqual({
+        eventId,
+        found: expected,
+      });
       expect(viaIndex).toBe(viaScan);
     }
   });
@@ -199,7 +224,9 @@ const bootManager = (options: {
     },
     getAgentRecord: (threadId: string) => options.records.get(threadId) ?? null,
     listAgentRecordsByStatus: (status: string) =>
-      [...options.records.values()].filter((record) => record.status === status),
+      [...options.records.values()].filter(
+        (record) => record.status === status,
+      ),
     hasAgentLifecycleEvent: () => false,
     onAgentEvent: options.onAgentEvent,
     readTerminalLifecycleRecoveryLedger: (key: string) =>
@@ -246,7 +273,9 @@ describe("terminal receipt replay bookkeeping", () => {
     try {
       await drainBoot(bootManager({ records, ledger, onAgentEvent }));
       expect(delivered).toEqual([]);
-      expect(records.get("child-1")?.terminalLifecycleReceiptGeneration).toBeUndefined();
+      expect(
+        records.get("child-1")?.terminalLifecycleReceiptGeneration,
+      ).toBeUndefined();
       const key = `${LOCAL_TERMINAL_RECOVERY_LEDGER_PREFIX}${CONVERSATION}:child-1:1:agent-completed`;
       expect(JSON.parse(ledger.get(key)!)).toMatchObject({
         attempts: 1,
@@ -256,7 +285,9 @@ describe("terminal receipt replay bookkeeping", () => {
       fail = false;
       await drainBoot(bootManager({ records, ledger, onAgentEvent }));
       expect(delivered).toEqual(["child-1:1:agent-completed"]);
-      expect(records.get("child-1")?.terminalLifecycleReceiptGeneration).toBe(1);
+      expect(records.get("child-1")?.terminalLifecycleReceiptGeneration).toBe(
+        1,
+      );
 
       await drainBoot(bootManager({ records, ledger, onAgentEvent }));
       expect(delivered).toEqual(["child-1:1:agent-completed"]);
@@ -275,7 +306,11 @@ describe("terminal receipt replay bookkeeping", () => {
       warnings.push(args);
     };
     try {
-      for (let boot = 0; boot < LOCAL_TERMINAL_RECOVERY_MAX_ATTEMPTS; boot += 1) {
+      for (
+        let boot = 0;
+        boot < LOCAL_TERMINAL_RECOVERY_MAX_ATTEMPTS;
+        boot += 1
+      ) {
         await drainBoot(
           bootManager({
             records,
@@ -312,7 +347,9 @@ describe("terminal receipt replay bookkeeping", () => {
       );
       expect(calls).toBe(LOCAL_TERMINAL_RECOVERY_MAX_ATTEMPTS);
       // Abandonment is a ledger outcome, never a fabricated delivery receipt.
-      expect(records.get("child-1")?.terminalLifecycleReceiptGeneration).toBeUndefined();
+      expect(
+        records.get("child-1")?.terminalLifecycleReceiptGeneration,
+      ).toBeUndefined();
     } finally {
       console.warn = warn;
     }
@@ -351,7 +388,9 @@ describe("terminal receipt replay bookkeeping", () => {
       }),
     );
     expect(delivered).toEqual(["fresh-child:1:agent-completed"]);
-    expect(records.get("stale-child")?.terminalLifecycleReceiptGeneration).toBeUndefined();
+    expect(
+      records.get("stale-child")?.terminalLifecycleReceiptGeneration,
+    ).toBeUndefined();
     expect(ledger.size).toBe(0);
   });
 
@@ -388,7 +427,8 @@ describe("terminal receipt replay bookkeeping", () => {
       updatedAt: now - 1_000,
     });
     const eventId = "child-1:1:agent-completed";
-    const appendThreadCustomMessage = store.appendThreadCustomMessage.bind(store);
+    const appendThreadCustomMessage =
+      store.appendThreadCustomMessage.bind(store);
     let failWrites = true;
     store.appendThreadCustomMessage = (message) => {
       if (failWrites) throw new Error("SQLITE_FULL: database or disk is full");
@@ -425,10 +465,12 @@ describe("terminal receipt replay bookkeeping", () => {
     try {
       // Boot 1: the report cannot be written, so the wake fails.
       await boot();
-      expect(store.getAgentRecord("child-1")?.terminalLifecycleReceiptGeneration).toBeUndefined();
+      expect(
+        store.getAgentRecord("child-1")?.terminalLifecycleReceiptGeneration,
+      ).toBeUndefined();
       expect(countReminders(db, orchestratorThreadKey, eventId)).toBe(0);
       const ledgerKey = `${LOCAL_TERMINAL_RECOVERY_LEDGER_PREFIX}${CONVERSATION}:${eventId}`;
-      expect(JSON.parse(store.getSetting(ledgerKey)!)).toMatchObject({
+      expect(JSON.parse(store.chat.getSetting(ledgerKey)!)).toMatchObject({
         attempts: 1,
         outcome: "retrying",
       });
@@ -437,11 +479,14 @@ describe("terminal receipt replay bookkeeping", () => {
       // the dead owner is never woken or credited with it.
       failWrites = false;
       await boot();
-      expect(store.getAgentRecord("child-1")?.terminalLifecycleReceiptGeneration).toBe(1);
+      expect(
+        store.getAgentRecord("child-1")?.terminalLifecycleReceiptGeneration,
+      ).toBe(1);
       expect(countReminders(db, orchestratorThreadKey, eventId)).toBe(1);
       expect(countReminders(db, "parent-1", eventId)).toBe(0);
       expect(
-        store.getAgentRecord("parent-1")?.descendantBoundaryState?.consumedEventIds ?? [],
+        store.getAgentRecord("parent-1")?.descendantBoundaryState
+          ?.consumedEventIds ?? [],
       ).toEqual([]);
 
       // Boot 3: nothing replays; the user's thread still holds one report.

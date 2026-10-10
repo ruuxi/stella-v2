@@ -78,7 +78,3 @@
   color: var(--muted-foreground);
   font-size: var(--font-size-base);
 }
-
-.file-preview-card__placeholder--error {
-  color: var(--destructive);
-}

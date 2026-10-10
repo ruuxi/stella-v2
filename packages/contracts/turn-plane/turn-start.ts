@@ -151,50 +151,15 @@ export type CloudTurnStartError = {
 // ---------------------------------------------------------------------------
 // Agent turns (BuildSession)
 //
-//   POST {socketOrigin}/sessions/{threadId}/turns
-//
-// Service-authenticated only (`Authorization: Bearer <BUILDER_SERVICE_SECRET>`):
-// service callers start these for desktop-dispatched cloud agents, execution
-// placement's agent branch, and hosted-browser resumes. The orchestrator's
-// own spawns never pass through this route (OrchestratorSession -> BuildSession).
+// An agent attempt in a container: the owner's own engines (Claude, Codex)
+// and Claude Code's orchestrator turns. Dispatched object to object by the
+// conversation and the owner's agent threads; an agent on Stella's models
+// runs in its conversation instead, as a pi agent.
 // ---------------------------------------------------------------------------
-
-export const AGENT_TURN_START_PATH_PREFIX = "/sessions" as const;
-export const agentTurnStartPath = (threadId: string): string =>
-  `${AGENT_TURN_START_PATH_PREFIX}/${encodeURIComponent(threadId)}/turns`;
-
-export const agentSteerPath = (threadId: string): string =>
-  `${AGENT_TURN_START_PATH_PREFIX}/${encodeURIComponent(threadId)}/steer`;
-
-export type CloudAgentSteerKind =
-  | "input"
-  /** A note from another agent or Stella, already framed by `formatAgentMessage`. */
-  | "message"
-  | "child_completed"
-  | "child_canceled"
-  | "child_failed";
-
-export type CloudAgentSteerMessage = {
-  id: string;
-  kind: CloudAgentSteerKind;
-  text: string;
-  threadId?: string;
-  attemptGeneration?: number;
-  createdAt: number;
-};
-
-export type CloudAgentSteerResponse =
-  | {
-      accepted: true;
-      turnId: string;
-      attemptGeneration: number;
-    }
-  | { accepted: false; reason: "not_running" };
 
 export type CloudAgentTurnSource =
   | "desktop"
   | "placement"
-  | "browser-resume"
   | "agent-thread"
   /** The OrchestratorSession's own chat turn on the Claude Code CLI. */
   | "orchestrator";
@@ -233,8 +198,6 @@ export type CloudAgentTurnStartRequest = {
   parentTurnId?: string;
   originDeviceId?: string;
   originConversationId?: string;
-  /** Hosted-browser resume receipt carried into the resumed attempt. */
-  browserResume?: unknown;
   /**
    * Present only on the OrchestratorSession's own chat turn for an
    * `anthropic` execution (see cloud-orchestrator-cli.ts). That dispatch has

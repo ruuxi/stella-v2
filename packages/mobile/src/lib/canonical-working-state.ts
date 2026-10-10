@@ -3,7 +3,7 @@ import {
   IDLE_WORKING_ACTIVITY,
   type WorkingIndicatorState,
 } from "../components/working-indicator-state";
-import type { JournalRecord } from "./cloud-conversation-protocol";
+import type { JournalRecord } from "@stella/contracts/conversation-protocol";
 import type { LiveTurn } from "./cloud-conversation-store";
 import { activeCloudTurnId, cloudTurnActivity } from "./cloud-journal-projection";
 

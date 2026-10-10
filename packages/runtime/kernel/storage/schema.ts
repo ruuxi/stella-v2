@@ -27,7 +27,7 @@ import {
   legacyTablesPresent,
 } from "./legacy-import.js";
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const FTS_TOKENIZER = "'porter unicode61 remove_diacritics 2'";
 
@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS agent (
   parent_agent_id TEXT,
   model_config_json TEXT,
   tool_workspace_root TEXT,
+  working_directory TEXT,
   status TEXT NOT NULL,
   started_at INTEGER NOT NULL,
   completed_at INTEGER,
@@ -256,16 +257,11 @@ CREATE INDEX IF NOT EXISTS idx_run_admission_created
 `;
 
 /**
- * Durable runs (`run-task.ts`, schema v5). One `run_task` row per native
- * orchestrator chat run or local agent run, with the launch metadata and the
- * in-flight checkpoint needed to resume it after the worker dies; one
- * `tool_intent` row per tool call, written before the tool starts and settled
- * when it returns. Recovery reads them to decide, per unanswered call, whether
- * to reuse a stored result, rerun a replay-safe tool, or answer it as
- * interrupted. `abort_requested` is committed before a cancel signals, so a
- * canceled run is never resumed. Both tables stay small: one row per run and
- * per tool call, results are cleared once the thread holds them, and idle
- * maintenance deletes terminal rows after 7 days. Never in `entry`.
+ * Durable runs (`run-task.ts`, schema v5). The agent loop of older builds
+ * kept one `run_task` row per orchestrator chat run or local agent run and
+ * one `tool_intent` row per tool call, to resume a run after its worker died.
+ * Nothing writes them now; a boot settles what an older build left running,
+ * and idle maintenance deletes terminal rows after 7 days. Never in `entry`.
  */
 export const RUN_TASK_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS run_task (
@@ -691,6 +687,18 @@ const MIGRATIONS: Migration[] = [
       // Two new, empty tables + their own indexes (CREATE ... IF NOT EXISTS
       // only): constant time at open on any file size.
       db.exec(RUN_TASK_SCHEMA_SQL);
+    },
+  },
+  {
+    version: 6,
+    apply: (db) => {
+      // Where each agent starts. A file created at migration 1 by this build
+      // already has the column; adding a nullable column is constant time.
+      try {
+        db.exec("ALTER TABLE agent ADD COLUMN working_directory TEXT;");
+      } catch {
+        /* column already exists */
+      }
     },
   },
 ];

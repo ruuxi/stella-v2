@@ -3,8 +3,8 @@ import {
   StellaBrowserBridgeService,
   type StellaBrowserAgentBackend,
   type StellaBrowserAgentCapability,
-  type StellaBrowserExportedCookie,
 } from "../services/stella-browser-bridge-service.js";
+import type { StellaBrowserExportedCookie } from "@stella/contracts/desktop/browser-view";
 import { createManagedResource } from "../managed-resource.js";
 import { BROWSER_BRIDGE_MISSING_ERROR } from "../utils/register-stella-native-messaging-host.js";
 import {
@@ -13,10 +13,7 @@ import {
   type StellaBrowserBridgeStatus,
 } from "@stella/contracts/browser-bridge-status";
 
-export type {
-  StellaBrowserBridgeFailureReason,
-  StellaBrowserBridgeStatus,
-};
+export type { StellaBrowserBridgeFailureReason, StellaBrowserBridgeStatus };
 
 export type StellaBrowserBridgeResource = {
   start: () => void;

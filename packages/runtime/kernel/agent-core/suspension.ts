@@ -32,15 +32,3 @@ export const isAgentToolSuspendedError = (
     value !== null &&
     (value as { name?: unknown }).name === "AgentToolSuspendedError" &&
     isCloudBrowserSuspension((value as { suspension?: unknown }).suspension));
-
-/** Bind an untrusted gateway descriptor to the canonical outer tool call. */
-export const bindAgentToolSuspensionToCall = (
-  error: AgentToolSuspendedError,
-  toolCallId: string,
-): AgentToolSuspendedError =>
-  error.suspension.toolCallId === toolCallId
-    ? error
-    : new AgentToolSuspendedError({
-        ...error.suspension,
-        toolCallId,
-      });

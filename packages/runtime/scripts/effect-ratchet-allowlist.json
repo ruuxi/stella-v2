@@ -1,44 +1,33 @@
 {
-  "ai/providers/anthropic.ts": 1,
-  "ai/providers/gateway-json-request.ts": {
-    "new AbortController": 1,
-    "setTimeout(": 2
-  },
-  "ai/utils/oauth/chatgpt.ts": 1,
   "headless/cli.ts": 1,
-  "kernel/agent-core/agent-loop.ts": 1,
-  "kernel/agent-core/explicit-model-agent.ts": 1,
-  "kernel/agent-runtime/agent-run-retry.ts": 1,
   "kernel/agent-runtime/compaction-scheduler.ts": 1,
   "kernel/agent-runtime/external-engine-lifecycle.ts": 2,
-  "kernel/agent-runtime/provider-stream-lifecycle.ts": 2,
   "kernel/agent-runtime/run-completion.ts": 1,
-  "kernel/agent-runtime/run-retry.ts": 1,
-  "kernel/agent-runtime/tool-lifecycle.ts": 2,
-  "kernel/agents/local-agent-manager.js": 3,
+  "kernel/agents/local-agent-manager.ts": 3,
   "kernel/browser-use/client.ts": 1,
-  "kernel/browser-use/worker-api.ts": 1,
+  "kernel/browser-use/worker-api/context.ts": 1,
   "kernel/computer-use/kernel-worker.ts": 2,
   "kernel/computer-use/kernel.ts": 3,
   "kernel/computer-use/stella-computer-executor.ts": 1,
   "kernel/connectors/connector-bridge.ts": 2,
   "kernel/connectors/oauth.ts": 1,
-  "kernel/integrations/claude-code-session-runtime.js": 7,
+  "kernel/integrations/claude-code-session-runtime.ts": 6,
   "kernel/integrations/claude-code-tool-mcp-host.ts": 1,
   "kernel/integrations/tool-inactivity.ts": 1,
   "kernel/local-scheduler-service.ts": 1,
-  "kernel/runner/background-exit-wake.js": 1,
+  "kernel/runner/background-exit-wake.ts": 1,
   "kernel/runner/orchestrator-launch.ts": 1,
   "kernel/shared/join-timeout.ts": 1,
   "kernel/shared/read-image-file.ts": 1,
   "kernel/shared/readiness-latch.ts": 1,
   "kernel/shared/schedule-scripts.ts": 1,
-  "kernel/thread-runtime.ts": 1,
+  "kernel/thread-compaction-summary.ts": 1,
   "kernel/tools/defs/map.ts": 1,
   "kernel/tools/local-tool-overrides.ts": 2,
   "kernel/tools/media-artifact-store.ts": 1,
   "kernel/tools/search.ts": 1,
-  "kernel/tools/shell.ts": 2,
+  "kernel/tools/shell/process.ts": 1,
+  "kernel/tools/shell/sessions.ts": 1,
   "worker/cli-bridge-server.ts": 1,
   "workers/cloud-builder/src/archive.ts": {
     "setTimeout(": 1
@@ -55,7 +44,7 @@
   "workers/cloud-builder/src/local-owner-model-grants.ts": {
     "new AbortController": 1
   },
-  "workers/cloud-builder/src/owner-gate.ts": {
+  "workers/cloud-builder/src/owner-gate/support.ts": {
     "setTimeout(": 1
   }
 }

@@ -8,6 +8,7 @@
  */
 import type { DesktopJournal, JournalReadRecord } from "@stella/agent/host/desktop-journal";
 import type { OpenSession } from "./sessions.js";
+import { JOURNAL_CHECKPOINT_PATH, type JournalCheckpointPublish } from "@stella/contracts/journal-checkpoint";
 
 const READ_TIMEOUT_MS = 30_000;
 
@@ -25,8 +26,36 @@ export const cloudJournalFor = (
   };
   return {
     deviceId,
-    contextStartSeq: async () =>
-      (await runner().cloudJournal.history(conversationId)).contextStartSeq,
+    start: async () => {
+      const window = await runner().cloudJournal.history(conversationId);
+      return {
+        contextStartSeq: window.contextStartSeq,
+        ...(window.checkpoint ? { checkpoint: window.checkpoint } : {}),
+      };
+    },
+    publishCheckpoint: async ({ summary, firstKept }) => {
+      const auth = runner().getStellaSiteAuth();
+      if (!auth) throw new Error("Sign in to sync this conversation.");
+      const body: JournalCheckpointPublish = {
+        expectedOwnerGeneration: await runner().cloudJournal.ownerGeneration(),
+        deviceId,
+        summary,
+        firstKept,
+      };
+      const response = await fetch(
+        `${auth.baseUrl.replace(/\/+$/, "")}/conversations/${encodeURIComponent(conversationId)}${JOURNAL_CHECKPOINT_PATH}`,
+        {
+          method: "POST",
+          headers: { authorization: `Bearer ${auth.authToken}`, "content-type": "application/json" },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+        },
+      );
+      // A refusal is final for this compaction; the next one publishes anew.
+      if (response.status >= 500 || response.status === 401 || response.status === 429) {
+        throw new Error(`The conversation's checkpoint was not saved (${response.status}).`);
+      }
+    },
     read: async (afterSeq) => {
       const auth = runner().getStellaSiteAuth();
       if (!auth) throw new Error("Sign in to sync this conversation.");
@@ -71,7 +100,8 @@ export const cloudJournalFor = (
         ...(turn.hidden ? { hidden: true } : {}),
         ...(turn.adopt ? { adoptExisting: true } : {}),
       });
-      return { leaseToken: ack.leaseToken, ownerGeneration };
+      const promptSeq = turn.hidden ? undefined : await runner().cloudJournal.promptSeq(conversationId, ack);
+      return { leaseToken: ack.leaseToken, ownerGeneration, ...(promptSeq === undefined ? {} : { promptSeq }) };
     },
     finish: async (turn) => {
       const status = await runner().cloudJournal.finish({

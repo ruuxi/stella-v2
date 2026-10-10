@@ -14,6 +14,10 @@ import { randomUUID } from "crypto";
 import { BrowserWindow, shell } from "electron";
 import { beginConnectorDeviceOAuth, completeConnectorDeviceOAuth, connectConnectorOAuth, connectPreregisteredConnectorOAuth, saveConnectorAccessToken, } from "@stella/runtime/kernel/connectors/oauth";
 import { PendingRequestStore } from "./pending-request-store.js";
+import {
+  IPC_CONNECTOR_CREDENTIAL_REQUEST,
+  IPC_CONNECTOR_CREDENTIAL_COMPLETE,
+} from "@stella/contracts/desktop/ipc-channels";
 const REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 export class ConnectorCredentialService {
     options;
@@ -275,7 +279,7 @@ export class ConnectorCredentialService {
             return settled;
         }
         for (const window of targetWindows) {
-            window.webContents.send("connector-credential:request", request);
+            window.webContents.send(IPC_CONNECTOR_CREDENTIAL_REQUEST, request);
         }
         return settled;
     }
@@ -284,7 +288,7 @@ export class ConnectorCredentialService {
         for (const window of windows) {
             if (window.isDestroyed())
                 continue;
-            window.webContents.send("connector-credential:complete", {
+            window.webContents.send(IPC_CONNECTOR_CREDENTIAL_COMPLETE, {
                 requestId,
                 ok: outcome.ok,
                 reason: outcome.ok ? undefined : outcome.reason,

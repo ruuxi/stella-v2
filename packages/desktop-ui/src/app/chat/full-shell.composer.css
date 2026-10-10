@@ -202,6 +202,7 @@
  * user's typed message stays visible. */
 .composer-dictation-row {
   display: none;
+  --composer-dictation-transcript-max-height: calc(3lh + 1px);
 }
 
 .composer-form.expanded .composer-dictation-row {

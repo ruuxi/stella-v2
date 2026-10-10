@@ -4,6 +4,13 @@ import type {
   AdmittedCloudChat,
   CloudChatPreparation,
 } from "./cloud-chat-admission.js";
+import type {
+  PiThreadPause,
+  PiThreadPauseResult,
+  PiThreadStart,
+  PiThreadSteer,
+  PiThreadSteerResult,
+} from "./cloud-agent-dispatch.js";
 import type { OwnerModelGrantFreezeRequest } from "./owner-model-grants.js";
 import type { Env } from "./build-session/shared/env.js";
 
@@ -65,6 +72,18 @@ export class OrchestratorSession extends DurableObject<Env> {
     args: OwnerModelGrantFreezeRequest,
   ): Promise<{ frozen: true }> {
     return await (await this.loadImplementation()).freezeOwnerModelGrants(args);
+  }
+
+  async startPiThread(input: PiThreadStart): Promise<void> {
+    await (await this.loadImplementation()).startPiThread(input);
+  }
+
+  async steerPiThread(input: PiThreadSteer): Promise<PiThreadSteerResult> {
+    return await (await this.loadImplementation()).steerPiThread(input);
+  }
+
+  async pausePiThread(input: PiThreadPause): Promise<PiThreadPauseResult> {
+    return await (await this.loadImplementation()).pausePiThread(input);
   }
 
   async queryHistory(ownerId: string, request: unknown): Promise<unknown> {

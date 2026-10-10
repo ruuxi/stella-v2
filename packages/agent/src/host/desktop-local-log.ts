@@ -8,10 +8,43 @@
  * answers again.
  */
 import type { Context } from "@earendil-works/chord";
-import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
-import { defineDoc, watchEvents, type AgentEventStream, type Conversation, type EntryId, type Harness } from "@earendil-works/pi-durable";
-import { PI_REPORT_RE, piMessageText, piUserView, type PiUserMessage } from "@stella/contracts/pi-chat";
+import type { AssistantMessage, Message, TextContent } from "@earendil-works/pi-ai";
+import {
+  defineDoc,
+  InboxDoc,
+  LiveDoc,
+  watchEvents,
+  type AgentEventStream,
+  type Conversation,
+  type EntryDraft,
+  type EntryId,
+  type EntryRecord,
+  type Harness,
+} from "@earendil-works/pi-durable";
+import {
+  piJournalUserMessage,
+  piMessageText,
+  piTerminalNotice,
+  piUserHidden,
+  piUserView,
+  type PiUserDisplay,
+  type PiUserMessage,
+} from "@stella/contracts/pi-chat";
 import { splitReplyRefs } from "@stella/contracts/reply-refs";
+import { lifecycleWakeOutcome, lifecycleWakeTask } from "@stella/contracts/conversation-journal-projection";
+import { NO_MESSAGE_ID, recordMessageId } from "../stella/message-ids.ts";
+
+/** The task a `spawn_agent` result started, by its thread id. */
+const spawnedThreadId = (details: unknown, text: string): string | undefined => {
+  const fromDetails = (details as { thread_id?: unknown } | undefined)?.thread_id;
+  if (typeof fromDetails === "string" && fromDetails) return fromDetails;
+  try {
+    const parsed = (JSON.parse(text) as { thread_id?: unknown } | null)?.thread_id;
+    return typeof parsed === "string" && parsed ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 /** One message the log holds that pi did not write. */
 export type LocalLogMessage = { id: string; seq: number; role: "user" | "assistant"; text: string; timestamp: number };
@@ -23,18 +56,64 @@ export type DesktopLocalLog = {
    * pi did not write, and the last row read (`throughSeq`).
    */
   read(afterSeq: number, limit: number): Promise<{ messages: LocalLogMessage[]; throughSeq: number; complete: boolean }>;
-  /** One of pi's messages, written once per `key`. */
-  write(message: {
-    key: string;
-    role: "user" | "assistant";
-    text: string;
-    timestamp: number;
-    /** An answer's user message (its `key`). */
-    replyTo?: string;
-    /** An answer Stella went on from with a tool call. */
-    followedByToolCall?: boolean;
-  }): Promise<void>;
+  /** One of pi's rows, written once per `key`; resolves with the row's id and seq. */
+  write(message: LocalLogWrite): Promise<{ id: string; seq?: number }>;
 };
+
+/**
+ * A row of pi's in the log, as the agent loops write theirs: the user's
+ * message as sent (its id the one the composer gave it, and what it showed),
+ * Stella's replies, her tool calls and their results, and how a turn ended
+ * when its reply did not finish.
+ */
+export type LocalLogWrite =
+  | {
+      key: string;
+      role: "user";
+      text: string;
+      timestamp: number;
+      /** The id the sending client gave the message, kept as its row id. */
+      clientMsgId?: string;
+      display?: PiUserDisplay;
+    }
+  | {
+      key: string;
+      role: "assistant";
+      text: string;
+      timestamp: number;
+      /** An answer's user message (its row id). */
+      replyTo?: string;
+      /** An answer Stella went on from with a tool call. */
+      followedByToolCall?: boolean;
+      /** How the turn ended (failed, stopped), not words of Stella's. */
+      notice?: true;
+    }
+  | {
+      key: string;
+      role: "tool_request";
+      timestamp: number;
+      toolCallId: string;
+      toolName: string;
+      args?: Record<string, unknown>;
+    }
+  | {
+      key: string;
+      role: "lifecycle";
+      type: "agent-started" | "agent-completed" | "agent-failed" | "agent-canceled";
+      timestamp: number;
+      agentId: string;
+      payload: Record<string, unknown>;
+    }
+  | {
+      key: string;
+      role: "tool_result";
+      timestamp: number;
+      toolCallId: string;
+      toolName: string;
+      text: string;
+      details?: unknown;
+      isError?: boolean;
+    };
 
 export type LocalLogMirror = {
   /** Write what the log gained since the last import into the transcript. */
@@ -53,6 +132,10 @@ const LocalLogSyncDoc = defineDoc<{ importedSeq?: number; mirrored?: number; rep
 });
 
 const PAGE = 200;
+/** Log rows imported per commit. */
+const IMPORT_PAGE = 1000;
+/** A log message to import, and its text. */
+type Imported = { message: LocalLogMessage; text: string };
 /** Events after which the transcript may have something for the log. */
 const MIRRORED_EVENTS = new Set(["entry_appended", "message_end", "run_end"]);
 
@@ -85,6 +168,12 @@ export const writtenReply = (text: string, timestamp: number, model: string): As
     timestamp,
   }) as AssistantMessage;
 
+/** A log message's text as a user part, marked with its seq (its `message #N` id). */
+const userPart = (text: string, seq: number): TextContent => {
+  const part = { type: "text" as const, text, stella: { seq } };
+  return part;
+};
+
 export async function localLogMirror(args: {
   harness: Harness;
   root: Conversation;
@@ -102,40 +191,83 @@ export async function localLogMirror(args: {
       return undefined;
     }, context);
 
+  /** The entry a log message is written as. */
+  const entryOf = ({ message, text }: Imported): EntryDraft => ({
+    kind: message.role === "user" ? "pi.user" : "pi.assistant",
+    model: [
+      message.role === "user"
+        ? ({ role: "user", content: [userPart(text, message.seq)], timestamp: message.timestamp } as Message)
+        : writtenReply(text, message.timestamp, "legacy"),
+    ],
+    data: { localLog: message.id },
+  });
+  /** The request a message goes through pi's inbox under, so it is never written twice. */
+  const requestOf = (message: LocalLogMessage) => `legacy:${message.id}`;
+
+  /**
+   * A page of the log written into the transcript in one commit, with how far
+   * the import got: a crash keeps both or neither, so each row is written
+   * once. False, writing nothing, while pi answers or has writes queued: a
+   * run reads the transcript between its steps, so those go through its inbox.
+   */
+  const importPage = (page: Imported[], through: number) =>
+    harness.commit(async (tx) => {
+      // A page that went through the inbox (as every page did in older
+      // builds) and was cut short: each message it wrote has a request, its
+      // first message first.
+      const written = new Set<string>();
+      if (page[0] && (await tx.submissionByRequest(root.id, requestOf(page[0].message)))) {
+        for (const { message } of page) {
+          if (await tx.submissionByRequest(root.id, requestOf(message))) written.add(message.id);
+        }
+      }
+      const last = (await tx.scanEntries({ conversationId: root.id, order: "descending" }, 1)).items[0]?.id ?? 0;
+      if ((await tx.doc(LiveDoc, root.id)).run !== undefined || (await tx.doc(InboxDoc, root.id)).items.length > 0) {
+        return false;
+      }
+      const state = await tx.doc(LocalLogSyncDoc, root.id);
+      const imported = state.importedSeq ?? -1;
+      let newest: number = last;
+      for (const item of page) {
+        if (item.message.seq <= imported || written.has(item.message.id)) continue;
+        newest = (await tx.appendEntry(root.id, entryOf(item))).id;
+      }
+      // Nothing of pi's waits for the log, so what came from it needs no pass.
+      if ((state.mirrored ?? 0) >= last) state.mirrored = newest;
+      state.importedSeq = Math.max(imported, through);
+      return true;
+    }, context);
+
+  /** The log imported through `through`. */
+  const advance = (through: number) =>
+    save((state) => {
+      state.importedSeq = Math.max(state.importedSeq ?? -1, through);
+    });
+
+  /** A page through pi's inbox: placed at its run's next step, one write each. */
+  const submitPage = async (page: Imported[], through: number) => {
+    for (const item of page) {
+      await root.submit({ type: "write", requestId: requestOf(item.message), entry: entryOf(item) }, context);
+    }
+    await advance(through);
+  };
+
   let importing: Promise<void> | undefined;
   const importOnce = async () => {
     let after = (await doc()).importedSeq ?? -1;
     for (;;) {
-      const page = await log.read(after, PAGE);
-      for (const message of page.messages) {
-        const text = message.text.trim();
-        if (!text) continue;
-        const model =
-          message.role === "user"
-            ? ({ role: "user", content: [{ type: "text", text }], timestamp: message.timestamp } as Message)
-            : writtenReply(text, message.timestamp, "legacy");
-        // The id the first import wrote it under, so it is never written twice.
-        await root.submit(
-          {
-            type: "write",
-            requestId: `legacy:${message.id}`,
-            entry: {
-              kind: message.role === "user" ? "pi.user" : "pi.assistant",
-              model: [model],
-              data: { localLog: message.id },
-            },
-          },
-          context,
-        );
-      }
-      if (page.throughSeq > after) {
-        const through = page.throughSeq;
-        await save((state) => {
-          state.importedSeq = Math.max(state.importedSeq ?? -1, through);
+      const read = await log.read(after, IMPORT_PAGE);
+      if (read.throughSeq > after) {
+        const page = read.messages.flatMap((message) => {
+          const text = message.text.trim();
+          return text ? [{ message, text }] : [];
         });
+        // Most often only pi's own messages, written back: nothing to import.
+        if (page.length === 0) await advance(read.throughSeq);
+        else if (!(await importPage(page, read.throughSeq))) await submitPage(page, read.throughSeq);
       }
-      if (page.complete || page.throughSeq <= after) break;
-      after = page.throughSeq;
+      if (read.complete || read.throughSeq <= after) break;
+      after = read.throughSeq;
     }
   };
   /** One import at a time; a caller during one waits for it. */
@@ -158,10 +290,96 @@ export async function localLogMirror(args: {
 
   let running = false;
   let again = false;
+  /** A `spawn_agent` call's description, by call id, for the task its result starts (often a later pass). */
+  const spawned = new Map<string, string>();
+  /**
+   * Whether a reply that did not finish (failed or stopped) is how its turn
+   * ended: it waits for the run to end, and a reply after it in the same turn
+   * means the run went on (a retry after a failed request, a reply that
+   * finished after a Stop marker from `stopStella`), so only the turn's last
+   * reply says how it ended, as the journal and the transcript view say it.
+   */
+  const unfinishedReplyEnding = (entryId: EntryId) =>
+    harness.commit(async (tx): Promise<"pending" | "superseded" | "stands"> => {
+      if ((await tx.doc(LiveDoc, root.id)).run !== undefined) return "pending";
+      const later = await tx.scanEntries(
+        { conversationId: root.id, minEntryId: (entryId + 1) as EntryId, order: "ascending" },
+        PAGE,
+      );
+      for (const next of later.items) {
+        if (next.kind === "pi.user") break;
+        if (next.kind === "pi.assistant") return "superseded";
+      }
+      return "stands";
+    }, context);
+  /** How an agent's task ended, from its report (a hidden pi.user entry), as the log writes it. */
+  const taskEnded = (entry: Pick<EntryRecord, "id" | "kind" | "model">): LocalLogWrite | undefined => {
+    const message = entry.model?.[0];
+    if (entry.kind !== "pi.user" || message?.role !== "user" || !piUserHidden(message as PiUserMessage)) return undefined;
+    const report = piMessageText(message);
+    const task = lifecycleWakeTask(report);
+    const outcome = task ? lifecycleWakeOutcome(report) : null;
+    if (!task || !outcome) return undefined;
+    return {
+      key: `${root.id}:${entry.id}:agent-${outcome.kind}`,
+      role: "lifecycle",
+      type: outcome.kind === "completed" ? "agent-completed" : outcome.kind === "failed" ? "agent-failed" : "agent-canceled",
+      timestamp: message.timestamp,
+      agentId: task.threadId,
+      payload: {
+        agentId: task.threadId,
+        ...(task.description ? { description: task.description } : {}),
+        ...(outcome.kind === "completed" ? { result: outcome.body } : outcome.body ? { error: outcome.body } : {}),
+      },
+    };
+  };
+  /** A pi.assistant entry the log writes as a reply bubble. */
+  const isReply = (entry: Pick<EntryRecord, "kind" | "model">): boolean => {
+    const message = entry.model?.[0];
+    return (
+      entry.kind === "pi.assistant" &&
+      message?.role === "assistant" &&
+      splitReplyRefs(piMessageText(message)).text.trim().length > 0
+    );
+  };
+  /**
+   * The reply that relays an agent's report: the first one after it, before
+   * the next input. In the journal the report opens its own turn, whose
+   * reply carries how the task ended; the log has no turn for a hidden
+   * input, so that reply writes the task's end after itself and the log
+   * groups the two the same way. "pending" while the run answering it goes on.
+   */
+  const relayOf = (entryId: EntryId) =>
+    harness.commit(async (tx): Promise<"pending" | "relayed" | "none"> => {
+      if ((await tx.doc(LiveDoc, root.id)).run !== undefined) return "pending";
+      const later = await tx.scanEntries(
+        { conversationId: root.id, minEntryId: (entryId + 1) as EntryId, order: "ascending" },
+        PAGE,
+      );
+      for (const next of later.items) {
+        if (next.kind === "pi.user") return "none";
+        if (isReply(next)) return "relayed";
+      }
+      return "none";
+    }, context);
+  /** The report a reply relays, if the reply is the first after one (`relayOf`). */
+  const relayedReport = (entryId: EntryId) =>
+    harness.commit(async (tx): Promise<LocalLogWrite | undefined> => {
+      const earlier = await tx.scanEntries(
+        { conversationId: root.id, maxEntryId: (entryId - 1) as EntryId, order: "descending" },
+        PAGE,
+      );
+      for (const previous of earlier.items) {
+        if (previous.kind === "pi.user") return taskEnded(previous);
+        if (isReply(previous)) return undefined;
+      }
+      return undefined;
+    }, context);
   const mirrorOnce = async () => {
     const state = await doc();
     let replyTo = state.replyTo;
     let mirrored = state.mirrored ?? 0;
+    let held = false;
     for (;;) {
       const page = await harness.commit(
         async (tx) =>
@@ -173,15 +391,42 @@ export async function localLogMirror(args: {
         if (message && !fromLog(entry)) {
           const key = `${root.id}:${entry.id}`;
           if (entry.kind === "pi.user" && message.role === "user") {
-            const said = piMessageText(message as PiUserMessage);
-            const { text } = piUserView(message as PiUserMessage);
-            // An agent's report and a prompt the app sent are not the user's words.
-            if (text.trim() && !PI_REPORT_RE.test(said.trimStart())) {
-              await log.write({ key, role: "user", text: text.trim(), timestamp: message.timestamp });
-              replyTo = key;
+            const { text, display } = piUserView(message as PiUserMessage);
+            const hidden = piUserHidden(message as PiUserMessage);
+            // An agent's report is how its task ended, as the loops log a task's end.
+            const ended = taskEnded(entry);
+            if (ended) {
+              const relay = await relayOf(entry.id);
+              if (relay === "pending") {
+                // Taken up again when the run ends (`run_end`).
+                held = true;
+                break;
+              }
+              // A reply that relays it writes it after itself.
+              if (relay === "none") await log.write(ended);
+            }
+            // An agent's report or note and a prompt the app sent are not the user's words.
+            if (!text.trim() && !hidden) {
+              const { clientMsgId } = piJournalUserMessage(message as PiUserMessage);
+              // Nothing of it goes in the log, so it has no id there.
+              if (clientMsgId) await recordMessageId(harness, root.id, clientMsgId, NO_MESSAGE_ID, context);
+            }
+            if (text.trim() && !hidden) {
+              const { clientMsgId } = piJournalUserMessage(message as PiUserMessage);
+              const row = await log.write({
+                key,
+                role: "user",
+                text: text.trim(),
+                timestamp: message.timestamp,
+                ...(clientMsgId ? { clientMsgId } : {}),
+                ...(display ? { display } : {}),
+              });
+              replyTo = row.id;
+              if (clientMsgId) await recordMessageId(harness, root.id, clientMsgId, row.seq ?? NO_MESSAGE_ID, context);
             }
           } else if (entry.kind === "pi.assistant" && message.role === "assistant") {
             const text = splitReplyRefs(piMessageText(message)).text.trim();
+            const calls = message.content.flatMap((part) => (part.type === "toolCall" ? [part] : []));
             if (text) {
               await log.write({
                 key,
@@ -189,7 +434,70 @@ export async function localLogMirror(args: {
                 text,
                 timestamp: message.timestamp,
                 ...(replyTo ? { replyTo } : {}),
-                ...(message.content.some((part) => part.type === "toolCall") ? { followedByToolCall: true } : {}),
+                ...(calls.length > 0 ? { followedByToolCall: true } : {}),
+              });
+              // The log's timeline orders by time: the task's end goes just after the reply relaying it.
+              const relayed = await relayedReport(entry.id);
+              if (relayed) await log.write({ ...relayed, timestamp: Math.max(relayed.timestamp, message.timestamp + 1) });
+            }
+            for (const [index, call] of calls.entries()) {
+              const description = (call.arguments as { description?: unknown } | undefined)?.description;
+              if (call.name === "spawn_agent" && typeof description === "string") spawned.set(call.id, description.trim());
+              await log.write({
+                key: `${key}:tool:${index}`,
+                role: "tool_request",
+                timestamp: message.timestamp + index + 1,
+                toolCallId: call.id,
+                toolName: call.name,
+                ...(call.arguments ? { args: call.arguments } : {}),
+              });
+            }
+            const terminal = piTerminalNotice(message);
+            const ending = terminal ? await unfinishedReplyEnding(entry.id) : "stands";
+            if (ending === "pending") {
+              // Taken up again when the run ends (`run_end`).
+              held = true;
+              break;
+            }
+            if (terminal && ending === "stands") {
+              await log.write({
+                key: `${key}:notice`,
+                role: "assistant",
+                text: terminal.notice,
+                timestamp: message.timestamp + calls.length + 1,
+                ...(replyTo ? { replyTo } : {}),
+                notice: true,
+              });
+            }
+          } else if (entry.kind === "pi.tool-result" && message.role === "toolResult") {
+            const text = piMessageText(message);
+            await log.write({
+              key,
+              role: "tool_result",
+              timestamp: message.timestamp,
+              toolCallId: message.toolCallId,
+              toolName: message.toolName,
+              text,
+              ...(message.details !== undefined ? { details: message.details } : {}),
+              ...(message.isError ? { isError: true } : {}),
+            });
+            const threadId = message.toolName === "spawn_agent" && !message.isError ? spawnedThreadId(message.details, text) : undefined;
+            if (threadId) {
+              const description =
+                spawned.get(message.toolCallId) ??
+                (message.details as { description?: unknown } | undefined)?.description;
+              spawned.delete(message.toolCallId);
+              await log.write({
+                key: `${key}:agent-started`,
+                role: "lifecycle",
+                type: "agent-started",
+                timestamp: message.timestamp + 1,
+                agentId: threadId,
+                payload: {
+                  agentId: threadId,
+                  agentType: "general",
+                  ...(typeof description === "string" && description ? { description } : {}),
+                },
               });
             }
           }
@@ -199,10 +507,11 @@ export async function localLogMirror(args: {
       const through = mirrored;
       const reply = replyTo;
       await save((current) => {
-        current.mirrored = through;
+        // An import meanwhile may have moved it past what it wrote.
+        current.mirrored = Math.max(current.mirrored ?? 0, through);
         if (reply) current.replyTo = reply;
       });
-      if (page.length < PAGE) break;
+      if (held || page.length < PAGE) break;
     }
   };
   const sync = () => {
@@ -220,6 +529,11 @@ export async function localLogMirror(args: {
       running = false;
     })();
   };
+
+  // What the log gained while the conversation was closed, all of a long
+  // one's history on its first open, comes in before anything watches the
+  // transcript: a watched transcript's view is copied per entry appended.
+  await importNow().catch(report);
 
   const stream: AgentEventStream = await watchEvents(harness, root.id, context);
   stream.start(async (events) => {

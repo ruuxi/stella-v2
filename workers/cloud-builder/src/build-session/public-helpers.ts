@@ -1,4 +1,3 @@
-import { isCloudBrowserSuspension } from "@stella/contracts/cloud-browser";
 import type { TurnBrokerTurnStateCheckpointReceipt } from "@stella/contracts/turn-credential-broker";
 import type { AgentExecutorResult } from "./shared/types.js";
 import { parseTurnStateCheckpointRequest } from "../turn-state-checkpoint.js";
@@ -66,7 +65,6 @@ export const parseAgentExecutorResult = (
     "checkpointPolicy",
     "checkpointMs",
     "turnStateCheckpoint",
-    "suspension",
     "builderFallback",
   ]);
   const boundedOutput = (candidate: unknown): candidate is string =>
@@ -74,9 +72,7 @@ export const parseAgentExecutorResult = (
     new TextEncoder().encode(candidate).byteLength <= 4 * 1024 * 1024;
   if (
     !Object.keys(result).every((key) => allowed.has(key)) ||
-    (result.outcome !== undefined &&
-      result.outcome !== "completed" &&
-      result.outcome !== "suspended") ||
+    (result.outcome !== undefined && result.outcome !== "completed") ||
     typeof result.ok !== "boolean" ||
     (result.finalText !== undefined && !boundedOutput(result.finalText)) ||
     (result.error !== undefined && !boundedOutput(result.error)) ||
@@ -91,21 +87,6 @@ export const parseAgentExecutorResult = (
       result.checkpointPolicy !== "preserve_prior" &&
       result.checkpointPolicy !== "builder_fallback")
   ) {
-    return null;
-  }
-
-  if (result.outcome === "suspended") {
-    if (
-      result.ok !== false ||
-      result.finalText !== "" ||
-      result.error !== undefined ||
-      !isCloudBrowserSuspension(result.suspension) ||
-      result.checkpointPolicy !== undefined ||
-      result.builderFallback !== undefined
-    ) {
-      return null;
-    }
-  } else if (result.suspension !== undefined) {
     return null;
   }
 

@@ -58,17 +58,28 @@ export const clampUrgency = (value: unknown): UserAskUrgencyLevel => {
   return rounded as UserAskUrgencyLevel;
 };
 
-export const USER_ASK_SOMETHING_ELSE_OPTION_ID = "something_else";
-
 export const USER_ASK_MIN_OPTIONS = 2;
 export const USER_ASK_MAX_OPTIONS = 4;
+export const USER_ASK_MAX_QUESTIONS = 4;
+export const USER_ASK_MAX_RESPONSE_TEXT = 2000;
 
-export const USER_ASK_DEFAULT_TIMEOUT_MS = 5 * 60_000;
+export const USER_ASK_SKIPPED_NOTE = "The user chose not to answer this question.";
+
+export const USER_ASK_DEFAULT_TIMEOUT_MS = 3 * 60_000;
 export const USER_ASK_MIN_TIMEOUT_MS = 30_000;
-export const USER_ASK_MAX_TIMEOUT_MS = 24 * 60 * 60_000;
+export const USER_ASK_MAX_TIMEOUT_MS = 3 * 60_000;
 export const USER_ASK_BLOCKING_TTL_MS = 24 * 60 * 60_000;
 
 export const USER_ASK_ESCALATION_STEP_MS = 90_000;
+
+export const clampUserAskTimeoutMs = (value: unknown): number => {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return USER_ASK_DEFAULT_TIMEOUT_MS;
+  return Math.min(
+    USER_ASK_MAX_TIMEOUT_MS,
+    Math.max(USER_ASK_MIN_TIMEOUT_MS, Math.round(numeric)),
+  );
+};
 
 export const USER_ASK_MAX_FIELDS = 8;
 
@@ -93,12 +104,17 @@ export type UserAskField = Readonly<{
   choices?: readonly UserAskOption[];
 }>;
 
-export type UserAskQuestionDetail = Readonly<{
-  kind: "question";
+export type UserAskQuestion = Readonly<{
+  id: string;
   question: string;
   detail?: string;
   options: readonly UserAskOption[];
   defaultChoiceId?: string;
+}>;
+
+export type UserAskQuestionDetail = Readonly<{
+  kind: "question";
+  questions: readonly UserAskQuestion[];
 }>;
 
 export type UserAskSecureInputDetail = Readonly<{
@@ -175,13 +191,21 @@ export type UserAskAnswerFieldValue =
   | Readonly<{ fieldId: string; kind: "plain"; value: string }>
   | Readonly<{ fieldId: string; kind: "sealed"; sealed: UserAskSealedValue }>;
 
+export const USER_ASK_RESPONSE_KINDS = ["option", "text", "skipped"] as const;
+
+export type UserAskResponseKind = (typeof USER_ASK_RESPONSE_KINDS)[number];
+
+export type UserAskQuestionResponse =
+  | Readonly<{ questionId: string; kind: "option"; choiceId: string }>
+  | Readonly<{ questionId: string; kind: "text"; text: string }>
+  | Readonly<{ questionId: string; kind: "skipped" }>;
+
 export type UserAskAnswer =
   | Readonly<{
       askId: string;
       revision: number;
-      kind: "choice";
-      choiceId: string;
-      text?: string;
+      kind: "questions";
+      responses: readonly UserAskQuestionResponse[];
       answeredOnDeviceId?: string;
     }>
   | Readonly<{
@@ -198,8 +222,7 @@ export type UserAskResolution =
   | Readonly<{
       outcome: "answered";
       askId: string;
-      choiceId?: string;
-      text?: string;
+      responses?: readonly UserAskQuestionResponse[];
       values?: Readonly<Record<string, string>>;
       handles?: Readonly<Record<string, string>>;
       answeredAt: number;
@@ -208,8 +231,7 @@ export type UserAskResolution =
   | Readonly<{
       outcome: "defaulted";
       askId: string;
-      choiceId: string;
-      choiceLabel: string;
+      responses: readonly UserAskQuestionResponse[];
       defaultedAt: number;
       note: string;
     }>
@@ -220,8 +242,12 @@ export type UserAskResolution =
       note: string;
     }>;
 
-export const userAskDefaultedNote = (choiceLabel: string): string =>
-  `Went with "${choiceLabel}" — you didn't answer in time. Tell me if you want something else and I'll adapt.`;
+export const userAskDefaultedNote = (choiceLabels: readonly string[]): string =>
+  choiceLabels.length === 1
+    ? `Went with "${choiceLabels[0]}" — you didn't answer in time. Tell me if you want something else and I'll adapt.`
+    : `Went with the defaults (${choiceLabels
+        .map((label) => `"${label}"`)
+        .join(", ")}) — you didn't answer in time. Tell me if you want something else and I'll adapt.`;
 
 export const userAskIsOpen = (state: UserAskState): boolean =>
   (USER_ASK_OPEN_STATES as readonly UserAskState[]).includes(state);
@@ -420,13 +446,192 @@ export const normalizeUserAskOptions = (
   return options;
 };
 
-export const withSomethingElseOption = (
-  options: readonly UserAskOption[],
-  label: string,
-): readonly UserAskOption[] =>
-  options.some((option) => option.id === USER_ASK_SOMETHING_ELSE_OPTION_ID)
-    ? options
-    : [...options, { id: USER_ASK_SOMETHING_ELSE_OPTION_ID, label }];
+const LEGACY_SOMETHING_ELSE_OPTION_ID = "something_else";
+
+const questionId = (value: unknown, index: number): string => {
+  const id = String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48);
+  return id || `q${index + 1}`;
+};
+
+const normalizeQuestion = (
+  input: unknown,
+  index: number,
+): UserAskQuestion | null => {
+  if (!input || typeof input !== "object") return null;
+  const source = input as Record<string, unknown>;
+  const question = typeof source.question === "string" ? source.question.trim() : "";
+  if (!question) return null;
+  const options = normalizeUserAskOptions(source.options).filter(
+    (option) => option.id !== LEGACY_SOMETHING_ELSE_OPTION_ID,
+  );
+  if (options.length === 0) return null;
+  const detail = typeof source.detail === "string" ? source.detail.trim() : "";
+  const requestedDefault = String(
+    source.defaultChoiceId ?? source.default_choice ?? source.defaultChoice ?? "",
+  ).trim();
+  const defaultOption = options.find(
+    (option) =>
+      option.id === requestedDefault ||
+      option.id === normalizeUserAskOptions([requestedDefault])[0]?.id,
+  );
+  return {
+    id: questionId(source.id, index),
+    question,
+    ...(detail ? { detail } : {}),
+    options,
+    ...(defaultOption ? { defaultChoiceId: defaultOption.id } : {}),
+  };
+};
+
+export const normalizeUserAskQuestions = (
+  input: unknown,
+): readonly UserAskQuestion[] => {
+  if (!input || typeof input !== "object") return [];
+  const source = input as Record<string, unknown>;
+  const rows = Array.isArray(source.questions) ? source.questions : [source];
+  const seen = new Set<string>();
+  const questions: UserAskQuestion[] = [];
+  for (const row of rows) {
+    if (questions.length >= USER_ASK_MAX_QUESTIONS) break;
+    const question = normalizeQuestion(row, questions.length);
+    if (!question) continue;
+    let id = question.id;
+    while (seen.has(id)) id = `${id}_${questions.length + 1}`;
+    seen.add(id);
+    questions.push(id === question.id ? question : { ...question, id });
+  }
+  return questions;
+};
+
+export const userAskQuestionsOf = (
+  detail: UserAskDetail,
+): readonly UserAskQuestion[] =>
+  detail.kind === "question" ? detail.questions : [];
+
+export const userAskTitleOf = (detail: UserAskDetail): string =>
+  detail.kind === "question"
+    ? (detail.questions[0]?.question ?? "")
+    : detail.purpose;
+
+export const userAskHasDefaults = (detail: UserAskDetail): boolean =>
+  detail.kind === "question" &&
+  detail.questions.length > 0 &&
+  detail.questions.every((question) => question.defaultChoiceId !== undefined);
+
+export const userAskDefaultResponses = (
+  detail: UserAskDetail,
+): readonly UserAskQuestionResponse[] =>
+  userAskQuestionsOf(detail).map((question) => ({
+    questionId: question.id,
+    kind: "option" as const,
+    choiceId: question.defaultChoiceId ?? question.options[0]?.id ?? "",
+  }));
+
+export const userAskOptionLabel = (
+  question: UserAskQuestion,
+  choiceId: string,
+): string =>
+  question.options.find((option) => option.id === choiceId)?.label ?? choiceId;
+
+export const userAskDefaultedResolution = (
+  askId: string,
+  detail: UserAskDetail,
+  defaultedAt: number,
+): UserAskResolution => {
+  const questions = userAskQuestionsOf(detail);
+  const responses = userAskDefaultResponses(detail);
+  const labels = responses.map((response, index) =>
+    response.kind === "option"
+      ? userAskOptionLabel(questions[index]!, response.choiceId)
+      : "",
+  );
+  return {
+    outcome: "defaulted",
+    askId,
+    responses,
+    defaultedAt,
+    note: userAskDefaultedNote(labels),
+  };
+};
+
+export const validateUserAskResponses = (
+  detail: UserAskDetail,
+  input: unknown,
+): readonly UserAskQuestionResponse[] => {
+  if (detail.kind !== "question") {
+    throw new Error("This ask needs field values, not answers to questions.");
+  }
+  const rows = Array.isArray(input) ? input : [];
+  const byId = new Map<string, UserAskQuestionResponse>();
+  for (const row of rows) {
+    const source = (row ?? {}) as Record<string, unknown>;
+    const id = typeof source.questionId === "string" ? source.questionId : "";
+    const question = detail.questions.find((candidate) => candidate.id === id);
+    if (!question) throw new Error("That answer is for a question this ask did not ask.");
+    if (byId.has(id)) throw new Error("That question was answered twice.");
+    if (source.kind === "option") {
+      const choiceId = typeof source.choiceId === "string" ? source.choiceId : "";
+      if (!question.options.some((option) => option.id === choiceId)) {
+        throw new Error("That is not one of the offered options.");
+      }
+      byId.set(id, { questionId: id, kind: "option", choiceId });
+      continue;
+    }
+    if (source.kind === "text") {
+      const text =
+        typeof source.text === "string"
+          ? source.text.trim().slice(0, USER_ASK_MAX_RESPONSE_TEXT)
+          : "";
+      byId.set(
+        id,
+        text ? { questionId: id, kind: "text", text } : { questionId: id, kind: "skipped" },
+      );
+      continue;
+    }
+    if (source.kind === "skipped") {
+      byId.set(id, { questionId: id, kind: "skipped" });
+      continue;
+    }
+    throw new Error("That answer does not match the question.");
+  }
+  return detail.questions.map(
+    (question) =>
+      byId.get(question.id) ?? { questionId: question.id, kind: "skipped" as const },
+  );
+};
+
+export type UserAskReadableAnswer = Readonly<{
+  question: string;
+  choice?: string;
+  label?: string;
+  text?: string;
+  skipped?: true;
+  note?: string;
+}>;
+
+export const userAskReadableAnswers = (
+  questions: readonly UserAskQuestion[],
+  responses: readonly UserAskQuestionResponse[],
+): readonly UserAskReadableAnswer[] =>
+  questions.map((question) => {
+    const response = responses.find((entry) => entry.questionId === question.id);
+    if (!response || response.kind === "skipped") {
+      return { question: question.question, skipped: true, note: USER_ASK_SKIPPED_NOTE };
+    }
+    if (response.kind === "text") {
+      return { question: question.question, text: response.text };
+    }
+    return {
+      question: question.question,
+      choice: response.choiceId,
+      label: userAskOptionLabel(question, response.choiceId),
+    };
+  });
 
 export const toUserAskSummary = (ask: UserAsk): UserAskSummary => ({
   schemaVersion: ask.schemaVersion,
@@ -441,8 +646,7 @@ export const toUserAskSummary = (ask: UserAsk): UserAskSummary => ({
   revision: ask.revision,
   createdAt: ask.createdAt,
   updatedAt: ask.updatedAt,
-  title:
-    ask.detail.kind === "question" ? ask.detail.question : ask.detail.purpose,
+  title: userAskTitleOf(ask.detail),
   ...(ask.deadlineAt === undefined ? {} : { deadlineAt: ask.deadlineAt }),
 });
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, contentTracing, dialog, ipcMain, powerSaveBlocker, shell, } from "electron";
+import { app, BrowserWindow, contentTracing, dialog, powerSaveBlocker, shell } from "electron";
 import { spawn } from "node:child_process";
 import { access, copyFile, readdir, readFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -17,23 +17,117 @@ import { loadAgentSystemPrompt } from "@stella/runtime/kernel/agents/home-agent-
 import { deletePromptPreset, isCustomizablePromptAgentId, listPromptPresets, readPromptPreset, savePromptPreset, } from "@stella/runtime/kernel/prompts/prompt-presets";
 import { getPromptPresetSelection, setPromptPresetSelection, } from "@stella/runtime/kernel/preferences/local-preferences";
 import { desktopPiChatEnabled } from "@stella/contracts/pi-chat";
-import { getModels } from "@stella/runtime/ai/models";
+import { getModels } from "@stella/runtime/kernel/model-catalog";
 import { deleteLocalLlmCredential, getLocalLlmCredential, listLocalLlmCredentials, saveLocalLlmCredential, } from "@stella/runtime/kernel/storage/llm-credentials";
 import { cleanupRetiredLocalLlmOAuthCredentials, deleteLocalLlmOAuthCredential, getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, saveLocalLlmOAuthCredential, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
-import { getOAuthProvider, getOAuthProviders, } from "@stella/runtime/ai/utils/oauth";
-import { loginChatGpt } from "@stella/runtime/ai/utils/oauth/chatgpt";
+import { getLlmOAuthProvider, getLlmOAuthProviders, loginLlmOAuth, } from "@stella/runtime/kernel/storage/llm-oauth-providers";
+import { loginChatGpt } from "@stella/runtime/kernel/integrations/chatgpt-sign-in";
 import { beginChatGptRegistration, chatGptProfileIdForClient, getChatGptAccessToken, getChatGptHostId, hasUsableChatGptProfile, listChatGptProfiles, removeChatGptProfile, saveChatGptRegistration, savedChatGptRegistration, setActiveChatGptProfile, signOutChatGptProfile, } from "@stella/runtime/kernel/storage/chatgpt-profiles";
 import { isRuntimeUnavailableError } from "@stella/contracts/protocol/rpc-peer";
 import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
-import { IPC_APP_QUIT_FOR_RESTART, IPC_AUTH_APPLY_SESSION_TOKEN, IPC_AUTH_DELETE_USER, IPC_AUTH_GET_SESSION, IPC_AUTH_GET_TOKEN, IPC_AUTH_REVOKE_SESSIONS, IPC_AUTH_SIGN_IN_ANONYMOUS, IPC_AUTH_SIGN_OUT, IPC_DIAGNOSTICS_EXPORT_LOGS, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, IPC_DIAGNOSTICS_REPORT_ERROR, IPC_DIAGNOSTICS_REPORT_TIMING, IPC_DIAGNOSTICS_OPEN_LOGS, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, IPC_SYSTEM_OPEN_FDA, IPC_PERMISSIONS_GET_STATUS, IPC_PERMISSIONS_OPEN_SETTINGS, IPC_PERMISSIONS_REQUEST, IPC_PERMISSIONS_RESET, IPC_PERMISSIONS_RESET_MICROPHONE, IPC_SHELL_SAVE_FILE_AS, IPC_CUSTOMIZATIONS_RESET, IPC_PROMPT_PRESETS_LIST, IPC_PROMPT_PRESETS_READ, IPC_PROMPT_PRESETS_SAVE, IPC_PROMPT_PRESETS_DELETE, IPC_PROMPT_PRESETS_SELECT, IPC_PREFERENCES_GET_MODELS, IPC_CHATGPT_LIST_MODELS, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, IPC_PREFERENCES_LIST_MODELS, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, IPC_PREFERENCES_GET_PREVENT_SLEEP, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_SET_MODELS, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, IPC_PREFERENCES_SET_PREVENT_SLEEP, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, IPC_PREFERENCES_GET_READ_ALOUD, IPC_PREFERENCES_READ_ALOUD_CHANGED, IPC_PREFERENCES_SET_READ_ALOUD, IPC_VOICE_PREFERENCES_CHANGED, IPC_PI_CHAT_ENABLED_CHANGED, IPC_USER_ASK_ANSWER, IPC_USER_ASK_CANCEL, IPC_USER_ASK_LIST, IPC_USER_ASK_OVERRIDE_SENSITIVE, IPC_USER_ASK_POLICY_GET, IPC_USER_ASK_POLICY_SET, } from "@stella/contracts/desktop/ipc-channels";
+import {
+  IPC_APP_QUIT_FOR_RESTART,
+  IPC_AUTH_GET_CHALLENGE_TOKEN,
+  IPC_AUTH_APPLY_SESSION_TOKEN,
+  IPC_AUTH_DELETE_USER,
+  IPC_AUTH_GET_SESSION,
+  IPC_AUTH_GET_TOKEN,
+  IPC_AUTH_REVOKE_SESSIONS,
+  IPC_AUTH_SIGN_IN_ANONYMOUS,
+  IPC_AUTH_SIGN_OUT,
+  IPC_DIAGNOSTICS_EXPORT_LOGS,
+  IPC_DIAGNOSTICS_RECORD_HEAP_TRACE,
+  IPC_DIAGNOSTICS_REPORT_ERROR,
+  IPC_DIAGNOSTICS_REPORT_TIMING,
+  IPC_DIAGNOSTICS_OPEN_LOGS,
+  IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED,
+  IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED,
+  IPC_SYSTEM_OPEN_FDA,
+  IPC_PERMISSIONS_GET_STATUS,
+  IPC_PERMISSIONS_OPEN_SETTINGS,
+  IPC_PERMISSIONS_REQUEST,
+  IPC_PERMISSIONS_RESET,
+  IPC_PERMISSIONS_RESET_MICROPHONE,
+  IPC_SHELL_SAVE_FILE_AS,
+  IPC_CUSTOMIZATIONS_RESET,
+  IPC_PROMPT_PRESETS_LIST,
+  IPC_PROMPT_PRESETS_READ,
+  IPC_PROMPT_PRESETS_SAVE,
+  IPC_PROMPT_PRESETS_DELETE,
+  IPC_PROMPT_PRESETS_SELECT,
+  IPC_PREFERENCES_GET_MODELS,
+  IPC_CHATGPT_LIST_MODELS,
+  IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS,
+  IPC_PREFERENCES_LIST_MODELS,
+  IPC_PREFERENCES_GET_ONBOARDING_COMPLETED,
+  IPC_PREFERENCES_GET_PREVENT_SLEEP,
+  IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE,
+  IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS,
+  IPC_PREFERENCES_SET_MODELS,
+  IPC_PREFERENCES_SET_ONBOARDING_COMPLETED,
+  IPC_PREFERENCES_SET_PREVENT_SLEEP,
+  IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE,
+  IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS,
+  IPC_PREFERENCES_GET_READ_ALOUD,
+  IPC_PREFERENCES_READ_ALOUD_CHANGED,
+  IPC_PREFERENCES_SET_READ_ALOUD,
+  IPC_VOICE_PREFERENCES_CHANGED,
+  IPC_PI_CHAT_ENABLED_CHANGED,
+  IPC_USER_ASK_ANSWER,
+  IPC_USER_ASK_CANCEL,
+  IPC_USER_ASK_LIST,
+  IPC_USER_ASK_OVERRIDE_SENSITIVE,
+  IPC_USER_ASK_POLICY_GET,
+  IPC_USER_ASK_POLICY_SET,
+  IPC_DEVICE_GET_ID,
+  IPC_AUTH_SIGN_DEVICE,
+  IPC_HOST_CONFIGURE_RUNTIME,
+  IPC_HOST_SET_CLOUD_SYNC,
+  IPC_APP_HARD_RESET,
+  IPC_APP_RESET_MESSAGES,
+  IPC_CONNECTOR_CREDENTIAL_SUBMIT,
+  IPC_CONNECTOR_CREDENTIAL_CANCEL,
+  IPC_CONNECTOR_CONNECT_RESPOND,
+  IPC_SHELL_OPEN_EXTERNAL,
+  IPC_SHELL_SHOW_IN_FOLDER,
+  IPC_SHELL_KILL_BY_PORT,
+  IPC_LLM_CREDENTIALS_LIST,
+  IPC_LLM_CREDENTIALS_LIST_OAUTH_PROVIDERS,
+  IPC_LLM_CREDENTIALS_LIST_OAUTH,
+  IPC_LLM_CREDENTIALS_LOGIN_OAUTH,
+  IPC_CLAUDE_ACCOUNTS_LIST,
+  IPC_CLAUDE_ACCOUNTS_START_LOGIN,
+  IPC_CLAUDE_ACCOUNTS_WAIT_LOGIN,
+  IPC_CLAUDE_ACCOUNTS_FINISH_LOGIN,
+  IPC_CLAUDE_ACCOUNTS_CANCEL_LOGIN,
+  IPC_CLAUDE_ACCOUNTS_SIGN_OUT,
+  IPC_CHATGPT_PROFILES_CHANGED,
+  IPC_CHATGPT_LIST_PROFILES,
+  IPC_CHATGPT_SIGN_IN,
+  IPC_CHATGPT_CANCEL_SIGN_IN,
+  IPC_CHATGPT_SET_ACTIVE,
+  IPC_CHATGPT_SIGN_OUT,
+  IPC_CHATGPT_REMOVE,
+  IPC_ENGINE_ACCOUNTS_CONNECT_CHATGPT_CLOUD,
+  IPC_ENGINE_ACCOUNTS_CANCEL_CONNECT_CHATGPT_CLOUD,
+  IPC_LLM_CREDENTIALS_CANCEL_OAUTH,
+  IPC_LLM_CREDENTIALS_VALIDATE_OAUTH,
+  IPC_LLM_CREDENTIALS_DELETE_OAUTH,
+  IPC_LLM_CREDENTIALS_SAVE,
+  IPC_LLM_CREDENTIALS_DELETE,
+  IPC_SYSTEM_DETECT_TECHNICAL_USER_SIGNALS,
+} from "@stella/contracts/desktop/ipc-channels";
 import { resolveNativeHelperPath } from "../native-helper-path.js";
 import { hasMacPermission, clearPermissionCache, getMicrophonePermissionStatus, requestMacPermission, resetMacMicrophonePermissions, resetMacPermission, } from "../utils/macos-permissions.js";
 import { waitForConnectedRunner } from "./runtime-availability.js";
 import { getGlobalShortcutsSuspended, setGlobalShortcutsSuspended, } from "./global-shortcuts.js";
 import { createRequire } from "node:module";
 import { t } from "../services/i18n-service.js";
-import { IPC_AUTH_GET_CHALLENGE_TOKEN } from "../auth-challenge-ipc.js";
 import { isDelegatedDeviceSigningInput } from "@stella/contracts/gateway/dpop";
+import {
+  handleIpc,
+  onIpc,
+} from "./typed-ipc.js";
 let _screenCapturePermissions;
 const getScreenCapturePermissions = () => {
     if (_screenCapturePermissions !== undefined)
@@ -479,14 +573,14 @@ export const registerSystemHandlers = (options) => {
     if (stellaAppDir) {
         cleanupRetiredLocalLlmOAuthCredentials(stellaAppDir);
     }
-    ipcMain.handle("device:getId", async (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "device:getId")) {
+    handleIpc(IPC_DEVICE_GET_ID, async (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_DEVICE_GET_ID)) {
             throw new Error("Blocked untrusted device:getId request.");
         }
         return options.getDeviceId() ?? await options.loadDeviceId();
     });
-    ipcMain.handle("auth:signDevice", async (event, input) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "auth:signDevice")) {
+    handleIpc(IPC_AUTH_SIGN_DEVICE, async (event, input) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_AUTH_SIGN_DEVICE)) {
             throw new Error("Blocked untrusted device-signing request.");
         }
         if (typeof input !== "string" || input.length === 0 || input.length > 64 * 1024) {
@@ -504,7 +598,7 @@ export const registerSystemHandlers = (options) => {
             signature: await signer.sign(input),
         };
     });
-    ipcMain.handle(IPC_APP_QUIT_FOR_RESTART, (event) => {
+    handleIpc(IPC_APP_QUIT_FOR_RESTART, (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_APP_QUIT_FOR_RESTART)) {
             throw new Error("Blocked untrusted app:quitForRestart request.");
         }
@@ -513,8 +607,8 @@ export const registerSystemHandlers = (options) => {
         }, 50);
         return { ok: true };
     });
-    ipcMain.handle("host:configurePiRuntime", (event, config) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "host:configurePiRuntime")) {
+    handleIpc(IPC_HOST_CONFIGURE_RUNTIME, (event, config) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_HOST_CONFIGURE_RUNTIME)) {
             throw new Error("Blocked untrusted host configuration request.");
         }
         const backendUrl = sanitizeOptionalHttpUrl(config?.backendUrl, "backendUrl");
@@ -523,59 +617,59 @@ export const registerSystemHandlers = (options) => {
         }
         return { deviceId: options.getDeviceId() };
     });
-    ipcMain.handle(IPC_AUTH_GET_SESSION, async (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "auth:getSession")) {
+    handleIpc(IPC_AUTH_GET_SESSION, async (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_AUTH_GET_SESSION)) {
             throw new Error("Blocked untrusted auth session request.");
         }
         return await options.authService.getAuthSessionSnapshot({
             allowCached: payload?.allowCached === true,
         });
     });
-    ipcMain.handle(IPC_AUTH_SIGN_IN_ANONYMOUS, async (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "auth:signInAnonymous")) {
+    handleIpc(IPC_AUTH_SIGN_IN_ANONYMOUS, async (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_AUTH_SIGN_IN_ANONYMOUS)) {
             throw new Error("Blocked untrusted anonymous sign-in request.");
         }
         return await options.authService.signInAnonymous();
     });
-    ipcMain.handle(IPC_AUTH_GET_CHALLENGE_TOKEN, async (event) => {
+    handleIpc(IPC_AUTH_GET_CHALLENGE_TOKEN, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_AUTH_GET_CHALLENGE_TOKEN)) {
             throw new Error("Blocked untrusted human-verification request.");
         }
         return await options.authService.getChallengeToken();
     });
-    ipcMain.handle(IPC_AUTH_SIGN_OUT, async (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "auth:signOut")) {
+    handleIpc(IPC_AUTH_SIGN_OUT, async (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_AUTH_SIGN_OUT)) {
             throw new Error("Blocked untrusted sign-out request.");
         }
         return await options.authService.signOut();
     });
-    ipcMain.handle(IPC_AUTH_DELETE_USER, async (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "auth:deleteUser")) {
+    handleIpc(IPC_AUTH_DELETE_USER, async (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_AUTH_DELETE_USER)) {
             throw new Error("Blocked untrusted account deletion request.");
         }
         return await options.authService.deleteUser();
     });
-    ipcMain.handle(IPC_AUTH_APPLY_SESSION_TOKEN, async (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "auth:applySessionToken")) {
+    handleIpc(IPC_AUTH_APPLY_SESSION_TOKEN, async (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_AUTH_APPLY_SESSION_TOKEN)) {
             throw new Error("Blocked untrusted session-token request.");
         }
         return await options.authService.applySessionToken(typeof payload?.sessionToken === "string" ? payload.sessionToken : "");
     });
-    ipcMain.handle(IPC_AUTH_GET_TOKEN, async (event) => {
+    handleIpc(IPC_AUTH_GET_TOKEN, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_AUTH_GET_TOKEN)) {
             throw new Error("Blocked untrusted auth token request.");
         }
         const result = await options.authService.getAuthTokenResult();
         return result.ok ? result.token : null;
     });
-    ipcMain.handle(IPC_AUTH_REVOKE_SESSIONS, async (event) => {
+    handleIpc(IPC_AUTH_REVOKE_SESSIONS, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_AUTH_REVOKE_SESSIONS)) {
             throw new Error("Blocked untrusted session revocation request.");
         }
         return await options.authService.revokeSessions();
     });
-    ipcMain.handle("host:setCloudSyncEnabled", (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "host:setCloudSyncEnabled")) {
+    handleIpc(IPC_HOST_SET_CLOUD_SYNC, (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_HOST_SET_CLOUD_SYNC)) {
             throw new Error("Blocked untrusted host:setCloudSyncEnabled request.");
         }
         options
@@ -583,68 +677,68 @@ export const registerSystemHandlers = (options) => {
             ?.setCloudSyncEnabled(Boolean(payload?.enabled));
         return { ok: true };
     });
-    ipcMain.handle("app:hardResetLocalState", async (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "app:hardResetLocalState")) {
+    handleIpc(IPC_APP_HARD_RESET, async (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_APP_HARD_RESET)) {
             throw new Error("Blocked untrusted app:hardResetLocalState request.");
         }
         return options.hardResetLocalState();
     });
-    ipcMain.handle("app:resetLocalMessages", async (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "app:resetLocalMessages")) {
+    handleIpc(IPC_APP_RESET_MESSAGES, async (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_APP_RESET_MESSAGES)) {
             throw new Error("Blocked untrusted app:resetLocalMessages request.");
         }
         return options.resetLocalMessages();
     });
-    ipcMain.handle(IPC_USER_ASK_LIST, (event) => {
+    handleIpc(IPC_USER_ASK_LIST, (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_USER_ASK_LIST)) {
             throw new Error("Blocked untrusted ask list request.");
         }
         return options.listUserAsks();
     });
-    ipcMain.handle(IPC_USER_ASK_ANSWER, async (event, payload) => {
+    handleIpc(IPC_USER_ASK_ANSWER, async (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_USER_ASK_ANSWER)) {
             throw new Error("Blocked untrusted ask answer.");
         }
         return await options.answerUserAsk(payload);
     });
-    ipcMain.handle(IPC_USER_ASK_CANCEL, (event, payload) => {
+    handleIpc(IPC_USER_ASK_CANCEL, (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_USER_ASK_CANCEL)) {
             throw new Error("Blocked untrusted ask cancellation.");
         }
         return options.cancelUserAsk(payload);
     });
-    ipcMain.handle(IPC_USER_ASK_OVERRIDE_SENSITIVE, (event, payload) => {
+    handleIpc(IPC_USER_ASK_OVERRIDE_SENSITIVE, (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_USER_ASK_OVERRIDE_SENSITIVE)) {
             throw new Error("Blocked untrusted ask sensitivity override.");
         }
         return options.overrideUserAskSensitive(payload);
     });
-    ipcMain.handle(IPC_USER_ASK_POLICY_GET, async (event) => {
+    handleIpc(IPC_USER_ASK_POLICY_GET, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_USER_ASK_POLICY_GET)) {
             throw new Error("Blocked untrusted ask policy request.");
         }
         return await options.getUserAskPolicy();
     });
-    ipcMain.handle(IPC_USER_ASK_POLICY_SET, async (event, payload) => {
+    handleIpc(IPC_USER_ASK_POLICY_SET, async (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_USER_ASK_POLICY_SET)) {
             throw new Error("Blocked untrusted ask policy update.");
         }
         return await options.setUserAskPolicy(payload);
     });
-    ipcMain.handle("connector-credential:submit", async (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "connector-credential:submit")) {
+    handleIpc(IPC_CONNECTOR_CREDENTIAL_SUBMIT, async (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_CONNECTOR_CREDENTIAL_SUBMIT)) {
             throw new Error("Blocked untrusted connector credential submission.");
         }
         return await options.submitConnectorCredential(payload);
     });
-    ipcMain.handle("connector-credential:cancel", (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "connector-credential:cancel")) {
+    handleIpc(IPC_CONNECTOR_CREDENTIAL_CANCEL, (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_CONNECTOR_CREDENTIAL_CANCEL)) {
             throw new Error("Blocked untrusted connector credential cancellation.");
         }
         return options.cancelConnectorCredential(payload);
     });
-    ipcMain.handle("connector-connect:respond", (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "connector-connect:respond")) {
+    handleIpc(IPC_CONNECTOR_CONNECT_RESPOND, (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_CONNECTOR_CONNECT_RESPOND)) {
             throw new Error("Blocked untrusted connector connect response.");
         }
         if (payload.action !== "accept" &&
@@ -654,8 +748,8 @@ export const registerSystemHandlers = (options) => {
         }
         return options.respondConnectorConnect(payload);
     });
-    ipcMain.on("shell:openExternal", (event, url) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "shell:openExternal")) {
+    onIpc(IPC_SHELL_OPEN_EXTERNAL, (event, url) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_SHELL_OPEN_EXTERNAL)) {
             console.debug("[system] blocked untrusted shell:openExternal");
             return;
         }
@@ -670,8 +764,8 @@ export const registerSystemHandlers = (options) => {
         }
         void shell.openExternal(safeUrl);
     });
-    ipcMain.on("shell:showItemInFolder", (event, filePath) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "shell:showItemInFolder")) {
+    onIpc(IPC_SHELL_SHOW_IN_FOLDER, (event, filePath) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_SHELL_SHOW_IN_FOLDER)) {
             return;
         }
         if (typeof filePath === "string" && filePath.trim()) {
@@ -687,7 +781,7 @@ export const registerSystemHandlers = (options) => {
             shell.showItemInFolder(trimmed);
         }
     });
-    ipcMain.on(IPC_DIAGNOSTICS_REPORT_ERROR, (event, payload) => {
+    onIpc(IPC_DIAGNOSTICS_REPORT_ERROR, (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_DIAGNOSTICS_REPORT_ERROR)) {
             return;
         }
@@ -700,7 +794,7 @@ export const registerSystemHandlers = (options) => {
             ...(payload?.stack ? { stack: payload.stack } : {}),
         });
     });
-    ipcMain.on(IPC_DIAGNOSTICS_REPORT_TIMING, (event, payload) => {
+    onIpc(IPC_DIAGNOSTICS_REPORT_TIMING, (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_DIAGNOSTICS_REPORT_TIMING)) {
             return;
         }
@@ -721,7 +815,7 @@ export const registerSystemHandlers = (options) => {
             ...(outcome === undefined ? {} : { outcome }),
         });
     });
-    ipcMain.handle(IPC_DIAGNOSTICS_OPEN_LOGS, async (event) => {
+    handleIpc(IPC_DIAGNOSTICS_OPEN_LOGS, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_DIAGNOSTICS_OPEN_LOGS)) {
             throw new Error("Blocked untrusted diagnostics:openLogs request.");
         }
@@ -735,7 +829,7 @@ export const registerSystemHandlers = (options) => {
             ? { ok: false, error: opened, path: logDir }
             : { ok: true, path: logDir };
     });
-    ipcMain.handle(IPC_DIAGNOSTICS_EXPORT_LOGS, async (event) => {
+    handleIpc(IPC_DIAGNOSTICS_EXPORT_LOGS, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_DIAGNOSTICS_EXPORT_LOGS)) {
             throw new Error("Blocked untrusted diagnostics:exportLogs request.");
         }
@@ -748,7 +842,7 @@ export const registerSystemHandlers = (options) => {
             return { ok: false, error: error instanceof Error ? error.message : String(error) };
         }
     });
-    ipcMain.handle(IPC_SHELL_SAVE_FILE_AS, async (event, payload) => {
+    handleIpc(IPC_SHELL_SAVE_FILE_AS, async (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_SHELL_SAVE_FILE_AS)) {
             return { ok: false, error: "Blocked untrusted request." };
         }
@@ -786,7 +880,7 @@ export const registerSystemHandlers = (options) => {
             };
         }
     });
-    ipcMain.on(IPC_SYSTEM_OPEN_FDA, async (event) => {
+    onIpc(IPC_SYSTEM_OPEN_FDA, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_SYSTEM_OPEN_FDA)) {
             return;
         }
@@ -801,8 +895,8 @@ export const registerSystemHandlers = (options) => {
             await openMacPermissionSettings("full-disk-access");
         }
     });
-    ipcMain.handle("shell:killByPort", async (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "shell:killByPort")) {
+    handleIpc(IPC_SHELL_KILL_BY_PORT, async (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_SHELL_KILL_BY_PORT)) {
             throw new Error("Blocked untrusted shell kill request.");
         }
         const port = Number(payload?.port);
@@ -811,7 +905,7 @@ export const registerSystemHandlers = (options) => {
         }
         options.getStellaHostRunner()?.killShellsByPort(port);
     });
-    ipcMain.handle(IPC_PREFERENCES_GET_PREVENT_SLEEP, (event) => {
+    handleIpc(IPC_PREFERENCES_GET_PREVENT_SLEEP, (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_GET_PREVENT_SLEEP)) {
             throw new Error("Blocked untrusted preferences:getPreventSleep request.");
         }
@@ -820,7 +914,7 @@ export const registerSystemHandlers = (options) => {
             return false;
         return getPreventComputerSleep(stellaAppDir);
     });
-    ipcMain.handle(IPC_PREFERENCES_SET_PREVENT_SLEEP, (event, enabled) => {
+    handleIpc(IPC_PREFERENCES_SET_PREVENT_SLEEP, (event, enabled) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_SET_PREVENT_SLEEP)) {
             throw new Error("Blocked untrusted preferences:setPreventSleep request.");
         }
@@ -834,13 +928,13 @@ export const registerSystemHandlers = (options) => {
         setPreventComputerSleep(nextEnabled);
         return { enabled: nextEnabled };
     });
-    ipcMain.handle(IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, async (event) => {
+    handleIpc(IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_GET_LOCKED_COMPUTER_USE)) {
             throw new Error("Blocked untrusted preferences:getLockedComputerUse request.");
         }
         return await getLockedComputerUseStatus(options.getStellaAppDir());
     });
-    ipcMain.handle(IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, async (event, enabled) => {
+    handleIpc(IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE, async (event, enabled) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_SET_LOCKED_COMPUTER_USE)) {
             throw new Error("Blocked untrusted preferences:setLockedComputerUse request.");
         }
@@ -888,7 +982,7 @@ export const registerSystemHandlers = (options) => {
                 "OK",
         };
     });
-    ipcMain.handle(IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, (event) => {
+    handleIpc(IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS, (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_GET_SOUND_NOTIFICATIONS)) {
             throw new Error("Blocked untrusted preferences:getSoundNotifications request.");
         }
@@ -897,7 +991,7 @@ export const registerSystemHandlers = (options) => {
             return true;
         return getSoundNotificationsEnabled(stellaAppDir);
     });
-    ipcMain.handle(IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, (event, enabled) => {
+    handleIpc(IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS, (event, enabled) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_SET_SOUND_NOTIFICATIONS)) {
             throw new Error("Blocked untrusted preferences:setSoundNotifications request.");
         }
@@ -910,7 +1004,7 @@ export const registerSystemHandlers = (options) => {
         }
         return { enabled: nextEnabled };
     });
-    ipcMain.handle(IPC_PREFERENCES_GET_READ_ALOUD, (event) => {
+    handleIpc(IPC_PREFERENCES_GET_READ_ALOUD, (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_GET_READ_ALOUD)) {
             throw new Error("Blocked untrusted preferences:getReadAloud request.");
         }
@@ -919,7 +1013,7 @@ export const registerSystemHandlers = (options) => {
             return false;
         return getReadAloudEnabled(stellaAppDir);
     });
-    ipcMain.handle(IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, (event) => {
+    handleIpc(IPC_PREFERENCES_GET_ONBOARDING_COMPLETED, (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_GET_ONBOARDING_COMPLETED)) {
             throw new Error("Blocked untrusted preferences:getOnboardingCompleted request.");
         }
@@ -928,7 +1022,7 @@ export const registerSystemHandlers = (options) => {
             return false;
         return getOnboardingCompleted(stellaAppDir);
     });
-    ipcMain.handle(IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, (event, completed) => {
+    handleIpc(IPC_PREFERENCES_SET_ONBOARDING_COMPLETED, (event, completed) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_SET_ONBOARDING_COMPLETED)) {
             throw new Error("Blocked untrusted preferences:setOnboardingCompleted request.");
         }
@@ -939,7 +1033,7 @@ export const registerSystemHandlers = (options) => {
         }
         return { completed: nextCompleted };
     });
-    ipcMain.handle(IPC_PREFERENCES_SET_READ_ALOUD, (event, enabled) => {
+    handleIpc(IPC_PREFERENCES_SET_READ_ALOUD, (event, enabled) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_SET_READ_ALOUD)) {
             throw new Error("Blocked untrusted preferences:setReadAloud request.");
         }
@@ -955,19 +1049,19 @@ export const registerSystemHandlers = (options) => {
         }
         return { enabled: nextEnabled };
     });
-    ipcMain.handle(IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, (event) => {
+    handleIpc(IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED, (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_GLOBAL_SHORTCUTS_GET_SUSPENDED)) {
             throw new Error("Blocked untrusted globalShortcuts:getSuspended request.");
         }
         return getGlobalShortcutsSuspended();
     });
-    ipcMain.handle(IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, (event, suspended) => {
+    handleIpc(IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED, (event, suspended) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_GLOBAL_SHORTCUTS_SET_SUSPENDED)) {
             throw new Error("Blocked untrusted globalShortcuts:setSuspended request.");
         }
         return setGlobalShortcutsSuspended(suspended === true);
     });
-    ipcMain.handle(IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, async (event, payload) => {
+    handleIpc(IPC_DIAGNOSTICS_RECORD_HEAP_TRACE, async (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_DIAGNOSTICS_RECORD_HEAP_TRACE)) {
             throw new Error("Blocked untrusted diagnostics:recordHeapTrace request.");
         }
@@ -1010,14 +1104,14 @@ export const registerSystemHandlers = (options) => {
             throw new Error("Stella data directory unavailable.");
         return stellaAppDir;
     };
-    ipcMain.handle(IPC_PROMPT_PRESETS_LIST, async (event, agentId) => {
+    handleIpc(IPC_PROMPT_PRESETS_LIST, async (event, agentId) => {
         const dir = promptPresetContext(event, IPC_PROMPT_PRESETS_LIST, agentId);
         return {
             presets: await listPromptPresets(dir, agentId),
             selectedId: getPromptPresetSelection(dir, agentId),
         };
     });
-    ipcMain.handle(IPC_PROMPT_PRESETS_READ, async (event, agentId, presetId) => {
+    handleIpc(IPC_PROMPT_PRESETS_READ, async (event, agentId, presetId) => {
         const dir = promptPresetContext(event, IPC_PROMPT_PRESETS_READ, agentId);
         const id = String(presetId ?? "");
         // "default" reads the shipped prompt so the editor can seed a new
@@ -1028,7 +1122,7 @@ export const registerSystemHandlers = (options) => {
         }
         return await readPromptPreset(dir, agentId, id);
     });
-    ipcMain.handle(IPC_PROMPT_PRESETS_SAVE, async (event, payload) => {
+    handleIpc(IPC_PROMPT_PRESETS_SAVE, async (event, payload) => {
         const agentId = payload?.agentId;
         const dir = promptPresetContext(event, IPC_PROMPT_PRESETS_SAVE, agentId);
         const result = await savePromptPreset(dir, {
@@ -1042,7 +1136,7 @@ export const registerSystemHandlers = (options) => {
         }
         return result;
     });
-    ipcMain.handle(IPC_PROMPT_PRESETS_DELETE, async (event, agentId, presetId) => {
+    handleIpc(IPC_PROMPT_PRESETS_DELETE, async (event, agentId, presetId) => {
         const dir = promptPresetContext(event, IPC_PROMPT_PRESETS_DELETE, agentId);
         const id = String(presetId ?? "");
         const ok = await deletePromptPreset(dir, agentId, id);
@@ -1052,7 +1146,7 @@ export const registerSystemHandlers = (options) => {
         }
         return { ok, selectedId: getPromptPresetSelection(dir, agentId) };
     });
-    ipcMain.handle(IPC_PROMPT_PRESETS_SELECT, async (event, agentId, presetId) => {
+    handleIpc(IPC_PROMPT_PRESETS_SELECT, async (event, agentId, presetId) => {
         const dir = promptPresetContext(event, IPC_PROMPT_PRESETS_SELECT, agentId);
         const id = String(presetId ?? "default");
         if (id !== "default" && !(await readPromptPreset(dir, agentId, id))) {
@@ -1061,7 +1155,7 @@ export const registerSystemHandlers = (options) => {
         setPromptPresetSelection(dir, agentId, id);
         return { ok: true, selectedId: getPromptPresetSelection(dir, agentId) };
     });
-    ipcMain.handle(IPC_CUSTOMIZATIONS_RESET, async (event) => {
+    handleIpc(IPC_CUSTOMIZATIONS_RESET, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_CUSTOMIZATIONS_RESET)) {
             throw new Error("Blocked untrusted customizations:reset request.");
         }
@@ -1085,7 +1179,7 @@ export const registerSystemHandlers = (options) => {
             };
         }
     });
-    ipcMain.handle(IPC_PREFERENCES_GET_MODELS, (event) => {
+    handleIpc(IPC_PREFERENCES_GET_MODELS, (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_GET_MODELS)) {
             throw new Error("Blocked untrusted preferences:getLocalModelPreferences request.");
         }
@@ -1098,7 +1192,7 @@ export const registerSystemHandlers = (options) => {
     // The ChatGPT models this computer's active account may use
     // (`GET /v1/models`, `visibility: "list"`, in the server's order), or
     // Stella's catalog while no account is signed in here.
-    ipcMain.handle(IPC_CHATGPT_LIST_MODELS, async (event) => {
+    handleIpc(IPC_CHATGPT_LIST_MODELS, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_CHATGPT_LIST_MODELS)) {
             throw new Error("Blocked untrusted chatgpt:listModels request.");
         }
@@ -1116,7 +1210,7 @@ export const registerSystemHandlers = (options) => {
         }
         return { source: "account", models: await listChatGptModels(accessToken) };
     });
-    ipcMain.handle(IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, async (event) => {
+    handleIpc(IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_LIST_CLAUDE_CODE_MODELS)) {
             throw new Error("Blocked untrusted preferences:listClaudeCodeModels request.");
         }
@@ -1130,7 +1224,7 @@ export const registerSystemHandlers = (options) => {
         const { listClaudeCodeModels } = await import("@stella/runtime/kernel/integrations/claude-code-session-runtime");
         return listClaudeCodeModels({ apiKey }, stellaAppDir ?? undefined);
     });
-    ipcMain.handle(IPC_PREFERENCES_LIST_MODELS, async (event, payload) => {
+    handleIpc(IPC_PREFERENCES_LIST_MODELS, async (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_LIST_MODELS)) {
             throw new Error("Blocked untrusted preferences:listModels request.");
         }
@@ -1148,7 +1242,7 @@ export const registerSystemHandlers = (options) => {
             payload.forceRefresh === true;
         return await runner.listModels({ forceRefresh });
     });
-    ipcMain.handle(IPC_PREFERENCES_SET_MODELS, (event, payload) => {
+    handleIpc(IPC_PREFERENCES_SET_MODELS, (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PREFERENCES_SET_MODELS)) {
             throw new Error("Blocked untrusted preferences:setLocalModelPreferences request.");
         }
@@ -1158,7 +1252,7 @@ export const registerSystemHandlers = (options) => {
         const previousRealtimeVoice = payload?.realtimeVoice !== undefined
             ? getLocalModelPreferences(stellaAppDir).realtimeVoice
             : null;
-        const previousPiChat = desktopPiChatEnabled(process.env.STELLA_AGENT_RUNTIME, getLocalModelPreferences(stellaAppDir).agentRuntimeEngine);
+        const previousPiChat = desktopPiChatEnabled(getLocalModelPreferences(stellaAppDir).agentRuntimeEngine);
         const nextDefaultModels = sanitizeStringRecord(payload?.defaultModels);
         const nextOverrides = sanitizeStringRecord(payload?.modelOverrides);
         const nextAssistantPropagatedAgents = sanitizeStringList(payload?.assistantPropagatedAgents);
@@ -1236,7 +1330,7 @@ export const registerSystemHandlers = (options) => {
         }
         const saved = updateLocalModelPreferences(stellaAppDir, patch);
         // Moving onto or off Claude Code moves the chat between its paths.
-        const piChat = desktopPiChatEnabled(process.env.STELLA_AGENT_RUNTIME, saved.agentRuntimeEngine);
+        const piChat = desktopPiChatEnabled(saved.agentRuntimeEngine);
         if (piChat !== previousPiChat) {
             for (const window of BrowserWindow.getAllWindows()) {
                 if (window.isDestroyed() || window.webContents.isDestroyed())
@@ -1264,8 +1358,8 @@ export const registerSystemHandlers = (options) => {
         }
         return saved;
     });
-    ipcMain.handle("llmCredentials:list", (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:list")) {
+    handleIpc(IPC_LLM_CREDENTIALS_LIST, (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_LLM_CREDENTIALS_LIST)) {
             throw new Error("Blocked untrusted credential request.");
         }
         const stellaAppDir = options.getStellaAppDir();
@@ -1274,20 +1368,20 @@ export const registerSystemHandlers = (options) => {
         }
         return listLocalLlmCredentials(stellaAppDir);
     });
-    ipcMain.handle("llmCredentials:listOAuthProviders", (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:listOAuthProviders")) {
+    handleIpc(IPC_LLM_CREDENTIALS_LIST_OAUTH_PROVIDERS, (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_LLM_CREDENTIALS_LIST_OAUTH_PROVIDERS)) {
             throw new Error("Blocked untrusted OAuth provider request.");
         }
         // Claude (Claude Code's own login) and ChatGPT (Sign in with
         // ChatGPT) are not providers of this store.
-        return getOAuthProviders()
+        return getLlmOAuthProviders()
             .map((provider) => ({
             provider: provider.id,
             label: provider.name,
         }));
     });
-    ipcMain.handle("llmCredentials:listOAuth", (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:listOAuth")) {
+    handleIpc(IPC_LLM_CREDENTIALS_LIST_OAUTH, (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_LLM_CREDENTIALS_LIST_OAUTH)) {
             throw new Error("Blocked untrusted OAuth credential request.");
         }
         const stellaAppDir = options.getStellaAppDir();
@@ -1296,10 +1390,10 @@ export const registerSystemHandlers = (options) => {
         }
         return listLocalLlmOAuthCredentials(stellaAppDir);
     });
-    ipcMain.handle("llmCredentials:loginOAuth", async (event, payload) => {
+    handleIpc(IPC_LLM_CREDENTIALS_LOGIN_OAUTH, async (event, payload) => {
         // Modifying this could break the app. Avoid exposing or logging OAuth
         // credentials, and confirm any request to weaken this boundary.
-        if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:loginOAuth")) {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_LLM_CREDENTIALS_LOGIN_OAUTH)) {
             throw new Error("Blocked untrusted OAuth login request.");
         }
         const stellaAppDir = options.getStellaAppDir();
@@ -1307,7 +1401,7 @@ export const registerSystemHandlers = (options) => {
             throw new Error("Local Stella root is unavailable.");
         }
         const providerId = asTrimmedString(payload?.provider).toLowerCase();
-        const provider = getOAuthProvider(providerId);
+        const provider = getLlmOAuthProvider(providerId);
         if (!provider) {
             throw new Error("Unsupported OAuth provider.");
         }
@@ -1318,43 +1412,26 @@ export const registerSystemHandlers = (options) => {
         const abortOnSenderDestroyed = () => controller.abort();
         event.sender.once("destroyed", abortOnSenderDestroyed);
         try {
-            let savedCredential = null;
-            const persistCredentials = async (credentials) => {
-                savedCredential = saveLocalLlmOAuthCredential(stellaAppDir, {
-                    provider: provider.id,
-                    label: provider.name,
-                    credentials,
-                });
-                refreshLocalLlmCredentials();
-            };
-            const credentials = await provider.login({
-                onAuth: (info) => {
-                    void shell.openExternal(info.url);
-                    if (providerId === "xai" && info.instructions?.trim()) {
+            const credentials = await loginLlmOAuth(provider, {
+                notify: (authEvent) => {
+                    if (authEvent.type === "auth_url") {
+                        void shell.openExternal(authEvent.url);
+                    }
+                    else if (authEvent.type === "device_code") {
+                        void shell.openExternal(authEvent.verificationUri);
+                        if (providerId !== "xai")
+                            return;
                         void dialog.showMessageBox({
                             type: "info",
                             message: t("desktop.oauth.xaiCodeMessage"),
-                            detail: info.instructions,
+                            detail: authEvent.userCode,
                             buttons: [t("desktop.common.continue")],
                         });
                     }
                 },
-                onPrompt: async (prompt) => {
-                    if (prompt.allowEmpty)
-                        return "";
-                    const result = await dialog.showMessageBox({
-                        type: "info",
-                        message: prompt.message,
-                        detail: prompt.placeholder
-                            ? t("desktop.oauth.expectedValue", {
-                                value: prompt.placeholder,
-                            })
-                            : undefined,
-                        buttons: [t("desktop.common.continue")],
-                    });
-                    return result.response === 0 ? "" : "";
-                },
-                onCredentialsReady: persistCredentials,
+                // The only question these sign-ins ask is GitHub Enterprise's
+                // domain; the empty answer signs in to github.com.
+                prompt: async () => "",
                 signal: controller.signal,
             });
             if (controller.signal.aborted) {
@@ -1362,9 +1439,12 @@ export const registerSystemHandlers = (options) => {
                     ? controller.signal.reason
                     : new Error("OAuth login was canceled.");
             }
-            if (!savedCredential) {
-                await persistCredentials(credentials);
-            }
+            const savedCredential = saveLocalLlmOAuthCredential(stellaAppDir, {
+                provider: provider.id,
+                label: provider.name,
+                credentials,
+            });
+            refreshLocalLlmCredentials();
             return savedCredential;
         }
         finally {
@@ -1383,12 +1463,12 @@ export const registerSystemHandlers = (options) => {
             throw new Error(`Blocked untrusted ${channel} request.`);
         }
     };
-    ipcMain.handle("claudeAccounts:list", async (event) => {
-        guardClaude(event, "claudeAccounts:list");
+    handleIpc(IPC_CLAUDE_ACCOUNTS_LIST, async (event) => {
+        guardClaude(event, IPC_CLAUDE_ACCOUNTS_LIST);
         return await claudeAccounts.list();
     });
-    ipcMain.handle("claudeAccounts:startLogin", async (event, payload) => {
-        guardClaude(event, "claudeAccounts:startLogin");
+    handleIpc(IPC_CLAUDE_ACCOUNTS_START_LOGIN, async (event, payload) => {
+        guardClaude(event, IPC_CLAUDE_ACCOUNTS_START_LOGIN);
         const configId = asTrimmedString(payload?.configId);
         const email = asTrimmedString(payload?.email);
         const started = await claudeAccounts.startLogin({
@@ -1399,20 +1479,20 @@ export const registerSystemHandlers = (options) => {
         event.sender.once("destroyed", () => claudeAccounts.cancelLogin(started.loginId));
         return started;
     });
-    ipcMain.handle("claudeAccounts:waitLogin", async (event, payload) => {
-        guardClaude(event, "claudeAccounts:waitLogin");
+    handleIpc(IPC_CLAUDE_ACCOUNTS_WAIT_LOGIN, async (event, payload) => {
+        guardClaude(event, IPC_CLAUDE_ACCOUNTS_WAIT_LOGIN);
         return await claudeAccounts.waitLogin(asTrimmedString(payload?.loginId));
     });
-    ipcMain.handle("claudeAccounts:finishLogin", async (event, payload) => {
-        guardClaude(event, "claudeAccounts:finishLogin");
+    handleIpc(IPC_CLAUDE_ACCOUNTS_FINISH_LOGIN, async (event, payload) => {
+        guardClaude(event, IPC_CLAUDE_ACCOUNTS_FINISH_LOGIN);
         return await claudeAccounts.finishLogin(asTrimmedString(payload?.loginId), typeof payload?.code === "string" ? payload.code : "");
     });
-    ipcMain.handle("claudeAccounts:cancelLogin", (event, payload) => {
-        guardClaude(event, "claudeAccounts:cancelLogin");
+    handleIpc(IPC_CLAUDE_ACCOUNTS_CANCEL_LOGIN, (event, payload) => {
+        guardClaude(event, IPC_CLAUDE_ACCOUNTS_CANCEL_LOGIN);
         return claudeAccounts.cancelLogin(asTrimmedString(payload?.loginId));
     });
-    ipcMain.handle("claudeAccounts:signOut", async (event, payload) => {
-        guardClaude(event, "claudeAccounts:signOut");
+    handleIpc(IPC_CLAUDE_ACCOUNTS_SIGN_OUT, async (event, payload) => {
+        guardClaude(event, IPC_CLAUDE_ACCOUNTS_SIGN_OUT);
         return await claudeAccounts.signOut(asTrimmedString(payload?.configId));
     });
     // ChatGPT on this computer (Sign in with ChatGPT): this install is its
@@ -1430,7 +1510,7 @@ export const registerSystemHandlers = (options) => {
         refreshLocalLlmCredentials();
         for (const window of BrowserWindow.getAllWindows()) {
             if (!window.isDestroyed()) {
-                window.webContents.send("chatgpt:profilesChanged", {});
+                window.webContents.send(IPC_CHATGPT_PROFILES_CHANGED, {});
             }
         }
     };
@@ -1439,13 +1519,13 @@ export const registerSystemHandlers = (options) => {
             throw new Error(`Blocked untrusted ${channel} request.`);
         }
     };
-    ipcMain.handle("chatgpt:listProfiles", (event) => {
-        guardChatGpt(event, "chatgpt:listProfiles");
+    handleIpc(IPC_CHATGPT_LIST_PROFILES, (event) => {
+        guardChatGpt(event, IPC_CHATGPT_LIST_PROFILES);
         const dir = options.getStellaAppDir();
         return dir ? listChatGptProfiles(dir) : { profiles: [] };
     });
-    ipcMain.handle("chatgpt:signIn", async (event, payload) => {
-        guardChatGpt(event, "chatgpt:signIn");
+    handleIpc(IPC_CHATGPT_SIGN_IN, async (event, payload) => {
+        guardChatGpt(event, IPC_CHATGPT_SIGN_IN);
         const dir = chatGptAppDir();
         const sharedClientId = asTrimmedString(payload?.sharedClientId);
         // Reusing a registration another host of the owner made: sign in
@@ -1496,26 +1576,26 @@ export const registerSystemHandlers = (options) => {
             }
         }
     });
-    ipcMain.handle("chatgpt:cancelSignIn", (event) => {
-        guardChatGpt(event, "chatgpt:cancelSignIn");
+    handleIpc(IPC_CHATGPT_CANCEL_SIGN_IN, (event) => {
+        guardChatGpt(event, IPC_CHATGPT_CANCEL_SIGN_IN);
         const current = activeChatGptSignIn;
         current?.abort();
         return { canceled: Boolean(current) };
     });
-    ipcMain.handle("chatgpt:setActive", (event, payload) => {
-        guardChatGpt(event, "chatgpt:setActive");
+    handleIpc(IPC_CHATGPT_SET_ACTIVE, (event, payload) => {
+        guardChatGpt(event, IPC_CHATGPT_SET_ACTIVE);
         setActiveChatGptProfile(chatGptAppDir(), asTrimmedString(payload?.profileId));
         chatGptProfilesChanged();
         return { ok: true };
     });
-    ipcMain.handle("chatgpt:signOut", async (event, payload) => {
-        guardChatGpt(event, "chatgpt:signOut");
+    handleIpc(IPC_CHATGPT_SIGN_OUT, async (event, payload) => {
+        guardChatGpt(event, IPC_CHATGPT_SIGN_OUT);
         const result = await signOutChatGptProfile(chatGptAppDir(), asTrimmedString(payload?.profileId));
         chatGptProfilesChanged();
         return result;
     });
-    ipcMain.handle("chatgpt:remove", async (event, payload) => {
-        guardChatGpt(event, "chatgpt:remove");
+    handleIpc(IPC_CHATGPT_REMOVE, async (event, payload) => {
+        guardChatGpt(event, IPC_CHATGPT_REMOVE);
         const result = await removeChatGptProfile(chatGptAppDir(), asTrimmedString(payload?.profileId));
         chatGptProfilesChanged();
         return result;
@@ -1523,8 +1603,8 @@ export const registerSystemHandlers = (options) => {
     // The owner's cloud is its own ChatGPT host: the server builds the
     // authorization and keeps the credentials; this computer only catches
     // the loopback redirect.
-    ipcMain.handle("engineAccounts:connectChatGptCloud", async (event, payload) => {
-        guardChatGpt(event, "engineAccounts:connectChatGptCloud");
+    handleIpc(IPC_ENGINE_ACCOUNTS_CONNECT_CHATGPT_CLOUD, async (event, payload) => {
+        guardChatGpt(event, IPC_ENGINE_ACCOUNTS_CONNECT_CHATGPT_CLOUD);
         const engineAccounts = options.engineAccountAccess;
         const cancelOnSenderDestroyed = () => engineAccounts.cancelChatGptCloudConnect();
         event.sender.once("destroyed", cancelOnSenderDestroyed);
@@ -1541,12 +1621,12 @@ export const registerSystemHandlers = (options) => {
             event.sender.removeListener("destroyed", cancelOnSenderDestroyed);
         }
     });
-    ipcMain.handle("engineAccounts:cancelConnectChatGptCloud", (event) => {
-        guardChatGpt(event, "engineAccounts:cancelConnectChatGptCloud");
+    handleIpc(IPC_ENGINE_ACCOUNTS_CANCEL_CONNECT_CHATGPT_CLOUD, (event) => {
+        guardChatGpt(event, IPC_ENGINE_ACCOUNTS_CANCEL_CONNECT_CHATGPT_CLOUD);
         return { canceled: options.engineAccountAccess.cancelChatGptCloudConnect() };
     });
-    ipcMain.handle("llmCredentials:cancelOAuth", (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:cancelOAuth")) {
+    handleIpc(IPC_LLM_CREDENTIALS_CANCEL_OAUTH, (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_LLM_CREDENTIALS_CANCEL_OAUTH)) {
             throw new Error("Blocked untrusted OAuth cancel request.");
         }
         const providerId = asTrimmedString(payload?.provider).toLowerCase();
@@ -1555,8 +1635,8 @@ export const registerSystemHandlers = (options) => {
         controller?.abort();
         return { canceled: Boolean(controller) };
     });
-    ipcMain.handle("llmCredentials:validateOAuth", async (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:validateOAuth")) {
+    handleIpc(IPC_LLM_CREDENTIALS_VALIDATE_OAUTH, async (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_LLM_CREDENTIALS_VALIDATE_OAUTH)) {
             throw new Error("Blocked untrusted OAuth validation request.");
         }
         const stellaAppDir = options.getStellaAppDir();
@@ -1583,8 +1663,8 @@ export const registerSystemHandlers = (options) => {
             return { connected: false, needsReauth: true };
         }
     });
-    ipcMain.handle("llmCredentials:deleteOAuth", (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:deleteOAuth")) {
+    handleIpc(IPC_LLM_CREDENTIALS_DELETE_OAUTH, (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_LLM_CREDENTIALS_DELETE_OAUTH)) {
             throw new Error("Blocked untrusted OAuth credential delete.");
         }
         const stellaAppDir = options.getStellaAppDir();
@@ -1597,8 +1677,8 @@ export const registerSystemHandlers = (options) => {
         }
         return result;
     });
-    ipcMain.handle("llmCredentials:save", (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:save")) {
+    handleIpc(IPC_LLM_CREDENTIALS_SAVE, (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_LLM_CREDENTIALS_SAVE)) {
             throw new Error("Blocked untrusted credential write.");
         }
         const stellaAppDir = options.getStellaAppDir();
@@ -1613,8 +1693,8 @@ export const registerSystemHandlers = (options) => {
         refreshLocalLlmCredentials();
         return result;
     });
-    ipcMain.handle("llmCredentials:delete", (event, payload) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "llmCredentials:delete")) {
+    handleIpc(IPC_LLM_CREDENTIALS_DELETE, (event, payload) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_LLM_CREDENTIALS_DELETE)) {
             throw new Error("Blocked untrusted credential delete.");
         }
         const stellaAppDir = options.getStellaAppDir();
@@ -1628,7 +1708,7 @@ export const registerSystemHandlers = (options) => {
         return result;
     });
     let lastAccessibilityStatus = false;
-    ipcMain.handle(IPC_PERMISSIONS_GET_STATUS, (event) => {
+    handleIpc(IPC_PERMISSIONS_GET_STATUS, (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PERMISSIONS_GET_STATUS)) {
             throw new Error("Blocked untrusted permissions:getStatus request.");
         }
@@ -1660,7 +1740,7 @@ export const registerSystemHandlers = (options) => {
             microphoneStatus,
         };
     });
-    ipcMain.handle(IPC_PERMISSIONS_RESET_MICROPHONE, async (event) => {
+    handleIpc(IPC_PERMISSIONS_RESET_MICROPHONE, async (event) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PERMISSIONS_RESET_MICROPHONE)) {
             throw new Error("Blocked untrusted permissions:resetMicrophone request.");
         }
@@ -1669,7 +1749,7 @@ export const registerSystemHandlers = (options) => {
         }
         return { ok: await resetMacMicrophonePermissions() };
     });
-    ipcMain.handle(IPC_PERMISSIONS_RESET, async (event, payload) => {
+    handleIpc(IPC_PERMISSIONS_RESET, async (event, payload) => {
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PERMISSIONS_RESET)) {
             throw new Error("Blocked untrusted permissions:reset request.");
         }
@@ -1697,7 +1777,7 @@ export const registerSystemHandlers = (options) => {
         }
         return { ok };
     });
-    ipcMain.handle(IPC_PERMISSIONS_OPEN_SETTINGS, async (event, payload) => {
+    handleIpc(IPC_PERMISSIONS_OPEN_SETTINGS, async (event, payload) => {
         const kind = asTrimmedString(payload?.kind);
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PERMISSIONS_OPEN_SETTINGS)) {
             throw new Error("Blocked untrusted permissions:openSettings request.");
@@ -1711,7 +1791,7 @@ export const registerSystemHandlers = (options) => {
         }
         await openMacPermissionSettings(kind);
     });
-    ipcMain.handle(IPC_PERMISSIONS_REQUEST, async (event, payload) => {
+    handleIpc(IPC_PERMISSIONS_REQUEST, async (event, payload) => {
         const kind = asTrimmedString(payload?.kind);
         if (!options.externalLinkService.assertPrivilegedSender(event, IPC_PERMISSIONS_REQUEST)) {
             throw new Error("Blocked untrusted permissions:request request.");
@@ -1757,8 +1837,8 @@ export const registerSystemHandlers = (options) => {
         }
         return { ...result, openedSettings };
     });
-    ipcMain.handle("system:detectTechnicalUserSignals", async (event) => {
-        if (!options.externalLinkService.assertPrivilegedSender(event, "system:detectTechnicalUserSignals")) {
+    handleIpc(IPC_SYSTEM_DETECT_TECHNICAL_USER_SIGNALS, async (event) => {
+        if (!options.externalLinkService.assertPrivilegedSender(event, IPC_SYSTEM_DETECT_TECHNICAL_USER_SIGNALS)) {
             throw new Error("Blocked untrusted system:detectTechnicalUserSignals request.");
         }
         return { signals: await detectTechnicalUserSignalsMemoized() };

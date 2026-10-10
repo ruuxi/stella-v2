@@ -242,6 +242,22 @@ const basename = (path: string): string => path.split(/[\\/]/).pop() || path;
 const clamp = (text: string, max: number): string =>
   text.length > max ? `${text.slice(0, max)}…` : text;
 
+const firstQuestion = (args: Record<string, unknown>): string | undefined => {
+  const direct = str(args.question);
+  if (direct) return direct;
+  let questions: unknown = args.questions;
+  if (typeof questions === "string") {
+    try {
+      questions = JSON.parse(questions);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!Array.isArray(questions)) return undefined;
+  const first = questions[0] as { question?: unknown } | undefined;
+  return str(first?.question);
+};
+
 /** Per-call title shown in the expanded step list. */
 const titleForCall = (
   toolName: string,
@@ -291,7 +307,7 @@ const titleForCall = (
     case "remember":
       return str(a.title) ?? str(a.name) ?? "note";
     case "ask_user":
-      return str(a.question) ? clamp(str(a.question)!, 48) : "a question";
+      return firstQuestion(a) ? clamp(firstQuestion(a)!, 48) : "a question";
     case "request_secure_input":
       return str(a.purpose) ? clamp(str(a.purpose)!, 48) : "something private";
     case "use_secure_value":

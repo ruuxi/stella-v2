@@ -153,7 +153,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Kan deze thread niet laden",
+        "errorBody": "Sluit hem en open hem zo opnieuw."
       },
       "generatedImage": {
         "generating": "Genereren...",
@@ -830,7 +832,6 @@
     },
     "integrations": {
       "connectStellaApp": "Verbinden met Stella-app",
-      "connectStellaAppSub": "Koppel de Stella-app op je telefoon aan deze computer",
       "connectTitle": "Verbinden",
       "connected": "Verbonden",
       "credential": {
@@ -846,11 +847,16 @@
         "saving": "Opslaan...",
         "title": "{provider} verbinden"
       },
-      "heroTagline": "Stuur Stella een bericht vanaf elk platform dat je wilt — chat gewoon, of laat het dingen doen op je computer.",
       "phoneTitle": "Je telefoon",
       "signInHeadline": "Log in om te beginnen",
       "signInSub": "Log in op je Stella-account om {provider} te verbinden.",
-      "signInToConnect": "Log in bij Stella om te verbinden"
+      "signInToConnect": "Log in bij Stella om te verbinden",
+      "getApp": {
+        "appStoreQrAlt": "Scan om Stella te downloaden uit de App Store",
+        "platformLabel": "Kies een mobiel platform",
+        "playStoreQrAlt": "Scan om Stella te downloaden via Google Play",
+        "title": "Download de app"
+      }
     },
     "legal": {
       "privacy": {
@@ -902,9 +908,16 @@
         "title": "Dit gesprek"
       },
       "files": {
-        "empty": "Nog geen bestanden. Alles wat Stella maakt verschijnt hier.",
+        "empty": "Bestanden die Stella maakt of deelt, verschijnen hier.",
         "emptyFiltered": "Geen bestanden gevonden.",
-        "searchPlaceholder": "Bestanden zoeken"
+        "filterAll": "Alle bestanden",
+        "filterLabel": "Bestanden filteren en sorteren",
+        "searchPlaceholder": "Bestanden zoeken",
+        "sortName": "Naam",
+        "sortNewest": "Nieuwste eerst",
+        "sortOldest": "Oudste eerst",
+        "sourceCloud": "Cloud",
+        "sourceUpload": "Door jou verstuurd"
       },
       "schedule": {
         "actionFailed": "Dat is niet gelukt.",
@@ -912,7 +925,9 @@
         "customCadence": "Aangepast schema",
         "deleteConfirm": "‘{title}’ wordt niet meer uitgevoerd.",
         "deleteSchedule": "Schema verwijderen",
-        "empty": "Nog geen planningen. Vraag Stella op je computer om iets regelmatig uit te voeren en het verschijnt hier.",
+        "empty": "Nog niets gepland.",
+        "emptyAction": "Iets plannen",
+        "emptyActionPrompt": "Herinner me eraan om ",
         "lastRunFailed": "Laatste run mislukt: {error}",
         "loadFailed": "Kon planningen niet laden.",
         "next": "Volgende {when}",
@@ -937,6 +952,11 @@
         "stopped": "Gestopt",
         "working": "Werkt op de achtergrond"
       }
+    },
+    "apps": {
+      "empty": "Apps die Stella voor je bouwt, verschijnen hier.",
+      "emptyAction": "Een app bouwen",
+      "emptyActionPrompt": "Bouw een app voor me die "
     },
     "authCallback": {
       "backToSignIn": "Terug naar inloggen",
@@ -1003,7 +1023,6 @@
       "disconnectedLabel": "Computer niet verbonden",
       "guestHeroBody": "Vraag Stella om dingen te doen op je computer — het web verkennen, bestanden beheren, taken uitvoeren en meer.",
       "guestHeroTitle": "Je computer binnen handbereik",
-      "pairLabel": "Een computer koppelen",
       "statusAsleep": "In slaapstand",
       "statusChecking": "Controleren…",
       "statusConnected": "Verbonden"
@@ -1011,20 +1030,11 @@
     "desktop": {
       "connecting": "Verbinden met desktop",
       "deviceUnreachable": "Je {platform} is niet bereikbaar",
-      "enterCode": "Voer de code in die op je computer staat.",
-      "guestBody": "Bekijk je Stella-desktopapp gewoon op je telefoon. Na het koppelen maakt je telefoon automatisch opnieuw verbinding.",
       "guestSignInPrompt": "Log in om te beginnen.",
       "limitedCapabilities": "Sommige dingen hebben je computer nodig",
       "linkInterrupted": "De verbinding met je computer werd onderbroken.",
-      "pairAnother": "Nog een computer koppelen",
-      "pairTitle": "Koppel je telefoon",
-      "pairing": "Deze telefoon koppelen",
       "reconnecting": "Opnieuw verbinden...",
-      "repairNeeded": "Deze telefoon moet opnieuw met je computer worden gekoppeld.",
       "retryLabel": "Opnieuw proberen te verbinden",
-      "startPairingLabel": "Beginnen met een computer koppelen",
-      "unavailableBodyPaired": "Zorg dat Stella op je computer open is en verbinding heeft met internet. Zodra dat zo is, verschijnt je desktopapp hier op je telefoon.",
-      "unavailableBodyUnpaired": "Bekijk je Stella-desktopapp gewoon op je telefoon. Scan de QR-code die in Stella op je computer staat om te beginnen — daarna maakt je telefoon automatisch opnieuw verbinding.",
       "unreachable": "Kan je desktop niet bereiken"
     },
     "engineAccounts": {
@@ -1137,26 +1147,17 @@
         "signInBody": "Houd je gesprek, instellingen en gekoppelde computer bij de hand op elk apparaat.",
         "signInTitle": "Inloggen bij Stella",
         "skip": "Nu even niet",
-        "subscriptionsBody": "Betaal je al voor Claude of ChatGPT? Koppel het en ik gebruik het in de cloud. Je computers gebruiken hun eigen aanmeldingen.",
+        "subscriptionsBody": "Je bestaande Claude- of ChatGPT-abonnement gebruiken?",
         "subscriptionsLabel": "Optioneel"
       },
       "composerPlaceholder": "Of vraag me gewoon iets",
       "computer": {
-        "body": "Koppel deze telefoon aan Stella op je computer en ik kan daar taken uitvoeren terwijl jij onderweg bent.",
-        "connectedBody": "Vraag het me overal, dan doe ik het werk op je computer.",
+        "body": "Log in op je computer en hij maakt automatisch verbinding.",
         "connectedTo": "Verbonden met {name}",
-        "guestHint": "Koppelen hoort bij je Stella-account, dus log eerst in. Ik ga hier verder.",
-        "hint": "Open Stella op je computer en kies 'Koppel je telefoon'.",
+        "getDesktop": "Download Stella voor desktop",
         "later": "Later",
-        "pair": "Mijn computer koppelen",
-        "point1": "Een bestand zoeken en naar je sturen",
-        "point2": "Een export of download afronden",
-        "point3": "De apps gebruiken die je al hebt",
-        "settledConnectedDesc": "Ik kan daar taken uitvoeren vanaf je telefoon.",
-        "settledSkippedDesc": "Je kunt er op elk moment een koppelen in Instellingen.",
         "settledSkippedTitle": "Nog geen computer",
-        "signInToPair": "Log in om te koppelen",
-        "title": "Je computer, vanuit je broekzak"
+        "title": "Stella op je computer"
       },
       "gmail": {
         "body": "Vind e-mails, lees gesprekken bij en laat antwoorden opstellen, gewoon door het te vragen.",
@@ -1375,7 +1376,6 @@
         "enableFailedTitle": "Kon die computer niet inschakelen",
         "enableLabel": "{name} inschakelen",
         "enabling": "Inschakelen…",
-        "pairingCode": "Een koppelcode gebruiken",
         "sectionLabel": "Waar Stella werkt",
         "statusAwaitingConsent": "Wacht op toestemming op die computer",
         "statusDeclined": "Geweigerd op die computer",
@@ -1391,10 +1391,6 @@
       "deleteConfirmTitle": "Account verwijderen",
       "deleteFailedTitle": "Kon account niet verwijderen",
       "deletingAccount": "Account verwijderen…",
-      "forget": "Vergeten",
-      "forgetConfirmBody": "Deze telefoon maakt geen verbinding meer met die computer totdat je hem opnieuw koppelt.",
-      "forgetConfirmTitle": "{name} vergeten?",
-      "forgetLabel": "{name} vergeten",
       "hideEmailLabel": "E-mailadres verbergen",
       "loadingSession": "Sessie laden…",
       "notificationsSection": "Meldingen",
@@ -1404,9 +1400,6 @@
       "paired": {
         "unnamedComputer": "Computer · {id}"
       },
-      "pairedEmpty": "Nog geen computers gekoppeld.",
-      "pairedOn": "Gekoppeld op {date}",
-      "pairedSection": "Gekoppelde computers",
       "privacyPolicy": "Privacybeleid",
       "pushToggleA11y": "Pushmeldingen aan- of uitzetten",
       "pushToggleLabel": "Pushmeldingen toestaan",
@@ -1464,8 +1457,6 @@
       "cantRightNow": "Nu niet",
       "deadline": "Nog {time}",
       "deadlinePassed": "Tijd is om",
-      "deadlineWithDefault": "Nog {time} — anders “{option}”",
-      "defaultOption": "Standaard",
       "hideSecret": "{label} verbergen",
       "missingFields": "Vul alle verplichte velden in.",
       "notification": {
@@ -1478,14 +1469,11 @@
       "plain": "Wordt als gewone tekst verstuurd",
       "revealSecret": "{label} tonen",
       "sealFailed": "Kon dit niet versleutelen op dit apparaat.",
-      "send": "Versturen",
       "sendSecurely": "Veilig versturen",
       "sending": "Versturen…",
       "sensitive": "End-to-end versleuteld",
       "sensitiveToggleA11y": "{label} versleutelen",
       "sensitiveUnavailable": "Dit apparaat kan dit nog niet versleutelen",
-      "somethingElse": "Iets anders",
-      "somethingElsePlaceholder": "Vertel Stella wat er in plaats daarvan moet",
       "unnamedComputer": "Computer · {id}",
       "waitingBadge": "Wacht op je"
     }
@@ -1584,6 +1572,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Veel van het leven loopt via e-mail. Koppel Gmail en ik help je met de jouwe.",
         "memory": "One more thing that makes me different.",
+        "phone": "Ik ben er ook op je telefoon.",
         "quickstart": "Dat was alles. Nog één ding, en dat is optioneel: een snelstart.",
         "quickstartDone": "Klaar. Dit heb ik opgepikt, plus een paar dingen waarmee we kunnen beginnen.",
         "quickstartFailed": "Ik kon je browser deze keer niet helemaal uitlezen. We kunnen toch beginnen, dan leer ik gaandeweg.",
@@ -1873,10 +1862,10 @@
       "microphoneDeviceFallback": "Microfoon {index}",
       "recovery": {
         "closing": "Afsluiten…",
-        "manageDescription": "Als de microfoonmachtiging ooit vastloopt, kun je deze resetten en macOS vragen opnieuw te vragen.",
+        "manageDescription": "Reset de microfoontoestemming als die vastloopt.",
         "manageLabel": "Microfoontoegang beheren",
         "openSettings": "Instellingen openen",
-        "recoverDescription": "Zodra je nee hebt gezegd, vraagt macOS niet meer uit zichzelf. Reset de machtiging en sluit Stella af en open deze opnieuw.",
+        "recoverDescription": "macOS vraagt het niet opnieuw. Reset het en open Stella opnieuw.",
         "recoverLabel": "Microfoontoegang herstellen",
         "reset": "Resetten en opnieuw starten"
       },
@@ -1889,22 +1878,22 @@
       },
       "speakerDeviceFallback": "Luidspreker {index}",
       "superFast": {
-        "description": "Houdt de microfoon paraat zodat dicteren met minder vertraging start.",
+        "description": "Houdt de microfoon paraat zodat dicteren sneller start.",
         "label": "Supersnel dicteren"
       },
       "systemDefault": "Systeemstandaard",
       "wakeWord": {
-        "description": "Luistert op de achtergrond naar “Hey Stella” en start een spraakgesprek. Wanneer uit, blijft de microfoon inactief totdat je op dicteren drukt.",
+        "description": "Zeg “Hey Stella” om een spraakgesprek te starten.",
         "label": "Wekwoord “Hey Stella”"
       }
     },
     "browserExtension": {
       "action": "Extensie ophalen",
-      "description": "Laat Stella de pagina zien waar je bent en acties uitvoeren in je browser.",
+      "description": "Laat Stella je browser zien en erin handelen.",
       "title": "Stella voor Chrome"
     },
     "chatStorage": {
-      "description": "Bekijk je chats op al je apparaten. Schakel dit uit om een aparte chatgeschiedenis alleen op deze computer te houden. Bij het terugzetten worden die chats niet geüpload. AI-aanbieders verwerken je berichten nog steeds.",
+      "description": "Synchroniseer chats tussen apparaten. Uit houdt ze op deze computer.",
       "endVoice": "Beëindig je spraakgesprek om de chatopslag te wijzigen.",
       "error": "Kan de chatopslag niet wijzigen. Probeer het opnieuw.",
       "title": "Chatgeschiedenis in de cloud bewaren"
@@ -1923,13 +1912,13 @@
       "upgrade": "Upgraden"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Een kleine Stella die boven je bureaublad zweeft.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "API-sleutel",
-      "empty": "Nog geen providers verbonden. Kies hierboven in de modelkiezer een andere optie dan Stella om een API-sleutel toe te voegen of je aan te melden.",
+      "empty": "Nog geen providers. Voeg er een toe via de modelkiezer hierboven.",
       "removeKey": "Sleutel verwijderen",
       "removingKey": "Verwijderen…",
       "signOut": "Afmelden",
@@ -1948,7 +1937,7 @@
       "addClaude": "Claude-account toevoegen",
       "addInCloud": "In de cloud",
       "addOnComputer": "Op deze computer",
-      "cardIntro": "Gebruik het Claude- of ChatGPT-abonnement waarvoor je al betaalt. Elke plek logt apart in: elke computer en je cloud.",
+      "cardIntro": "Gebruik het Claude- of ChatGPT-abonnement waarvoor je al betaalt.",
       "cardTitle": "Claude- en ChatGPT-accounts",
       "chatgptBrowserWaiting": "Rond het inloggen bij ChatGPT af in je browser.",
       "chatgptCloudSignedIn": "Je cloud is ingelogd bij ChatGPT.",
@@ -1969,7 +1958,7 @@
         "whereComputer": "Inloggen bij Claude Code op deze computer."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Code is niet geïnstalleerd op deze computer. Installeer het om Claude hier te gebruiken.",
+      "cliMissing": "Installeer Claude Code op deze computer om Claude hier te gebruiken.",
       "connecting": "Verbinden…",
       "defaultSignedOut": "Claude Code op deze computer is niet ingelogd.",
       "enablePlanUsage": "Gebruik van ChatGPT-abonnement inschakelen",
@@ -1980,14 +1969,14 @@
       "needsChatgptCloud": "Stel eerst ChatGPT in voor je cloud",
       "needsClaudeCloud": "Log eerst in bij Claude in de cloud",
       "openChatgptAgain": "ChatGPT opnieuw openen",
-      "pasteHintChatgpt": "Na je goedkeuring stuurt ChatGPT je naar een pagina die niet laadt. Kopieer het volledige adres van die pagina en plak het hier.",
+      "pasteHintChatgpt": "Kopieer het adres van de pagina die ChatGPT opent en plak het hier.",
       "pastePlaceholderUrl": "Plak het adres hier",
       "placeCloud": "Cloud",
       "placeComputer": "Deze computer",
       "placeOtherComputer": "Een andere computer",
       "placeSignedIn": "{place}: ingelogd",
       "placeSignedOut": "{place}: niet ingelogd",
-      "planUsageOffBody": "Stella kan je ChatGPT-abonnement pas gebruiken als je dat toestaat. Kies ‘Gebruik van ChatGPT-abonnement inschakelen’ bij het account, of gebruik een ander model.",
+      "planUsageOffBody": "Kies ‘Gebruik van ChatGPT-abonnement inschakelen’ bij het account, of kies een ander model.",
       "planUsageOffTitle": "Ingelogd, maar gebruik van het ChatGPT-abonnement staat niet aan",
       "remove": "Verwijderen",
       "removed": "Verwijderd.",
@@ -2044,7 +2033,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Hoe hard Stella probeert je te bereiken als ze een antwoord nodig heeft.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2079,16 +2068,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2102,16 +2086,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Kies de taal die Stella gebruikt in de app en in antwoorden.",
+      "description": "Voor de app en de antwoorden van Stella.",
       "title": "Taal"
     },
     "lockedComputerUse": {
-      "description": "Laat Stella computergebruik-taken voortzetten nadat deze Mac is vergrendeld. Vereist een beheerdersverzoek en bedekt het scherm terwijl Stella werkt.",
+      "description": "Laat computergebruik-taken doorlopen als deze Mac vergrendelt.",
       "title": "Gebruik bij vergrendelde computer",
       "unsupported": "Gebruik bij vergrendelde computer is alleen beschikbaar op macOS."
     },
     "memory": {
-      "description": "Neem opgeslagen herinneringen en je profiel op in de modelcontext van Stella. Je computers en de cloud houden hetzelfde geheugen bij, versleuteld tijdens overdracht en opslag. Als je dit uitschakelt, wordt dat gepauzeerd en wordt het geheugen niet gebruikt in toekomstige gesprekken, maar niet verwijderd.",
+      "description": "Gebruik opgeslagen herinneringen in antwoorden. Uitzetten verwijdert ze niet.",
       "title": "Geheugen"
     },
     "modelPicker": {
@@ -2145,7 +2129,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Gebruik elke lokale OpenAI-compatibele server. Ollama draait meestal op de URL hieronder.",
+        "hint": "Elke lokale OpenAI-compatibele server, zoals Ollama.",
         "modelNameAriaLabel": "Naam lokaal model",
         "serverUrlAriaLabel": "URL lokale server"
       },
@@ -2189,7 +2173,7 @@
       "title": "Beweging"
     },
     "nativeFontSmoothing": {
-      "description": "Geeft tekst weer zoals macOS-apps, met antialiasing in grijswaarden.",
+      "description": "Anti-aliasing in grijstinten, zoals native macOS-apps.",
       "title": "Native lettertype-afronding"
     },
     "notifications": {
@@ -2198,18 +2182,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Doorloop de introductie opnieuw. Je gegevens blijven bewaard.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Laat Stella geselecteerde tekst lezen en openen via de sneltoets ⌘+rechtermuisklik overal op je computer.",
+        "description": "Lees geselecteerde tekst en open met ⌘+rechtsklik.",
         "label": "Toegankelijkheid"
       },
       "enable": "Inschakelen",
       "granted": "Verleend",
       "microphone": {
-        "description": "Gebruikt voor stem en dictee. Reset als Stella eerder is geweigerd en macOS niet opnieuw vraagt.",
+        "description": "Voor spraak en dicteren.",
         "label": "Microfoon"
       },
       "opening": "Openen…",
@@ -2218,55 +2202,14 @@
       "restart": {
         "action": "Opnieuw starten",
         "closing": "Afsluiten…",
-        "description": "Schermopname is zojuist ingeschakeld. Sluit Stella af en open opnieuw om de installatie te voltooien.",
+        "description": "Open Stella opnieuw om schermopname volledig in te schakelen.",
         "label": "Stella opnieuw starten"
       },
       "screen": {
-        "description": "Laat Stella je scherm zien om te helpen met waar je naar kijkt. Mogelijk moet je Stella afsluiten en opnieuw openen nadat je dit hebt ingeschakeld.",
+        "description": "Laat Stella zien wat er op je scherm staat.",
         "label": "Schermopname"
       },
       "title": "Machtigingen"
-    },
-    "phoneAccess": {
-      "copy": "Kopiëren",
-      "deviceFallback": "Telefoon",
-      "errors": {
-        "createPairing": "Kan geen koppelcode aanmaken."
-      },
-      "expired": "Verlopen",
-      "getCode": "Code ophalen",
-      "intro": {
-        "headline": "Verbind je telefoon met je computer"
-      },
-      "pairedCount": {
-        "one": "{count} telefoon gekoppeld",
-        "other": "{count} telefoons gekoppeld"
-      },
-      "pairing": {
-        "body": "Open de Stella-app op je telefoon en scan de QR-code, of typ de code hieronder. Dit hoef je maar één keer te doen.",
-        "headline": "Scan of voer deze code in",
-        "qrAlt": "Scan om je telefoon te koppelen"
-      },
-      "preparing": "Voorbereiden...",
-      "remove": "Verwijderen",
-      "removing": "Verwijderen...",
-      "signedOut": {
-        "body": "Log in op je Stella-account om te koppelen met de mobiele app.",
-        "headline": "Log in om te beginnen"
-      },
-      "steps": {
-        "appStoreQrAlt": "Scan om Stella te downloaden uit de App Store",
-        "connect": "Verbind je telefoon",
-        "download": "Download de app",
-        "platformSelectorLabel": "Kies een mobiel platform",
-        "playStoreQrAlt": "Scan om Stella te downloaden via Google Play"
-      },
-      "timeLeft": "Nog {time}",
-      "toasts": {
-        "codeCopied": "Code gekopieerd naar klembord",
-        "phoneRemoved": "Telefoon verwijderd",
-        "removeFailed": "Telefoon verwijderen mislukt"
-      }
     },
     "power": {
       "description": "Voorkomt dat je computer in de sluimerstand gaat terwijl Stella open is.",
@@ -2279,7 +2222,7 @@
         "description": "Stuur Stella’s chatassistent via {provider}.",
         "label": "Assistent"
       },
-      "description": "{provider} kan meer dan één onderdeel van Stella aandrijven. Kies waar het het overneemt — Stella doet de rest.",
+      "description": "Kies waarvoor {provider} gebruikt moet worden.",
       "errors": {
         "apply": "Providerinstellingen toepassen mislukt."
       },
@@ -2308,7 +2251,7 @@
     },
     "resetCustomizations": {
       "action": "Standaarden herstellen",
-      "description": "Verwijdert je skill-aanpassingen en persoonlijkheidsbewerkingen zodat Stella's standaarden gelden. Verwijderde items blijven bewaard in ~/.stella/.trash voor het geval je ze terug wilt.",
+      "description": "Herstel standaardvaardigheden en -persoonlijkheid. Oude bestanden gaan naar ~/.stella/.trash.",
       "done": "Standaarden hersteld. Je eerdere aanpassingen zijn verplaatst naar ~/.stella/.trash.",
       "error": "Kon de standaarden niet herstellen.",
       "none": "Je gebruikt al Stella's standaardinstellingen.",
@@ -2342,7 +2285,7 @@
       "change": "Wijzigen",
       "clear": "Wissen",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Druk om te dicteren, druk nogmaals om te stoppen."
       },
       "errors": {
         "load": "Sneltoetsen laden mislukt.",
@@ -2380,7 +2323,7 @@
       "defaultOption": "Stella's standaard",
       "delete": "Verwijderen",
       "deleted": "Prompt verwijderd.",
-      "description": "Stella's standaardprompt wordt altijd met de app bijgewerkt. Sla je eigen prompt op om die in plaats daarvan te gebruiken — hij wordt apart bewaard, dus updates overschrijven hem nooit.",
+      "description": "Gebruik je eigen prompt in plaats van die van Stella.",
       "duplicate": "Dupliceren",
       "edit": "Bewerken",
       "error": "Er ging iets mis.",
@@ -2397,11 +2340,12 @@
       "account": "Account & juridisch",
       "audio": "Audio",
       "general": "Algemeen",
-      "shortcuts": "Sneltoetsen"
+      "shortcuts": "Sneltoetsen",
+      "privacy": "Privacy"
     },
     "title": "Instellingen",
     "voiceAgent": {
-      "description": "Toon de spraak- en belknoppen zodat je hardop met Stella kunt praten. Dicteren blijft hoe dan ook werken.",
+      "description": "Toon spraak- en belknoppen. Dicteren werkt hoe dan ook.",
       "error": "Spraakinstelling kon niet worden bijgewerkt.",
       "title": "Spraakgesprekken"
     },
@@ -2423,6 +2367,13 @@
         "openai": "OpenAI-stemmen",
         "xai": "Grok-stemmen"
       }
+    },
+    "groups": {
+      "app": "App",
+      "personal": "Persoonlijk"
+    },
+    "nav": {
+      "more": "Meer"
     }
   },
   "shell": {
@@ -2463,7 +2414,9 @@
         "skipped": "Overgeslagen",
         "undoing": "Ongedaan maken…",
         "upToDate": "Niets in afwachting",
-        "waiting": "Wachtend"
+        "waiting": "Wachtend",
+        "upToDateTitle": "Je bent helemaal bij",
+        "upToDateBody": "Nieuwe versies van Stella verschijnen hier."
       },
       "updating": "Bijwerken…"
     },
@@ -2493,7 +2446,9 @@
       "noMatches": "Geen connectors komen overeen met die zoekopdracht.",
       "searchLabel": "Connectors zoeken",
       "searchPlaceholder": "Zoeken",
-      "title": "Connectors"
+      "title": "Connectors",
+      "noMatchesTitle": "Geen resultaten",
+      "noMatchesBody": "Probeer een andere naam."
     },
     "display": {
       "agentThread": {
@@ -2547,11 +2502,19 @@
       },
       "canvasShare": {
         "copyLink": "Link kopiëren",
-        "empty": "Nog niets actief gedeeld. Publiceer een canvas voor een openbare link.",
+        "empty": "Nog geen openbare canvassen. Maak een canvas openbaar om de link te delen.",
         "expires": "Verloopt {date}",
         "links": "Links",
         "live": "Canvas is live",
         "loadFailed": "Kon je gedeelde items niet laden.",
+        "makePrivate": "Privé maken",
+        "makePublic": "Openbaar maken",
+        "noLink": "Dit canvas heeft nog geen link. Maak het openbaar om een link te krijgen die iedereen kan openen.",
+        "openInBrowser": "Openen in browser",
+        "privateHint": "Alleen jij kunt deze link openen.",
+        "privateLink": "Privélink",
+        "public": "Openbaar",
+        "publicHint": "Iedereen met de link kan het bekijken.",
         "publicLink": "Openbare canvaslink",
         "publishFailed": "Kon dit canvas niet publiceren. Probeer het opnieuw.",
         "publishing": "Canvas publiceren…",
@@ -2563,8 +2526,12 @@
         "toasts": {
           "copyFailed": "Kon de link niet kopiëren",
           "linkCopied": "Deellink gekopieerd",
+          "madePrivate": "Link is nu privé",
+          "madePublic": "Link is nu openbaar",
+          "openFailed": "Kan de link niet openen",
           "revokeFailed": "Kon dit delen niet intrekken",
-          "revoked": "Delen ingetrokken"
+          "revoked": "Delen ingetrokken",
+          "visibilityFailed": "Kan niet wijzigen wie deze link kan openen"
         },
         "untitled": "Canvas zonder titel"
       },
@@ -2573,7 +2540,10 @@
         "codeChanges": "Codewijzigingen",
         "desktopRequired": "Codevoorbeeld vereist de Stella-desktopapp.",
         "empty": "Nog geen bestandswijzigingen. Wanneer een agent code bewerkt, verschijnen de wijzigingen hier.",
-        "noChanges": "Geen wijzigingen gevonden."
+        "noChanges": "Geen wijzigingen gevonden.",
+        "emptyTitle": "Nog geen wijzigingen",
+        "emptyBody": "Als een agent code bewerkt, verschijnen de wijzigingen hier.",
+        "noChangesTitle": "Geen wijzigingen"
       },
       "filePreview": {
         "copy": "Kopiëren",
@@ -2608,7 +2578,11 @@
         "revealInFinder": "Tonen in Finder",
         "save": "Opslaan",
         "saveFailed": "Kon niet opslaan",
-        "saved": "Opgeslagen"
+        "saved": "Opgeslagen",
+        "zoom": "Afbeelding inzoomen",
+        "imageUnavailable": "Afbeelding niet beschikbaar",
+        "videoUnavailable": "Video niet beschikbaar",
+        "audioUnavailable": "Audio niet beschikbaar"
       },
       "office": {
         "frameTitle": "{kind}-voorbeeld: {title}",
@@ -2634,7 +2608,11 @@
       },
       "preview": {
         "limited": "Voorbeeld beperkt. Sla het originele bestand op of open het om alle inhoud te zien.",
-        "unavailable": "Kan dit voorbeeld niet voorbereiden."
+        "unavailable": "Kan dit voorbeeld niet voorbereiden.",
+        "failedTitle": "Kan geen voorbeeld tonen",
+        "failedBody": "Probeer het opnieuw, of sla het bestand op om het elders te openen.",
+        "unavailableTitle": "Bestand niet beschikbaar",
+        "emptyTitle": "Dit bestand is leeg"
       },
       "spreadsheet": {
         "column": "Kolom {index}",
@@ -2656,7 +2634,9 @@
         "pendingPurge": "Wordt gewist",
         "refresh": "Vernieuwen",
         "title": "Prullenmand",
-        "trashedAgo": "{time} geleden weggegooid"
+        "trashedAgo": "{time} geleden weggegooid",
+        "emptyTitle": "Prullenmand is leeg",
+        "emptyBody": "Verwijderde items blijven hier 24 uur staan."
       },
       "url": {
         "eyebrow": "Live voorbeeld",
@@ -2751,22 +2731,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "Nog {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Dit antwoord gebruiken",
+      "default": "Standaard",
+      "next": "Volgende vraag",
+      "previous": "Vorige vraag",
+      "progress": "{current} van {total}",
+      "sending": "Versturen…",
+      "skip": "Overslaan",
+      "skipped": "Overgeslagen",
+      "somethingElse": "Iets anders",
+      "submit": "Versturen"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

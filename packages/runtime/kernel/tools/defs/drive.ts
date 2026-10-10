@@ -22,6 +22,7 @@ import { randomUUID } from "node:crypto";
 
 import { BackendClient } from "@stella/contracts/backend/client";
 import type { DriveFile } from "@stella/contracts/backend/drive";
+import { isEvidenceThumbnailDrivePath } from "@stella/contracts/chat-evidence-thumbnails";
 import type { ToolDefinition, ToolContext, ToolResult } from "../types.js";
 import {
   DRIVE_TOOL_DESCRIPTION,
@@ -97,10 +98,13 @@ export const createDriveTool = (
         const limit = Number.isFinite(requested)
           ? Math.min(Math.max(Math.trunc(requested), 1), MAX_LIST_LIMIT)
           : DEFAULT_LIST_LIMIT;
-        const { files } = await client.call("drive.list", {
+        const listed = await client.call("drive.list", {
           ...(prefix ? { prefix } : {}),
           limit,
         });
+        const files = listed.files.filter(
+          (file) => !isEvidenceThumbnailDrivePath(file.path),
+        );
         if (files.length === 0) {
           return {
             result: prefix

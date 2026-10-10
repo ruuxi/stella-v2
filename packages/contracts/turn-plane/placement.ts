@@ -3,6 +3,10 @@ import type {
   DeviceRequestDeviceFrame,
   DeviceRequestServerFrame,
 } from "./device-requests.js";
+import type {
+  DeviceToolDeviceFrame,
+  DeviceToolServerFrame,
+} from "./device-tools.js";
 
 /**
  * Execution placement on the owner gate.
@@ -19,6 +23,10 @@ import type {
  *   GET  /owners/me/devices/:deviceId/presence WebSocket (user JWT), the device presence socket
  *   POST /owners/me/devices/:deviceId/requests a paired phone's request, relayed over that socket
  *                                              (see `device-requests.ts`)
+ *
+ * A cloud agent's tool calls for one of the owner's computers reach the gate
+ * by RPC from the conversation's object and cross the same socket (see
+ * `device-tools.ts`).
  *
  * Mobile submits carry the pairing proof headers the mobile app already
  * sends; the worker verifies them against the owner snapshot's paired
@@ -387,7 +395,8 @@ export type DevicePresenceServerFrame =
     }
   | { type: "pong"; serverTimeMs: number }
   | { type: "error"; code: string; message: string; retryable: boolean }
-  | DeviceRequestServerFrame;
+  | DeviceRequestServerFrame
+  | DeviceToolServerFrame;
 
 /** Device -> server. Every frame after `proof` is bound to the proven session. */
 export type DevicePresenceDeviceFrame =
@@ -440,7 +449,8 @@ export type DevicePresenceDeviceFrame =
       errorMessage?: string;
     }
   | { type: "ping" }
-  | DeviceRequestDeviceFrame;
+  | DeviceRequestDeviceFrame
+  | DeviceToolDeviceFrame;
 
 export const DEVICE_PRESENCE_PROOF_PREFIX = "stella-device-presence" as const;
 

@@ -163,7 +163,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Toto vlákno se nepodařilo načíst",
+        "errorBody": "Zavřete ho a za chvíli otevřete znovu."
       },
       "generatedImage": {
         "generating": "Generování...",
@@ -846,7 +848,6 @@
     },
     "integrations": {
       "connectStellaApp": "Připojit k aplikaci Stella",
-      "connectStellaAppSub": "Spárujte aplikaci Stella v telefonu s tímto počítačem",
       "connectTitle": "Připojit",
       "connected": "Připojeno",
       "credential": {
@@ -862,11 +863,16 @@
         "saving": "Ukládání...",
         "title": "Připojit {provider}"
       },
-      "heroTagline": "Pište Stelle z jakékoli platformy, která vám vyhovuje — povídejte si přirozeně, nebo ji požádejte, ať věci vyřídí přímo ve vašem počítači.",
       "phoneTitle": "Váš telefon",
       "signInHeadline": "Přihlaste se a začněte",
       "signInSub": "Přihlaste se ke svému účtu Stella, abyste připojili {provider}.",
-      "signInToConnect": "Pro připojení se přihlaste ke Stelle"
+      "signInToConnect": "Pro připojení se přihlaste ke Stelle",
+      "getApp": {
+        "appStoreQrAlt": "Naskenujte pro stažení Stelly z App Store",
+        "platformLabel": "Vyberte mobilní platformu",
+        "playStoreQrAlt": "Naskenujte pro stažení Stelly z Google Play",
+        "title": "Stáhnout aplikaci"
+      }
     },
     "legal": {
       "privacy": {
@@ -920,9 +926,16 @@
         "title": "Tato konverzace"
       },
       "files": {
-        "empty": "Zatím žádné soubory. Vše, co Stella vytvoří, se objeví tady.",
+        "empty": "Zde se zobrazí soubory, které Stella vytvoří nebo sdílí.",
         "emptyFiltered": "Žádné soubory neodpovídají.",
-        "searchPlaceholder": "Hledat soubory"
+        "filterAll": "Všechny soubory",
+        "filterLabel": "Filtrovat a řadit soubory",
+        "searchPlaceholder": "Hledat soubory",
+        "sortName": "Název",
+        "sortNewest": "Od nejnovějších",
+        "sortOldest": "Od nejstarších",
+        "sourceCloud": "Cloud",
+        "sourceUpload": "Odeslané vámi"
       },
       "schedule": {
         "actionFailed": "Nepovedlo se to.",
@@ -930,7 +943,9 @@
         "customCadence": "Vlastní plán",
         "deleteConfirm": "„{title}“ se přestane spouštět.",
         "deleteSchedule": "Smazat plán",
-        "empty": "Zatím žádné plány. Požádejte Stellu na svém počítači, ať něco spouští pravidelně, a objeví se to tady.",
+        "empty": "Zatím nic naplánováno.",
+        "emptyAction": "Něco naplánovat",
+        "emptyActionPrompt": "Připomeň mi, abych ",
         "lastRunFailed": "Poslední běh selhal: {error}",
         "loadFailed": "Plány se nepodařilo načíst.",
         "next": "Příště {when}",
@@ -955,6 +970,11 @@
         "stopped": "Zastaveno",
         "working": "Pracuje na pozadí"
       }
+    },
+    "apps": {
+      "empty": "Zde budou aplikace, které pro vás Stella vytvoří.",
+      "emptyAction": "Vytvořit aplikaci",
+      "emptyActionPrompt": "Vytvoř mi aplikaci, která "
     },
     "authCallback": {
       "backToSignIn": "Zpět na přihlášení",
@@ -1023,7 +1043,6 @@
       "disconnectedLabel": "Počítač odpojen",
       "guestHeroBody": "Požádejte Stellu, aby na vašem počítači něco udělala — prohlížela web, spravovala soubory, spouštěla úlohy a další.",
       "guestHeroTitle": "Váš počítač na dosah ruky",
-      "pairLabel": "Spárovat počítač",
       "statusAsleep": "Spí",
       "statusChecking": "Kontrola…",
       "statusConnected": "Připojeno"
@@ -1031,20 +1050,11 @@
     "desktop": {
       "connecting": "Připojování k počítači",
       "deviceUnreachable": "Zařízení {platform} je nedostupné",
-      "enterCode": "Zadejte kód zobrazený na vašem počítači.",
-      "guestBody": "Mějte desktopovou aplikaci Stella přímo v telefonu. Po spárování se telefon připojí automaticky.",
       "guestSignInPrompt": "Začněte přihlášením.",
       "limitedCapabilities": "Některé věci vyžadují váš počítač",
       "linkInterrupted": "Spojení s vaším počítačem bylo přerušeno.",
-      "pairAnother": "Spárovat další počítač",
-      "pairTitle": "Spárujte svůj telefon",
-      "pairing": "Párování tohoto telefonu",
       "reconnecting": "Připojování znovu...",
-      "repairNeeded": "Tento telefon je potřeba znovu spárovat s vaším počítačem.",
       "retryLabel": "Zkusit připojení znovu",
-      "startPairingLabel": "Zahájit párování počítače",
-      "unavailableBodyPaired": "Ujistěte se, že je Stella na vašem počítači otevřená a připojená k internetu. Jakmile se připojí, desktopová aplikace se objeví přímo tady v telefonu.",
-      "unavailableBodyUnpaired": "Mějte desktopovou aplikaci Stella přímo v telefonu. Naskenujte QR kód zobrazený ve Stelle na vašem počítači — potom se telefon bude připojovat automaticky.",
       "unreachable": "Počítač je nedostupný"
     },
     "engineAccounts": {
@@ -1157,26 +1167,17 @@
         "signInBody": "Mějte konverzaci, nastavení i připojený počítač na každém zařízení.",
         "signInTitle": "Přihlaste se ke Stelle",
         "skip": "Zatím přeskočit",
-        "subscriptionsBody": "Už platíte za Claude nebo ChatGPT? Připojte ho a budu ho používat v cloudu. Vaše počítače používají vlastní přihlášení.",
+        "subscriptionsBody": "Použít vaše stávající předplatné Claude nebo ChatGPT?",
         "subscriptionsLabel": "Volitelné"
       },
       "composerPlaceholder": "Nebo se mě prostě na něco zeptejte",
       "computer": {
-        "body": "Spárujte tento telefon se Stellou na počítači a můžu tam plnit úkoly, zatímco jste pryč.",
-        "connectedBody": "Ptejte se odkudkoli a práci udělám na vašem počítači.",
+        "body": "Přihlaste se na počítači a propojí se automaticky.",
         "connectedTo": "Připojeno: {name}",
-        "guestHint": "Párování patří k vašemu účtu Stella, proto se nejdřív přihlaste. Navážu přesně tady.",
-        "hint": "Na počítači otevřete Stellu a zvolte Spárovat telefon.",
+        "getDesktop": "Stáhnout Stella pro počítač",
         "later": "Později",
-        "pair": "Spárovat můj počítač",
-        "point1": "Najít soubor a poslat vám ho",
-        "point2": "Dokončit export nebo stahování",
-        "point3": "Použít aplikace, které už máte",
-        "settledConnectedDesc": "Můžu tam plnit úkoly z vašeho telefonu.",
-        "settledSkippedDesc": "Můžete ho spárovat kdykoli v Nastavení.",
         "settledSkippedTitle": "Zatím žádný počítač",
-        "signInToPair": "Přihlásit se a spárovat",
-        "title": "Váš počítač z kapsy"
+        "title": "Stella na vašem počítači"
       },
       "gmail": {
         "body": "Najdi e-maily, dožeň konverzace a nech si napsat odpovědi, stačí říct.",
@@ -1395,7 +1396,6 @@
         "enableFailedTitle": "Počítač se nepodařilo povolit",
         "enableLabel": "Povolit {name}",
         "enabling": "Povolování…",
-        "pairingCode": "Použít párovací kód",
         "sectionLabel": "Kde Stella pracuje",
         "statusAwaitingConsent": "Čeká se na povolení na tom počítači",
         "statusDeclined": "Na tom počítači odmítnuto",
@@ -1411,10 +1411,6 @@
       "deleteConfirmTitle": "Smazat účet",
       "deleteFailedTitle": "Účet se nepodařilo smazat",
       "deletingAccount": "Mazání účtu…",
-      "forget": "Zapomenout",
-      "forgetConfirmBody": "Tento telefon se k danému počítači přestane připojovat, dokud ho znovu nespárujete.",
-      "forgetConfirmTitle": "Zapomenout zařízení {name}?",
-      "forgetLabel": "Zapomenout zařízení {name}",
       "hideEmailLabel": "Skrýt e-mail",
       "loadingSession": "Načítání relace…",
       "notificationsSection": "Oznámení",
@@ -1424,9 +1420,6 @@
       "paired": {
         "unnamedComputer": "Počítač · {id}"
       },
-      "pairedEmpty": "Zatím není spárovaný žádný počítač.",
-      "pairedOn": "Spárováno {date}",
-      "pairedSection": "Spárované počítače",
       "privacyPolicy": "Zásady ochrany osobních údajů",
       "pushToggleA11y": "Přepnout push oznámení",
       "pushToggleLabel": "Povolit push oznámení",
@@ -1484,8 +1477,6 @@
       "cantRightNow": "Teď nemůžu",
       "deadline": "Zbývá {time}",
       "deadlinePassed": "Čas vypršel",
-      "deadlineWithDefault": "Zbývá {time} — jinak „{option}“",
-      "defaultOption": "Výchozí",
       "hideSecret": "Skrýt {label}",
       "missingFields": "Vyplň všechna povinná pole.",
       "notification": {
@@ -1498,14 +1489,11 @@
       "plain": "Odesláno jako čitelný text",
       "revealSecret": "Zobrazit {label}",
       "sealFailed": "Na tomto zařízení to nejde zašifrovat.",
-      "send": "Odeslat",
       "sendSecurely": "Odeslat bezpečně",
       "sending": "Odesílám…",
       "sensitive": "Šifrováno end-to-end",
       "sensitiveToggleA11y": "Zašifrovat {label}",
       "sensitiveUnavailable": "Tohle zařízení to zatím nedokáže zašifrovat",
-      "somethingElse": "Něco jiného",
-      "somethingElsePlaceholder": "Napiš Stelle, co má udělat místo toho",
       "unnamedComputer": "Počítač · {id}",
       "waitingBadge": "Čeká na tebe"
     }
@@ -1604,6 +1592,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Spousta života se odehrává v e-mailu. Připoj Gmail a pomůžu ti s ním.",
         "memory": "One more thing that makes me different.",
+        "phone": "Jsem i ve vašem telefonu.",
         "quickstart": "To je všechno. Ještě jedna věc, a je nepovinná: rychlý start.",
         "quickstartDone": "Hotovo. Tohle jsem se dozvěděla a tady je pár věcí, kterými bychom mohli začít.",
         "quickstartFailed": "Tentokrát jsem nestihla dočíst tvůj prohlížeč. Můžeme začít i tak a já se budu učit za pochodu.",
@@ -2099,16 +2088,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Zde se zobrazují přihlášené počítače. Povolte jeden a posílejte mu práci.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2246,49 +2230,6 @@
         "label": "Záznam obrazovky"
       },
       "title": "Oprávnění"
-    },
-    "phoneAccess": {
-      "copy": "Kopírovat",
-      "deviceFallback": "Telefon",
-      "errors": {
-        "createPairing": "Nelze vytvořit párovací kód."
-      },
-      "expired": "Vypršelo",
-      "getCode": "Získat kód",
-      "intro": {
-        "headline": "Připojte telefon k počítači"
-      },
-      "pairedCount": {
-        "few": "Spárovány {count} telefony",
-        "many": "Spárováno {count} telefonu",
-        "one": "Spárován {count} telefon",
-        "other": "Spárováno {count} telefonů"
-      },
-      "pairing": {
-        "body": "Naskenujte QR kód v aplikaci Stella v telefonu, nebo zadejte kód.",
-        "headline": "Naskenujte nebo zadejte tento kód",
-        "qrAlt": "Naskenujte pro spárování telefonu"
-      },
-      "preparing": "Příprava...",
-      "remove": "Odebrat",
-      "removing": "Odebírání...",
-      "signedOut": {
-        "body": "Přihlaste se ke svému účtu Stella, abyste ho spárovali s mobilní aplikací.",
-        "headline": "Přihlaste se a začněte"
-      },
-      "steps": {
-        "appStoreQrAlt": "Naskenujte pro stažení Stelly z App Store",
-        "connect": "Připojte telefon",
-        "download": "Stáhněte aplikaci",
-        "platformSelectorLabel": "Vyberte mobilní platformu",
-        "playStoreQrAlt": "Naskenujte pro stažení Stelly z Google Play"
-      },
-      "timeLeft": "zbývá {time}",
-      "toasts": {
-        "codeCopied": "Kód zkopírován do schránky",
-        "phoneRemoved": "Telefon odebrán",
-        "removeFailed": "Nepodařilo se odebrat telefon"
-      }
     },
     "power": {
       "description": "Zabrání počítači v přechodu do režimu spánku, když je Stella otevřená.",
@@ -2495,7 +2436,9 @@
         "skipped": "Přeskočené",
         "undoing": "Vracení…",
         "upToDate": "Nic nečeká",
-        "waiting": "Čeká"
+        "waiting": "Čeká",
+        "upToDateTitle": "Máte nejnovější verzi",
+        "upToDateBody": "Nové verze Stelly se zobrazí tady."
       },
       "updating": "Aktualizace…"
     },
@@ -2525,7 +2468,9 @@
       "noMatches": "Hledání neodpovídá žádnému konektoru.",
       "searchLabel": "Hledat konektory",
       "searchPlaceholder": "Hledat",
-      "title": "Konektory"
+      "title": "Konektory",
+      "noMatchesTitle": "Žádné shody",
+      "noMatchesBody": "Zkuste jiný název."
     },
     "display": {
       "agentThread": {
@@ -2583,11 +2528,19 @@
       },
       "canvasShare": {
         "copyLink": "Kopírovat odkaz",
-        "empty": "Zatím žádná aktivní sdílení. Publikujte plátno a získáte veřejný odkaz.",
+        "empty": "Zatím žádná veřejná plátna. Zveřejněte plátno a sdílejte jeho odkaz.",
         "expires": "Vyprší {date}",
         "links": "Odkazy",
         "live": "Plátno je veřejné",
         "loadFailed": "Vaše sdílení se nepodařilo načíst.",
+        "makePrivate": "Nastavit jako soukromé",
+        "makePublic": "Zveřejnit",
+        "noLink": "Toto plátno zatím nemá odkaz. Zveřejněte ho a získáte odkaz, který otevře kdokoli.",
+        "openInBrowser": "Otevřít v prohlížeči",
+        "privateHint": "Tento odkaz můžete otevřít jen vy.",
+        "privateLink": "Soukromý odkaz",
+        "public": "Veřejné",
+        "publicHint": "Kdokoli s odkazem si ho může zobrazit.",
         "publicLink": "Veřejný odkaz na plátno",
         "publishFailed": "Toto plátno se nepodařilo publikovat. Zkuste to prosím znovu.",
         "publishing": "Publikování plátna…",
@@ -2599,8 +2552,12 @@
         "toasts": {
           "copyFailed": "Odkaz se nepodařilo zkopírovat",
           "linkCopied": "Odkaz ke sdílení zkopírován",
+          "madePrivate": "Odkaz je teď soukromý",
+          "madePublic": "Odkaz je teď veřejný",
+          "openFailed": "Odkaz se nepodařilo otevřít",
           "revokeFailed": "Toto sdílení se nepodařilo zrušit",
-          "revoked": "Sdílení zrušeno"
+          "revoked": "Sdílení zrušeno",
+          "visibilityFailed": "Nepodařilo se změnit, kdo může tento odkaz otevřít"
         },
         "untitled": "Plátno bez názvu"
       },
@@ -2609,7 +2566,10 @@
         "codeChanges": "Změny v kódu",
         "desktopRequired": "Náhled kódu vyžaduje desktopovou aplikaci Stella.",
         "empty": "Zatím žádné změny souborů. Až agent upraví kód, změny se objeví tady.",
-        "noChanges": "Nebyly nalezeny žádné změny."
+        "noChanges": "Nebyly nalezeny žádné změny.",
+        "emptyTitle": "Zatím žádné změny",
+        "emptyBody": "Když agent upraví kód, změny se zobrazí tady.",
+        "noChangesTitle": "Žádné změny"
       },
       "filePreview": {
         "copy": "Kopírovat",
@@ -2644,7 +2604,11 @@
         "revealInFinder": "Zobrazit ve Finderu",
         "save": "Uložit",
         "saveFailed": "Nepodařilo se uložit",
-        "saved": "Uloženo"
+        "saved": "Uloženo",
+        "zoom": "Přiblížit obrázek",
+        "imageUnavailable": "Obrázek není dostupný",
+        "videoUnavailable": "Video není dostupné",
+        "audioUnavailable": "Zvuk není dostupný"
       },
       "office": {
         "frameTitle": "Náhled — {kind}: {title}",
@@ -2674,7 +2638,11 @@
       },
       "preview": {
         "limited": "Náhled je omezený. Uložte nebo otevřete původní soubor, abyste viděli celý obsah.",
-        "unavailable": "Tento náhled se nepodařilo připravit."
+        "unavailable": "Tento náhled se nepodařilo připravit.",
+        "failedTitle": "Náhled nelze zobrazit",
+        "failedBody": "Zkuste to znovu, nebo soubor uložte a otevřete jinde.",
+        "unavailableTitle": "Soubor není dostupný",
+        "emptyTitle": "Tento soubor je prázdný"
       },
       "spreadsheet": {
         "column": "Sloupec {index}",
@@ -2698,7 +2666,9 @@
         "pendingPurge": "Čeká na vymazání",
         "refresh": "Obnovit",
         "title": "Koš",
-        "trashedAgo": "Smazáno před {time}"
+        "trashedAgo": "Smazáno před {time}",
+        "emptyTitle": "Koš je prázdný",
+        "emptyBody": "Smazané položky tu zůstávají 24 hodin."
       },
       "url": {
         "eyebrow": "Živý náhled",
@@ -2797,22 +2767,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "Zbývá {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Použít tuto odpověď",
+      "default": "Výchozí",
+      "next": "Další otázka",
+      "previous": "Předchozí otázka",
+      "progress": "{current} z {total}",
+      "sending": "Odesílání…",
+      "skip": "Přeskočit",
+      "skipped": "Přeskočeno",
+      "somethingElse": "Něco jiného",
+      "submit": "Odeslat"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

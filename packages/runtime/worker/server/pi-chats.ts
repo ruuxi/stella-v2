@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import {
   desktopPiChatEnabled,
-  desktopPiRuntime,
   type PiChatRequest,
   type PiChatUsageRequest,
 } from "@stella/contracts/pi-chat";
@@ -12,6 +11,8 @@ import {
   NOTIFICATION_NAMES,
   type RuntimeChatPayload,
 } from "@stella/contracts/protocol";
+import { appendMessageRefTag } from "@stella/contracts/reply-refs";
+import { CLIENT_MSG_ID_PATTERN } from "@stella/contracts/turn-plane/turn-start";
 import {
   getAgentRuntimeEngine,
   getModelOverride,
@@ -31,6 +32,8 @@ import { prepareStoredLocalChatPayload } from "../../kernel/storage/local-chat-p
 import { prepareChatInput } from "./chat-input.js";
 import { piUserContent } from "./pi-chat-input.js";
 import { cloudAgentsFor } from "./pi-cloud-agents.js";
+import { brainFor } from "./pi-brain.js";
+import { executionRemoteFor } from "./pi-execution.js";
 import { cloudJournalFor } from "./pi-journal.js";
 import { piModelUsage } from "./pi-usage.js";
 import {
@@ -48,22 +51,18 @@ import type { OpenSession } from "./sessions.js";
  */
 type DesktopChats = import("@stella/agent/host/desktop-chats").DesktopChats;
 
-
-/** Whether this desktop runs pi-durable: by default, unless launched with `STELLA_AGENT_RUNTIME=loop`. */
-export const piRuntimeEnabled = (): boolean => desktopPiRuntime(process.env.STELLA_AGENT_RUNTIME);
-
 /**
- * Whether a conversation's own turns go to pi: the runtime runs pi and the
- * user's engine is not Claude Code, whose turns keep their own path.
+ * Whether a conversation's own turns go to pi: unless the user's engine is
+ * Claude Code, whose turns keep their own path.
  */
 export const piChatRouted = (session: OpenSession): boolean =>
-  desktopPiChatEnabled(
-    process.env.STELLA_AGENT_RUNTIME,
-    getAgentRuntimeEngine(session.config.get().stellaDataDirPath),
-  );
+  desktopPiChatEnabled(getAgentRuntimeEngine(session.config.get().stellaDataDirPath));
 
-/** What pi wrote into a conversation's chat log, by its row ids. */
+/** What pi wrote into a conversation's chat log, by its row ids (and `metadata.writer`, for a row keeping the sender's id). */
 const PI_LOG_ROW = "pi:";
+const PI_WRITER = "pi";
+/** The chats on this computer the pi agents' directory lists. */
+const AGENT_DIRECTORY_SESSIONS = 12;
 
 /**
  * A conversation's chat log as pi mirrors it: the rows the agent loops wrote
@@ -74,45 +73,129 @@ const PI_LOG_ROW = "pi:";
 const piLocalLog = (
   session: OpenSession,
   conversationId: string,
-): import("@stella/agent/host/desktop-local-log").DesktopLocalLog => ({
-  read: async (afterSeq, limit) => {
-    const page = session.storage.chatStore.listMessagesAfterSeq(conversationId, afterSeq, limit);
-    return { ...page, messages: page.messages.filter((message) => !message.id.startsWith(PI_LOG_ROW)) };
-  },
-  write: async (message) => {
-    const eventId = `${PI_LOG_ROW}${conversationId}:${message.key}`;
-    if (session.storage.chatStore.hasEvent(conversationId, eventId)) return;
-    const type = message.role === "user" ? "user_message" : "assistant_message";
-    const userMessageId = message.replyTo ? `${PI_LOG_ROW}${conversationId}:${message.replyTo}` : undefined;
-    session.storage.appendChatEventAndNotify({
-      conversationId,
-      eventId,
-      type,
-      timestamp: message.timestamp,
-      ...(userMessageId ? { requestId: userMessageId } : {}),
-      payload: prepareStoredLocalChatPayload({
+): import("@stella/agent/host/desktop-local-log").DesktopLocalLog => {
+  const rowId = (key: string) => `${PI_LOG_ROW}${conversationId}:${key}`;
+  // An answer names its user message by row id; older mirrors stored the key.
+  const userRowId = (replyTo: string) => (/^\d+:\d+$/.test(replyTo) ? rowId(replyTo) : replyTo);
+  return {
+    read: async (afterSeq, limit) => {
+      const page = session.storage.chatStore.chat.listMessagesAfterSeq(conversationId, afterSeq, limit);
+      return {
+        ...page,
+        messages: page.messages.filter((message) => !message.id.startsWith(PI_LOG_ROW) && message.writer !== PI_WRITER),
+      };
+    },
+    write: async (message) => {
+      const written = (eventId: string) => {
+        if (message.role !== "user") return { id: eventId };
+        const seq = session.storage.chatStore.chat.getEventCursor(conversationId, eventId)?.sequence;
+        return { id: eventId, ...(typeof seq === "number" ? { seq } : {}) };
+      };
+      const eventId =
+        message.role === "user" && message.clientMsgId && CLIENT_MSG_ID_PATTERN.test(message.clientMsgId)
+          ? message.clientMsgId
+          : rowId(message.key);
+      if (session.storage.chatStore.chat.hasEvent(conversationId, eventId)) return written(eventId);
+      const writer = { writer: PI_WRITER };
+      if (message.role === "lifecycle") {
+        session.storage.appendChatEventAndNotify({
+          conversationId,
+          eventId,
+          type: message.type,
+          requestId: message.agentId,
+          timestamp: message.timestamp,
+          payload: { ...message.payload, metadata: writer },
+        });
+        return written(eventId);
+      }
+      if (message.role === "tool_request" || message.role === "tool_result") {
+        const details =
+          message.role === "tool_result" && message.details && typeof message.details === "object"
+            ? (message.details as Record<string, unknown>)
+            : undefined;
+        session.storage.appendChatEventAndNotify({
+          conversationId,
+          eventId,
+          type: message.role,
+          requestId: message.toolCallId,
+          timestamp: message.timestamp,
+          payload:
+            message.role === "tool_request"
+              ? { toolName: message.toolName, ...(message.args ? { args: message.args } : {}), metadata: writer }
+              : {
+                  ...(details ?? {}),
+                  toolName: message.toolName,
+                  // Every tool result in a conversation's own transcript is the orchestrator's.
+                  agentType: "orchestrator",
+                  result: details ?? message.text,
+                  resultPreview: message.text,
+                  ...(message.isError ? { error: message.text || "Tool failed." } : {}),
+                  metadata: writer,
+                },
+        });
+        return written(eventId);
+      }
+      const type = message.role === "user" ? "user_message" : "assistant_message";
+      const userMessageId = message.role === "assistant" && message.replyTo ? userRowId(message.replyTo) : undefined;
+      const attachments =
+        message.role === "user"
+          ? (message.display?.attachments ?? []).map((attachment) => ({
+              ...(attachment.url ? { url: attachment.url } : {}),
+              ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
+              ...(attachment.name ? { name: attachment.name } : {}),
+              ...(attachment.path ? { path: attachment.path } : {}),
+              ...(typeof attachment.size === "number" ? { size: attachment.size } : {}),
+              kind: attachment.kind,
+            }))
+          : [];
+      session.storage.appendChatEventAndNotify({
+        conversationId,
+        eventId,
         type,
-        payload: {
-          text: message.text,
-          ...(userMessageId ? { userMessageId } : {}),
-          metadata:
-            message.role === "user"
-              ? { ui: { visibility: "visible" } }
-              : { runtime: message.followedByToolCall ? { followedByToolCall: true } : {} },
-        },
         timestamp: message.timestamp,
-      }),
-    });
-    // Off the worker's boot path: the thread runtime brings prompts and compaction with it.
-    const { resolveOrchestratorThreadKey } = await import("../../kernel/thread-runtime.js");
-    session.storage.runtimeStore.appendThreadMessage({
-      timestamp: message.timestamp,
-      threadKey: resolveOrchestratorThreadKey(conversationId),
-      role: message.role,
-      content: message.text,
-    });
-  },
-});
+        ...(userMessageId ? { requestId: userMessageId } : {}),
+        payload: prepareStoredLocalChatPayload({
+          type,
+          payload: {
+            text: message.text,
+            ...(userMessageId ? { userMessageId } : {}),
+            ...(attachments.length > 0 ? { attachments } : {}),
+            ...(message.role === "assistant" && message.notice ? { source: "pi-turn-notice" } : {}),
+            metadata:
+              message.role === "user"
+                ? {
+                    ...writer,
+                    ui: { visibility: "visible" },
+                    ...(message.display?.context ? { context: message.display.context } : {}),
+                  }
+                : {
+                    ...writer,
+                    // When the reply began, which the timeline places the turn's agent cards by.
+                    runtime: {
+                      streamStartedAtMs: message.timestamp,
+                      ...(message.followedByToolCall ? { followedByToolCall: true } : {}),
+                    },
+                  },
+          },
+          timestamp: message.timestamp,
+        }),
+      });
+      if (message.role === "assistant" && message.notice) return written(eventId);
+      // Off the worker's boot path: the thread runtime brings prompts and compaction with it.
+      const { resolveOrchestratorThreadKey } = await import("../../kernel/thread-runtime.js");
+      const row = written(eventId);
+      session.storage.runtimeStore.appendThreadMessage({
+        timestamp: message.timestamp,
+        threadKey: resolveOrchestratorThreadKey(conversationId),
+        role: message.role,
+        // The thread is what Claude Code reads: a user message carries its id there, as its own do.
+        content:
+          message.role === "user" && row.seq !== undefined ? appendMessageRefTag(message.text, row.seq) : message.text,
+      });
+      return row;
+    },
+  };
+};
 
 const chatsBySession = new WeakMap<OpenSession, Promise<DesktopChats>>();
 /** The same chats once loaded, for synchronous checks. */
@@ -129,6 +212,12 @@ export const closePiChats = async (session: OpenSession): Promise<void> => {
   await (await chats?.catch(() => undefined))?.close();
 };
 
+/** End the shell commands of the session's pi chats, if they were opened. */
+export const terminatePiChatCommands = async (session: OpenSession): Promise<void> => {
+  const chats = await chatsBySession.get(session)?.catch(() => undefined);
+  await chats?.terminateCommands();
+};
+
 export const piChatsFor = (
   session: OpenSession,
   hostBus: HostBus.Interface,
@@ -136,18 +225,25 @@ export const piChatsFor = (
   let chats = chatsBySession.get(session);
   if (chats) return chats;
   let signer: ReturnType<typeof createRemoteDeviceSigner> | undefined;
-  chats = import("@stella/agent/host/desktop-chats").then(({ desktopChats }) =>
+  chats = Promise.all([
+    import("@stella/agent/host/desktop-chats"),
+    import("../../kernel/model-routing.js"),
+  ]).then(([{ desktopChats }, { resolveDirectLlmRoute }]) =>
     desktopChats({
       dataDir: session.config.get().stellaDataDirPath,
       deviceId: session.config.deviceId,
       workspace: os.homedir(),
       siteAuth: () => session.runnerCell.get()?.getStellaSiteAuth() ?? null,
       memoryEnabled: () => loadLocalPreferences(session.config.get().stellaDataDirPath).memoryEnabled,
+      executionContext: async () => await session.runnerCell.get()?.loadExecutionContext(),
       stellaModel: () => getModelOverride(session.config.get().stellaDataDirPath, "orchestrator"),
       credentials: {
         apiKey: (provider) => getAccessibleLocalLlmApiKey(session.config.get().stellaDataDirPath, provider),
         oauthToken: (provider) => getAccessibleLocalLlmOAuthApiKey(session.config.get().stellaDataDirPath, provider),
       },
+      // The models the picker lists: models.json and extension providers, builtin overrides.
+      resolveDirectModel: (reference) =>
+        resolveDirectLlmRoute({ stellaAppDir: session.config.get().stellaDataDirPath, modelName: reference }),
       thinkingLevel: () => {
         const effort = getReasoningEffort(session.config.get().stellaDataDirPath, "orchestrator");
         return effort === "default" ? "off" : effort;
@@ -193,8 +289,26 @@ export const piChatsFor = (
           };
         },
       }),
+      localSessions: () =>
+        session.storage.runtimeStore.chat
+          .listConversationSummaries({ limit: AGENT_DIRECTORY_SESSIONS })
+          .conversations.map(({ conversationId, title, updatedAt }) => ({ conversationId, title, updatedAt })),
+      agentThreads: {
+        directory: async (conversationId) => {
+          const runner = session.runnerCell.get();
+          if (!runner?.getStellaSiteAuth()) throw new Error("Not signed in to Stella.");
+          return await runner.agentThreads.directory(conversationId);
+        },
+        message: async (args) => {
+          const runner = session.runnerCell.get();
+          if (!runner?.getStellaSiteAuth()) throw new Error("Sign in to Stella to message agents and sessions in the cloud.");
+          return await runner.agentThreads.message(args);
+        },
+      },
       journal: (conversationId) => cloudJournalFor(session, conversationId),
       cloudAgents: (conversationId) => cloudAgentsFor(session, conversationId),
+      execution: (conversationId) => executionRemoteFor(session, conversationId),
+      brain: (conversationId) => brainFor(session, hostBus, conversationId),
       // A conversation stored in the cloud lists this computer's agents in
       // the owner's agent threads, where a paired phone shows and messages them.
       agentStarted: (agent) => {
@@ -221,7 +335,8 @@ export const piChatsFor = (
             sound: "Glass",
           })
           .catch((error) => console.debug("[pi-chat] agent notification failed", error));
-        if (agent.conversationId.startsWith("local_")) return;
+        // A message since has it working again: that run's record stays open.
+        if (agent.conversationId.startsWith("local_") || agent.running) return;
         const body = /\n(?:result|error): ([\s\S]*?)(?=\n(?:agent_state|routing|presentation): |$)/.exec(agent.report)?.[1]?.trim();
         void (async () => {
           const runner = session.runnerCell.get();
@@ -234,6 +349,22 @@ export const piChatsFor = (
             ...(body ? (agent.failed ? { error: body } : { result: body }) : {}),
           });
         })().catch((error) => console.warn("[pi-chat] computer thread completion failed", error));
+      },
+      // Paused before it answered: Stella is not woken, but the agent stopped,
+      // and the phone counts what the owner's records say is running.
+      agentPaused: (agent) => {
+        if (agent.conversationId.startsWith("local_")) return;
+        void (async () => {
+          const runner = session.runnerCell.get();
+          if (!runner) return;
+          await runner.computerAgents.complete({
+            agentId: agent.threadId,
+            attemptGeneration: agent.attempt,
+            status: "canceled",
+            ownerGeneration: await runner.cloudJournal.ownerGeneration(),
+            error: "Paused.",
+          });
+        })().catch((error) => console.warn("[pi-chat] computer thread pause failed", error));
       },
       // A conversation kept on this computer shares the agent loops' chat
       // log; a cloud one shares the journal.
@@ -274,6 +405,55 @@ export const resumePiChats = async (
 };
 
 /**
+ * How one of pi's agents on this computer stands, for the owner's records of
+ * it: undefined when no pi conversation here started it. Loads the pi chat
+ * only for an agent it knows (`<data dir>/agent/threads.json`).
+ */
+const piAgentStanding = async (
+  session: OpenSession,
+  hostBus: HostBus.Interface,
+  threadId: string,
+): Promise<import("../../kernel/runner/computer-agent-reconcile.js").ComputerAgentStanding | undefined> => {
+  const file = path.join(session.config.get().stellaDataDirPath, "agent", "threads.json");
+  if (!existsSync(file)) return undefined;
+  try {
+    const index = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    if (typeof index[threadId] !== "string") return undefined;
+  } catch {
+    return undefined;
+  }
+  const status = await (await piChatsFor(session, hostBus)).agentStatus(threadId);
+  return status && { status: status.status, attempt: status.attempt, ...(status.status === "canceled" ? { error: "Paused." } : {}) };
+};
+
+const reconciling = new WeakMap<OpenSession, Promise<void>>();
+
+/**
+ * Settle the owner's record of every agent it says runs on this computer and
+ * no longer does (`computer-agent-reconcile`), on start and on reconnect. A
+ * pi agent whose run resumes after a restart is still running.
+ */
+export const reconcileComputerAgents = (
+  session: OpenSession,
+  hostBus: HostBus.Interface,
+): Promise<void> => {
+  const pending = reconciling.get(session);
+  if (pending) return pending;
+  const run = (async () => {
+    const runner = session.runnerCell.get();
+    if (!runner) return;
+    const { settled } = await runner.computerAgents.reconcile((threadId) =>
+      piAgentStanding(session, hostBus, threadId),
+    );
+    if (settled.length > 0) {
+      console.info("[runtime-worker] settled agents no longer running here:", settled.join(", "));
+    }
+  })().finally(() => reconciling.delete(session));
+  reconciling.set(session, run);
+  return run;
+};
+
+/**
  * A message the user sent on another device that the cloud placed on this
  * computer: prepared as a composer send is (attachments included) and
  * answered as a visible turn of the conversation, cancellable by its
@@ -288,6 +468,8 @@ export const piPlacedChat = async (
     placementRunId: string;
     userMessageEventId?: string;
     attachments?: RuntimeChatPayload["attachments"];
+    /** A schedule's prompt: read by Stella, never shown; its answer shows. */
+    scheduled?: boolean;
   },
 ) => {
   const chats = await piChatsFor(session, hostBus);
@@ -307,6 +489,12 @@ export const piPlacedChat = async (
   const content = piUserContent(payload, prepared);
   // The sender binds its pending message to this id: the journal row keeps it.
   content[0] = { ...content[0]!, stella: { ...content[0]!.stella, clientMsgId: requestId } } as typeof content[number];
+  if (run.scheduled) {
+    for (const [index, part] of content.entries()) {
+      if (part.type !== "text") continue;
+      content[index] = { ...part, stella: { ...part.stella, hidden: true, source: "schedule" } } as typeof part;
+    }
+  }
   const canceled = piPlacementCanceled(session, "chat", run.placementRunId);
   if (canceled) return { status: "error" as const, finalText: "" as const, error: canceled };
   return await chats.automation(run.conversationId, {
@@ -328,6 +516,16 @@ export const piDeliverAgentMessage = async (
   message: { threadId: string; text: string; messageId: string },
 ) => (await piChatsFor(session, hostBus)).deliverAgentMessage(message.threadId, message.text, message.messageId);
 
+export const piDeliverReport = async (
+  session: OpenSession,
+  hostBus: HostBus.Interface,
+  report: { conversationId: string; requestId: string; text: string },
+): Promise<void> =>
+  await (await piChatsFor(session, hostBus)).deliverReport(report.conversationId, {
+    requestId: report.requestId,
+    text: report.text,
+  });
+
 /**
  * Why a placement was canceled before it ran here, if it was: the cancel is
  * kept on disk, so a run delivered after it (even after a restart) never
@@ -338,7 +536,7 @@ export const piPlacementCanceled = (
   session: OpenSession,
   kind: PlacementLocalExecutionKind,
   executionId: string,
-): string | null => getPlacementCancellation({ store: session.storage.runtimeStore, kind, executionId });
+): string | null => getPlacementCancellation({ store: session.storage.runtimeStore.chat, kind, executionId });
 
 /** Keep a placement's cancel, before anything awaits (`piPlacementCanceled`). */
 const persistPiCancel = (
@@ -346,7 +544,7 @@ const persistPiCancel = (
   kind: PlacementLocalExecutionKind,
   executionId: string,
   reason?: string,
-) => persistPlacementCancellation({ store: session.storage.runtimeStore, kind, executionId, ...(reason ? { reason } : {}) });
+) => persistPlacementCancellation({ store: session.storage.runtimeStore.chat, kind, executionId, ...(reason ? { reason } : {}) });
 
 /** Stop a placed chat pi is answering; false when pi has no such run. */
 export const cancelPiPlacement = async (session: OpenSession, placementRunId: string, reason?: string): Promise<boolean> => {
@@ -389,7 +587,15 @@ export const piChatRequest = async (
     resolveImageTarget: async () =>
       (await session.runnerCell.get()?.resolveImageTarget(payload.agentType)) ?? undefined,
   });
-  return await chats.submit(request.conversationId, request.requestId, piUserContent(payload, prepared), {
+  const content = piUserContent(payload, prepared);
+  // The composer's id rides on the message into the journal, so every view of
+  // the conversation binds the sent message to the same row.
+  if (CLIENT_MSG_ID_PATTERN.test(request.requestId)) {
+    const [first] = content;
+    content[0] = { ...first!, stella: { ...first!.stella, clientMsgId: request.requestId } };
+  }
+  return await chats.submit(request.conversationId, request.requestId, content, {
     ...(payload.locale ? { locale: payload.locale } : {}),
+    ...(request.send.followSender ? { followSender: true } : {}),
   });
 };

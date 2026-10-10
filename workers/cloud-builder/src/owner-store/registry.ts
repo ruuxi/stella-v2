@@ -74,13 +74,15 @@ export type OwnerHost = {
   dispatchDeviceAgentTurn(input: DeviceAgentTurnDispatch): Promise<{ dispatchId: string }>;
   /**
    * New input, or a framed message from another agent, for a cloud agent's
-   * running attempt; false when none is running.
+   * running attempt; false when none is running. Refused, retryably, while
+   * a container agent is starting up or finishing.
    */
   steerAgentTurn(input: {
     threadId: string;
+    conversationId: string;
+    ownerGeneration: string;
     messageId: string;
     text: string;
-    kind?: "input" | "message";
   }): Promise<boolean>;
   /** New input for a device attempt that is running. */
   steerDeviceAgentTurn(input: {
@@ -110,6 +112,7 @@ export type OwnerHost = {
   /** Stop one exact running attempt. `changed` means it is no longer that attempt. */
   cancelAgentTurn(input: {
     threadId: string;
+    conversationId: string;
     turnId: string;
     attemptGeneration: number;
     ownerGeneration: string;
@@ -186,8 +189,6 @@ export type AgentTurnDispatch = {
   originConversationId?: string;
   /** The cloud agent that started the thread, which its report returns to. */
   parentThreadId?: string;
-  /** Resume a hosted-browser wait with this answer. */
-  browserResume?: import("@stella/contracts/cloud-browser").CloudBrowserResumeReceipt;
 };
 
 export type DeviceAgentTurnDispatch = {
@@ -216,8 +217,6 @@ export type AgentCompletionDelivery = {
   ownerGeneration: string;
   conversationId: string;
   threadId: string;
-  /** The cloud agent that spawned it; absent when the conversation did. */
-  parentThreadId?: string;
   attemptGeneration: number;
   description: string;
   status: "completed" | "failed" | "canceled";

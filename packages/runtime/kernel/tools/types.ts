@@ -87,6 +87,8 @@ export type ToolContext = {
   stellaAppDir?: string;
   stellaDataDir?: string;
   toolWorkspaceRoot?: string;
+  /** A spawned agent's start directory; shell commands without a workdir run there. */
+  agentWorkingDirectory?: string;
   /** POSIX child credential drop selected only by the trusted runtime host. */
   toolProcessIdentity?: ToolProcessIdentity;
   /**
@@ -199,7 +201,7 @@ export type ShellRecord = {
   exitCode: number | null;
   startedAt: number;
   completedAt: number | null;
-  kill: () => void;
+  kill: () => void | Promise<void>;
 };
 
 export type AgentRecord = {
@@ -243,6 +245,8 @@ export type AgentToolRequest = {
   /** Durable effective route inherited by a subagent from its Orchestrator. */
   modelConfigSnapshot?: AgentModelConfigSnapshot;
   toolWorkspaceRoot?: string;
+  /** The absolute directory spawn_agent asked the agent to start in. */
+  workingDirectory?: string;
   rootRunId?: string;
   agentDepth?: number;
   maxAgentDepth?: number;

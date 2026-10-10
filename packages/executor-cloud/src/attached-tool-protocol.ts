@@ -1,6 +1,6 @@
 /**
- * The wire between a resident agent loop and the tool-host daemon that runs
- * inside a lazily attached Cloudflare Sandbox.
+ * The wire between an agent that runs outside its container (a cloud pi
+ * agent, `pi-agent-compute.ts`) and the tool-host daemon that runs inside it.
  *
  * Both ends parse with the same exact-key parsers. That is the point: the
  * Durable Object writes a root-owned request file and reads a root-owned
@@ -20,15 +20,11 @@
 /**
  * The tools the daemon serves.
  *
- * `code` is deliberately absent. A resident turn runs `code` in a Dynamic
- * Worker the Durable Object loads itself (see `general-agent-tools.ts`,
- * placement `js_sandbox`), so it never crosses this channel: there is no
- * container to attach for it and nothing for the daemon to serve. It stays
- * there after a container attaches, because its nested tools are the
- * DO-local ones and its browser and login handoff belong to the Durable
- * Object; moving a cell here would change both mid-turn. The in-container
- * `code` of an eager container turn is a different tool host with the
- * turn-broker browser session factory; it is not bridged either.
+ * `code` is deliberately absent. An agent outside its container runs `code`
+ * in a Dynamic Worker its Durable Object loads itself, with that object's
+ * own nested tools, so it never crosses this channel. The in-container
+ * `code` of a container turn is a different tool host; it is not bridged
+ * either.
  *
  * `view_image` is absent for a different reason: it has no runtime definition
  * and no descriptor, so it never reaches the model and the daemon has nothing
@@ -37,9 +33,8 @@
 /** The shell tool, named like Claude Code's built-in. */
 export const SHELL_COMMAND_TOOL_NAME = "Bash";
 /**
- * What the shell tool was called before the rename. An older desktop or
- * resident turn may still send it, so the daemon keeps accepting it and
- * executes it as `Bash`.
+ * What the shell tool was called before the rename. An older caller may
+ * still send it, so the daemon keeps accepting it and executes it as `Bash`.
  */
 export const LEGACY_SHELL_COMMAND_TOOL_NAME = "exec_command";
 

@@ -5,8 +5,8 @@
  * `PiChatRequest`s with it and forwards a watched conversation's events to
  * the app (`@stella/contracts/pi-chat`).
  */
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { AssistantMessage, Message, ModelThinkingLevel, TextContent } from "@earendil-works/pi-ai";
@@ -14,6 +14,7 @@ import { createModels } from "@earendil-works/pi-ai/models";
 import {
   ConversationBusy,
   defineDoc,
+  LiveDoc,
   watchEvents,
   type AgentEventStream,
   type Conversation,
@@ -24,12 +25,19 @@ import {
   type Submission,
   type UserInput,
 } from "@earendil-works/pi-durable";
-import type { ExecutionDestination } from "@stella/contracts/execution-context";
+import {
+  formatAgentMessage,
+  type AgentDirectoryAgentRow,
+  type AgentDirectorySessionRow,
+  type AgentMessageSender,
+} from "@stella/contracts/agent-directory";
+import type { AgentMessageDelivery } from "@stella/contracts/backend/agent-threads";
+import type { ExecutionContextSnapshot, ExecutionDestination } from "@stella/contracts/execution-context";
 import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
 import { splitReplyRefs } from "@stella/contracts/reply-refs";
 import {
+  isPiAgentText,
   mergePiEntries,
-  PI_REPORT_RE,
   piEntriesForClients,
   piMessageText,
   piEventsForClients,
@@ -37,6 +45,7 @@ import {
   type PiChatEvent,
   type PiChatEventsPayload,
   type PiChatAgentsResult,
+  type PiChatBrainResult,
   type PiChatOlderResult,
   type PiChatRequest,
   type PiChatWatchResult,
@@ -52,7 +61,7 @@ import {
   STELLA_DEFAULT_ALIAS,
   stellaModelRef,
 } from "../harness.ts";
-import { StellaAgentsDoc, type RemoteAgentHost } from "../stella/agents.ts";
+import { StellaAgentsDoc, type AgentDirectoryHost, type RemoteAgentHost } from "../stella/agents.ts";
 import type { StellaToolHost } from "../stella/host-tools.ts";
 import {
   parseStellaModelId,
@@ -66,14 +75,27 @@ import {
   parseModelPick,
   stellaCredentialStore,
   storeOnlyAuthContext,
+  type DirectModelResolver,
   type StellaCredentialAccess,
 } from "../provider/byok.ts";
 import { openBunSqliteStorage } from "../storage/bun-sqlite.ts";
+import { isDeviceToolName } from "@stella/contracts/turn-plane/device-tools";
+import { deviceRefusal } from "../stella/execution.ts";
+import { placementOf, StellaPlacementDoc } from "../stella/placement.ts";
 import { desktopAgentsHost, desktopEnvironments } from "./desktop-agents.ts";
+import {
+  desktopCoding,
+  desktopExecution,
+  type DesktopBrain,
+  type DesktopExecution,
+  type DesktopExecutionRemote,
+} from "./desktop-execution.ts";
+import type { PiBrainRecord } from "@stella/contracts/turn-plane/pi-brain";
 import { journalMirror, type DesktopJournal, type JournalMirror } from "./desktop-journal.ts";
 import { localLogMirror, writtenReply, type DesktopLocalLog, type LocalLogMirror } from "./desktop-local-log.ts";
 import { desktopGatewayAccess, resolveStellaModels } from "./desktop-gateway.ts";
 import { desktopContextSources } from "./desktop-sources.ts";
+import { stopStella } from "../stella/stop.ts";
 
 /** The newest entries a client gets when it attaches, and per older page. */
 const HISTORY_PAGE = 200;
@@ -91,8 +113,17 @@ const IDLE_CHECK_MS = 30_000;
 const FOLLOW_MS = 2_000;
 /** How long after a turn is placed elsewhere the journal is read that often, until the turn shows. */
 const FOLLOW_WINDOW_MS = 60_000;
+/** How long where a conversation's brain runs is trusted before it is read again. */
+const BRAIN_TTL_MS = 5_000;
+/** How long a moved brain's brief waits for Stella's turn here to end. */
+const BRAIN_HANDOFF_WAIT_MS = 5 * 60_000;
+/** How long the owner's device list and media access are trusted before they are read again. */
+const EXECUTION_CONTEXT_TTL_MS = 30_000;
 /** Until signed in, recovered work retries the provider this often. */
 const PROVIDER_RETRY_MS = 5_000;
+/** How long the agents' directory waits for the cloud; a message waits out the cloud's own device wait. */
+const DIRECTORY_TIMEOUT_MS = 5_000;
+const AGENT_MESSAGE_TIMEOUT_MS = 15_000;
 
 export type DesktopChatsOptions = {
   /** The Stella data directory (`~/.stella`). */
@@ -104,10 +135,18 @@ export type DesktopChatsOptions = {
   refreshAuthToken?(): Promise<string | null | undefined>;
   getDeviceSigner(): Promise<DeviceSigner> | DeviceSigner;
   memoryEnabled?(): boolean;
+  /** The owner's devices and media access, as the app reads them; the destination is this computer's own. */
+  executionContext?(): Promise<ExecutionContextSnapshot | undefined>;
   /** The model the user picked for the orchestrator (`stella/<alias>`, or another provider's). */
   stellaModel?(): string | undefined;
   /** The keys the user brought for other providers' models (BYOK), as the app keeps them. */
   credentials?: StellaCredentialAccess;
+  /**
+   * A pick on the user's own key resolved through the app's model registry,
+   * the one the model picker lists (models.json and extension providers,
+   * builtin overrides). Absent, such picks run on pi-ai's builtin providers only.
+   */
+  resolveDirectModel?: DirectModelResolver;
   /** The orchestrator's thinking level, from the user's reasoning effort. */
   thinkingLevel?(): ModelThinkingLevel;
   /** Stella's own tools (web, html, image_gen, ask_user, …) for one conversation. */
@@ -116,9 +155,35 @@ export type DesktopChatsOptions = {
   journal?(conversationId: string): DesktopJournal | undefined;
   /** For a conversation stored in the cloud: its cloud agents, run in its object. */
   cloudAgents?(conversationId: string): RemoteAgentHost | undefined;
+  /**
+   * For a conversation stored in the cloud: how its tools reach the owner's
+   * other computers and a cloud container, once they are moved there.
+   */
+  execution?(conversationId: string): DesktopExecutionRemote | undefined;
+  /**
+   * For a conversation stored in the cloud: where its brain runs, as its
+   * object records it. Once that names another host, this computer takes
+   * none of its turns while that host can take them.
+   */
+  brain?(conversationId: string): DesktopBrain | undefined;
+  /** The chats on this computer, newest first, which agents list and message as sessions. */
+  localSessions?(): Array<{ conversationId: string; title: string; updatedAt: number }>;
+  /**
+   * The owner's agent threads in the cloud, once signed in: a conversation's
+   * agents elsewhere and the user's cloud sessions, and a note for one of
+   * them. A chat kept on this computer never reaches them.
+   */
+  agentThreads?: {
+    directory(conversationId: string): Promise<{ agents: AgentDirectoryAgentRow[]; sessions: AgentDirectorySessionRow[] }>;
+    message(args: { messageId: string; to: string; text: string; from: AgentMessageSender }): Promise<AgentMessageDelivery>;
+  };
   /** One of Stella's agents started work (a spawn or a follow-up: `attempt` counts them). */
   agentStarted?(agent: { conversationId: string; threadId: string; description: string; attempt: number }): void;
-  /** An agent finished and reported to Stella (the app shows a notification). */
+  /**
+   * An agent finished and reported to Stella (the app shows a notification).
+   * `running`: a message since has it working again, so `attempt` is that
+   * newer run's and still open.
+   */
   agentReported?(agent: {
     conversationId: string;
     threadId: string;
@@ -126,7 +191,10 @@ export type DesktopChatsOptions = {
     failed: boolean;
     report: string;
     attempt: number;
+    running: boolean;
   }): void;
+  /** One of Stella's agents was paused before it answered; Stella is not told (`StellaAgentsHost.agentPaused`). */
+  agentPaused?(agent: { conversationId: string; threadId: string; description: string; attempt: number }): void;
   /**
    * For a conversation kept on this computer: the agent loops' chat log,
    * which the Claude Code engine answers from. Its turns are mirrored both
@@ -151,6 +219,8 @@ type Chat = {
   mirror?: JournalMirror;
   /** For a conversation kept on this computer: its chat log mirror. */
   localLog?: LocalLogMirror;
+  /** Where its tools run when they are not on this computer. */
+  execution: DesktopExecution;
   stream?: AgentEventStream;
   watchers: number;
   idleCheck: ReturnType<typeof setInterval>;
@@ -171,6 +241,28 @@ const LocaleDoc = defineDoc<{ locale?: string }>({
   initial: () => ({}),
 });
 
+/**
+ * Stella's own tools for one conversation: her Read reads where her tools
+ * run, this computer or wherever `switch_destination` moved them.
+ */
+const placedTools = (tools: StellaToolHost, execution: DesktopExecution, chat: () => Chat | undefined): StellaToolHost => ({
+  specs: (role) => tools.specs(role),
+  run: async (call, context) => {
+    const opened = chat();
+    if (call.role === "orchestrator" && isDeviceToolName(call.name) && opened) {
+      const placement = placementOf(await opened.harness.snapshot(StellaPlacementDoc, opened.root.id, context));
+      if (placement && placement.kind !== "local") {
+        return await execution.run(
+          placement,
+          { piConversationId: opened.root.id, callId: call.callId, toolName: call.name, params: call.args },
+          context,
+        );
+      }
+    }
+    return await tools.run(call, context);
+  },
+});
+
 /** A conversation id as a file name. */
 const fileName = (conversationId: string): string => {
   const safe = conversationId.replace(/[^A-Za-z0-9_.-]/g, "_");
@@ -180,6 +272,26 @@ const fileName = (conversationId: string): string => {
 
 export function desktopChats(options: DesktopChatsOptions) {
   const chats = new Map<string, Promise<Chat>>();
+  /**
+   * The owner's devices and media access for every conversation's prompt,
+   * read once per `EXECUTION_CONTEXT_TTL_MS`: the first request waits for it,
+   * later ones get the last answer while a newer one loads, and a failed
+   * read keeps the last answer, so a moment offline does not rewrite the prompt.
+   */
+  let executionContextRead: { snapshot?: ExecutionContextSnapshot; at: number; pending?: Promise<void> } = { at: 0 };
+  const sharedExecutionContext = async (): Promise<ExecutionContextSnapshot | undefined> => {
+    const loadOnce = () =>
+      (executionContextRead.pending ??= (async () => {
+        const snapshot = await options.executionContext?.().catch(() => undefined);
+        executionContextRead = {
+          snapshot: snapshot?.devicesKnown || !executionContextRead.snapshot ? snapshot : executionContextRead.snapshot,
+          at: Date.now(),
+        };
+      })());
+    if (executionContextRead.at === 0) await loadOnce();
+    else if (Date.now() - executionContextRead.at >= EXECUTION_CONTEXT_TTL_MS) void loadOnce();
+    return executionContextRead.snapshot;
+  };
   /** The conversation each agent placed here runs in, by its key at the placing host. */
   const placedIn = new Map<string, string>();
   /** Runs of agents placed here, until they settle, so the host that placed one can stop it. */
@@ -235,6 +347,73 @@ export function desktopChats(options: DesktopChatsOptions) {
     await saving;
   };
   const environments = desktopEnvironments(options.workspace);
+  /**
+   * Where each conversation stored in the cloud has its brain, as last read,
+   * and the host that takes this computer's turns for it now (null: here).
+   */
+  const brains = new Map<string, { record: PiBrainRecord | null; host: PiBrainRecord | null; at: number }>();
+  /** The record's host, unless that is this computer. */
+  const otherHost = (record: PiBrainRecord | null) =>
+    record && !(record.host === "device" && record.deviceId === options.deviceId) ? record : null;
+  /**
+   * The host this computer's turns for the conversation go to: the one its
+   * record names, while that host can take them. With no record, or one
+   * naming a host that can't now (a computer offline or not ready, the cloud
+   * out of reach), null: the sender's host answers, as with no record, and
+   * the record stays for once that host is back.
+   */
+  const brainHost = async (conversationId: string): Promise<PiBrainRecord | null> => {
+    const known = brains.get(conversationId);
+    if (known && Date.now() - known.at < BRAIN_TTL_MS) return known.host;
+    const brain = options.brain?.(conversationId);
+    if (!brain) return null;
+    let record: PiBrainRecord | null;
+    try {
+      record = await brain.read();
+    } catch {
+      // The cloud is out of reach (offline, signed out), and so is every host it would pass a turn to.
+      brains.set(conversationId, { record: known?.record ?? null, host: null, at: Date.now() });
+      return null;
+    }
+    let host = otherHost(record);
+    if (host?.host === "device") {
+      const { deviceId, label } = host;
+      const listed = await options.execution?.(conversationId)?.devices().catch(() => undefined);
+      const device = listed?.find((entry) => entry.deviceId === deviceId);
+      if (!device || deviceRefusal(device, label ?? deviceId)) host = null;
+    }
+    brains.set(conversationId, { record, host, at: Date.now() });
+    return host;
+  };
+  /** Whether this computer takes the conversation's turns, or where a send goes instead. */
+  const brainPlacement = async (conversationId: string): Promise<PiChatBrainResult> => {
+    const host = await brainHost(conversationId);
+    if (!host) return { here: true };
+    return host.host === "cloud"
+      ? { here: false, target: { mode: "cloud" } }
+      : { here: false, target: { mode: "device", deviceId: host.deviceId }, ...(host.label ? { label: host.label } : {}) };
+  };
+  /**
+   * What Stella reads hidden and the user did not write (an agent's report
+   * or note) for a conversation whose brain runs elsewhere: placed there as
+   * this computer's sends are, once per `requestId`. False when she runs
+   * here, or where she runs can't take it now, for the conversation here to take.
+   */
+  const noteOnBrain = async (conversationId: string, requestId: string, text: string): Promise<boolean> => {
+    const host = await brainHost(conversationId);
+    if (!host) return false;
+    const brain = options.brain?.(conversationId);
+    if (!brain) return false;
+    // Another computer's harness counts its own request ids.
+    const id = createHash("sha256").update(`${options.deviceId ?? ""}\0${conversationId}\0${requestId}`).digest("hex").slice(0, 48);
+    if (!(await brain.note(host, { id: `pi-note:${id}`, text }))) return false;
+    // Her answer comes back through the journal.
+    const chat = await chats.get(conversationId)?.catch(() => undefined);
+    if (chat) chat.followUntil = Date.now() + FOLLOW_WINDOW_MS;
+    return true;
+  };
+  const elsewhere = (placement: Extract<PiChatBrainResult, { here: false }>) =>
+    `Stella for this chat runs ${placement.target.mode === "cloud" ? "in the cloud" : `on ${placement.label ?? placement.target.deviceId}`} now, so this computer does not answer it.`;
   // A model on another provider runs with the key the user stored for it,
   // never one found in this process's environment.
   const models = createModels(
@@ -242,7 +421,7 @@ export function desktopChats(options: DesktopChatsOptions) {
       ? { credentials: stellaCredentialStore(options.credentials), authContext: storeOnlyAuthContext }
       : {},
   );
-  const byok = byokModels(models);
+  const byok = byokModels(models, options.resolveDirectModel);
   let gateway: Promise<{ access: StellaGatewayAccess; gatewayOrigin: string }> | undefined;
   /** Each Stella model alias in use, resolved for the orchestrator and agents. */
   const specsByAlias = new Map<string, Promise<StellaModelSpec[]>>();
@@ -325,6 +504,96 @@ export function desktopChats(options: DesktopChatsOptions) {
     }
   };
 
+  /** Settles as `work` does, or fails once `ms` pass. */
+  const within = <T,>(work: Promise<T>, ms: number, message: string): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      work,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]).finally(() => clearTimeout(timer));
+  };
+
+  /**
+   * Who a conversation's agents reach beyond its own harness: the other
+   * chats on this computer and their Stellas' agents, and, for a
+   * conversation stored in the cloud, the owner's agent threads (its agents
+   * elsewhere, the user's cloud sessions).
+   */
+  const directoryFor = (conversationId: string): AgentDirectoryHost => {
+    const cloud = conversationId.startsWith("local_") ? undefined : options.agentThreads;
+    const localSessions = (): AgentDirectorySessionRow[] =>
+      (options.localSessions?.() ?? []).map((row) => ({
+        ...row,
+        active: activeNow.has(row.conversationId),
+        where: row.conversationId.startsWith("local_") ? "this computer" : "cloud",
+      }));
+    return {
+      conversationId: async () => conversationId,
+      list: async () => {
+        const local = localSessions();
+        if (!cloud) return { agents: [], sessions: local };
+        try {
+          const remote = await within(cloud.directory(conversationId), DIRECTORY_TIMEOUT_MS, "Stella's cloud did not answer.");
+          // A chat here keeps the title this computer has and the cloud's place.
+          const sessions = new Map(remote.sessions.map((row) => [row.conversationId, row]));
+          for (const row of local) {
+            const there = sessions.get(row.conversationId);
+            sessions.set(
+              row.conversationId,
+              there
+                ? {
+                    ...there,
+                    title: row.title.trim() ? row.title : there.title,
+                    active: row.active || there.active,
+                    updatedAt: Math.max(row.updatedAt, there.updatedAt),
+                  }
+                : row,
+            );
+          }
+          return { agents: remote.agents, sessions: [...sessions.values()] };
+        } catch (error) {
+          return {
+            agents: [],
+            sessions: local,
+            unavailable: `Stella's cloud did not answer (${error instanceof Error ? error.message : String(error)}), so agents running in the cloud or on other devices are not listed right now.`,
+          };
+        }
+      },
+      message: async ({ key, to, text, from, remoteStella }) => {
+        const id = createHash("sha256").update(`${options.deviceId ?? ""}\0${conversationId}\0${key}`).digest("hex").slice(0, 48);
+        const framed = formatAgentMessage(from, text);
+        if (!remoteStella && to !== conversationId) {
+          // Another chat here: its Stella reads the note as its next turn, and the user does not see it.
+          if (chats.has(to) || localSessions().some((row) => row.conversationId === to)) {
+            if (await noteOnBrain(to, `agent-note:${id}`, framed)) return { delivered: "queued", threadId: to };
+            const chat = await ready(to);
+            const note: TextContent & { stella: { hidden: true } } = { type: "text", text: framed, stella: { hidden: true } };
+            await chat.root.submit({ type: "input", content: [note], whenBusy: "followUp", requestId: `agent-note:${id}` }, context);
+            return { delivered: "queued", threadId: to };
+          }
+          // One of another chat's agents here: it reaches the agent as that chat's Stella's messages do.
+          const home = (await threadIndex())[to];
+          if (home && home !== conversationId) {
+            const chat = await ready(home);
+            const record = (await chat.agentRecords(context)).find((agent) => agent.threadId === to);
+            if (record) {
+              await chat.messageAgent({ key: `note:${id}`, threadId: to, message: framed, fromOrchestrator: true }, context);
+              return { delivered: record.status === "running" ? "steered" : "resumed", threadId: to };
+            }
+          }
+        }
+        if (!cloud) return undefined;
+        return await within(
+          cloud.message({ messageId: `pi-msg:${id}`, to, text, from }),
+          AGENT_MESSAGE_TIMEOUT_MS,
+          "Stella's cloud did not answer, so the message may not have been delivered.",
+        );
+      },
+    };
+  };
+
   const open = (conversationId: string): Promise<Chat> => {
     let chat = chats.get(conversationId);
     if (!chat) {
@@ -333,6 +602,25 @@ export function desktopChats(options: DesktopChatsOptions) {
         await mkdir(directory, { recursive: true });
         const file = path.join(directory, fileName(conversationId));
         const storage = await openBunSqliteStorage(file);
+        const remote = options.execution?.(conversationId);
+        const brain = options.brain?.(conversationId);
+        const execution = desktopExecution({
+          conversationId,
+          ...(options.deviceId ? { deviceId: options.deviceId } : {}),
+          localOnly: conversationId.startsWith("local_"),
+          ...(remote ? { remote } : {}),
+          ...(brain ? { brain } : {}),
+          // Stella's brief continues elsewhere once her turn here has ended.
+          turnEnded: async () => {
+            const deadline = Date.now() + BRAIN_HANDOFF_WAIT_MS;
+            while (Date.now() < deadline) {
+              await new Promise((resolve) => setTimeout(resolve, 1_000));
+              if (opened && (await opened.harness.snapshot(LiveDoc, opened.root.id, context))?.run === undefined) return;
+            }
+          },
+          brainMoved: (record) => brains.set(conversationId, { record, host: otherHost(record), at: Date.now() }),
+          report: options.report,
+        });
         const destination: ExecutionDestination = {
           kind: "device",
           deviceId: options.deviceId ?? "this-computer",
@@ -348,13 +636,14 @@ export function desktopChats(options: DesktopChatsOptions) {
               backendUrl: options.siteAuth()?.baseUrl,
               ...(options.memoryEnabled ? { memoryEnabled: options.memoryEnabled } : {}),
               destination,
+              ...(options.executionContext ? { executionContext: sharedExecutionContext } : {}),
               locale: async () =>
                 opened && (await opened.harness.snapshot(LocaleDoc, opened.root.id, context))?.locale,
               cloudStored: !conversationId.startsWith("local_"),
             }),
             agents: (() => {
               const cloud = options.cloudAgents?.(conversationId);
-              const { agentStarted, agentReported } = options;
+              const { agentStarted, agentReported, agentPaused } = options;
               /** How many runs Stella has given one of its agents: the attempt a run is. */
               const attempts = async (threadId: string) => {
                 if (!opened) return 1;
@@ -364,6 +653,10 @@ export function desktopChats(options: DesktopChatsOptions) {
               return desktopAgentsHost({
                 ...(options.deviceId ? { deviceId: options.deviceId } : {}),
                 ...(cloud ? { cloud } : {}),
+                directory: directoryFor(conversationId),
+                dataDir: options.dataDir,
+                execution: execution.host,
+                ensureModel: (model) => ensureModel(model),
                 beginAgentRun: async (run) => {
                   // Stella's own agents, not their subagents.
                   if (!opened || run.parentConversationId !== opened.root.id) return;
@@ -376,19 +669,54 @@ export function desktopChats(options: DesktopChatsOptions) {
                     attempt: await attempts(run.threadId),
                   });
                 },
+                // Stella reads them where she runs: here, or as a note placed there.
+                deliverReport: async (report, context) => {
+                  if (report.settled) return;
+                  if (await noteOnBrain(conversationId, report.requestId, report.text)) return;
+                  // The harness is open by then: reports run once it resumes.
+                  const root = await harness.conversation(report.rootConversationId, context);
+                  await root?.submit(
+                    { type: "input", content: report.text, whenBusy: "followUp", requestId: report.requestId },
+                    context,
+                  );
+                },
+                deliverNote: async (note, context) => {
+                  if (await noteOnBrain(conversationId, note.requestId, note.text)) return;
+                  const root = await harness.conversation(note.rootConversationId, context);
+                  if (!root) throw new Error("Stella is not reachable from here.");
+                  // Read by the model, never shown: the user did not write it.
+                  const hidden: TextContent & { stella: { hidden: true } } = { type: "text", text: note.text, stella: { hidden: true } };
+                  await root.submit({ type: "input", content: [hidden], whenBusy: "followUp", requestId: note.requestId }, context);
+                },
                 ...(agentReported
                   ? {
                       agentReported: (agent) => {
-                        void attempts(agent.threadId).then(
-                          (attempt) => agentReported({ conversationId, ...agent, attempt }),
-                          (error: unknown) => options.report(error),
-                        );
+                        void (async () => {
+                          const attempt = await attempts(agent.threadId);
+                          const record = opened
+                            ? (await opened.harness.snapshot(StellaAgentsDoc, opened.root.id, context))?.agents[agent.threadId]
+                            : undefined;
+                          const live =
+                            opened && record && !record.remote
+                              ? await opened.harness.snapshot(LiveDoc, record.conversationId as ConversationId, context)
+                              : undefined;
+                          agentReported({ conversationId, ...agent, attempt, running: live?.run !== undefined });
+                        })().catch((error: unknown) => options.report(error));
+                      },
+                    }
+                  : {}),
+                ...(agentPaused
+                  ? {
+                      agentPaused: async (agent) => {
+                        agentPaused({ conversationId, ...agent, attempt: await attempts(agent.threadId) });
                       },
                     }
                   : {}),
               });
             })(),
-            ...(options.tools ? { tools: options.tools(conversationId) } : {}),
+            ...(options.tools ? { tools: placedTools(options.tools(conversationId), execution, () => opened) } : {}),
+            // An agent's file and shell tools run here, or wherever its tools were moved.
+            extensions: [desktopCoding(execution.run)],
             env: environments.env,
             onReport: options.report,
           },
@@ -399,24 +727,27 @@ export function desktopChats(options: DesktopChatsOptions) {
         // A conversation from an older build keeps up with what the orchestrator is offered.
         if (offersAgentTools(await root.agent(context))) await root.configure(orchestrator, context);
         // A conversation kept on this computer starts with what the agent
-        // loops' chat log holds, and keeps up with it.
+        // loops' chat log holds (imported as the mirror starts), and keeps up with it.
         const log = options.localLog?.(conversationId);
         const localLog = log ? await localLogMirror({ harness, root, log, report: options.report, context }) : undefined;
-        await localLog?.importNow().catch((error: unknown) => options.report(error));
         // Recovered work needs its models: a Stella alias waits for sign-in; a
         // model on the user's own key is ready at once.
         const rootModel = (await root.agent(context)).model;
+        /** The Stella aliases the orchestrator and its unfinished agents run on. */
+        const aliases = new Set<string>();
         for (const agent of Object.values((await harness.snapshot(StellaAgentsDoc, root.id, context))?.agents ?? {})) {
           if (agent.remote) continue;
           const model = (await (await harness.conversation(agent.conversationId as ConversationId, context))?.agent(context))?.model;
           if (model && model.provider !== STELLA_PROVIDER_ID) byok.restore(model);
+          // A finished agent's alias is registered when it is next messaged.
+          else if (model && (await harness.snapshot(LiveDoc, agent.conversationId as ConversationId, context))?.run) {
+            aliases.add(aliasOf(model));
+          }
         }
-        if (rootModel && rootModel.provider !== STELLA_PROVIDER_ID) {
-          byok.restore(rootModel);
-          void harness.resume();
-        } else {
-          void waitForProvider(aliasOf(rootModel)).then(() => harness.resume());
-        }
+        if (rootModel && rootModel.provider !== STELLA_PROVIDER_ID) byok.restore(rootModel);
+        else aliases.add(aliasOf(rootModel));
+        if (aliases.size === 0) void harness.resume();
+        else void Promise.all([...aliases].map((alias) => waitForProvider(alias))).then(() => harness.resume());
         const journal = options.journal?.(conversationId);
         const mirror = journal
           ? await journalMirror({
@@ -477,6 +808,7 @@ export function desktopChats(options: DesktopChatsOptions) {
           steerPlacedAgent,
           ...(mirror ? { mirror } : {}),
           ...(localLog ? { localLog } : {}),
+          execution,
           watchers: 0,
           idleCheck,
           followCheck,
@@ -505,6 +837,18 @@ export function desktopChats(options: DesktopChatsOptions) {
   };
 
   /**
+   * Events as clients receive them, a snapshot's entries cut to its newest
+   * page: older context (all of a long conversation's imported history,
+   * until pi first compacts it) is paged in like the rest of the history.
+   */
+  const eventsForClients = (events: readonly PiChatEvent[]): PiChatEvent[] =>
+    piEventsForClients(
+      events.map((event) =>
+        event.type === "snapshot" ? { ...event, entries: piEntriesForClients(event.entries, CLIENT_PAGE_BYTES).entries } : event,
+      ),
+    );
+
+  /**
    * (Re)attach the conversation's event stream. Every attached client gets
    * the new snapshot as an event, so none misses what happened between the
    * old stream and the new one.
@@ -515,10 +859,10 @@ export function desktopChats(options: DesktopChatsOptions) {
     chat.stream = stream;
     stream.start(async (events) => {
       if (chat.stream !== stream) return;
-      options.emit({ conversationId, events: piEventsForClients(events as unknown as PiChatEvent[]) });
+      options.emit({ conversationId, events: eventsForClients(events as unknown as PiChatEvent[]) });
     });
     if (previous) {
-      options.emit({ conversationId, events: piEventsForClients([stream.snapshot as unknown as PiChatEvent]) });
+      options.emit({ conversationId, events: eventsForClients([stream.snapshot as unknown as PiChatEvent]) });
       await previous.stop().catch(() => undefined);
     }
     return stream;
@@ -531,7 +875,7 @@ export function desktopChats(options: DesktopChatsOptions) {
     chat.watchers += 1;
     const stream = await attach(conversationId, chat);
     const { entries, hasOlder } = await history(chat);
-    const [snapshot] = piEventsForClients([stream.snapshot as unknown as PiChatEvent]) as [PiChatWatchResult["snapshot"]];
+    const [snapshot] = eventsForClients([stream.snapshot as unknown as PiChatEvent]) as [PiChatWatchResult["snapshot"]];
     return {
       snapshot: { ...snapshot, entries: mergePiEntries(entries, snapshot.entries) },
       hasOlder,
@@ -614,8 +958,14 @@ export function desktopChats(options: DesktopChatsOptions) {
     conversationId: string,
     requestId: string,
     content: UserInput,
-    sent: { locale?: string } = {},
+    sent: { locale?: string; followSender?: boolean } = {},
   ) => {
+    // Stella answers where her brain is; the app places a send there instead,
+    // and sends it here when that host could not take it.
+    if (!sent.followSender) {
+      const placement = await brainPlacement(conversationId);
+      if (!placement.here) throw new Error(elsewhere(placement));
+    }
     // The model the user picked: one of Stella's, or one on their own key.
     const model = await pickedModel();
     const chat = await open(conversationId);
@@ -665,7 +1015,7 @@ export function desktopChats(options: DesktopChatsOptions) {
   const stopPlacement = async ({ chat, submission }: Placement) => {
     if (!chat || !submission) return;
     const withdrawn = await chat.harness.abortSubmission(submission.id, context, chat.root.id);
-    if (withdrawn === "already_placed") await chat.root.abort(context);
+    if (withdrawn === "already_placed") await stopStella(chat.harness, chat.root, context);
   };
 
   /**
@@ -690,6 +1040,12 @@ export function desktopChats(options: DesktopChatsOptions) {
     },
   ): Promise<{ status: "ok"; finalText: string } | { status: "busy" | "error"; finalText: ""; error: string }> => {
     const { observe, placementRunId } = turn;
+    // A chat placed here is for this computer; anything else waits for where
+    // Stella is, unless that host can't take turns now (then it runs here).
+    if (!placementRunId) {
+      const where = await brainPlacement(conversationId);
+      if (!where.here) return { status: "error", finalText: "", error: elsewhere(where) };
+    }
     // Before anything awaits, so a cancel that lands while the conversation opens still holds.
     const placement: Placement = {};
     if (placementRunId) placements.set(placementRunId, placement);
@@ -818,9 +1174,9 @@ export function desktopChats(options: DesktopChatsOptions) {
       const message = entry.model?.[0];
       if (entry.kind === "pi.user" && message?.role === "user") {
         // What the user typed or said; not the context and notices sent along,
-        // a report, or a prompt the app wrote.
+        // an agent's report or note, or a prompt the app wrote.
         const text = piUserView(message).text || ((message as PiUserMessage).source === "voice" ? piMessageText(message) : "");
-        if (text.trim() && !PI_REPORT_RE.test(text.trimStart())) {
+        if (text.trim() && !isPiAgentText(text)) {
           items.push({ role: "user", content: text, timestamp: message.timestamp });
         }
       } else if (entry.kind === "pi.assistant" && message?.role === "assistant") {
@@ -843,10 +1199,14 @@ export function desktopChats(options: DesktopChatsOptions) {
 
   /** The conversation's agents, as the app lists them. */
   const agents = async (conversationId: string): Promise<PiChatAgentsResult> => {
+    // A conversation pi never ran has no agents of pi's; asking must not open one.
+    if (!chats.has(conversationId) && !(await stat(path.join(directory, fileName(conversationId))).catch(() => undefined))) {
+      return { agents: [] };
+    }
     const chat = await open(conversationId);
     const records = await chat.agentRecords(context);
     return {
-      agents: records.map(({ placement: _placement, ...agent }) => agent),
+      agents: records.map(({ placement: _placement, paused: _paused, ...agent }) => agent),
     };
   };
 
@@ -941,6 +1301,33 @@ export function desktopChats(options: DesktopChatsOptions) {
       );
       return record.status === "running" ? "steered" : "resumed";
     },
+    async deliverReport(conversationId: string, report: { requestId: string; text: string }): Promise<void> {
+      if (await noteOnBrain(conversationId, report.requestId, report.text)) return;
+      const chat = await ready(conversationId);
+      await caughtUp(chat);
+      const hidden: TextContent & { stella: { hidden: true } } = { type: "text", text: report.text, stella: { hidden: true } };
+      await chat.root.submit({ type: "input", content: [hidden], whenBusy: "followUp", requestId: report.requestId }, context);
+    },
+    /**
+     * Where one of Stella's agents on this computer stands, for settling the
+     * cloud's record of it: undefined when no conversation here started it.
+     * A run a previous process left unfinished reads as running: it resumes.
+     */
+    async agentStatus(
+      threadId: string,
+    ): Promise<{ conversationId: string; status: "running" | "completed" | "error" | "canceled"; attempt: number } | undefined> {
+      const conversationId = (await threadIndex())[threadId];
+      if (!conversationId) return undefined;
+      const chat = await open(conversationId);
+      const record = (await chat.agentRecords(context)).find((agent) => agent.threadId === threadId);
+      if (!record) return undefined;
+      const calls = Object.values((await chat.harness.snapshot(StellaAgentsDoc, chat.root.id, context))?.calls ?? {});
+      return {
+        conversationId,
+        status: record.paused ? "canceled" : record.status,
+        attempt: Math.max(1, calls.filter((call) => call.threadId === threadId).length),
+      };
+    },
     /** Whether any conversation has work in flight here, so the process must stay up. */
     busy(): boolean {
       return activeNow.size > 0;
@@ -955,9 +1342,11 @@ export function desktopChats(options: DesktopChatsOptions) {
       switch (request.op) {
         case "submit":
           return submit(request.conversationId, request.requestId, request.text);
-        case "abort":
-          await (await open(request.conversationId)).root.abort(context);
+        case "abort": {
+          const chat = await open(request.conversationId);
+          await stopStella(chat.harness, chat.root, context);
           return { ok: true };
+        }
         case "watch":
           return watch(request.conversationId);
         case "unwatch":
@@ -975,7 +1364,13 @@ export function desktopChats(options: DesktopChatsOptions) {
           return { ok: true };
         case "files":
           return linkedFiles(request.conversationId);
+        case "brain":
+          return brainPlacement(request.conversationId);
       }
+    },
+    /** End every shell command the chats' agents have running on this computer. */
+    async terminateCommands(): Promise<void> {
+      await environments.terminateCommands(context);
     },
     async close(): Promise<void> {
       const opened = await Promise.all([...chats.values()].map((chat) => chat.catch(() => undefined)));
@@ -986,6 +1381,7 @@ export function desktopChats(options: DesktopChatsOptions) {
         clearInterval(chat.followCheck);
         await chat.mirror?.stop();
         await chat.localLog?.stop();
+        await chat.execution.close();
         await chat.stream?.stop().catch(() => undefined);
         await chat.harness.close(context).catch(() => undefined);
       }

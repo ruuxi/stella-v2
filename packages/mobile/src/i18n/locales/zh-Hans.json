@@ -148,7 +148,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "无法加载此对话",
+        "errorBody": "请关闭后稍等片刻再打开。"
       },
       "generatedImage": {
         "generating": "正在生成...",
@@ -822,7 +824,6 @@
     },
     "integrations": {
       "connectStellaApp": "连接到 Stella 应用",
-      "connectStellaAppSub": "将手机上的 Stella 应用与这台电脑配对",
       "connectTitle": "连接",
       "connected": "已连接",
       "credential": {
@@ -838,11 +839,16 @@
         "saving": "正在保存...",
         "title": "连接 {provider}"
       },
-      "heroTagline": "从你喜欢的任何平台给 Stella 发消息 — 自然地聊天，或让它直接在你的电脑上把事情办好。",
       "phoneTitle": "你的手机",
       "signInHeadline": "登录即可开始",
       "signInSub": "登录你的 Stella 账户以连接 {provider}。",
-      "signInToConnect": "登录 Stella 以连接"
+      "signInToConnect": "登录 Stella 以连接",
+      "getApp": {
+        "appStoreQrAlt": "扫描以从 App Store 下载 Stella",
+        "platformLabel": "选择移动平台",
+        "playStoreQrAlt": "扫描以从 Google Play 下载 Stella",
+        "title": "获取 App"
+      }
     },
     "legal": {
       "privacy": {
@@ -893,9 +899,16 @@
         "title": "此对话"
       },
       "files": {
-        "empty": "还没有文件。Stella 生成的所有内容都会显示在这里。",
+        "empty": "Stella 创建或分享的文件会显示在这里。",
         "emptyFiltered": "没有匹配的文件。",
-        "searchPlaceholder": "搜索文件"
+        "filterAll": "所有文件",
+        "filterLabel": "筛选和排序文件",
+        "searchPlaceholder": "搜索文件",
+        "sortName": "名称",
+        "sortNewest": "最新优先",
+        "sortOldest": "最早优先",
+        "sourceCloud": "云端",
+        "sourceUpload": "你发送的"
       },
       "schedule": {
         "actionFailed": "操作未成功。",
@@ -903,7 +916,9 @@
         "customCadence": "自定义日程",
         "deleteConfirm": "“{title}”将停止运行。",
         "deleteSchedule": "删除日程",
-        "empty": "还没有日程。让电脑上的 Stella 定期运行一些任务，就会显示在这里。",
+        "empty": "还没有任何日程。",
+        "emptyAction": "安排一件事",
+        "emptyActionPrompt": "提醒我",
         "lastRunFailed": "上次运行失败：{error}",
         "loadFailed": "无法加载日程。",
         "next": "下次运行 {when}",
@@ -928,6 +943,11 @@
         "stopped": "已停止",
         "working": "正在后台工作"
       }
+    },
+    "apps": {
+      "empty": "Stella 为你构建的应用会显示在这里。",
+      "emptyAction": "构建应用",
+      "emptyActionPrompt": "帮我做一个应用，"
     },
     "authCallback": {
       "backToSignIn": "返回登录",
@@ -993,7 +1013,6 @@
       "disconnectedLabel": "电脑已断开连接",
       "guestHeroBody": "让 Stella 在您的电脑上做事 —— 浏览网页、整理文件、执行任务等等。",
       "guestHeroTitle": "您的电脑，触手可及",
-      "pairLabel": "配对电脑",
       "statusAsleep": "已休眠",
       "statusChecking": "检查中…",
       "statusConnected": "已连接"
@@ -1001,20 +1020,11 @@
     "desktop": {
       "connecting": "正在连接桌面端",
       "deviceUnreachable": "无法连接您的 {platform}",
-      "enterCode": "请输入电脑上显示的验证码。",
-      "guestBody": "在手机上直接查看您的 Stella 桌面应用。配对后，手机会自动重新连接。",
       "guestSignInPrompt": "登录即可开始。",
       "limitedCapabilities": "有些操作需要您的电脑",
       "linkInterrupted": "与您电脑的连接已中断。",
-      "pairAnother": "配对另一台电脑",
-      "pairTitle": "配对您的手机",
-      "pairing": "正在配对这台手机",
       "reconnecting": "正在重新连接...",
-      "repairNeeded": "这台手机需要重新与您的电脑配对。",
       "retryLabel": "重新尝试连接",
-      "startPairingLabel": "开始配对电脑",
-      "unavailableBodyPaired": "请确认电脑上的 Stella 已打开并已联网。连接成功后，桌面应用就会出现在手机上。",
-      "unavailableBodyUnpaired": "在手机上直接查看您的 Stella 桌面应用。扫描电脑上 Stella 显示的二维码即可开始 —— 之后手机会自动重新连接。",
       "unreachable": "无法连接您的桌面端"
     },
     "engineAccounts": {
@@ -1127,26 +1137,17 @@
         "signInBody": "让您的对话、设置和已连接的电脑出现在每台设备上。",
         "signInTitle": "登录 Stella",
         "skip": "暂时跳过",
-        "subscriptionsBody": "已经在付费使用 Claude 或 ChatGPT？连接后我会在云端使用它。你的电脑使用各自的登录。",
+        "subscriptionsBody": "使用你现有的 Claude 或 ChatGPT 订阅?",
         "subscriptionsLabel": "可选"
       },
       "composerPlaceholder": "也可以直接问我点什么",
       "computer": {
-        "body": "将这部手机与电脑上的 Stella 配对，您外出时，我可以在电脑上执行任务。",
-        "connectedBody": "随时随地开口，我来在您的电脑上完成。",
+        "body": "在电脑上登录后会自动连接。",
         "connectedTo": "已连接到 {name}",
-        "guestHint": "配对与您的 Stella 账户关联，请先登录。我会从这里继续。",
-        "hint": "在电脑上打开 Stella，然后选择“配对手机”。",
+        "getDesktop": "获取桌面版 Stella",
         "later": "稍后",
-        "pair": "配对我的电脑",
-        "point1": "找到文件并发给您",
-        "point2": "完成一次导出或下载",
-        "point3": "使用您已有的应用",
-        "settledConnectedDesc": "我可以通过您的手机在那台电脑上执行任务。",
-        "settledSkippedDesc": "您可以随时在设置中配对。",
         "settledSkippedTitle": "还没有电脑",
-        "signInToPair": "登录后配对",
-        "title": "您的电脑，装进口袋"
+        "title": "电脑上的 Stella"
       },
       "gmail": {
         "body": "查找邮件、跟进会话、起草回复，只需开口。",
@@ -1365,7 +1366,6 @@
         "enableFailedTitle": "无法启用那台电脑",
         "enableLabel": "启用 {name}",
         "enabling": "正在启用…",
-        "pairingCode": "使用配对码",
         "sectionLabel": "Stella 在哪里工作",
         "statusAwaitingConsent": "等待那台电脑上的许可",
         "statusDeclined": "已在那台电脑上拒绝",
@@ -1381,10 +1381,6 @@
       "deleteConfirmTitle": "删除账户",
       "deleteFailedTitle": "无法删除账户",
       "deletingAccount": "正在删除账户…",
-      "forget": "忽略",
-      "forgetConfirmBody": "在您重新配对之前，这台手机将不再连接那台电脑。",
-      "forgetConfirmTitle": "忽略 {name}？",
-      "forgetLabel": "忽略 {name}",
       "hideEmailLabel": "隐藏邮箱",
       "loadingSession": "正在加载会话…",
       "notificationsSection": "通知",
@@ -1394,9 +1390,6 @@
       "paired": {
         "unnamedComputer": "电脑 · {id}"
       },
-      "pairedEmpty": "尚未配对任何电脑。",
-      "pairedOn": "配对于 {date}",
-      "pairedSection": "已配对的电脑",
       "privacyPolicy": "隐私政策",
       "pushToggleA11y": "切换推送通知",
       "pushToggleLabel": "允许推送通知",
@@ -1454,8 +1447,6 @@
       "cantRightNow": "现在不行",
       "deadline": "还剩 {time}",
       "deadlinePassed": "时间到了",
-      "deadlineWithDefault": "还剩 {time} — 否则选「{option}」",
-      "defaultOption": "默认",
       "hideSecret": "隐藏{label}",
       "missingFields": "请填写所有必填项。",
       "notification": {
@@ -1468,14 +1459,11 @@
       "plain": "将以明文发送",
       "revealSecret": "显示{label}",
       "sealFailed": "无法在此设备上加密。",
-      "send": "发送",
       "sendSecurely": "安全发送",
       "sending": "发送中…",
       "sensitive": "端到端加密",
       "sensitiveToggleA11y": "加密{label}",
       "sensitiveUnavailable": "此设备暂时无法加密",
-      "somethingElse": "别的",
-      "somethingElsePlaceholder": "告诉 Stella 该做什么",
       "unnamedComputer": "电脑 · {id}",
       "waitingBadge": "正在等你"
     }
@@ -1574,6 +1562,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "生活中很多事都通过邮件进行。连接 Gmail，我就能帮你处理邮件。",
         "memory": "One more thing that makes me different.",
+        "phone": "手机上也有我。",
         "quickstart": "就这些了。还有最后一件事，可选：快速上手。",
         "quickstartDone": "好了。这是我了解到的内容，还有几件我们可以先做的事。",
         "quickstartFailed": "这次我没能读完你的浏览器。我们可以直接开始，我会边用边了解。",
@@ -1863,10 +1852,10 @@
       "microphoneDeviceFallback": "麦克风 {index}",
       "recovery": {
         "closing": "正在关闭…",
-        "manageDescription": "如果麦克风权限卡住，你可以重置它并让 macOS 再次询问。",
+        "manageDescription": "麦克风权限卡住时可将其重置。",
         "manageLabel": "管理麦克风访问权限",
         "openSettings": "打开设置",
-        "recoverDescription": "一旦你拒绝，macOS 就不会自动再次询问。请重置权限，然后退出并重新打开 Stella。",
+        "recoverDescription": "macOS 不会再次询问。请重置后重新打开 Stella。",
         "recoverLabel": "恢复麦克风访问权限",
         "reset": "重置并重启"
       },
@@ -1879,22 +1868,22 @@
       },
       "speakerDeviceFallback": "扬声器 {index}",
       "superFast": {
-        "description": "让麦克风保持就绪，使听写以更少的延迟开始。",
+        "description": "让麦克风保持就绪，听写启动更快。",
         "label": "超快听写"
       },
       "systemDefault": "系统默认",
       "wakeWord": {
-        "description": "在后台监听「Hey Stella」并开始语音对话。关闭时，麦克风将保持空闲，直到你按下听写。",
+        "description": "说「Hey Stella」即可开始语音对话。",
         "label": "唤醒词「Hey Stella」"
       }
     },
     "browserExtension": {
       "action": "获取扩展",
-      "description": "让 Stella 查看你所在的页面并在浏览器中执行操作。",
+      "description": "让 Stella 查看并操作你的浏览器。",
       "title": "Stella for Chrome"
     },
     "chatStorage": {
-      "description": "在所有设备上访问你的聊天。关闭后，聊天记录将单独保存在这台电脑上。重新开启时，这些聊天不会被上传。AI 提供方仍会处理你的消息。",
+      "description": "在设备间同步聊天。关闭后仅保存在这台电脑上。",
       "endVoice": "结束语音对话后才能更改聊天存储方式。",
       "error": "无法更改聊天存储方式。请重试。",
       "title": "将聊天记录保存到云端"
@@ -1913,13 +1902,13 @@
       "upgrade": "升级"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "一个悬浮在桌面上的小 Stella。",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "API 密钥",
-      "empty": "尚未连接任何提供商。在上方的模型选择器中选择 Stella 以外的选项，以添加 API 密钥或登录。",
+      "empty": "还没有提供方。可从上方的模型选择器添加。",
       "removeKey": "移除密钥",
       "removingKey": "正在移除…",
       "signOut": "退出登录",
@@ -1938,7 +1927,7 @@
       "addClaude": "添加 Claude 账号",
       "addInCloud": "在云端",
       "addOnComputer": "在这台电脑上",
-      "cardIntro": "使用你已付费的 Claude 或 ChatGPT 套餐。每个位置单独登录：每台电脑以及你的云端。",
+      "cardIntro": "使用你已付费的 Claude 或 ChatGPT 套餐。",
       "cardTitle": "Claude 和 ChatGPT 账号",
       "chatgptBrowserWaiting": "请在浏览器中完成 ChatGPT 登录。",
       "chatgptCloudSignedIn": "你的云端已登录 ChatGPT。",
@@ -1959,7 +1948,7 @@
         "whereComputer": "正在这台电脑上登录 Claude Code。"
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "这台电脑未安装 Claude Code。请先安装，才能在这里使用 Claude。",
+      "cliMissing": "在这台电脑上安装 Claude Code，即可在此使用 Claude。",
       "connecting": "正在连接…",
       "defaultSignedOut": "这台电脑上的 Claude Code 未登录。",
       "enablePlanUsage": "启用 ChatGPT 套餐使用",
@@ -1970,14 +1959,14 @@
       "needsChatgptCloud": "请先继续为云端设置 ChatGPT",
       "needsClaudeCloud": "请先在云端登录 Claude",
       "openChatgptAgain": "再次打开 ChatGPT",
-      "pasteHintChatgpt": "批准后，ChatGPT 会将你带到一个无法加载的页面。复制该页面的完整地址并粘贴到这里。",
+      "pasteHintChatgpt": "复制 ChatGPT 打开的页面地址并粘贴到这里。",
       "pastePlaceholderUrl": "在此粘贴地址",
       "placeCloud": "云端",
       "placeComputer": "这台电脑",
       "placeOtherComputer": "其他电脑",
       "placeSignedIn": "{place}：已登录",
       "placeSignedOut": "{place}：未登录",
-      "planUsageOffBody": "在你允许之前，Stella 无法使用你的 ChatGPT 套餐。请在账号上选择「启用 ChatGPT 套餐使用」，或使用其他模型。",
+      "planUsageOffBody": "请在账号上选择「启用 ChatGPT 套餐使用」，或选择其他模型。",
       "planUsageOffTitle": "已登录，但未启用 ChatGPT 套餐使用",
       "remove": "移除",
       "removed": "已移除。",
@@ -2034,7 +2023,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Stella 需要答复时联系你的力度。",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2069,16 +2058,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2092,16 +2076,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "选择 Stella 在应用内和回复中使用的语言。",
+      "description": "用于应用界面和 Stella 的回复。",
       "title": "语言"
     },
     "lockedComputerUse": {
-      "description": "允许 Stella 在此 Mac 锁定后继续电脑操作任务。需要管理员授权，并在 Stella 工作时遮盖屏幕。",
+      "description": "这台 Mac 锁定后，电脑操作任务继续运行。",
       "title": "锁屏时使用电脑",
       "unsupported": "锁屏时使用电脑仅在 macOS 上可用。"
     },
     "memory": {
-      "description": "将已保存的记忆和你的个人资料纳入 Stella 的模型上下文。你的电脑和云端保存相同的记忆，并在传输和静态存储时加密。关闭此选项后，同步会暂停，记忆不会用于后续对话，但不会被删除。",
+      "description": "在回复中使用已保存的记忆。关闭不会删除它们。",
       "title": "记忆"
     },
     "modelPicker": {
@@ -2135,7 +2119,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "可使用任意本地 OpenAI 兼容服务器。Ollama 通常运行在下方的网址。",
+        "hint": "任何兼容 OpenAI 的本地服务器，例如 Ollama。",
         "modelNameAriaLabel": "本地模型名称",
         "serverUrlAriaLabel": "本地服务器网址"
       },
@@ -2179,7 +2163,7 @@
       "title": "动态效果"
     },
     "nativeFontSmoothing": {
-      "description": "像 macOS 应用那样渲染文本，使用灰度抗锯齿。",
+      "description": "灰度抗锯齿，与原生 macOS 应用一致。",
       "title": "原生字体平滑"
     },
     "notifications": {
@@ -2188,18 +2172,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "重新进行新手引导。你的数据会保留。",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "让 Stella 读取选中的文本，并可在电脑任意位置通过 ⌘+右键快捷方式打开。",
+        "description": "读取所选文本，并通过 ⌘+右键打开。",
         "label": "辅助功能"
       },
       "enable": "启用",
       "granted": "已授权",
       "microphone": {
-        "description": "用于语音和听写。如果之前拒绝了 Stella 且 macOS 不再询问，请重置。",
+        "description": "用于语音和听写。",
         "label": "麦克风"
       },
       "opening": "正在打开…",
@@ -2208,54 +2192,14 @@
       "restart": {
         "action": "重启",
         "closing": "正在关闭…",
-        "description": "屏幕录制刚刚开启。请退出并重新打开 Stella 以完成设置。",
+        "description": "重新打开 Stella 以完成屏幕录制的开启。",
         "label": "重启 Stella"
       },
       "screen": {
-        "description": "让 Stella 查看你的屏幕，以便协助你正在查看的内容。开启后你可能需要退出并重新打开 Stella。",
+        "description": "让 Stella 查看你屏幕上的内容。",
         "label": "屏幕录制"
       },
       "title": "权限"
-    },
-    "phoneAccess": {
-      "copy": "复制",
-      "deviceFallback": "手机",
-      "errors": {
-        "createPairing": "无法创建配对代码。"
-      },
-      "expired": "已过期",
-      "getCode": "获取代码",
-      "intro": {
-        "headline": "将手机连接到电脑"
-      },
-      "pairedCount": {
-        "other": "已配对 {count} 部手机"
-      },
-      "pairing": {
-        "body": "在手机上打开 Stella 应用并扫描二维码，或输入下方的代码。此操作只需进行一次。",
-        "headline": "扫描或输入此代码",
-        "qrAlt": "扫描以配对你的手机"
-      },
-      "preparing": "正在准备...",
-      "remove": "移除",
-      "removing": "正在移除...",
-      "signedOut": {
-        "body": "登录你的 Stella 账户以与手机应用配对。",
-        "headline": "登录即可开始"
-      },
-      "steps": {
-        "appStoreQrAlt": "扫描以从 App Store 下载 Stella",
-        "connect": "连接你的手机",
-        "download": "下载应用",
-        "platformSelectorLabel": "选择移动平台",
-        "playStoreQrAlt": "扫描以从 Google Play 下载 Stella"
-      },
-      "timeLeft": "剩余 {time}",
-      "toasts": {
-        "codeCopied": "代码已复制到剪贴板",
-        "phoneRemoved": "手机已移除",
-        "removeFailed": "移除手机失败"
-      }
     },
     "power": {
       "description": "在 Stella 打开时阻止电脑进入睡眠。",
@@ -2268,7 +2212,7 @@
         "description": "将 Stella 的聊天助手路由到 {provider}。",
         "label": "助手"
       },
-      "description": "{provider} 可以驱动 Stella 的多个部分。选择你希望它接管的部分 — 其余仍由 Stella 负责。",
+      "description": "选择 {provider} 用于哪些功能。",
       "errors": {
         "apply": "应用提供商设置失败。"
       },
@@ -2297,7 +2241,7 @@
     },
     "resetCustomizations": {
       "action": "恢复默认",
-      "description": "移除你的技能自定义和人格编辑，恢复 Stella 自带的默认设置。被移除的内容会保存在 ~/.stella/.trash 中，以便随时找回。",
+      "description": "恢复默认技能和性格。旧文件会移到 ~/.stella/.trash。",
       "done": "已恢复默认设置。你之前的自定义内容已移至 ~/.stella/.trash。",
       "error": "无法恢复默认设置。",
       "none": "你已经在使用 Stella 的默认设置。",
@@ -2331,7 +2275,7 @@
       "change": "更改",
       "clear": "清除",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "按一下开始听写，再按一下结束。"
       },
       "errors": {
         "load": "加载快捷键失败。",
@@ -2369,7 +2313,7 @@
       "defaultOption": "Stella 默认",
       "delete": "删除",
       "deleted": "提示词已删除。",
-      "description": "Stella 的默认提示词始终随应用更新。保存你自己的提示词即可改用它——它单独存放，更新永远不会覆盖。",
+      "description": "使用你自己的提示词，而非 Stella 的默认设置。",
       "duplicate": "复制",
       "edit": "编辑",
       "error": "出了点问题。",
@@ -2386,11 +2330,12 @@
       "account": "账户与法律",
       "audio": "音频",
       "general": "通用",
-      "shortcuts": "快捷键"
+      "shortcuts": "快捷键",
+      "privacy": "隐私"
     },
     "title": "设置",
     "voiceAgent": {
-      "description": "显示语音和通话控件，让你可以直接和 Stella 说话。语音输入不受此设置影响。",
+      "description": "显示语音和通话控件。听写不受影响。",
       "error": "无法更新语音设置。",
       "title": "语音对话"
     },
@@ -2412,6 +2357,13 @@
         "openai": "OpenAI 语音",
         "xai": "Grok 语音"
       }
+    },
+    "groups": {
+      "app": "应用",
+      "personal": "个人"
+    },
+    "nav": {
+      "more": "更多"
     }
   },
   "shell": {
@@ -2451,7 +2403,9 @@
         "skipped": "已跳过",
         "undoing": "正在撤销…",
         "upToDate": "没有待添加的内容",
-        "waiting": "待添加"
+        "waiting": "待添加",
+        "upToDateTitle": "已是最新版本",
+        "upToDateBody": "Stella 的新版本会显示在这里。"
       },
       "updating": "正在更新…"
     },
@@ -2481,7 +2435,9 @@
       "noMatches": "没有符合该搜索的连接器。",
       "searchLabel": "搜索连接器",
       "searchPlaceholder": "搜索",
-      "title": "连接器"
+      "title": "连接器",
+      "noMatchesTitle": "没有匹配项",
+      "noMatchesBody": "换个名称试试。"
     },
     "display": {
       "agentThread": {
@@ -2531,11 +2487,19 @@
       },
       "canvasShare": {
         "copyLink": "复制链接",
-        "empty": "暂无有效的分享。发布一个画布即可获得公开链接。",
+        "empty": "还没有公开的画布。将画布设为公开即可分享其链接。",
         "expires": "{date}到期",
         "links": "链接",
         "live": "画布已上线",
         "loadFailed": "无法加载你的分享。",
+        "makePrivate": "设为私密",
+        "makePublic": "设为公开",
+        "noLink": "此画布还没有链接。设为公开即可获得任何人都能打开的链接。",
+        "openInBrowser": "在浏览器中打开",
+        "privateHint": "只有你能打开此链接。",
+        "privateLink": "私密链接",
+        "public": "公开",
+        "publicHint": "任何拥有链接的人都可以查看。",
         "publicLink": "画布公开链接",
         "publishFailed": "无法发布此画布。请重试。",
         "publishing": "正在发布画布…",
@@ -2547,8 +2511,12 @@
         "toasts": {
           "copyFailed": "无法复制链接",
           "linkCopied": "分享链接已复制",
+          "madePrivate": "链接已设为私密",
+          "madePublic": "链接已设为公开",
+          "openFailed": "无法打开链接",
           "revokeFailed": "无法撤销此分享",
-          "revoked": "分享已撤销"
+          "revoked": "分享已撤销",
+          "visibilityFailed": "无法更改谁可以打开此链接"
         },
         "untitled": "未命名画布"
       },
@@ -2557,7 +2525,10 @@
         "codeChanges": "代码更改",
         "desktopRequired": "代码预览需要 Stella 桌面应用。",
         "empty": "还没有文件更改。当智能体编辑代码时，更改会显示在这里。",
-        "noChanges": "未找到更改。"
+        "noChanges": "未找到更改。",
+        "emptyTitle": "暂无更改",
+        "emptyBody": "当智能体编辑代码时，更改会显示在这里。",
+        "noChangesTitle": "无更改"
       },
       "filePreview": {
         "copy": "复制",
@@ -2592,7 +2563,11 @@
         "revealInFinder": "在 Finder 中显示",
         "save": "保存",
         "saveFailed": "无法保存",
-        "saved": "已保存"
+        "saved": "已保存",
+        "zoom": "缩放图片",
+        "imageUnavailable": "图片不可用",
+        "videoUnavailable": "视频不可用",
+        "audioUnavailable": "音频不可用"
       },
       "office": {
         "frameTitle": "{kind} 预览：{title}",
@@ -2616,7 +2591,11 @@
       },
       "preview": {
         "limited": "预览内容有限。请保存或打开原始文件以查看全部内容。",
-        "unavailable": "无法准备此预览。"
+        "unavailable": "无法准备此预览。",
+        "failedTitle": "无法显示预览",
+        "failedBody": "请重试，或保存文件后在其他地方打开。",
+        "unavailableTitle": "文件不可用",
+        "emptyTitle": "此文件为空"
       },
       "spreadsheet": {
         "column": "第 {index} 列",
@@ -2637,7 +2616,9 @@
         "pendingPurge": "待清除",
         "refresh": "刷新",
         "title": "废纸篓",
-        "trashedAgo": "{time}前移入废纸篓"
+        "trashedAgo": "{time}前移入废纸篓",
+        "emptyTitle": "废纸篓是空的",
+        "emptyBody": "删除的内容会在这里保留 24 小时。"
       },
       "url": {
         "eyebrow": "实时预览",
@@ -2730,22 +2711,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "剩余 {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "使用这个回答",
+      "default": "默认",
+      "next": "下一个问题",
+      "previous": "上一个问题",
+      "progress": "{current}/{total}",
+      "sending": "正在发送…",
+      "skip": "跳过",
+      "skipped": "已跳过",
+      "somethingElse": "其他",
+      "submit": "提交"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

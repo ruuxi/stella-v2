@@ -7,6 +7,7 @@ import {
 } from "react";
 import {
   normalizeUserAskOptions,
+  normalizeUserAskQuestions,
   USER_ASK_FIELD_TYPES,
   USER_ASK_KINDS,
   USER_ASK_MAX_FIELDS,
@@ -24,6 +25,7 @@ import {
   type UserAskRecipientKey,
   type UserAskState,
 } from "@stella/contracts/user-ask";
+import type { UserAskRecord } from "@stella/contracts/user-ask-deck";
 import { authClient } from "./auth-client";
 import { useBackendView } from "./backend";
 import { listExecutionDevices } from "./execution-placement";
@@ -109,19 +111,8 @@ const normalizeDetail = (
   const source = input as Record<string, unknown>;
   const detail = text(source.detail);
   if (kind === "question") {
-    const question = text(source.question);
-    const options = normalizeUserAskOptions(source.options);
-    if (!question || options.length === 0) return null;
-    const defaultChoiceId = text(source.defaultChoiceId);
-    return {
-      kind: "question",
-      question,
-      options,
-      ...(detail ? { detail } : {}),
-      ...(options.some((option) => option.id === defaultChoiceId)
-        ? { defaultChoiceId }
-        : {}),
-    };
+    const questions = normalizeUserAskQuestions(source);
+    return questions.length > 0 ? { kind: "question", questions } : null;
   }
   const purpose = text(source.purpose);
   const rawFields = Array.isArray(source.fields) ? source.fields : [];
@@ -211,7 +202,8 @@ const parseAskList = (payload: unknown): readonly UserAsk[] => {
   const rows = Array.isArray(payload)
     ? payload
     : payload && typeof payload === "object"
-      ? ((payload as Record<string, unknown>).asks ??
+      ? ((payload as Record<string, unknown>).open ??
+        (payload as Record<string, unknown>).asks ??
         (payload as Record<string, unknown>).userAsks)
       : null;
   if (!Array.isArray(rows)) return EMPTY_ASKS;
@@ -311,6 +303,51 @@ export const cancelUserAsk = async (askId: string): Promise<void> => {
   removeAskLocally(askId);
 };
 
+const EMPTY_RECORDS: readonly UserAskRecord[] = [];
+const MAX_RECORDS_PER_CONVERSATION = 50;
+let recordsByConversation: ReadonlyMap<string, readonly UserAskRecord[]> =
+  new Map();
+const recordListeners = new Set<() => void>();
+
+export const recordUserAskAnswer = (
+  conversationId: string,
+  record: UserAskRecord,
+): void => {
+  if (!conversationId) return;
+  const current = recordsByConversation.get(conversationId) ?? EMPTY_RECORDS;
+  const next = new Map(recordsByConversation);
+  next.set(
+    conversationId,
+    [...current.filter((entry) => entry.id !== record.id), record]
+      .sort((left, right) => left.createdAt - right.createdAt)
+      .slice(-MAX_RECORDS_PER_CONVERSATION),
+  );
+  recordsByConversation = next;
+  for (const listener of recordListeners) listener();
+};
+
+const subscribeRecords = (listener: () => void) => {
+  recordListeners.add(listener);
+  return () => {
+    recordListeners.delete(listener);
+  };
+};
+
+const getRecordsSnapshot = () => recordsByConversation;
+
+export const useConversationUserAskRecords = (
+  conversationId: string | null | undefined,
+): readonly UserAskRecord[] => {
+  const records = useSyncExternalStore(
+    subscribeRecords,
+    getRecordsSnapshot,
+    getRecordsSnapshot,
+  );
+  return conversationId
+    ? (records.get(conversationId) ?? EMPTY_RECORDS)
+    : EMPTY_RECORDS;
+};
+
 let focusedAskId: string | null = null;
 const focusListeners = new Set<() => void>();
 
@@ -388,21 +425,39 @@ export const useUserAskSync = (enabled: boolean) => {
   }, [active, available, live, liveDown, visible]);
 };
 
-export const useConversationUserAsk = (
+export type ConversationUserAsks = {
+  readonly questions: readonly UserAsk[];
+  readonly secureInput: UserAsk | null;
+  readonly focused: UserAsk | null;
+};
+
+const NO_CONVERSATION_ASKS: ConversationUserAsks = {
+  questions: EMPTY_ASKS,
+  secureInput: null,
+  focused: null,
+};
+
+export const useConversationUserAsks = (
   conversationId: string | null | undefined,
-): UserAsk | null => {
+): ConversationUserAsks => {
   const asks = useOpenUserAsks();
-  const focused = useFocusedUserAskId();
+  const focusedId = useFocusedUserAskId();
   return useMemo(() => {
-    const target = focused
-      ? asks.find((ask) => ask.askId === focused)
-      : undefined;
-    if (target) return target;
-    const mine = asks.filter(
-      (ask) => !ask.conversationId || ask.conversationId === conversationId,
-    );
-    return mine[0] ?? asks[0] ?? null;
-  }, [asks, conversationId, focused]);
+    if (asks.length === 0) return NO_CONVERSATION_ASKS;
+    if (!conversationId) return NO_CONVERSATION_ASKS;
+    const mine = asks.filter((ask) => ask.conversationId === conversationId);
+    if (mine.length === 0) return NO_CONVERSATION_ASKS;
+    const focused = focusedId
+      ? (mine.find((ask) => ask.askId === focusedId) ?? null)
+      : null;
+    const secureInputs = mine.filter((ask) => ask.kind === "secure_input");
+    return {
+      questions: mine.filter((ask) => ask.detail.kind === "question"),
+      secureInput:
+        focused?.kind === "secure_input" ? focused : (secureInputs[0] ?? null),
+      focused,
+    };
+  }, [asks, conversationId, focusedId]);
 };
 
 const deviceLabels = new Map<string, string>();

@@ -116,9 +116,9 @@ export const layer = Layer.effect(
       stellaDataDir: init.stellaDataDirPath,
       runtimeStore: storage.runtimeStore,
       listLocalChatEvents: (conversationId, maxItems) =>
-        storage.chatStore.listEvents(conversationId, maxItems),
+        storage.chatStore.chat.listEvents(conversationId, maxItems),
       openLocalChatEventWindow: (conversationId, maxItems) =>
-        storage.chatStore.openEventWindow(conversationId, maxItems),
+        storage.chatStore.chat.openEventWindow(conversationId, maxItems),
       appendLocalChatEvent: (args) => {
         storage.appendChatEventAndNotify(args);
       },
@@ -126,7 +126,7 @@ export const layer = Layer.effect(
         hostBus.notify(NOTIFICATION_NAMES.THREAD_ACTIVITY_UPDATED, payload);
       },
       getDefaultConversationId: () =>
-        storage.chatStore.getOrCreateDefaultConversationId(),
+        storage.chatStore.chat.getOrCreateDefaultConversationId(),
       askUser: async (payload) =>
         await hostBus.request(METHOD_NAMES.HOST_ASK_USER_REQUEST, payload, {
           retryOnDisconnect: true,

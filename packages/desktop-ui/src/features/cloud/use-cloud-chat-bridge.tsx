@@ -8,6 +8,8 @@ import {
   type CloudSocketStatus,
 } from "@stella/contracts/cloud-connection-notice";
 import { journalWorkingActivity } from "@stella/contracts/journal-working-activity";
+import { journalAgents } from "@stella/contracts/agent-titles";
+import { publishJournalAgents } from "./journal-agent-store";
 import {
   useCallback,
   useEffect,
@@ -28,10 +30,10 @@ import {
 } from "./cloud-composer-store";
 import {
   activeCloudUserMessageIds,
-  completeJournalWindowRecords,
   journalRecordsToMessageRecords,
   mergeCanonicalMessagesWithLocalCache,
 } from "./journal-message-records";
+import { completeJournalWindowRecords } from "@stella/contracts/conversation-journal-projection";
 import { provideLineageSource } from "@/features/chat/services/lineage-messages-store";
 import {
   journalRecordsToCloudActivityEvents,
@@ -43,8 +45,8 @@ import {
   mergeCloudConversationTasks,
   useCloudConversationActivity,
 } from "./use-cloud-activity";
-import type { JournalRecord } from "./conversation-protocol";
-import type { PendingPrompt } from "./conversation-store";
+import type { JournalRecord } from "@stella/contracts/conversation-protocol";
+import type { PendingPrompt } from "./conversation-outbox";
 import {
   useConversation,
   type CloudConversationView,
@@ -337,6 +339,11 @@ export function useCloudChatBridge({
     () => journalRecordsToMessageRecords(completeRecords),
     [completeRecords],
   );
+  const journalConversationId = conversation.state.conversationId;
+  useEffect(() => {
+    if (!enabled || !journalConversationId) return;
+    publishJournalAgents(journalConversationId, journalAgents(completeRecords));
+  }, [completeRecords, enabled, journalConversationId]);
   const activeUserIds = useMemo(
     () => activeCloudUserMessageIds(completeRecords),
     [completeRecords],

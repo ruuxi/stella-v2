@@ -8,15 +8,31 @@
 
 import type { AgentActivityEntry } from "@stella/contracts/conversation-agent-activity";
 import {
-  BACKFILL_BATCH_RECORDS,
   MAX_CLIENT_RECORDS,
   type JournalRecord,
-} from "./cloud-conversation-protocol";
+} from "@stella/contracts/conversation-protocol";
 import {
   ConversationSocket,
   type ConversationSocketEvent,
-  type SocketStatus,
-} from "./cloud-conversation-socket";
+} from "@stella/contracts/conversation-socket";
+import {
+  EMPTY_JOURNAL_RECORDS as EMPTY_RECORDS,
+  MAX_RETAINED_STORES,
+  OLDER_EXHAUSTED_NOTICE,
+  OLDER_INCOMPLETE_NOTICE,
+  OLDER_LIMIT_NOTICE,
+  OLDER_TIMEOUT_MS,
+  TEARDOWN_GRACE_MS,
+  appendJournalRecords,
+  initialConversationViewState,
+  liveTurnAfterRecords,
+  liveTurnFromReady,
+  liveTurnWithTool,
+  olderRangeIsComplete,
+  olderWouldExceedRetainedLimit,
+  prependOlderRecords,
+  type ConversationViewState,
+} from "@stella/contracts/conversation-store-reducer";
 
 let appActive = true;
 
@@ -26,30 +42,9 @@ export const setCloudConversationAppActive = (active: boolean): void => {
   for (const store of stores.values()) store.wake();
 };
 
-/**
- * The turn running right now. There is no partial reply to hold: assistant
- * text arrives whole on a committed record, so all a running turn contributes
- * to the view is its identity and the tool it is currently inside.
- */
-export type LiveTurn = {
-  turnId: string;
-  /** The tool currently running, for the working label. */
-  toolName: string | null;
-  toolLabel: string | null;
-};
+export type { LiveTurn } from "@stella/contracts/conversation-store-reducer";
 
-export type ConversationState = {
-  conversationId: string;
-  status: SocketStatus;
-  statusMessage: string | null;
-  statusRetryable: boolean;
-  /** Durable journal generation reported by the DO; null before `ready`. */
-  epoch: number | null;
-  /** DO head observed by the socket, including opaque/skipped records. */
-  headSeq: number;
-  /** Ascending by `seq`, contiguous. */
-  records: readonly JournalRecord[];
-  live: LiveTurn | null;
+export type ConversationState = ConversationViewState & {
   /**
    * Whether the conversation itself is working, as the journal's own owner
    * reports it. Independent of how much transcript this view holds, so it is
@@ -57,22 +52,15 @@ export type ConversationState = {
    */
   activity: "idle" | "running";
   /**
-   * Agents the journal still shows as working, named by the server over the
-   * whole journal. The retained records can only confirm this list, never
-   * shorten it: an agent started below the window leaves no trace in it.
+   * The agents the conversation has running, as the server lists them on
+   * connect and whenever they change: these and no others are running. The
+   * retained records only draw their rows.
    */
   runningAgents: readonly AgentActivityEntry[];
-  title: string;
-  /** Lowest seq that still exists. Nothing below it is ever fetchable. */
-  floorSeq: number;
-  /** True while records exist below the oldest one loaded. */
-  hasOlder: boolean;
-  loadingOlder: boolean;
-  /** Why scrollback stopped, when it stopped for a reason worth saying. */
-  olderNotice: string | null;
+  /** When the server read `runningAgents` (its clock). */
+  runningAgentsAtMs: number;
 };
 
-const EMPTY_RECORDS: readonly JournalRecord[] = [];
 const EMPTY_AGENTS: readonly AgentActivityEntry[] = [];
 
 /**
@@ -88,29 +76,14 @@ const EMPTY_AGENTS: readonly AgentActivityEntry[] = [];
 const EMIT_COALESCE_MS = 16;
 
 const initialState = (conversationId: string): ConversationState => ({
-  conversationId,
-  status: "idle",
-  statusMessage: null,
-  statusRetryable: true,
-  epoch: null,
-  headSeq: -1,
-  records: EMPTY_RECORDS,
-  live: null,
+  ...initialConversationViewState(conversationId),
   activity: "idle",
   runningAgents: EMPTY_AGENTS,
-  title: "",
-  floorSeq: 0,
-  hasOlder: false,
-  loadingOlder: false,
-  olderNotice: null,
+  runningAgentsAtMs: 0,
 });
 
 // ----------------------------------------------------------------- store
 
-/** How long a scrollback request may sit unanswered before the spinner stops. */
-const OLDER_TIMEOUT_MS = 15_000;
-/** How long the socket outlives its last watcher, to survive a remount. */
-const TEARDOWN_GRACE_MS = 5_000;
 /**
  * How long the first socket waits for the on-disk journal tail. A slow disk
  * must not hold the transcript hostage: past this the socket opens cold and a
@@ -303,18 +276,10 @@ class ConversationStore {
       this.patch({ hasOlder: false });
       return;
     }
-    // The renderer holds a bounded number of records; the server holds all of
-    // them. Say which limit was hit rather than leaving a button that does
-    // nothing, and never grow the array without bound to avoid saying it.
-    if (
-      this.state.records.length + BACKFILL_BATCH_RECORDS >
-      MAX_CLIENT_RECORDS
-    ) {
-      this.patch({
-        hasOlder: false,
-        olderNotice:
-          "That's as far back as this view holds — reload to go further.",
-      });
+    // Say which limit was hit rather than leaving a button that does nothing,
+    // and never grow the array without bound to avoid saying it.
+    if (olderWouldExceedRetainedLimit(this.state.records)) {
+      this.patch({ hasOlder: false, olderNotice: OLDER_LIMIT_NOTICE });
       return;
     }
     if (!this.socket?.requestOlder(oldest)) return;
@@ -331,14 +296,20 @@ class ConversationStore {
     // The seed read is in flight: it re-enters here when it settles.
     if (this.hydration) return;
     const lastSeq = this.state.records.at(-1)?.seq ?? -1;
-    const resume =
+    const initialCursor =
       this.state.epoch !== null && lastSeq >= 0
-        ? { lastSeq, epoch: this.state.epoch, floorSeq: this.state.floorSeq }
+        ? {
+            epoch: this.state.epoch,
+            lastSeq,
+            headSeq: lastSeq,
+            floorSeq: this.state.floorSeq,
+            windowStartSeq: this.state.records[0]!.seq,
+          }
         : undefined;
     this.socket = new ConversationSocket({
       conversationId: this.conversationId,
       baseUrl: this.baseUrl,
-      ...(resume ? { resume } : {}),
+      ...(initialCursor ? { initialCursor } : {}),
       // Keep the journal store framework-free until a socket genuinely starts.
       // `auth-token` reaches the native auth client, which reducer tests and
       // server-side rendering must not eagerly evaluate.
@@ -404,7 +375,6 @@ class ConversationStore {
         return;
       }
       case "ready": {
-        const live = event.ready.live;
         // A socket can be replaced after the teardown grace while this
         // renderer store deliberately keeps its rows. The new socket has no
         // local epoch to compare, so the store is the final authority fence:
@@ -422,6 +392,7 @@ class ConversationStore {
           activity: event.ready.activity === "running" ? "running" : "idle",
           runningAgents:
             event.ready.agents.length > 0 ? event.ready.agents : EMPTY_AGENTS,
+          runningAgentsAtMs: event.ready.serverTimeMs,
           hasOlder: oldest > event.ready.floorSeq,
           ...(epochChanged
             ? {
@@ -430,16 +401,16 @@ class ConversationStore {
                 olderNotice: null,
               }
             : {}),
-          live: live
-            ? {
-                turnId: live.turnId,
-                toolName: live.tools.at(-1)?.name ?? null,
-                toolLabel: live.tools.at(-1)?.label ?? null,
-              }
-            : null,
+          live: liveTurnFromReady(event.ready.live),
         });
         return;
       }
+      case "agents":
+        this.patch({
+          runningAgents: event.agents.length > 0 ? event.agents : EMPTY_AGENTS,
+          runningAgentsAtMs: event.atMs,
+        });
+        return;
       case "records":
         this.appendRecords(event.records);
         return;
@@ -468,49 +439,19 @@ class ConversationStore {
         });
         return;
       case "tool":
-        this.applyTool(event.turnId, event.name, event.label, event.phase);
+        this.patch({ live: liveTurnWithTool(this.state.live, event) });
         return;
     }
   }
 
   private appendRecords(incoming: readonly JournalRecord[]): void {
-    if (!incoming.length) return;
-    // The socket keeps its own cursor, but a socket can be replaced (teardown
-    // and remount, a config change) while these records stay. Re-check
-    // contiguity here so the two can never disagree: a repeat is dropped, and
-    // a jump means the rows between are gone, which resets the view rather
-    // than rendering a hole nobody named.
-    const lastStored = this.state.records.at(-1)?.seq ?? -1;
-    const fresh = incoming.filter((record) => record.seq > lastStored);
-    if (!fresh.length) return;
-    const restart = lastStored >= 0 && fresh[0]!.seq > lastStored + 1;
-    let records = (restart ? [] : this.state.records).concat(fresh);
-    let hasOlder = this.state.hasOlder || restart;
-    if (records.length > MAX_CLIENT_RECORDS) {
-      records = records.slice(records.length - MAX_CLIENT_RECORDS);
-      hasOlder = true;
-    }
-    let live = this.state.live;
-    for (const record of fresh) {
-      if (!live) continue;
-      // Only the turn's own terminal record retires it. A committed assistant
-      // row no longer means the turn is over: the run can answer, then reach
-      // for another tool, and clearing here would blink the working indicator
-      // out mid-turn.
-      if (
-        record.kind === "turn" &&
-        record.turnId === live.turnId &&
-        record.phase !== "started"
-      ) {
-        live = null;
-      }
-    }
-    if (records[0] && records[0].seq > this.state.floorSeq) hasOlder = true;
+    const appended = appendJournalRecords(this.state, incoming);
+    if (!appended) return;
     this.patch({
-      records,
-      hasOlder,
-      live,
-      headSeq: Math.max(this.state.headSeq, records.at(-1)?.seq ?? -1),
+      records: appended.records,
+      hasOlder: appended.hasOlder,
+      live: liveTurnAfterRecords(this.state.live, appended.fresh),
+      headSeq: appended.headSeq,
     });
   }
 
@@ -520,71 +461,33 @@ class ConversationStore {
   ): void {
     if (this.olderTimer) clearTimeout(this.olderTimer);
     this.olderTimer = null;
-    const claimedRangeIsComplete =
-      range?.complete !== false &&
-      (range?.fromSeq === undefined ||
-        range.toSeq === undefined ||
-        (incoming.length === range.toSeq - range.fromSeq + 1 &&
-          incoming.every(
-            (record, index) => record.seq === range.fromSeq! + index,
-          )));
-    if (!claimedRangeIsComplete) {
-      // Never splice a partial archive page beside the retained window. That
-      // would turn missing canonical rows into an invisible transcript hole.
+    if (!olderRangeIsComplete(incoming, range)) {
       // Keep the cursor retryable and name the failure in the UI.
       this.patch({
         hasOlder: true,
         loadingOlder: false,
-        olderNotice: "Couldn't load that part of this conversation. Try again.",
+        olderNotice: OLDER_INCOMPLETE_NOTICE,
       });
       return;
     }
-    const oldest = this.state.records[0]?.seq ?? Number.POSITIVE_INFINITY;
-    const older = incoming
-      .filter((record) => record.seq < oldest)
-      .sort((a, b) => a.seq - b.seq);
-    if (!older.length) {
-      // The range we asked for came back with nothing in it. `seq` is gapless,
-      // so this can only mean those rows are gone — stop offering a button
-      // that would ask for the same empty range forever.
+    const prepended = prependOlderRecords(this.state, incoming);
+    if (!prepended) {
+      // Stop offering a button that would ask for the same empty range forever.
       this.patch({
         hasOlder: false,
         loadingOlder: false,
-        olderNotice: "That's the start of what Stella still has.",
+        olderNotice: OLDER_EXHAUSTED_NOTICE,
       });
       return;
     }
-    const records = older.concat(this.state.records);
     this.patch({
-      records,
-      hasOlder: (records[0]?.seq ?? 0) > this.state.floorSeq,
+      records: prepended.records,
+      hasOlder: prepended.hasOlder,
       loadingOlder: false,
       olderNotice: null,
     });
   }
-
-  private applyTool(
-    turnId: string,
-    name: string,
-    label: string | undefined,
-    phase: "start" | "end",
-  ): void {
-    const current =
-      this.state.live && this.state.live.turnId === turnId
-        ? this.state.live
-        : { turnId, toolName: null, toolLabel: null };
-    this.patch({
-      live: {
-        ...current,
-        toolName: phase === "start" ? name : null,
-        toolLabel: phase === "start" ? (label ?? null) : null,
-      },
-    });
-  }
 }
-
-/** Conversations kept warm so switching back does not blank the view. */
-const MAX_RETAINED_STORES = 8;
 
 const stores = new Map<string, ConversationStore>();
 

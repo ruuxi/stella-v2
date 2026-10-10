@@ -24,7 +24,14 @@ import { ProtocolMismatchError } from "./errors.js";
 import * as HostBus from "./host-bus.js";
 import * as ModelCatalog from "./model-catalog.js";
 import * as RunnerModule from "./runner-module.js";
-import { closePiChats, piChatsBusy, resumePiChats } from "./pi-chats.js";
+import {
+  closePiChats,
+  terminatePiChatCommands,
+  piChatsBusy,
+  piDeliverReport,
+  reconcileComputerAgents,
+  resumePiChats,
+} from "./pi-chats.js";
 import * as SessionConfig from "./session/config.js";
 import * as SessionStorage from "./session/storage.js";
 import * as RunEventBus from "./session/run-events.js";
@@ -208,7 +215,13 @@ export interface Interface {
   ) => Effect.Effect<{ ok: true; queued?: true }, Error>;
   readonly shutdown: () => Effect.Effect<void>;
   readonly current: () => OpenSession | null;
-  readonly hasActiveWork: () => boolean;
+  /**
+   * Interrupt the session's turns and end its commands, keeping the session
+   * open. pi keeps interrupted work pending for the next launch.
+   */
+  readonly interruptWork: () => Effect.Effect<void>;
+  /** Bounded database maintenance that needs the detached window to finish. */
+  readonly holdsWorkerAlive: () => boolean;
 }
 
 export class Service extends Context.Service<Service, Interface>()(
@@ -322,6 +335,15 @@ export const layer = Layer.effect(
       if (patch.authToken !== undefined) {
         runner?.setAuthToken(patch.authToken);
         updateRuntimeTelemetryAuth(patch.authToken);
+        // Back in touch with the cloud: settle what it thinks runs here and does not.
+        if (patch.authToken && runner) {
+          void reconcileComputerAgents(session, hostBus).catch((error) => {
+            console.warn(
+              "[runtime-worker] computer agent reconcile failed:",
+              (error as Error).message,
+            );
+          });
+        }
       }
       if (patch.hasConnectedAccount !== undefined) {
         runner?.setHasConnectedAccount(patch.hasConnectedAccount);
@@ -536,6 +558,9 @@ export const layer = Layer.effect(
                     const builtRunner =
                       await session.runner.awaitBuildSettled();
                     if (!builtRunner) runnerOutcome = "failure";
+                    builtRunner?.setPiReportDelivery((report) =>
+                      piDeliverReport(session, hostBus, report),
+                    );
                     // The initialize-time warm below no-ops while the runner
                     // is still building; warm once it exists, as before.
                     if (builtRunner && currentSession === session) {
@@ -548,25 +573,24 @@ export const layer = Layer.effect(
                         (error as Error).message,
                       );
                     });
-                    // Durable runs the previous worker process left running
-                    // resume now that the runner can launch them (off the
-                    // boot report: a resumed run lasts as long as it lasts).
+                    // Conversations on pi-durable resume their own work;
+                    // then whatever the cloud still thinks runs here and
+                    // does not is settled.
                     if (builtRunner && currentSession === session) {
-                      void session.agentRuns
-                        .resumeInterruptedRuns()
+                      void resumePiChats(session, hostBus)
                         .catch((error) => {
                           console.warn(
-                            "[runtime-worker] Durable run resume pass failed:",
+                            "[runtime-worker] pi chat resume failed:",
+                            (error as Error).message,
+                          );
+                        })
+                        .then(() => reconcileComputerAgents(session, hostBus))
+                        .catch((error) => {
+                          console.warn(
+                            "[runtime-worker] computer agent reconcile failed:",
                             (error as Error).message,
                           );
                         });
-                      // Conversations on pi-durable resume their own work.
-                      void resumePiChats(session, hostBus).catch((error) => {
-                        console.warn(
-                          "[runtime-worker] pi chat resume failed:",
-                          (error as Error).message,
-                        );
-                      });
                     }
                   })(),
                 ]);
@@ -638,13 +662,28 @@ export const layer = Layer.effect(
       );
     };
 
-    // Idle-shutdown keep-alive: session work, plus a DB reclaim that is
-    // running or ready for the zero-client window (maintenance.ts). The
-    // maintenance idle check uses hasSessionWork, never this, so the hold
+    // Idle-shutdown keep-alive: only a DB reclaim or index build that is
+    // running or ready for the zero-client window (maintenance.ts). Turns do
+    // not keep the runtime alive without an app; they are interrupted first.
+    // The maintenance idle check uses hasSessionWork, never this, so the hold
     // cannot make maintenance think the worker is busy.
-    const hasActiveWork = () =>
-      hasSessionWork() ||
-      (currentSession?.storage.maintenance.holdsWorkerAlive() ?? false);
+    const holdsWorkerAlive = () =>
+      currentSession?.storage.maintenance.holdsWorkerAlive() ?? false;
+
+    const interruptWork = Effect.suspend(() => {
+      const session = currentSession;
+      if (!session) return Effect.void;
+      // Commands first, while the chats can still reach them; closing a
+      // chat aborts its turns, and that close waits for any command
+      // termination the abort starts.
+      return Effect.promise(async () => {
+        await Promise.allSettled([
+          terminatePiChatCommands(session),
+          session.runnerCell.get()?.killAllShells(),
+        ]);
+        await closePiChats(session).catch(() => undefined);
+      });
+    });
 
     return {
       initialize,
@@ -653,7 +692,8 @@ export const layer = Layer.effect(
       // interleave with an in-flight initialize and strand its session.
       shutdown: () => sessionLock.withPermit(closeCurrent),
       current: () => currentSession,
-      hasActiveWork,
+      interruptWork: () => interruptWork,
+      holdsWorkerAlive,
     };
   }),
 );

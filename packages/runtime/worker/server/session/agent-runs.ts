@@ -13,7 +13,7 @@ import {
   AGENT_RUN_FINISH_OUTCOMES,
   AGENT_STREAM_EVENT_TYPES,
 } from "@stella/contracts/agent-runtime";
-import type { ImageCapTarget } from "../../../ai/utils/image-caps.js";
+import type { ImageCapTarget } from "../../../kernel/shared/image-caps.js";
 import type { RawReplyRef, ReplyRef } from "@stella/contracts/reply-refs";
 import { prepareStoredLocalChatPayload } from "../../../kernel/storage/local-chat-payload.js";
 import { RunAdmissionStore } from "../../../kernel/storage/run-admission.js";
@@ -97,12 +97,6 @@ export interface Interface {
   readonly oneShotCompletion: (
     request: RuntimeOneShotCompletionRequest,
   ) => Promise<RuntimeOneShotCompletionResult>;
-  /**
-   * Relaunch the chat runs a previous worker process left running, with
-   * client callbacks rebuilt from each run's launch record. Runs post-ready,
-   * once the runner is initialized.
-   */
-  readonly resumeInterruptedRuns: () => Promise<void>;
 }
 
 export class Service extends Context.Service<Service, Interface>()(
@@ -193,7 +187,7 @@ export const layer = Layer.effect(
         args.responseTarget && args.responseTarget.type !== "user_turn"
           ? args.responseTarget.agentId
           : undefined;
-      const replyRefs = storage.chatStore.resolveReplyRefs(
+      const replyRefs = storage.chatStore.chat.resolveReplyRefs(
         args.conversationId,
         args.replyRefs ?? [],
         {
@@ -271,9 +265,7 @@ export const layer = Layer.effect(
     /**
      * The client callbacks of one chat run: persist assistant/tool rows for
      * local transcripts, settle the run's admissions, and emit run events.
-     * Built per `startChat`, and again from the run's stored launch record
-     * when a durable run resumes in a new worker process
-     * (`resumeInterruptedRuns`).
+     * Built per `startChat`.
      */
     const createChatRunCallbacks = (ctx: {
       conversationId: string;
@@ -344,11 +336,6 @@ export const layer = Layer.effect(
       let lastAssistantMessageEvent: LocalChatEventRecord | null = null;
       const emitRunEvent = (event: AgentEventPayload) => runEvents.emit(event);
       return {
-        durableClient: {
-          ...(requestId ? { requestId } : {}),
-          ...(timezone ? { timezone } : {}),
-          persistLocalTranscript,
-        },
         onAssistantMessage: (ev) => {
           if (
             (ev.agentType ?? AGENT_IDS.ORCHESTRATOR) !==
@@ -509,15 +496,6 @@ export const layer = Layer.effect(
           emitRunEvent({
             ...ev,
             type: AGENT_STREAM_EVENT_TYPES.STATUS,
-            conversationId,
-            ...(requestId ? { requestId } : {}),
-          });
-        },
-        onProviderLifecycle: (ev) => {
-          if (hiddenSystemRunIds.has(ev.runId)) return;
-          emitRunEvent({
-            ...ev,
-            type: AGENT_STREAM_EVENT_TYPES.PROVIDER_LIFECYCLE,
             conversationId,
             ...(requestId ? { requestId } : {}),
           });
@@ -1185,47 +1163,12 @@ export const layer = Layer.effect(
       });
     };
 
-    const resumeInterruptedRuns: Interface["resumeInterruptedRuns"] =
-      async () => {
-        const runner = await runnerHandle.ensureInitialized();
-        const { resumed, failed } =
-          await runner.resumeInterruptedOrchestratorRuns({
-            createCallbacks: (launch) => {
-              const client = launch.client ?? {};
-              return createChatRunCallbacks({
-                conversationId: launch.conversationId,
-                userMessageId: launch.userMessageId,
-                requestId:
-                  typeof client.requestId === "string"
-                    ? client.requestId
-                    : undefined,
-                timezone:
-                  typeof client.timezone === "string"
-                    ? client.timezone
-                    : undefined,
-                persistLocalTranscript:
-                  typeof client.persistLocalTranscript === "boolean"
-                    ? client.persistLocalTranscript
-                    : shouldPersistLocalChatTranscript(launch.storageMode),
-                // The dead process appended the user row and placed the
-                // admission; a resume only continues the run.
-                appendUserMessageEvent: () => {},
-                markAdmissionPlaced: () => {},
-              });
-            },
-          });
-        if (resumed.length > 0 || failed.length > 0) {
-          logger.info("durable-runs.resume-pass", { resumed, failed });
-        }
-      };
-
     return {
       startChat,
       sendAgentInput,
       runAutomation,
       materializeAgentAttachments,
       oneShotCompletion,
-      resumeInterruptedRuns,
     };
   }),
 );

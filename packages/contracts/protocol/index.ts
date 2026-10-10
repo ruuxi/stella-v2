@@ -119,6 +119,8 @@ export const METHOD_NAMES = {
   HOST_CONNECTOR_CONNECT_REQUEST: "host.connectorConnect.request",
   HOST_CONNECTOR_CONNECT_CANCEL: "host.connectorConnect.cancel",
   HOST_EXECUTION_DESTINATION_SWITCH: "host.executionDestination.switch",
+  /** A hidden note for a pi conversation's Stella where she runs elsewhere (`@stella/contracts/turn-plane/pi-brain`). */
+  HOST_PI_BRAIN_NOTE: "host.piBrain.note",
   HOST_BROWSER_EXTENSION_CONNECT_REQUEST:
     "host.browserExtensionConnect.request",
   HOST_COMPUTER_USE_APP_APPROVAL_REQUEST: "host.computerUseAppApproval.request",
@@ -169,6 +171,9 @@ export const METHOD_NAMES = {
   INTERNAL_WORKER_SEND_AGENT_INPUT: "internal.worker.sendAgentInput",
   /** The pi-durable chat (`@stella/contracts/pi-chat`): submit, abort, watch. */
   INTERNAL_WORKER_PI_CHAT: "internal.worker.piChat",
+  /** A cloud agent's tool call the owner gate relayed to this computer (`@stella/contracts/turn-plane/device-tools`). */
+  INTERNAL_WORKER_RUN_DEVICE_TOOL: "internal.worker.runDeviceTool",
+  INTERNAL_WORKER_CANCEL_DEVICE_TOOL: "internal.worker.cancelDeviceTool",
   INTERNAL_WORKER_WEB_SEARCH: "internal.worker.webSearch",
   INTERNAL_WORKER_VOICE_PERSIST_TRANSCRIPT:
     "internal.worker.voice.persistTranscript",
@@ -583,7 +588,11 @@ export type RuntimeAutomationTurnRequest = {
    * hidden journal row it has always written.
    */
   userAuthoredPrompt?: boolean;
-
+  /**
+   * A schedule's prompt the cloud placed here: journaled hidden, and marked
+   * so every reader shows Stella's answer to it.
+   */
+  scheduled?: boolean;
 };
 
 export type RuntimeAutomationTurnResult =
@@ -679,20 +688,6 @@ export type RuntimeAgentEventPayload = {
     | "engine-compacting"
     | "provider-retry"
     | "model-fallback";
-  providerLifecyclePhase?:
-    | "request-admitted"
-    | "request-dispatched"
-    | "stream-open"
-    | "transport-closed"
-    | "transport-joined"
-    | "abandoned"
-    | "outcome-unknown";
-  providerRequestIdSha256?: string;
-  providerPhysicalAttempt?: number;
-  providerStreamOrdinal?: number;
-  providerName?: string;
-  providerModelId?: string;
-  providerOutcome?: "completed" | "canceled" | "error";
   toolCallId?: string;
   toolName?: string;
   args?: Record<string, unknown>;

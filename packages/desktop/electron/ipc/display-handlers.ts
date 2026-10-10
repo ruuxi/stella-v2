@@ -2,11 +2,12 @@ import fs from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import path from "node:path";
-import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import {
   IPC_DISPLAY_CANVAS_FILE_URL,
   IPC_DISPLAY_CANVAS_HTML_URL,
   IPC_DISPLAY_LIST_CANVAS_HTML,
+  IPC_DISPLAY_MEDIA_SOURCE,
   IPC_DISPLAY_OPEN_SHARED_CANVAS,
   IPC_DISPLAY_READ_FILE,
   IPC_DISPLAY_TRASH_FORCE_DELETE,
@@ -27,7 +28,12 @@ import { isCloudWorkspacePath } from "@stella/contracts/cloud-world-paths";
 import type { LocalChatEventRecord } from "@stella/runtime/kernel/storage/shared";
 import { planDisplayFileRead } from "./display-read-limit.js";
 import {
-  canvasUrlForOutputsFile,
+  EVIDENCE_THUMBNAIL_CONTENT_TYPE,
+  isEvidenceThumbnailSource,
+} from "@stella/contracts/chat-evidence-thumbnails";
+import { renderDesktopEvidenceThumbnail } from "../services/evidence-thumbnail.js";
+import {
+  canvasUrlForLocalFile,
   MAX_CANVAS_HTML_BYTES,
   registerCanvasHtml,
 } from "../source/canvas-protocol.js";
@@ -35,7 +41,17 @@ import { resolveJwtOwnerScope } from "@stella/runtime/kernel/runner/computer-age
 import { resolveCanonicalConversationFilePaths } from "../services/canonical-conversation-file-paths.js";
 import type { CloudConversationFileGrants } from "../services/cloud-conversation-file-grants.js";
 import type { DeviceFileLocator } from "../services/device-file-locator.js";
-import { deviceFileElsewhereMessage } from "@stella/contracts/device-files";
+import {
+  deviceFileMissingMessage,
+  deviceFileUnavailableMessage,
+  type DeviceFileSource,
+} from "@stella/contracts/device-files";
+import { describeMediaSource } from "../source/media-protocol.js";
+import {
+  resolveDeviceFileSource,
+  type DeviceFileSourceDeps,
+} from "../services/device-file-source.js";
+import { handleIpc } from "./typed-ipc.js";
 
 type DisplayHandlersOptions = {
   getStellaAppDir: () => string | null;
@@ -137,7 +153,9 @@ const canvasDocumentTitle = async (
     handle = await fs.open(filePath, "r");
     const buffer = Buffer.alloc(CANVAS_TITLE_SCAN_BYTES);
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    const title = CANVAS_TITLE_RE.exec(buffer.subarray(0, bytesRead).toString("utf8"))?.[1];
+    const title = CANVAS_TITLE_RE.exec(
+      buffer.subarray(0, bytesRead).toString("utf8"),
+    )?.[1];
     if (!title) return null;
     const decoded = title
       .replace(/&amp;/g, "&")
@@ -154,7 +172,6 @@ const canvasDocumentTitle = async (
     await handle?.close().catch(() => {});
   }
 };
-
 
 export const isDisplayReadPathInLocalChatFiles = (
   events: ReadonlyArray<LocalChatEventRecord>,
@@ -291,42 +308,66 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
    * paired phone's `file.read` relayed through the cloud (`remote: true`),
    * which is held to Stella's own outputs and the conversation's files.
    */
+  const deviceFileDeps = (): DeviceFileSourceDeps | null =>
+    options.deviceFileLocator
+      ? {
+          locator: options.deviceFileLocator,
+          getDeviceId: () => options.getDeviceId?.() ?? null,
+        }
+      : null;
+
   const readFromOwningDevice = async (
     requestedPath: string,
+    resolvedPath: string,
     maxBytes: unknown,
     mimeType: string,
   ) => {
-    const locator = options.deviceFileLocator;
-    if (!locator) return null;
-    const location = await locator.locate(
+    const source = await resolveDeviceFileSource(
       requestedPath,
-      options.getDeviceId?.() ?? null,
+      deviceFileDeps(),
     );
-    if (!location) return null;
-    if (location.drivePath) {
-      const plan = planDisplayFileRead(location.sizeBytes, maxBytes);
-      if (!plan.ok) {
-        throw new Error(plan.error);
+    switch (source.kind) {
+      case "drive": {
+        const locator = options.deviceFileLocator!;
+        const plan = planDisplayFileRead(source.sizeBytes, maxBytes);
+        if (!plan.ok) {
+          throw new Error(plan.error);
+        }
+        const copy = await locator.readCopy(source.drivePath, plan.readBytes);
+        return {
+          bytes: copy.bytes,
+          sizeBytes: copy.sizeBytes,
+          mimeType,
+          truncated: copy.bytes.byteLength < copy.sizeBytes,
+          missing: false as const,
+        };
       }
-      const copy = await locator.readCopy(location.drivePath, plan.readBytes);
-      return {
-        bytes: copy.bytes,
-        sizeBytes: copy.sizeBytes,
-        mimeType,
-        truncated: copy.bytes.byteLength < copy.sizeBytes,
-        missing: false as const,
-      };
+      case "local":
+      case "missing":
+        return {
+          missing: true as const,
+          mimeType,
+          path: resolvedPath,
+          reason: "deleted" as const,
+        };
+      case "unshared":
+        return {
+          missing: true as const,
+          mimeType,
+          path: resolvedPath,
+          reason: "unshared" as const,
+        };
+      case "elsewhere":
+      case "unreachable":
+        throw new Error(deviceFileUnavailableMessage(source, requestedPath));
     }
-    if (location.deviceId === options.getDeviceId?.()) return null;
-    throw new Error(deviceFileElsewhereMessage(location.deviceName));
   };
 
-  const readDisplayFile = async (
+  const authorizeDisplayRead = async (
     payload:
       | {
           filePath?: unknown;
           conversationId?: unknown;
-          maxBytes?: unknown;
         }
       | undefined,
     access: { remote: boolean },
@@ -416,8 +457,24 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
         `display:readFile only supports: ${Array.from(ALLOWED_EXTENSIONS).join(", ")}`,
       );
     }
-    const mimeType =
-      MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
+    const mimeType = MIME_BY_EXTENSION[extension] ?? "application/octet-stream";
+    return { requestedPath, resolved, mimeType };
+  };
+
+  const readDisplayFile = async (
+    payload:
+      | {
+          filePath?: unknown;
+          conversationId?: unknown;
+          maxBytes?: unknown;
+        }
+      | undefined,
+    access: { remote: boolean },
+  ) => {
+    const { requestedPath, resolved, mimeType } = await authorizeDisplayRead(
+      payload,
+      access,
+    );
 
     // Paths can outlive the file they point at — e.g. an `image_gen` /
     // tool-result registered a path in `generatedMediaItems`, and the
@@ -434,13 +491,12 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
         typeof caught === "object" &&
         (caught as NodeJS.ErrnoException).code === "ENOENT"
       ) {
-        const elsewhere = await readFromOwningDevice(
+        return await readFromOwningDevice(
           requestedPath,
+          resolved,
           payload?.maxBytes,
           mimeType,
         );
-        if (elsewhere) return elsewhere;
-        return { missing: true as const, mimeType, path: resolved };
       }
       throw caught;
     }
@@ -484,7 +540,7 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
     };
   };
 
-  ipcMain.handle(
+  handleIpc(
     IPC_DISPLAY_READ_FILE,
     async (
       event,
@@ -501,7 +557,35 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
     },
   );
 
-  ipcMain.handle(IPC_DISPLAY_LIST_CANVAS_HTML, async (event) => {
+  handleIpc(
+    IPC_DISPLAY_MEDIA_SOURCE,
+    async (
+      event,
+      payload?: { filePath?: unknown },
+    ): Promise<DeviceFileSource> => {
+      if (!options.assertPrivilegedSender(event, IPC_DISPLAY_MEDIA_SOURCE)) {
+        throw new Error(
+          `Blocked untrusted ${IPC_DISPLAY_MEDIA_SOURCE} request.`,
+        );
+      }
+      const filePath =
+        typeof payload?.filePath === "string" ? payload.filePath.trim() : "";
+      if (!filePath) {
+        throw new Error(`${IPC_DISPLAY_MEDIA_SOURCE} requires a filePath.`);
+      }
+      try {
+        assertNotCloudWorkspacePath(filePath);
+      } catch (caught) {
+        return {
+          kind: "unreachable",
+          message: caught instanceof Error ? caught.message : String(caught),
+        };
+      }
+      return await describeMediaSource(filePath);
+    },
+  );
+
+  handleIpc(IPC_DISPLAY_LIST_CANVAS_HTML, async (event) => {
     if (!options.assertPrivilegedSender(event, IPC_DISPLAY_LIST_CANVAS_HTML)) {
       throw new Error(
         `Blocked untrusted ${IPC_DISPLAY_LIST_CANVAS_HTML} request.`,
@@ -546,7 +630,7 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
     return items.sort((a, b) => a.createdAt - b.createdAt);
   });
 
-  ipcMain.handle(
+  handleIpc(
     IPC_DISPLAY_OPEN_SHARED_CANVAS,
     async (event, payload?: { url?: unknown }) => {
       if (
@@ -567,27 +651,36 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
   );
 
   // Canvases render from `stella-canvas://` (source/canvas-protocol.ts). A
-  // file under `outputs/` is served from disk; any other file (elsewhere on
-  // disk, or kept on another device) is read through the display lane above
-  // and held in memory, like a cloud canvas's HTML.
-  ipcMain.handle(
+  // file on this computer is served from disk with its own folder, so its
+  // relative images, styles and scripts load; a file kept on another device
+  // is read through the display lane above and held in memory, like a cloud
+  // canvas's HTML.
+  handleIpc(
     IPC_DISPLAY_CANVAS_FILE_URL,
     async (event, payload?: { filePath?: unknown }) => {
       if (!options.assertPrivilegedSender(event, IPC_DISPLAY_CANVAS_FILE_URL)) {
-        throw new Error(`Blocked untrusted ${IPC_DISPLAY_CANVAS_FILE_URL} request.`);
+        throw new Error(
+          `Blocked untrusted ${IPC_DISPLAY_CANVAS_FILE_URL} request.`,
+        );
       }
       const filePath =
         typeof payload?.filePath === "string" ? payload.filePath.trim() : "";
       if (!filePath) {
         throw new Error(`${IPC_DISPLAY_CANVAS_FILE_URL} requires a filePath.`);
       }
-      const url = await canvasUrlForOutputsFile(requireStellaDataDir(), filePath);
+      assertNotCloudWorkspacePath(filePath);
+      const url = await canvasUrlForLocalFile(filePath);
       if (url) return { url };
       const read = await readDisplayFile(
         { filePath, maxBytes: MAX_CANVAS_HTML_BYTES },
         { remote: false },
       );
-      if (read.missing) return { missing: true as const };
+      if (read.missing) {
+        return {
+          missing: true as const,
+          message: deviceFileMissingMessage(read.reason, filePath),
+        };
+      }
       if (read.truncated) {
         throw new Error(
           `Canvas too large to display (${read.sizeBytes} bytes, limit ${MAX_CANVAS_HTML_BYTES}).`,
@@ -602,11 +695,13 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
     },
   );
 
-  ipcMain.handle(
+  handleIpc(
     IPC_DISPLAY_CANVAS_HTML_URL,
     (event, payload?: { html?: unknown }) => {
       if (!options.assertPrivilegedSender(event, IPC_DISPLAY_CANVAS_HTML_URL)) {
-        throw new Error(`Blocked untrusted ${IPC_DISPLAY_CANVAS_HTML_URL} request.`);
+        throw new Error(
+          `Blocked untrusted ${IPC_DISPLAY_CANVAS_HTML_URL} request.`,
+        );
       }
       const html = typeof payload?.html === "string" ? payload.html : "";
       if (!html) {
@@ -616,14 +711,14 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
     },
   );
 
-  ipcMain.handle(IPC_DISPLAY_TRASH_LIST, async (event) => {
+  handleIpc(IPC_DISPLAY_TRASH_LIST, async (event) => {
     if (!options.assertPrivilegedSender(event, IPC_DISPLAY_TRASH_LIST)) {
       throw new Error(`Blocked untrusted ${IPC_DISPLAY_TRASH_LIST} request.`);
     }
     return await listDeferredDeletes({ stellaDataDir: requireStellaDataDir() });
   });
 
-  ipcMain.handle(
+  handleIpc(
     IPC_DISPLAY_TRASH_FORCE_DELETE,
     async (event, payload?: { id?: unknown; all?: unknown }) => {
       if (
@@ -649,5 +744,26 @@ export const registerDisplayHandlers = (options: DisplayHandlersOptions) => {
       filePath?: unknown;
       conversationId?: unknown;
     }) => readDisplayFile(payload, { remote: true }),
+    readThumbnailForRequest: async (payload: {
+      filePath?: unknown;
+      conversationId?: unknown;
+    }) => {
+      const { resolved } = await authorizeDisplayRead(payload, { remote: true });
+      const thumbnail = isEvidenceThumbnailSource(resolved)
+        ? await renderDesktopEvidenceThumbnail(resolved)
+        : null;
+      if (thumbnail) {
+        return {
+          missing: false as const,
+          bytes: new Uint8Array(
+            thumbnail.buffer,
+            thumbnail.byteOffset,
+            thumbnail.byteLength,
+          ),
+          mimeType: EVIDENCE_THUMBNAIL_CONTENT_TYPE,
+        };
+      }
+      return await readDisplayFile(payload, { remote: true });
+    },
   };
 };

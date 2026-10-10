@@ -17,6 +17,7 @@
  * Reasoning text is intentionally NOT rendered anywhere in this surface
  * (the underlying data still flows through state for model history).
  */
+import { UserAskRecordCard } from "@/features/user-ask/UserAskRecordCard";
 import {
   Fragment,
   memo,
@@ -28,7 +29,6 @@ import {
 } from "react";
 
 import {
-  describePastedText,
   pastedTextPreview,
   type PastedTextDescriptor,
 } from "@/features/chat/lib/paste-context";
@@ -50,12 +50,18 @@ import type { DisplayPayload } from "@stella/contracts/desktop/display-payload";
 import { OfficePreviewCard } from "@/app/chat/OfficePreviewCard";
 import { BackgroundWorkCard } from "@/app/chat/BackgroundWorkCard";
 import { FilePills } from "@/app/chat/FilePills";
+import type { ConversationFileEntry } from "@/features/workspace-display/derive-conversation-files";
 import { MessageAttachments } from "@/app/chat/evidence/MessageAttachments";
-import { extractLocalFileLinkPaths } from "@stella/contracts/local-file-links";
+import {
+  dropAttachmentOnlyLines,
+  extractLocalFileLinkPaths,
+} from "@stella/contracts/local-file-links";
+import { cloudWorldDrivePath } from "@stella/contracts/cloud-world-paths";
 import { AppPreviewCard } from "@/features/cloud/AppPreviewCard";
 import { extractStellaAppLinkSlugs } from "@stella/contracts/workspace-apps";
 import { VoiceSessionCard } from "@/app/chat/VoiceSessionCard";
 import { ReplyPreview } from "@/app/chat/ReplyPreview";
+import { ReplyReportLinks } from "@/app/chat/ReplyReportLinks";
 import { AgentUpdateCard } from "@/features/app-source/AppSourceCards";
 import { sanitizeAttachmentImageUrl } from "@/shared/lib/url-safety";
 import { UserMessageBody } from "@/app/chat/UserMessageBody";
@@ -220,7 +226,6 @@ function UserPastedTextChip({
 }) {
   const t = useT();
   const { triggerRef, open, previewProps } = useHoverPreview<HTMLSpanElement>();
-  const stats = describePastedText(descriptor);
   const preview = pastedTextPreview(descriptor);
   return (
     <span className="event-window-badge-hovercard">
@@ -230,7 +235,6 @@ function UserPastedTextChip({
         label={t("app.chat.messageRow.pastedTextLabel")}
         data-has-preview={preview ? "true" : undefined}
         tabIndex={preview ? 0 : undefined}
-        title={t("app.chat.messageRow.pastedTextTitle", { stats })}
       />
       {preview && (
         <ChipPreviewPortal
@@ -494,12 +498,6 @@ export const UserMessageRow = memo(
         node: <ContextPill kind="activity" label={activityLabel} />,
       });
     }
-    pastedTexts.forEach((descriptor, index) => {
-      chips.push({
-        key: `pasted-text-${index}`,
-        node: <UserPastedTextChip descriptor={descriptor} />,
-      });
-    });
     if (row.quotedText?.trim()) {
       chips.push({
         key: "quoted-text",
@@ -580,7 +578,7 @@ export const UserMessageRow = memo(
             text OR attachment/context chips — so attachment-only messages keep
             the same actions. Copy falls back to the attachment when there is
             no text to copy. */}
-        {(text.trim() || chips.length > 0) && (
+        {(text.trim() || chips.length > 0 || pastedTexts.length > 0) && (
           <div className="message-line message-line--user">
             <MessageActions
               text={text}
@@ -590,11 +588,23 @@ export const UserMessageRow = memo(
               copyAttachment={copyAttachment ?? undefined}
               onReply={reply ?? undefined}
             />
-            {text.trim() && (
-              <div className="event-item user chat-bubble-text">
-                <UserMessageBody text={text} />
+            {text.trim() || pastedTexts.length > 0 ? (
+              <div
+                className={`event-item user chat-bubble-text${pastedTexts.length > 0 ? " event-item--with-pastes" : ""}`}
+              >
+                {text.trim() ? <UserMessageBody text={text} /> : null}
+                {pastedTexts.length > 0 ? (
+                  <div className="event-item__pastes">
+                    {pastedTexts.map((descriptor, index) => (
+                      <UserPastedTextChip
+                        key={`pasted-text-${index}`}
+                        descriptor={descriptor}
+                      />
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            )}
+            ) : null}
           </div>
         )}
       </div>
@@ -607,12 +617,17 @@ type AssistantRowProps = {
   row: AssistantRowViewModel;
   conversationId?: string | null;
   agentModelConfigByThread?: AgentModelConfigsByThread;
+  hideAgentChip?: boolean;
 };
 
 export const AssistantMessageRow = memo(
   // `agentModelConfigByThread` stays on the props (the memo comparator keys
   // on it) but the row no longer renders anything per-thread that needs it.
-  function AssistantMessageRow({ row, conversationId }: AssistantRowProps) {
+  function AssistantMessageRow({
+    row,
+    conversationId,
+    hideAgentChip = false,
+  }: AssistantRowProps) {
     const reply = useMessageReply();
     const text = row.text;
     const hasText = text.trim().length > 0;
@@ -646,6 +661,45 @@ export const AssistantMessageRow = memo(
           },
         ]
       : unpreviewableFiles;
+    const fileKey = (file: ConversationFileEntry) =>
+      file.cloudDriveFile ? `cloud:${file.cloudDriveFile.path}` : `local:${file.path}`;
+    const completionFiles = conversationId
+      ? row.agentCompletion?.sections.flatMap((section) => section.files) ?? []
+      : [];
+    const replyFiles = [...completionFiles, ...attachedFiles].filter(
+      (file, index, all) =>
+        (file.cloudDriveFile || !evidencePathSet.has(file.path)) &&
+        all.findIndex((other) => fileKey(other) === fileKey(file)) === index,
+    );
+    // Links whose files the reply attaches keep their words in a sentence
+    // (the Markdown pass unlinks them); a line made only of such links goes.
+    const hiddenFileKeys = [...completionFiles, ...linkedFiles]
+      .map(fileKey)
+      .concat(evidencePaths.map((filePath) => `local:${filePath}`));
+    const hiddenFileKeySet = new Set(hiddenFileKeys);
+    const bodyText = hasText
+      ? dropAttachmentOnlyLines(text, (filePath) => {
+          const drivePath = cloudWorldDrivePath(filePath);
+          return (
+            hiddenFileKeySet.has(`local:${filePath}`) ||
+            (drivePath !== null && hiddenFileKeySet.has(`cloud:${drivePath}`))
+          );
+        })
+      : text;
+    const hasBody = bodyText.trim().length > 0;
+    const inlineImages = (row.inlineImagePayloads ?? []).filter(
+      (payload): payload is Extract<DisplayPayload, { kind: "media" }> =>
+        payload.kind === "media" &&
+        payload.presentation === "inline-image" &&
+        payload.asset.kind === "image",
+    );
+    const inlineImageStrip =
+      inlineImages.length > 0 ? (
+        <InlineGeneratedImageStrip
+          conversationId={conversationId}
+          payloads={inlineImages}
+        />
+      ) : null;
     // Shared predicate with ChatTimeline (which drops renderless rows
     // before virtualization) — see assistant-row-content.ts.
     if (!assistantRowHasVisibleContent(row)) {
@@ -664,6 +718,7 @@ export const AssistantMessageRow = memo(
             <VoiceSessionCard durationMs={row.voiceSession.durationMs} />
           )}
           {conversationId &&
+          !hideAgentChip &&
           ((row.replyRefs && row.replyRefs.length > 0) || hasAgentCompletion) ? (
             <ReplyPreview
               refs={row.replyRefs ?? []}
@@ -671,21 +726,32 @@ export const AssistantMessageRow = memo(
               conversationId={conversationId}
             />
           ) : null}
-          {hasText && (
+          {row.askRecords?.map((record) => (
+            <UserAskRecordCard key={record.id} record={record} />
+          ))}
+          {hasBody && (
             // Bubble + its hover control share one horizontal line, so the
             // ellipsis sits to the RIGHT of the bubble and reserves no height.
             // Only a turn's final assistant message carries it: mid-turn
             // preambles render no control at all.
             <div className="message-line message-line--assistant">
               <div className="assistant-message-text chat-bubble-text">
-                <Markdown text={text} cacheKey={row.cacheKey} hideHorizontalRules
-                  hiddenFilePaths={[
-                    ...(conversationId ? row.agentCompletion?.sections.slice(0, 3).flatMap((section) => section.files) ?? [] : []),
-                    ...(row.linkedFiles ?? []),
-                  ].map((file) => file.cloudDriveFile ? `cloud:${file.cloudDriveFile.path}` : `local:${file.path}`).concat(evidencePaths.map((filePath) => `local:${filePath}`))}
+                <Markdown text={bodyText} cacheKey={row.cacheKey} hideHorizontalRules
+                  hiddenFilePaths={hiddenFileKeys}
                 />
+                {conversationId &&
+                ((row.replyRefs && row.replyRefs.length > 0) || hasAgentCompletion) ? (
+                  <ReplyReportLinks
+                    refs={row.replyRefs ?? []}
+                    completions={row.agentCompletion?.sections}
+                    conversationId={conversationId}
+                  />
+                ) : null}
                 {evidencePaths.length > 0 ? (
-                  <MessageAttachments filePaths={evidencePaths} />
+                  <MessageAttachments filePaths={evidencePaths} part="documents" />
+                ) : null}
+                {replyFiles.length > 0 ? (
+                  <FilePills files={replyFiles} variant="bubble" />
                 ) : null}
               </div>
               {!row.isIntraTurn && (
@@ -700,8 +766,22 @@ export const AssistantMessageRow = memo(
               )}
             </div>
           )}
-          {attachedFiles.length > 0 ? (
-            <FilePills files={attachedFiles} />
+          {hasBody && (inlineImageStrip || evidencePaths.length > 0) ? (
+            <div className="assistant-media">
+              {inlineImageStrip}
+              {evidencePaths.length > 0 ? (
+                <MessageAttachments filePaths={evidencePaths} part="media" />
+              ) : null}
+            </div>
+          ) : null}
+          {!hasBody && evidencePaths.length > 0 ? (
+            <div className="assistant-media">
+              <MessageAttachments filePaths={evidencePaths} part="media" />
+              <MessageAttachments filePaths={evidencePaths} part="documents" />
+            </div>
+          ) : null}
+          {!hasBody && replyFiles.length > 0 ? (
+            <FilePills files={replyFiles} />
           ) : null}
           {hasText
             ? extractStellaAppLinkSlugs(text).map((slug) => (
@@ -743,19 +823,7 @@ export const AssistantMessageRow = memo(
           {row.officePreviewRef && (
             <OfficePreviewCard previewRef={row.officePreviewRef} />
           )}
-          {row.inlineImagePayloads && row.inlineImagePayloads.length > 0 ? (
-            <InlineGeneratedImageStrip
-              conversationId={conversationId}
-              payloads={row.inlineImagePayloads.filter(
-                (
-                  payload,
-                ): payload is Extract<DisplayPayload, { kind: "media" }> =>
-                  payload.kind === "media" &&
-                  payload.presentation === "inline-image" &&
-                  payload.asset.kind === "image",
-              )}
-            />
-          ) : null}
+          {hasBody ? null : inlineImageStrip}
           {row.sourceDiffPayloads && row.sourceDiffPayloads.length > 0 ? (
             <SourceDiffEndResource
               batchId={row.id}
@@ -772,5 +840,6 @@ export const AssistantMessageRow = memo(
   (prev, next) =>
     prev.conversationId === next.conversationId &&
     prev.agentModelConfigByThread === next.agentModelConfigByThread &&
+    prev.hideAgentChip === next.hideAgentChip &&
     eventRowEqual(prev.row, next.row),
 );

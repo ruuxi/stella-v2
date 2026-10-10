@@ -13,15 +13,23 @@ import { useDisplayFileBytes } from "@/shared/hooks/use-display-file-data";
 import { DisplayFileSourceContext } from "@/shared/hooks/display-file-source";
 import { useCloudDriveHtml } from "@/features/cloud/use-cloud-drive-html";
 import { openExternalUrl } from "@/platform/electron/open-external";
+import { deviceFileMissingMessage } from "@stella/contracts/device-files";
 import { CanvasIllustration } from "../illustrations/CanvasIllustration";
 import { CanvasShareBar } from "./CanvasShareBar";
+import { PreviewProblem } from "../preview-states";
 import type { CanvasHtmlItem } from "./canvas-items";
 import { classifyCanvasNavigation } from "./canvas-navigation";
+import { useEmbeddedCanvasAssets } from "./use-embedded-canvas-assets";
 import { useT } from "@/shared/i18n";
 import "./canvas-tab.css";
 import type { ReactNode } from "react";
 
 const decoder = new TextDecoder("utf-8");
+/**
+ * Bound on a canvas read over the display bridge, so one oversized document
+ * cannot stall the renderer while it is copied, decoded and registered.
+ */
+const CANVAS_HTML_MAX_BYTES = 4 * 1024 * 1024;
 
 /**
  * `src`: a `stella-canvas://` document. `srcDoc`: the website, which has no
@@ -36,7 +44,7 @@ const canvasUrlApi = () => {
         ? display
         : null;
 };
-const errorMessage = (caught: unknown) => caught instanceof Error ? caught.message : String(caught);
+const errorMessage = (caught: unknown) => (caught instanceof Error ? caught.message : String(caught)).replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/u, "");
 const CanvasLoadingDots = () => (<span className="canvas-tab__loading-dots" aria-hidden>
     <span>.</span>
     <span>.</span>
@@ -68,8 +76,11 @@ const LocalFileCanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => 
             return;
         let cancelled = false;
         void api.canvasFileUrl(item.filePath).then((result) => {
-            if (!cancelled)
-                setResolved({ key, src: "url" in result ? result.url : null, error: null });
+            if (cancelled)
+                return;
+            setResolved("url" in result
+                ? { key, src: result.url, error: null }
+                : { key, src: null, error: result.message ?? deviceFileMissingMessage("deleted", item.filePath) });
         }, (caught: unknown) => {
             if (!cancelled)
                 setResolved({ key, src: null, error: errorMessage(caught) });
@@ -85,11 +96,12 @@ const LocalFileCanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => 
  * HTML already in hand (a cloud canvas, a Drive file): on desktop it is
  * registered with main and loaded from its `stella-canvas://` URL.
  */
-const HtmlCanvasHeroFrameContent = ({ item, html, error, loading, }: {
+const HtmlCanvasHeroFrameContent = ({ item, html, error, loading, limited = false, }: {
   item: CanvasHtmlItem;
   html: string;
   error: string | null;
   loading: boolean;
+  limited?: boolean;
 }) => {
     const hasCanvasOrigin = canvasUrlApi() !== null;
     const [registered, setRegistered] = useState<{
@@ -114,16 +126,18 @@ const HtmlCanvasHeroFrameContent = ({ item, html, error, loading, }: {
         };
     }, [html]);
     if (!hasCanvasOrigin) {
-        return <CanvasHeroFrameDocument item={item} frame={html ? { srcDoc: html } : null} error={error} loading={loading}/>;
+        return <CanvasHeroFrameDocument item={item} frame={html ? { srcDoc: html } : null} error={error} loading={loading} limited={limited}/>;
     }
     const settled = html && registered?.html === html ? registered : null;
-    return <CanvasHeroFrameDocument item={item} frame={settled?.src ? { src: settled.src } : null} error={error ?? settled?.error ?? null} loading={loading || (Boolean(html) && !settled)}/>;
+    return <CanvasHeroFrameDocument item={item} frame={settled?.src ? { src: settled.src } : null} error={error ?? settled?.error ?? null} loading={loading || (Boolean(html) && !settled)} limited={limited}/>;
 };
 /** Bytes over the display bridge: a Drive file, or the website's device copies. */
 const BytesCanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
-    const { bytes, error, loading } = useDisplayFileBytes(item.filePath, "Canvas preview requires the Stella desktop app.", undefined, item.createdAt);
+    const fileSource = useContext(DisplayFileSourceContext);
+    const { bytes, error, loading, truncated } = useDisplayFileBytes(item.filePath, "Canvas preview requires the Stella desktop app.", undefined, item.createdAt, CANVAS_HTML_MAX_BYTES);
     const html = useMemo(() => (bytes ? decoder.decode(bytes) : ""), [bytes]);
-    return <HtmlCanvasHeroFrameContent item={item} html={html} error={error} loading={loading}/>;
+    const embedded = useEmbeddedCanvasAssets(html, item.filePath, !fileSource && !canvasUrlApi());
+    return <HtmlCanvasHeroFrameContent item={item} html={embedded.html} error={error} loading={loading || embedded.loading} limited={truncated}/>;
 };
 /** Cloud canvas: the html the cloud `html` tool wrote into the owner's drive. */
 const CloudCanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
@@ -138,11 +152,12 @@ const CanvasHeroFrameContent = ({ item }: { item: CanvasHtmlItem }) => {
         return <BytesCanvasHeroFrameContent item={item}/>;
     return <LocalFileCanvasHeroFrameContent item={item}/>;
 };
-const CanvasHeroFrameDocument = ({ item, frame, error, loading, }: {
+const CanvasHeroFrameDocument = ({ item, frame, error, loading, limited = false, }: {
   item: CanvasHtmlItem;
   frame: CanvasFrame | null;
   error: string | null;
   loading: boolean;
+  limited?: boolean;
 }) => {
     const t = useT();
     const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -167,8 +182,8 @@ const CanvasHeroFrameDocument = ({ item, frame, error, loading, }: {
         return () => window.removeEventListener("message", handleMessage);
     }, []);
     if (error) {
-        return (<div className="canvas-tab__frame-state canvas-tab__frame-state--error">
-        {t("shell.display.canvas.loadFailed")}
+        return (<div className="canvas-tab__frame-state" title={item.filePath}>
+        <PreviewProblem error={error || t("shell.display.canvas.loadFailed")}/>
       </div>);
     }
     if (loading || !frame) {
@@ -177,7 +192,8 @@ const CanvasHeroFrameDocument = ({ item, frame, error, loading, }: {
             <CanvasLoadingDots />
           </div>}/>);
     }
-    return (<div className="canvas-tab__frame-wrap">
+    return (<>
+      <div className="canvas-tab__frame-wrap">
       <iframe key={`${item.id}:${item.createdAt}:${navigationReset}`} ref={iframeRef} title={item.title} className="canvas-tab__iframe" {...("src" in frame
             ? { src: frame.src, sandbox: "allow-scripts" }
             : { srcDoc: frame.srcDoc, sandbox: "allow-scripts allow-popups allow-modals allow-forms" })} referrerPolicy="no-referrer" onLoad={() => {
@@ -191,7 +207,11 @@ const CanvasHeroFrameDocument = ({ item, frame, error, loading, }: {
                 setNavigationReset((value) => value + 1);
             }
         }}/>
-    </div>);
+      </div>
+      {limited ? (<div className="display-preview-limit" role="status">
+          {t("shell.display.preview.limited")}
+        </div>) : null}
+    </>);
 };
 const CanvasHeroFrame = ({ item, panelOpen, }: {
   item: CanvasHtmlItem;

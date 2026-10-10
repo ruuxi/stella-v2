@@ -148,7 +148,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Không thể tải chuỗi này",
+        "errorBody": "Hãy đóng lại và mở lại sau giây lát."
       },
       "generatedImage": {
         "generating": "Đang tạo...",
@@ -822,7 +824,6 @@
     },
     "integrations": {
       "connectStellaApp": "Kết nối với ứng dụng Stella",
-      "connectStellaAppSub": "Ghép nối ứng dụng Stella trên điện thoại của bạn với máy tính này",
       "connectTitle": "Kết nối",
       "connected": "Đã kết nối",
       "credential": {
@@ -838,11 +839,16 @@
         "saving": "Đang lưu...",
         "title": "Kết nối {provider}"
       },
-      "heroTagline": "Nhắn tin cho Stella từ bất kỳ nền tảng nào bạn thích — trò chuyện tự nhiên, hoặc nhờ Stella làm việc ngay trên máy tính của bạn.",
       "phoneTitle": "Điện thoại của bạn",
       "signInHeadline": "Đăng nhập để bắt đầu",
       "signInSub": "Đăng nhập vào tài khoản Stella của bạn để kết nối {provider}.",
-      "signInToConnect": "Đăng nhập vào Stella để kết nối"
+      "signInToConnect": "Đăng nhập vào Stella để kết nối",
+      "getApp": {
+        "appStoreQrAlt": "Quét để tải Stella từ App Store",
+        "platformLabel": "Chọn nền tảng di động",
+        "playStoreQrAlt": "Quét để tải Stella từ Google Play",
+        "title": "Tải ứng dụng"
+      }
     },
     "legal": {
       "privacy": {
@@ -893,9 +899,16 @@
         "title": "Cuộc trò chuyện này"
       },
       "files": {
-        "empty": "Chưa có tệp nào. Mọi thứ Stella tạo ra sẽ hiện ở đây.",
+        "empty": "Các tệp Stella tạo hoặc chia sẻ sẽ hiển thị ở đây.",
         "emptyFiltered": "Không có tệp nào khớp.",
-        "searchPlaceholder": "Tìm tệp"
+        "filterAll": "Tất cả tệp",
+        "filterLabel": "Lọc và sắp xếp tệp",
+        "searchPlaceholder": "Tìm tệp",
+        "sortName": "Tên",
+        "sortNewest": "Mới nhất trước",
+        "sortOldest": "Cũ nhất trước",
+        "sourceCloud": "Đám mây",
+        "sourceUpload": "Do bạn gửi"
       },
       "schedule": {
         "actionFailed": "Không thực hiện được.",
@@ -903,7 +916,9 @@
         "customCadence": "Lịch trình tùy chỉnh",
         "deleteConfirm": "“{title}” sẽ ngừng chạy.",
         "deleteSchedule": "Xóa lịch trình",
-        "empty": "Chưa có lịch trình nào. Hãy nhờ Stella trên máy tính chạy việc gì đó định kỳ, nó sẽ hiện ở đây.",
+        "empty": "Chưa có lịch nào.",
+        "emptyAction": "Lên lịch",
+        "emptyActionPrompt": "Nhắc tôi ",
         "lastRunFailed": "Lần chạy gần nhất thất bại: {error}",
         "loadFailed": "Không tải được lịch trình.",
         "next": "Lần chạy tiếp theo {when}",
@@ -928,6 +943,11 @@
         "stopped": "Đã dừng",
         "working": "Đang làm việc trong nền"
       }
+    },
+    "apps": {
+      "empty": "Các ứng dụng Stella tạo cho bạn sẽ hiển thị ở đây.",
+      "emptyAction": "Tạo ứng dụng",
+      "emptyActionPrompt": "Tạo cho tôi một ứng dụng "
     },
     "authCallback": {
       "backToSignIn": "Quay lại đăng nhập",
@@ -993,7 +1013,6 @@
       "disconnectedLabel": "Máy tính đã ngắt kết nối",
       "guestHeroBody": "Nhờ Stella làm việc trên máy tính của bạn — duyệt web, quản lý tệp, chạy tác vụ và hơn thế nữa.",
       "guestHeroTitle": "Máy tính của bạn, trong tầm tay",
-      "pairLabel": "Ghép nối máy tính",
       "statusAsleep": "Đang ngủ",
       "statusChecking": "Đang kiểm tra…",
       "statusConnected": "Đã kết nối"
@@ -1001,20 +1020,11 @@
     "desktop": {
       "connecting": "Đang kết nối tới máy tính",
       "deviceUnreachable": "Không kết nối được {platform} của bạn",
-      "enterCode": "Nhập mã hiển thị trên máy tính của bạn.",
-      "guestBody": "Xem ứng dụng Stella trên máy tính ngay trên điện thoại. Sau khi ghép nối, điện thoại sẽ tự kết nối lại.",
       "guestSignInPrompt": "Đăng nhập để bắt đầu.",
       "limitedCapabilities": "Một số việc cần đến máy tính của bạn",
       "linkInterrupted": "Kết nối tới máy tính của bạn đã bị gián đoạn.",
-      "pairAnother": "Ghép nối máy tính khác",
-      "pairTitle": "Ghép nối điện thoại",
-      "pairing": "Đang ghép nối điện thoại này",
       "reconnecting": "Đang kết nối lại...",
-      "repairNeeded": "Điện thoại này cần được ghép nối lại với máy tính của bạn.",
       "retryLabel": "Thử kết nối lại",
-      "startPairingLabel": "Bắt đầu ghép nối một máy tính",
-      "unavailableBodyPaired": "Hãy đảm bảo Stella đang mở trên máy tính và có kết nối internet. Khi đã kết nối, ứng dụng máy tính sẽ hiện ngay tại đây trên điện thoại.",
-      "unavailableBodyUnpaired": "Xem ứng dụng Stella trên máy tính ngay trên điện thoại. Quét mã QR hiển thị trong Stella trên máy tính để bắt đầu — sau đó điện thoại sẽ tự kết nối lại.",
       "unreachable": "Không kết nối được máy tính của bạn"
     },
     "engineAccounts": {
@@ -1127,26 +1137,17 @@
         "signInBody": "Giữ cuộc trò chuyện, cài đặt và máy tính đã kết nối của bạn trên mọi thiết bị.",
         "signInTitle": "Đăng nhập vào Stella",
         "skip": "Bỏ qua lúc này",
-        "subscriptionsBody": "Bạn đã trả phí Claude hoặc ChatGPT? Kết nối và tôi sẽ dùng nó trên đám mây. Máy tính của bạn dùng đăng nhập riêng.",
+        "subscriptionsBody": "Dùng gói đăng ký Claude hoặc ChatGPT hiện có của bạn?",
         "subscriptionsLabel": "Tùy chọn"
       },
       "composerPlaceholder": "Hoặc cứ hỏi mình bất cứ điều gì",
       "computer": {
-        "body": "Ghép nối điện thoại này với Stella trên máy tính, rồi mình có thể chạy tác vụ ở đó khi bạn ra ngoài.",
-        "connectedBody": "Cứ nhờ từ bất cứ đâu, mình sẽ làm việc trên máy tính của bạn.",
+        "body": "Đăng nhập trên máy tính và nó sẽ tự kết nối.",
         "connectedTo": "Đã kết nối với {name}",
-        "guestHint": "Việc ghép nối gắn với tài khoản Stella của bạn, nên hãy đăng nhập trước. Mình sẽ tiếp tục ngay tại đây.",
-        "hint": "Trên máy tính, mở Stella và chọn Ghép nối điện thoại.",
+        "getDesktop": "Tải Stella cho máy tính",
         "later": "Để sau",
-        "pair": "Ghép nối máy tính",
-        "point1": "Tìm một tệp và gửi cho bạn",
-        "point2": "Hoàn tất một lần xuất hoặc tải xuống",
-        "point3": "Dùng các ứng dụng bạn đã có",
-        "settledConnectedDesc": "Mình có thể chạy tác vụ ở đó từ điện thoại của bạn.",
-        "settledSkippedDesc": "Bạn có thể ghép nối bất cứ lúc nào trong Cài đặt.",
         "settledSkippedTitle": "Chưa có máy tính",
-        "signInToPair": "Đăng nhập để ghép nối",
-        "title": "Máy tính của bạn, ngay trong túi"
+        "title": "Stella trên máy tính của bạn"
       },
       "gmail": {
         "body": "Tìm email, theo kịp các chuỗi thư và soạn nháp trả lời, chỉ cần nhờ.",
@@ -1365,7 +1366,6 @@
         "enableFailedTitle": "Không thể bật máy tính đó",
         "enableLabel": "Bật {name}",
         "enabling": "Đang bật…",
-        "pairingCode": "Dùng mã ghép nối",
         "sectionLabel": "Nơi Stella làm việc",
         "statusAwaitingConsent": "Đang chờ cho phép trên máy tính đó",
         "statusDeclined": "Đã bị từ chối trên máy tính đó",
@@ -1381,10 +1381,6 @@
       "deleteConfirmTitle": "Xóa tài khoản",
       "deleteFailedTitle": "Không thể xóa tài khoản",
       "deletingAccount": "Đang xóa tài khoản…",
-      "forget": "Quên",
-      "forgetConfirmBody": "Điện thoại này sẽ ngừng kết nối lại với máy tính đó cho tới khi bạn ghép nối lần nữa.",
-      "forgetConfirmTitle": "Quên {name}?",
-      "forgetLabel": "Quên {name}",
       "hideEmailLabel": "Ẩn email",
       "loadingSession": "Đang tải phiên…",
       "notificationsSection": "Thông báo",
@@ -1394,9 +1390,6 @@
       "paired": {
         "unnamedComputer": "Máy tính · {id}"
       },
-      "pairedEmpty": "Chưa ghép nối máy tính nào.",
-      "pairedOn": "Ghép nối {date}",
-      "pairedSection": "Máy tính đã ghép nối",
       "privacyPolicy": "Chính sách quyền riêng tư",
       "pushToggleA11y": "Bật/tắt thông báo đẩy",
       "pushToggleLabel": "Cho phép thông báo đẩy",
@@ -1454,8 +1447,6 @@
       "cantRightNow": "Chưa được lúc này",
       "deadline": "Còn {time}",
       "deadlinePassed": "Đã hết thời gian",
-      "deadlineWithDefault": "Còn {time} — nếu không sẽ chọn “{option}”",
-      "defaultOption": "Mặc định",
       "hideSecret": "Ẩn {label}",
       "missingFields": "Hãy điền mọi trường bắt buộc.",
       "notification": {
@@ -1468,14 +1459,11 @@
       "plain": "Gửi dưới dạng văn bản thường",
       "revealSecret": "Hiện {label}",
       "sealFailed": "Không mã hóa được trên thiết bị này.",
-      "send": "Gửi",
       "sendSecurely": "Gửi an toàn",
       "sending": "Đang gửi…",
       "sensitive": "Mã hóa đầu cuối",
       "sensitiveToggleA11y": "Mã hóa {label}",
       "sensitiveUnavailable": "Thiết bị này chưa thể mã hóa nội dung đó",
-      "somethingElse": "Việc khác",
-      "somethingElsePlaceholder": "Cho Stella biết nên làm gì thay vào đó",
       "unnamedComputer": "Máy tính · {id}",
       "waitingBadge": "Đang chờ bạn"
     }
@@ -1574,6 +1562,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Phần lớn cuộc sống diễn ra qua email. Kết nối Gmail và mình sẽ giúp bạn xử lý.",
         "memory": "One more thing that makes me different.",
+        "phone": "Mình cũng có trên điện thoại của bạn.",
         "quickstart": "Vậy là xong. Còn một việc cuối, và không bắt buộc: khởi động nhanh.",
         "quickstartDone": "Xong rồi. Đây là những gì tôi đã nắm được, và vài việc chúng ta có thể bắt đầu.",
         "quickstartFailed": "Lần này tôi không đọc xong trình duyệt của bạn. Chúng ta vẫn có thể bắt đầu, và tôi sẽ học dần.",
@@ -1863,10 +1852,10 @@
       "microphoneDeviceFallback": "Micrô {index}",
       "recovery": {
         "closing": "Đang đóng…",
-        "manageDescription": "Nếu quyền micrô bị kẹt, bạn có thể đặt lại và yêu cầu macOS hỏi lại.",
+        "manageDescription": "Đặt lại quyền micrô nếu bị kẹt.",
         "manageLabel": "Quản lý quyền truy cập micrô",
         "openSettings": "Mở Cài đặt",
-        "recoverDescription": "Sau khi bạn từ chối, macOS sẽ không tự hỏi lại. Hãy đặt lại quyền, rồi thoát và mở lại Stella.",
+        "recoverDescription": "macOS sẽ không hỏi lại. Hãy đặt lại rồi mở lại Stella.",
         "recoverLabel": "Khôi phục quyền truy cập micrô",
         "reset": "Đặt lại & khởi động lại"
       },
@@ -1879,22 +1868,22 @@
       },
       "speakerDeviceFallback": "Loa {index}",
       "superFast": {
-        "description": "Giữ micrô sẵn sàng để đọc chính tả bắt đầu với ít độ trễ hơn.",
+        "description": "Giữ micrô sẵn sàng để đọc chính tả bắt đầu nhanh hơn.",
         "label": "Đọc chính tả siêu nhanh"
       },
       "systemDefault": "Mặc định hệ thống",
       "wakeWord": {
-        "description": "Lắng nghe “Hey Stella” ở chế độ nền và bắt đầu cuộc trò chuyện bằng giọng nói. Khi tắt, micrô vẫn nhàn rỗi cho đến khi bạn nhấn đọc chính tả.",
+        "description": "Nói “Hey Stella” để bắt đầu trò chuyện bằng giọng nói.",
         "label": "Từ đánh thức “Hey Stella”"
       }
     },
     "browserExtension": {
       "action": "Tải tiện ích",
-      "description": "Cho phép Stella xem trang bạn đang ở và thực hiện thao tác trong trình duyệt của bạn.",
+      "description": "Cho phép Stella xem và thao tác trong trình duyệt của bạn.",
       "title": "Stella cho Chrome"
     },
     "chatStorage": {
-      "description": "Truy cập các cuộc trò chuyện của bạn trên mọi thiết bị. Tắt để giữ lịch sử trò chuyện riêng chỉ trên máy tính này. Khi bật lại, những cuộc trò chuyện đó sẽ không được tải lên. Các nhà cung cấp AI vẫn xử lý tin nhắn của bạn.",
+      "description": "Đồng bộ cuộc trò chuyện giữa các thiết bị. Khi tắt, chúng ở lại máy tính này.",
       "endVoice": "Hãy kết thúc cuộc trò chuyện bằng giọng nói để thay đổi nơi lưu trò chuyện.",
       "error": "Không thể thay đổi nơi lưu trò chuyện. Hãy thử lại.",
       "title": "Lưu lịch sử trò chuyện trên đám mây"
@@ -1913,13 +1902,13 @@
       "upgrade": "Nâng cấp"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Một Stella nhỏ lơ lửng trên màn hình nền của bạn.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "Khóa API",
-      "empty": "Chưa có nhà cung cấp nào được kết nối. Chọn một tùy chọn khác Stella trong bộ chọn mô hình ở trên để thêm khóa API hoặc đăng nhập.",
+      "empty": "Chưa có nhà cung cấp. Thêm từ bộ chọn mô hình ở trên.",
       "removeKey": "Xóa khóa",
       "removingKey": "Đang xóa…",
       "signOut": "Đăng xuất",
@@ -1938,7 +1927,7 @@
       "addClaude": "Thêm tài khoản Claude",
       "addInCloud": "Trên đám mây",
       "addOnComputer": "Trên máy tính này",
-      "cardIntro": "Dùng gói Claude hoặc ChatGPT bạn đã trả phí. Mỗi nơi đăng nhập riêng: từng máy tính và đám mây của bạn.",
+      "cardIntro": "Dùng gói Claude hoặc ChatGPT bạn đang trả phí.",
       "cardTitle": "Tài khoản Claude và ChatGPT",
       "chatgptBrowserWaiting": "Hoàn tất đăng nhập ChatGPT trong trình duyệt của bạn.",
       "chatgptCloudSignedIn": "Đám mây của bạn đã đăng nhập ChatGPT.",
@@ -1959,7 +1948,7 @@
         "whereComputer": "Đang đăng nhập Claude Code trên máy tính này."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Code chưa được cài trên máy tính này. Hãy cài đặt để dùng Claude tại đây.",
+      "cliMissing": "Cài Claude Code trên máy tính này để dùng Claude tại đây.",
       "connecting": "Đang kết nối…",
       "defaultSignedOut": "Claude Code trên máy tính này chưa đăng nhập.",
       "enablePlanUsage": "Bật sử dụng gói ChatGPT",
@@ -1970,14 +1959,14 @@
       "needsChatgptCloud": "Hãy tiếp tục với ChatGPT cho đám mây của bạn trước",
       "needsClaudeCloud": "Hãy đăng nhập Claude trên đám mây trước",
       "openChatgptAgain": "Mở lại ChatGPT",
-      "pasteHintChatgpt": "Sau khi bạn chấp thuận, ChatGPT sẽ chuyển bạn đến một trang không tải được. Hãy sao chép toàn bộ địa chỉ của trang đó và dán vào đây.",
+      "pasteHintChatgpt": "Sao chép địa chỉ trang ChatGPT mở ra và dán vào đây.",
       "pastePlaceholderUrl": "Dán địa chỉ vào đây",
       "placeCloud": "Đám mây",
       "placeComputer": "Máy tính này",
       "placeOtherComputer": "Máy tính khác",
       "placeSignedIn": "{place}: đã đăng nhập",
       "placeSignedOut": "{place}: chưa đăng nhập",
-      "planUsageOffBody": "Stella không thể dùng gói ChatGPT của bạn cho đến khi bạn cho phép. Chọn “Bật sử dụng gói ChatGPT” trên tài khoản hoặc dùng mô hình khác.",
+      "planUsageOffBody": "Chọn “Bật sử dụng gói ChatGPT” trên tài khoản hoặc chọn mô hình khác.",
       "planUsageOffTitle": "Đã đăng nhập, nhưng chưa bật sử dụng gói ChatGPT",
       "remove": "Xóa",
       "removed": "Đã xóa.",
@@ -2034,7 +2023,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Mức độ Stella cố liên hệ bạn khi cần câu trả lời.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2069,16 +2058,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2092,16 +2076,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Chọn ngôn ngữ Stella sử dụng trong ứng dụng và khi phản hồi bạn.",
+      "description": "Cho ứng dụng và câu trả lời của Stella.",
       "title": "Ngôn ngữ"
     },
     "lockedComputerUse": {
-      "description": "Cho phép Stella tiếp tục các tác vụ sử dụng máy tính sau khi máy Mac này bị khóa. Yêu cầu lời nhắc quản trị viên và che màn hình khi Stella làm việc.",
+      "description": "Giữ các tác vụ điều khiển máy tính chạy khi máy Mac này khóa.",
       "title": "Sử dụng máy tính khi đã khóa",
       "unsupported": "Sử dụng máy tính khi đã khóa chỉ có trên macOS."
     },
     "memory": {
-      "description": "Đưa các ký ức đã lưu và hồ sơ của bạn vào ngữ cảnh mô hình của Stella. Các máy tính của bạn và đám mây giữ cùng một bộ nhớ, được mã hóa cả khi truyền lẫn khi lưu trữ. Việc tắt tùy chọn này sẽ tạm dừng điều đó và loại bộ nhớ khỏi các cuộc trò chuyện sau nhưng không xóa bộ nhớ đó.",
+      "description": "Dùng ký ức đã lưu trong câu trả lời. Tắt sẽ không xóa chúng.",
       "title": "Bộ nhớ"
     },
     "modelPicker": {
@@ -2135,7 +2119,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Dùng bất kỳ máy chủ cục bộ tương thích OpenAI nào. Ollama thường chạy ở URL bên dưới.",
+        "hint": "Bất kỳ máy chủ cục bộ tương thích OpenAI nào, như Ollama.",
         "modelNameAriaLabel": "Tên mô hình cục bộ",
         "serverUrlAriaLabel": "URL máy chủ cục bộ"
       },
@@ -2179,7 +2163,7 @@
       "title": "Chuyển động"
     },
     "nativeFontSmoothing": {
-      "description": "Hiển thị văn bản như các ứng dụng macOS, với khử răng cưa thang độ xám.",
+      "description": "Khử răng cưa thang xám, như ứng dụng macOS gốc.",
       "title": "Làm mịn phông chữ gốc"
     },
     "notifications": {
@@ -2188,18 +2172,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Chạy lại phần giới thiệu. Dữ liệu của bạn vẫn giữ nguyên.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Cho phép Stella đọc văn bản đã chọn và mở bằng phím tắt ⌘+nhấp chuột phải ở bất kỳ đâu trên máy tính của bạn.",
+        "description": "Đọc văn bản đã chọn và mở bằng ⌘+nhấp chuột phải.",
         "label": "Trợ năng"
       },
       "enable": "Bật",
       "granted": "Đã cấp",
       "microphone": {
-        "description": "Dùng cho giọng nói và đọc chính tả. Đặt lại nếu Stella từng bị từ chối và macOS không hỏi lại.",
+        "description": "Cho giọng nói và đọc chính tả.",
         "label": "Micrô"
       },
       "opening": "Đang mở…",
@@ -2208,54 +2192,14 @@
       "restart": {
         "action": "Khởi động lại",
         "closing": "Đang đóng…",
-        "description": "Quay màn hình vừa được bật. Thoát và mở lại Stella để hoàn tất thiết lập.",
+        "description": "Mở lại Stella để hoàn tất bật ghi màn hình.",
         "label": "Khởi động lại Stella"
       },
       "screen": {
-        "description": "Cho phép Stella xem màn hình của bạn để hỗ trợ điều bạn đang xem. Bạn có thể cần thoát và mở lại Stella sau khi bật mục này.",
+        "description": "Cho phép Stella xem nội dung trên màn hình của bạn.",
         "label": "Quay màn hình"
       },
       "title": "Quyền"
-    },
-    "phoneAccess": {
-      "copy": "Sao chép",
-      "deviceFallback": "Điện thoại",
-      "errors": {
-        "createPairing": "Không thể tạo mã ghép nối."
-      },
-      "expired": "Đã hết hạn",
-      "getCode": "Lấy mã",
-      "intro": {
-        "headline": "Kết nối điện thoại với máy tính của bạn"
-      },
-      "pairedCount": {
-        "other": "Đã ghép nối {count} điện thoại"
-      },
-      "pairing": {
-        "body": "Mở ứng dụng Stella trên điện thoại và quét mã QR, hoặc nhập mã bên dưới. Bạn chỉ cần làm việc này một lần.",
-        "headline": "Quét hoặc nhập mã này",
-        "qrAlt": "Quét để ghép nối điện thoại của bạn"
-      },
-      "preparing": "Đang chuẩn bị...",
-      "remove": "Xóa",
-      "removing": "Đang xóa...",
-      "signedOut": {
-        "body": "Đăng nhập vào tài khoản Stella của bạn để ghép nối với ứng dụng di động.",
-        "headline": "Đăng nhập để bắt đầu"
-      },
-      "steps": {
-        "appStoreQrAlt": "Quét để tải Stella từ App Store",
-        "connect": "Kết nối điện thoại của bạn",
-        "download": "Tải ứng dụng",
-        "platformSelectorLabel": "Chọn nền tảng di động",
-        "playStoreQrAlt": "Quét để tải Stella từ Google Play"
-      },
-      "timeLeft": "Còn {time}",
-      "toasts": {
-        "codeCopied": "Đã sao chép mã vào bảng nhớ tạm",
-        "phoneRemoved": "Đã xóa điện thoại",
-        "removeFailed": "Không xóa được điện thoại"
-      }
     },
     "power": {
       "description": "Ngăn máy tính của bạn vào chế độ ngủ khi Stella đang mở.",
@@ -2268,7 +2212,7 @@
         "description": "Định tuyến trợ lý trò chuyện của Stella qua {provider}.",
         "label": "Trợ lý"
       },
-      "description": "{provider} có thể đảm nhận nhiều phần của Stella. Hãy chọn phần bạn muốn giao cho nó — Stella vẫn lo phần còn lại.",
+      "description": "Chọn {provider} sẽ dùng cho việc gì.",
       "errors": {
         "apply": "Không áp dụng được cài đặt nhà cung cấp."
       },
@@ -2297,7 +2241,7 @@
     },
     "resetCustomizations": {
       "action": "Khôi phục mặc định",
-      "description": "Xóa các tùy chỉnh kỹ năng và chỉnh sửa tính cách của bạn để áp dụng thiết lập mặc định của Stella. Những gì bị xóa được giữ trong ~/.stella/.trash phòng khi bạn muốn lấy lại.",
+      "description": "Khôi phục kỹ năng và tính cách mặc định. Tệp cũ được chuyển vào ~/.stella/.trash.",
       "done": "Đã khôi phục mặc định. Các tùy chỉnh trước đây của bạn đã được chuyển vào ~/.stella/.trash.",
       "error": "Không thể khôi phục mặc định.",
       "none": "Bạn đang dùng mặc định của Stella rồi.",
@@ -2331,7 +2275,7 @@
       "change": "Thay đổi",
       "clear": "Xóa",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Nhấn để đọc chính tả, nhấn lần nữa để kết thúc."
       },
       "errors": {
         "load": "Không tải được phím tắt.",
@@ -2369,7 +2313,7 @@
       "defaultOption": "Mặc định của Stella",
       "delete": "Xóa",
       "deleted": "Đã xóa lời nhắc.",
-      "description": "Lời nhắc mặc định của Stella luôn cập nhật cùng ứng dụng. Lưu lời nhắc của riêng bạn để dùng thay thế — nó được giữ riêng nên bản cập nhật không bao giờ ghi đè.",
+      "description": "Dùng lời nhắc của riêng bạn thay cho mặc định của Stella.",
       "duplicate": "Nhân bản",
       "edit": "Sửa",
       "error": "Đã xảy ra lỗi.",
@@ -2386,11 +2330,12 @@
       "account": "Tài khoản & Pháp lý",
       "audio": "Âm thanh",
       "general": "Chung",
-      "shortcuts": "Phím tắt"
+      "shortcuts": "Phím tắt",
+      "privacy": "Quyền riêng tư"
     },
     "title": "Cài đặt",
     "voiceAgent": {
-      "description": "Hiện các nút giọng nói và gọi để bạn nói chuyện với Stella. Đọc chính tả vẫn hoạt động trong cả hai trường hợp.",
+      "description": "Hiện nút điều khiển giọng nói và cuộc gọi. Đọc chính tả vẫn hoạt động.",
       "error": "Không thể cập nhật cài đặt giọng nói.",
       "title": "Trò chuyện bằng giọng nói"
     },
@@ -2412,6 +2357,13 @@
         "openai": "Giọng nói OpenAI",
         "xai": "Giọng nói Grok"
       }
+    },
+    "groups": {
+      "app": "Ứng dụng",
+      "personal": "Cá nhân"
+    },
+    "nav": {
+      "more": "Thêm"
     }
   },
   "shell": {
@@ -2451,7 +2403,9 @@
         "skipped": "Đã bỏ qua",
         "undoing": "Đang hoàn tác…",
         "upToDate": "Không có gì đang chờ",
-        "waiting": "Đang chờ"
+        "waiting": "Đang chờ",
+        "upToDateTitle": "Bạn đang dùng bản mới nhất",
+        "upToDateBody": "Các phiên bản mới của Stella sẽ hiện ở đây."
       },
       "updating": "Đang cập nhật…"
     },
@@ -2481,7 +2435,9 @@
       "noMatches": "Không có trình kết nối nào khớp với tìm kiếm đó.",
       "searchLabel": "Tìm trình kết nối",
       "searchPlaceholder": "Tìm kiếm",
-      "title": "Trình kết nối"
+      "title": "Trình kết nối",
+      "noMatchesTitle": "Không có kết quả",
+      "noMatchesBody": "Hãy thử tên khác."
     },
     "display": {
       "agentThread": {
@@ -2531,11 +2487,19 @@
       },
       "canvasShare": {
         "copyLink": "Sao chép liên kết",
-        "empty": "Chưa có lượt chia sẻ nào đang hoạt động. Hãy đăng một canvas để có liên kết công khai.",
+        "empty": "Chưa có canvas công khai nào. Đặt một canvas công khai để chia sẻ liên kết của nó.",
         "expires": "Hết hạn {date}",
         "links": "Liên kết",
         "live": "Canvas đã hoạt động",
         "loadFailed": "Không tải được danh sách chia sẻ của bạn.",
+        "makePrivate": "Đặt riêng tư",
+        "makePublic": "Đặt công khai",
+        "noLink": "Canvas này chưa có liên kết. Đặt công khai để có liên kết mà ai cũng mở được.",
+        "openInBrowser": "Mở trong trình duyệt",
+        "privateHint": "Chỉ bạn mới mở được liên kết này.",
+        "privateLink": "Liên kết riêng tư",
+        "public": "Công khai",
+        "publicHint": "Bất kỳ ai có liên kết đều có thể xem.",
         "publicLink": "Liên kết canvas công khai",
         "publishFailed": "Không đăng được canvas này. Vui lòng thử lại.",
         "publishing": "Đang đăng canvas…",
@@ -2547,8 +2511,12 @@
         "toasts": {
           "copyFailed": "Không sao chép được liên kết",
           "linkCopied": "Đã sao chép liên kết chia sẻ",
+          "madePrivate": "Liên kết hiện là riêng tư",
+          "madePublic": "Liên kết hiện là công khai",
+          "openFailed": "Không thể mở liên kết",
           "revokeFailed": "Không thu hồi được lượt chia sẻ này",
-          "revoked": "Đã thu hồi chia sẻ"
+          "revoked": "Đã thu hồi chia sẻ",
+          "visibilityFailed": "Không thể thay đổi ai có thể mở liên kết này"
         },
         "untitled": "Canvas chưa đặt tên"
       },
@@ -2557,7 +2525,10 @@
         "codeChanges": "Thay đổi mã",
         "desktopRequired": "Xem trước mã cần ứng dụng Stella trên máy tính.",
         "empty": "Chưa có thay đổi tệp nào. Khi một tác nhân chỉnh sửa mã, các thay đổi sẽ xuất hiện ở đây.",
-        "noChanges": "Không tìm thấy thay đổi nào."
+        "noChanges": "Không tìm thấy thay đổi nào.",
+        "emptyTitle": "Chưa có thay đổi",
+        "emptyBody": "Khi một tác tử sửa mã, các thay đổi sẽ hiện ở đây.",
+        "noChangesTitle": "Không có thay đổi"
       },
       "filePreview": {
         "copy": "Sao chép",
@@ -2592,7 +2563,11 @@
         "revealInFinder": "Hiện trong Finder",
         "save": "Lưu",
         "saveFailed": "Không thể lưu",
-        "saved": "Đã lưu"
+        "saved": "Đã lưu",
+        "zoom": "Phóng to hình ảnh",
+        "imageUnavailable": "Hình ảnh không khả dụng",
+        "videoUnavailable": "Video không khả dụng",
+        "audioUnavailable": "Âm thanh không khả dụng"
       },
       "office": {
         "frameTitle": "Xem trước {kind}: {title}",
@@ -2616,7 +2591,11 @@
       },
       "preview": {
         "limited": "Bản xem trước bị giới hạn. Hãy lưu hoặc mở tệp gốc để xem toàn bộ nội dung.",
-        "unavailable": "Không thể chuẩn bị bản xem trước này."
+        "unavailable": "Không thể chuẩn bị bản xem trước này.",
+        "failedTitle": "Không thể hiển thị bản xem trước",
+        "failedBody": "Hãy thử lại, hoặc lưu tệp để mở ở nơi khác.",
+        "unavailableTitle": "Tệp không khả dụng",
+        "emptyTitle": "Tệp này trống"
       },
       "spreadsheet": {
         "column": "Cột {index}",
@@ -2637,7 +2616,9 @@
         "pendingPurge": "Chờ xóa vĩnh viễn",
         "refresh": "Làm mới",
         "title": "Thùng rác",
-        "trashedAgo": "Đã xóa {time} trước"
+        "trashedAgo": "Đã xóa {time} trước",
+        "emptyTitle": "Thùng rác trống",
+        "emptyBody": "Mục đã xóa được giữ ở đây trong 24 giờ."
       },
       "url": {
         "eyebrow": "Xem trước trực tiếp",
@@ -2730,22 +2711,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "Còn {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Dùng câu trả lời này",
+      "default": "Mặc định",
+      "next": "Câu hỏi tiếp theo",
+      "previous": "Câu hỏi trước",
+      "progress": "{current}/{total}",
+      "sending": "Đang gửi…",
+      "skip": "Bỏ qua",
+      "skipped": "Đã bỏ qua",
+      "somethingElse": "Khác",
+      "submit": "Gửi"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

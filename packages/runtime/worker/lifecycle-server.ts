@@ -39,12 +39,17 @@ export type LifecycleServerOptions = {
   stellaAppDir: string;
   idleShutdownMs?: number;
   /**
-   * Called before self-shutdown when the last host client has been gone
-   * for `idleShutdownMs`. Returning true pins the detached worker and
-   * re-arms the idle timer instead of exiting. This is the critical
-   * difference between "survives short Electron restarts" and "survives
-   * Electron crashing mid-agent-run": active work owns the lifetime, not
-   * merely client attachment.
+   * Interrupts every turn and ends its commands. Runs before self-shutdown
+   * is considered: when the app quits, and when the last client has been
+   * gone for `idleShutdownMs` (the app crashed or was force-killed). Turns
+   * never keep the runtime alive without an app; pi keeps the interrupted
+   * work pending for the next launch.
+   */
+  interruptWork?: () => Promise<void>;
+  /**
+   * Called before self-shutdown, after `interruptWork`. Returning true pins
+   * the detached worker and re-arms the idle timer instead of exiting: the
+   * bounded database maintenance that needs the detached window.
    */
   shouldKeepAlive?: () => Promise<boolean> | boolean;
   /**
@@ -58,6 +63,8 @@ export type LifecycleServerOptions = {
 };
 
 const DEFAULT_IDLE_SHUTDOWN_MS = 10_000;
+/** How long interrupting turns may take before shutdown goes ahead anyway. */
+const INTERRUPT_WORK_TIMEOUT_MS = 4_000;
 
 const pidIsAlive = (pid: number): boolean => {
   if (!Number.isInteger(pid) || pid <= 0) return false;
@@ -87,6 +94,8 @@ export class WorkerLifecycleServer {
   private idleTimer: WorkerTimerHandle | null = null;
   private clientCount = 0;
   private shuttingDown = false;
+  /** The app quit: once its connection closes, exit without the grace period. */
+  private quitRequested = false;
   private readonly idleShutdownMs: number;
 
   constructor(private readonly options: LifecycleServerOptions) {
@@ -199,6 +208,7 @@ export class WorkerLifecycleServer {
    */
   noteClientConnected() {
     this.clientCount += 1;
+    this.quitRequested = false;
     if (this.idleTimer) {
       this.idleTimer.cancel();
       this.idleTimer = null;
@@ -212,7 +222,53 @@ export class WorkerLifecycleServer {
   noteClientDisconnected() {
     this.clientCount = Math.max(0, this.clientCount - 1);
     if (this.clientCount > 0) return;
+    if (this.quitRequested) {
+      this.idleTimer?.cancel();
+      this.idleTimer = null;
+      void this.evaluateIdleShutdown();
+      return;
+    }
     this.scheduleIdleShutdown();
+  }
+
+  /**
+   * The app is quitting (a restart or update included): interrupt its turns
+   * now, and exit as soon as its connection closes instead of waiting out the
+   * grace period an app that crashed gets.
+   */
+  async requestQuit(): Promise<void> {
+    this.quitRequested = true;
+    const startedAt = Date.now();
+    await this.interruptWork();
+    getFileLogger()?.process("worker.quit-work-interrupted", {
+      elapsedMs: Date.now() - startedAt,
+    });
+  }
+
+  private async interruptWork() {
+    const interrupt = this.options.interruptWork;
+    if (!interrupt) return;
+    let deadline: WorkerTimerHandle | null = null;
+    const timedOut = await Promise.race([
+      interrupt().then(
+        () => false,
+        (error: unknown) => {
+          this.logStream?.write(
+            `[${new Date().toISOString()}] interrupting work failed: ${(error as Error)?.message ?? String(error)}\n`,
+          );
+          return false;
+        },
+      ),
+      new Promise<boolean>((resolve) => {
+        deadline = forkDelayed(INTERRUPT_WORK_TIMEOUT_MS, () => resolve(true));
+      }),
+    ]);
+    (deadline as WorkerTimerHandle | null)?.cancel();
+    if (timedOut) {
+      this.logStream?.write(
+        `[${new Date().toISOString()}] interrupting work exceeded ${INTERRUPT_WORK_TIMEOUT_MS}ms; continuing shutdown\n`,
+      );
+    }
   }
 
   private scheduleIdleShutdown() {
@@ -225,6 +281,8 @@ export class WorkerLifecycleServer {
   }
 
   private async evaluateIdleShutdown() {
+    if (this.shuttingDown || this.clientCount > 0) return;
+    await this.interruptWork();
     if (this.shuttingDown || this.clientCount > 0) return;
     const keepAlive = await Promise.resolve(
       this.options.shouldKeepAlive?.() ?? false,

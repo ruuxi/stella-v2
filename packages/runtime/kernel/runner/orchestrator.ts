@@ -4,7 +4,6 @@ import type { RuntimeEndEvent } from "../agent-runtime/types.js";
 import {
   createFileAttachmentPromptInput,
   createRuntimePromptAgentMessage,
-  prepareRuntimeAttachments,
 } from "../agent-runtime/run-preparation.js";
 import {
   persistThreadCustomMessage,
@@ -22,12 +21,10 @@ import type {
   ActiveOrchestratorSession,
   AgentCallbacks,
   ChatPayload,
-  OrchestratorRunLaunch,
   RunnerContext,
   RuntimeSendMessageInput,
   RuntimeSendUserMessageInput,
 } from "./types.js";
-import type { DurableRunResume } from "../agent-runtime/types.js";
 import {
   createAutomationAgentCallbacks,
   createAutomationErrorResult,
@@ -44,7 +41,6 @@ import { startPreparedOrchestratorRun } from "./orchestrator-launch.js";
 import {
   prunePendingFollowUpReplies,
   recordPendingFollowUpReplyEntry,
-  resolveLiveChatMessageDelivery,
 } from "./shared.js";
 import {
   getOrchestratorHealth,
@@ -153,8 +149,6 @@ export const createOrchestratorController = (
         currentCallbacks.onAssistantMessage?.(event),
       onAgentReasoning: (event) => currentCallbacks.onAgentReasoning?.(event),
       onStatus: (event) => currentCallbacks.onStatus?.(event),
-      onProviderLifecycle: (event) =>
-        currentCallbacks.onProviderLifecycle?.(event),
       onToolStart: (event) => currentCallbacks.onToolStart(event),
       onToolEnd: (event) => currentCallbacks.onToolEnd(event),
       onError: (event) => currentCallbacks.onError(event),
@@ -189,8 +183,6 @@ export const createOrchestratorController = (
       callbacks: AgentCallbacks,
     ) => ReturnType<StartPreparedRunArgs["createRuntimeCallbacks"]>;
     onPrepared?: StartPreparedRunArgs["onPrepared"];
-    /** Relaunch this durable run (same run id) from its row. */
-    resume?: { runId: string; state: DurableRunResume };
   }): Promise<{ runId: string }> => {
     if (context.state.activeOrchestratorRunId) {
       throw new Error(args.alreadyRunningError);
@@ -199,24 +191,7 @@ export const createOrchestratorController = (
     // alongside it and the next turn picks up any change (`remote-prompts`).
     scheduleRemotePromptRevalidation();
 
-    const runId = args.resume?.runId ?? `local:${crypto.randomUUID()}`;
-    // Chat and runtime-initiated turns are durable: a worker that dies
-    // mid-run leaves a row the next worker resumes (`run-task.ts`).
-    const launch: OrchestratorRunLaunch = {
-      kind: "orchestrator-chat",
-      conversationId: args.conversationId,
-      agentType: args.agentType,
-      userMessageId: args.userMessageId,
-      ...(args.uiVisibility ? { uiVisibility: args.uiVisibility } : {}),
-      ...(args.storageMode ? { storageMode: args.storageMode } : {}),
-      ...(args.ownerGeneration
-        ? { ownerGeneration: args.ownerGeneration }
-        : {}),
-      ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
-      ...(args.callbacks.durableClient
-        ? { client: args.callbacks.durableClient }
-        : {}),
-    };
+    const runId = `local:${crypto.randomUUID()}`;
     const steerableCallbacks = createSteerableCallbacks(args.callbacks);
     context.state.runCallbacksByRunId.set(runId, args.callbacks);
     if (args.uiVisibility !== UI_VISIBILITY_HIDDEN) {
@@ -257,9 +232,6 @@ export const createOrchestratorController = (
         attachments: args.attachments,
         userMessageId: args.userMessageId,
         ...(args.responseTarget ? { responseTarget: args.responseTarget } : {}),
-        ...(args.resume
-          ? { resume: args.resume.state }
-          : { durable: { launch: launch as Record<string, unknown> } }),
         createRuntimeCallbacks: (runArgs) =>
           args.createRunCallbacks(runArgs, steerableCallbacks.callbackProxy),
         cleanupRun,
@@ -438,10 +410,7 @@ export const createOrchestratorController = (
     attachments: StartPreparedRunArgs["attachments"];
     callbacks: AgentCallbacks;
   }) => {
-    const attachments =
-      args.session.engine === "native"
-        ? await prepareRuntimeAttachments(args.attachments)
-        : args.attachments;
+    const attachments = args.attachments;
     const trimmedUserPrompt = args.userPrompt.trim();
     const promptInputs =
       args.promptMessages && args.promptMessages.length > 0
@@ -494,14 +463,9 @@ export const createOrchestratorController = (
           preservePayloadExactly: true,
         });
       }
-      // All live communication is steering. Native agents consume it at their
-      // next safe boundary; Claude Code takes it into the query that is still
-      // running, without interrupting it.
-      // Descendant agents remain independent.
-      const delivery = resolveLiveChatMessageDelivery({
-        role: message.role,
-        engine: args.session.engine,
-      });
+      // All live communication is steering: Claude Code takes it into the
+      // query that is still running, without interrupting it. Descendant
+      // agents remain independent.
       if (message.role === "user") {
         // Mirror for abnormal-termination recovery regardless of delivery
         // mode: a message queued but not yet delivered when the run dies is
@@ -513,7 +477,7 @@ export const createOrchestratorController = (
           args.userMessageId,
         );
       }
-      args.session.queueMessage(message, delivery);
+      args.session.queueMessage(message, "steer");
     }
     const fileAttachmentPrompt = createFileAttachmentPromptInput(attachments);
     if (fileAttachmentPrompt) {
@@ -531,13 +495,7 @@ export const createOrchestratorController = (
           preservePayloadExactly: true,
         });
       }
-      args.session.queueMessage(
-        message,
-        resolveLiveChatMessageDelivery({
-          role: message.role,
-          engine: args.session.engine,
-        }),
-      );
+      args.session.queueMessage(message, "steer");
     }
   };
 
@@ -663,9 +621,6 @@ export const createOrchestratorController = (
           ...(message.eventId ? { eventId: message.eventId } : {}),
           preservePayloadExactly: true,
         });
-        context.state.orchestratorSessions
-          .get(input.conversationId)
-          ?.notifyHistoryChanged();
       }
       liveSession.queueMessage(message, delivery);
       return;
@@ -813,7 +768,7 @@ export const createOrchestratorController = (
   ): string => {
     if (!userPrompt || !userMessageId) return userPrompt;
     try {
-      const cursor = context.runtimeStore.getEventCursor(
+      const cursor = context.runtimeStore.chat.getEventCursor(
         conversationId,
         userMessageId,
       );
@@ -848,12 +803,16 @@ export const createOrchestratorController = (
     // Tell the model this message's conversation number so a later reply can
     // cite it (`reply-refs`). The tag rides only the model-facing prompt: the
     // transcript row was appended by the host before this turn started and
-    // keeps the raw text.
-    const userPrompt = tagUserPromptWithSequence(
-      conversationId,
-      payload.userMessageId,
-      rawUserPrompt,
-    );
+    // keeps the raw text. A cloud conversation's number is its journal seq,
+    // which only the turn's begin assigns (`withCloudPromptRefTag`).
+    const userPrompt =
+      storageMode === "cloud"
+        ? rawUserPrompt
+        : tagUserPromptWithSequence(
+            conversationId,
+            payload.userMessageId,
+            rawUserPrompt,
+          );
 
     const liveSession = getLiveOrchestratorSession(conversationId, agentType);
     if (liveSession && storageMode !== "cloud") {
@@ -976,8 +935,8 @@ export const createOrchestratorController = (
       // Connector turns: the durable thread store is the single
       // model-context source, so the user timestamp tag the retired
       // local-events projection used to add at read time is stamped onto the
-      // model-visible prompt here. run-execution persists this exact text
-      // into the thread; the host's chat-events write keeps the raw text for
+      // model-visible prompt here. The engine persists this exact text into
+      // the thread; the host's chat-events write keeps the raw text for
       // display/sync.
       const modelUserPrompt = connectorDeliveryTarget
         ? decorateUserTranscriptContent({
@@ -1046,7 +1005,7 @@ export const createOrchestratorController = (
           ? {
               onPrepared: async () => {
                 const cancellationReason = getPlacementCancellation({
-                  store: context.runtimeStore,
+                  store: context.runtimeStore.chat,
                   kind: "chat",
                   executionId: executionPlacementRunId,
                 });
@@ -1120,16 +1079,6 @@ export const createOrchestratorController = (
     // from the moment admission registers its cooperative abort until its
     // fiber tree has fully settled.
     if (!context.state.supervisor.hasRun(runId)) return false;
-    // Durable abort mark before any signal: if the worker dies during the
-    // teardown below, the next one must not resume a canceled run.
-    try {
-      context.runtimeStore.runTasks?.requestAbort(runId);
-    } catch (error) {
-      logger.warn("cancel.abort-mark-failed", {
-        runId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
     const wasPreExecution = preparingRunIds.has(runId);
     const uiVisibility = context.state.activeOrchestratorUiVisibility;
     const callbacks = context.state.runCallbacksByRunId.get(runId);
@@ -1172,7 +1121,7 @@ export const createOrchestratorController = (
     // delivered after worker restart observes this tombstone in `onPrepared`
     // and cannot resurrect the exact dispatch-scoped owner.
     persistPlacementCancellation({
-      store: context.runtimeStore,
+      store: context.runtimeStore.chat,
       kind: "chat",
       executionId: exactRunId,
       reason,
@@ -1200,62 +1149,6 @@ export const createOrchestratorController = (
     }
     await cancelLocalChat(activeRunId);
     return true;
-  };
-
-  /**
-   * Relaunch one durable orchestrator chat run under its original run id.
-   * Queued like a user turn when another run holds the lane.
-   */
-  const resumeOrchestratorRun = async (args: {
-    launch: OrchestratorRunLaunch;
-    runId: string;
-    state: DurableRunResume;
-    callbacks: AgentCallbacks;
-  }): Promise<void> => {
-    const execute = async () => {
-      await launchOrchestratorRun({
-        alreadyRunningError: "The orchestrator is already running.",
-        conversationId: args.launch.conversationId,
-        agentType: args.launch.agentType,
-        ...(args.launch.storageMode
-          ? { storageMode: args.launch.storageMode }
-          : {}),
-        ...(args.launch.ownerGeneration
-          ? { ownerGeneration: args.launch.ownerGeneration }
-          : {}),
-        userPrompt: "",
-        ...(args.launch.uiVisibility
-          ? { uiVisibility: args.launch.uiVisibility }
-          : {}),
-        attachments: [],
-        userMessageId: args.launch.userMessageId,
-        ...(args.launch.responseTarget
-          ? { responseTarget: args.launch.responseTarget }
-          : {}),
-        callbacks: args.callbacks,
-        createRunCallbacks: ({ runId }, callbacks) =>
-          createRuntimeCallbacks(runId, callbacks),
-        resume: { runId: args.runId, state: args.state },
-      });
-    };
-    if (!context.state.activeOrchestratorRunId) {
-      await execute();
-      return;
-    }
-    await new Promise<void>((resolve, reject) => {
-      queueOrchestratorTurn({
-        priority: "user",
-        execute: async () => {
-          try {
-            await execute();
-            resolve();
-          } catch (error) {
-            reject(error);
-          }
-        },
-        cancel: (reason) => reject(reason),
-      });
-    });
   };
 
   const getActiveOrchestratorRun = (): {
@@ -1288,6 +1181,5 @@ export const createOrchestratorController = (
     cancelLocalChat,
     cancelLocalChatByConversation,
     getActiveOrchestratorRun,
-    resumeOrchestratorRun,
   };
 };

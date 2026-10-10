@@ -47,6 +47,12 @@
   box-shadow: var(--focus-ring);
 }
 
+.canvas-share__btn--icon {
+  justify-content: center;
+  width: 28px;
+  padding: 0;
+}
+
 .canvas-share__btn--primary {
   border-color: color-mix(in oklch, var(--primary, var(--foreground)) 40%, transparent);
   color: var(--text-strong);
@@ -93,6 +99,18 @@
   gap: 6px;
   color: var(--text-strong);
   font-weight: var(--weight-medium);
+}
+
+.canvas-share__hint {
+  color: var(--text-weak);
+  line-height: var(--lh-normal, 1.45);
+}
+
+.canvas-share__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
 .canvas-share__url-row {

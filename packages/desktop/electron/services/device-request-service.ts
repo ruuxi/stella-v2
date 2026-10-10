@@ -10,16 +10,27 @@ import type {
   DeviceRequestErrorCode,
   DeviceRequestMethod,
 } from "@stella/contracts/turn-plane/device-requests";
+import {
+  deviceFileMissingMessage,
+  type DeviceFileMissingReason,
+} from "@stella/contracts/device-files";
 import { REMOTE_VIEW_DENIAL_PREFIX } from "../ipc/display-handlers.js";
+import { EVIDENCE_THUMBNAIL_VARIANT } from "@stella/contracts/chat-evidence-thumbnails";
 
 export type DeviceRequestHandlers = {
   readFile: (payload: {
     filePath?: unknown;
     conversationId?: unknown;
   }) => Promise<
-    | { missing: true; mimeType: string; path: string }
+    | {
+        missing: true;
+        mimeType: string;
+        path: string;
+        reason?: DeviceFileMissingReason;
+      }
     | { missing: false; bytes: Uint8Array; mimeType: string }
   >;
+  readThumbnail?: DeviceRequestHandlers["readFile"];
   renderOfficePreview: (payload: {
     filePath?: unknown;
     sessionId?: unknown;
@@ -77,7 +88,11 @@ export const serveDeviceRequest = async (
   try {
     switch (request.method) {
       case "file.read": {
-        const result = await handlers.readFile({
+        const read =
+          request.params.variant === EVIDENCE_THUMBNAIL_VARIANT && handlers.readThumbnail
+            ? handlers.readThumbnail
+            : handlers.readFile;
+        const result = await read({
           filePath: request.params.filePath,
           conversationId: request.params.conversationId,
         });
@@ -85,7 +100,7 @@ export const serveDeviceRequest = async (
           return {
             ok: false,
             code: "not_found",
-            message: "This file is no longer available.",
+            message: deviceFileMissingMessage(result.reason, result.path),
           };
         }
         return {

@@ -1,5 +1,6 @@
 import { Context, Effect, Layer, ManagedRuntime, Scope } from "effect";
 import { resolveLogPaths } from "./log-paths.js";
+import { errorDiagnosticFields, isPeerDisconnectError } from "./error-fields.js";
 import {
   ObservabilityLogger,
   layer as observabilityLoggerLayer,
@@ -153,5 +154,49 @@ export const installGlobalErrorLogging = (logger: FileLogger): void => {
   });
   process.on("unhandledRejection", (reason) => {
     logger.crash("process.unhandledRejection", reason);
+  });
+};
+
+/**
+ * The detached runtime worker's crash policy. It hosts every agent, so an
+ * error that only says one peer hung up (EPIPE, ECONNRESET: a child or
+ * client that closed its end) is logged with its full context and survived.
+ * Anything else stays fatal, as before, but the worker first runs
+ * `beforeFatalExit` so nothing it started outlives it.
+ */
+export const installWorkerCrashHandling = (
+  logger: FileLogger,
+  options: { context: () => LogFields; beforeFatalExit: () => void },
+): void => {
+  const context = (): LogFields => {
+    try {
+      return options.context();
+    } catch {
+      return {};
+    }
+  };
+  process.on("unhandledRejection", (reason) => {
+    logger.crash("process.unhandledRejection", reason, {
+      ...errorDiagnosticFields(reason),
+      ...context(),
+    });
+  });
+  process.on("uncaughtException", (error) => {
+    const fields = { ...errorDiagnosticFields(error), ...context() };
+    if (isPeerDisconnectError(error)) {
+      logger.warn("process.peer-disconnect-survived", fields);
+      console.warn(
+        "[runtime-worker] A peer closed its end of a pipe or socket; the worker keeps running:",
+        error,
+      );
+      return;
+    }
+    logger.crash("process.uncaughtException", error, fields);
+    console.error(error);
+    try {
+      options.beforeFatalExit();
+    } finally {
+      process.exit(1);
+    }
   });
 };

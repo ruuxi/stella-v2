@@ -147,14 +147,21 @@ export class WakewordService {
 
     let child: ChildProcess;
     try {
+      // stdin stays open and unwritten: if this process dies without
+      // stopping the listener, the pipe closes and the listener exits rather
+      // than keeping the microphone open.
       child = spawn(binaryPath, args, {
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
-        env:
-          o.scoreSmoothing != null
-            ? { ...process.env, WAKEWORD_SMOOTHING: String(o.scoreSmoothing) }
-            : process.env,
+        env: {
+          ...process.env,
+          STELLA_EXIT_ON_STDIN_CLOSE: "1",
+          ...(o.scoreSmoothing != null
+            ? { WAKEWORD_SMOOTHING: String(o.scoreSmoothing) }
+            : {}),
+        },
       });
+      child.stdin?.on("error", () => undefined);
     } catch (error) {
       console.warn("[wakeword] failed to spawn listener:", error);
       getFileLogger()?.error("native.wakeword.spawn-failed", { error });

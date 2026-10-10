@@ -1,26 +1,168 @@
 import { CloudHomeStore } from "./cloud-home-store.js";
 import { builtinCloudAppSkill } from "./builtin-cloud-app-skill.js";
-import { OwnerHomeContextCache, type OwnerHomeContext } from "./owner-home-context.js";
-import { chatTurnFingerprintSource, cloudChatHandoffKey, cloudChatTurnKey, type CloudChatHandoff, type CloudChatPreparation, type AdmittedCloudChat } from "./cloud-chat-admission.js";
-import { turnStartErrorResponse } from "./turn-start-request.js";
-import type { ModelGatewayControl } from "./managed-request-cancellation.js";
+import type { OwnerHomeContext } from "./owner-home-context.js";
+import {
+  type CloudChatHandoff,
+  cloudChatHandoffKey,
+  cloudChatTurnKey,
+} from "./cloud-chat-admission.js";
 import { verifyUserToken } from "./auth-jwt.js";
 import { OwnerStore } from "./owner-store/store.js";
-import { ownerRegistry } from "./owner-store/domains.js";
-import type { OwnerCaller, OwnerHost, OwnerPurgeMode, OwnerRegistry } from "./owner-store/registry.js";
-import { createGateHost, parseDeviceAgentDispatchKey } from "./owner-store/gate-host.js";
+import type {
+  OwnerCaller,
+  OwnerHost,
+  OwnerPurgeMode,
+} from "./owner-store/registry.js";
+import { createGateHost } from "./owner-store/gate-host.js";
 import { RpcError, toBackendError } from "./owner-store/errors.js";
 import { applyOwnerEventsToStore } from "./owner-store/owner-events.js";
 import type { RpcResponse } from "@stella/contracts/backend/protocol";
 import {
-  HEADER_ANONYMOUS,
-  HEADER_IDENTITY_LEVEL,
-  HEADER_OWNER,
-  HEADER_SESSION,
-  HEADER_SUBJECT,
-  HEADER_TOKEN_EXP,
-  HEADER_TOKEN_IAT,
-} from "./conversation-types.js";
+  GATEWAY_CAPABILITY_ISSUERS,
+  GATEWAY_SESSION_CAPABILITY_TTL_MS,
+} from "@stella/contracts/gateway/capability";
+import { signCapability } from "@stella/contracts/gateway/jwt";
+import type {
+  GatewaySessionCapabilityResponse,
+  IdentityLevel,
+} from "@stella/contracts/gateway/api";
+import {
+  OWNER_SNAPSHOT_VERSION,
+  type OwnerSnapshot,
+} from "@stella/contracts/turn-plane/owner-snapshot";
+import {
+  beginOwnerPurge,
+  callerSessionRevoked,
+  noteCallerIdentity,
+  readOwnerState,
+} from "./owner-store/domains/account.js";
+import type {
+  BillingControlResult,
+  GatewayUsageEvent,
+  OwnerEnforcementState,
+  SessionCapabilityRequest,
+} from "@stella/contracts/gateway/usage";
+import {
+  type BillingPlan,
+  CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE,
+} from "@stella/contracts/backend/billing";
+import {
+  applyGatewayUsage,
+  applyStripeEvent,
+  billingAccess,
+  type BillingAccess,
+  billingPaying,
+  closeStripeCustomer,
+  cloudSandboxAccess,
+  recordBillingIdentity,
+  reserveSessionGrant,
+  setAdminPlan,
+  turnAllowance,
+  type UsageBatchResult,
+} from "./owner-store/domains/billing.js";
+import {
+  abuseState,
+  admitSession,
+  chargeAnonymousNetworks,
+  enforcementForSnapshot,
+  readEnforcement,
+  recordGatewayUsageRisk,
+  setEnforcement,
+  type SetEnforcementInput,
+} from "./owner-store/domains/abuse.js";
+import {
+  handleMobileRoute,
+  type MobileRouteInput,
+  snapshotDevices,
+} from "./owner-store/domains/devices.js";
+import {
+  handleUserAskRoute,
+  type UserAskRouteInput,
+} from "./owner-store/domains/user-asks.js";
+import type {
+  DeviceToolCall,
+  DeviceToolOutcome,
+} from "@stella/contracts/turn-plane/device-tools";
+import { snapshotEngines } from "./owner-store/domains/engines.js";
+import type { StripeEvent } from "./billing/stripe.js";
+import { BillingConfigError } from "./billing/plans.js";
+import { capabilitySigningKey } from "./capability-signer.js";
+import {
+  type AgentMessageDeviceOutcome,
+  CLOUD_CAPABILITIES,
+  DEVICE_PRESENCE_CLOSE,
+  DEVICE_PRESENCE_MAX_FRAME_BYTES,
+  DEVICE_PRESENCE_PING_INTERVAL_MS,
+  DEVICE_PRESENCE_STALE_AFTER_MS,
+  DEVICE_PRESENCE_SUBPROTOCOL,
+  type DeviceDestination,
+  type DevicePresenceDeviceFrame,
+  type DevicesResponse,
+  DISPATCH_ACCEPTED_LEASE_MS,
+  DISPATCH_OFFER_WINDOW_MS,
+  DISPATCH_PAYLOAD_TTL_MS,
+  type DispatchError,
+  type DispatchState,
+  PLACEMENT_PROTOCOL,
+} from "@stella/contracts/turn-plane/placement";
+import {
+  canonicalDispatchPayloadJson,
+  sha256Hex,
+} from "@stella/contracts/turn-plane/pairing-proof";
+import type { OwnerEvent } from "@stella/contracts/turn-plane/owner-events";
+import {
+  decideDispatchPlacement,
+  type DevicePresenceState,
+  isTerminalDispatchState,
+  MAX_DEVICE_ID_CHARS,
+  MAX_DISPATCH_PAYLOAD_BYTES,
+} from "./dispatch-policy.js";
+import type { OwnerModelGrant } from "./owner-model-grants.js";
+import { MemoryPolicyError } from "./memory-policy.js";
+import type {
+  MemoryPolicy,
+  MemoryPolicyChange,
+} from "@stella/contracts/turn-plane/memory-policy";
+import { createOwnerFenceHost } from "./owner-fence-do.js";
+import type {
+  OwnerGateAdmitInput,
+  OwnerGateAdmission,
+  OwnerGateAdmissionWithLease,
+  OwnerGateFenceLeaseRequest,
+  OwnerGateSnapshotWithLease,
+  DispatchRow,
+  OwnerGateSubmitInput,
+  OwnerGateCancelInput,
+  OwnerGateDispatchResult,
+  OwnerGateStatusResult,
+} from "./owner-gate/types.js";
+import {
+  HEADER_PRESENCE_DEVICE_ID,
+  OWNER_GATE_RUNNING_GRACE_MS,
+  OWNER_AGENT_CONTAINER_LIMIT,
+  SNAPSHOT_TTL_MS,
+  STEER_ACK_TIMEOUT_MS,
+  LOCAL_AGENT_MESSAGE_ACK_TIMEOUT_MS,
+} from "./owner-gate/constants.js";
+import {
+  type PresenceAttachment,
+  presenceTag,
+  withReleasedClientSelectability,
+} from "./owner-gate/presence.js";
+import {
+  withTimeout,
+  ownerFenceRequest,
+  OwnerGateSnapshotError,
+  log,
+  isRecord,
+  snapshotAllowsCloudSandbox,
+  refuse,
+  dispatchSummary,
+  fail,
+  trustedOwnerCaller,
+} from "./owner-gate/support.js";
+import { OwnerGateCloudDispatch } from "./owner-gate/cloud-dispatch.js";
+
 /**
  * The owner gate: one Durable Object per owner, named by ownerId, that
  * answers "may this owner start a turn right now?" from its own tables.
@@ -35,788 +177,51 @@ import {
  *
  * Refusals are values, never thrown: an RPC caller maps them straight to the
  * turn-start error contract.
+ *
+ * Every public method of `OwnerGate` is its RPC surface; the helpers behind
+ * them live in the `owner-gate/` layers it extends.
  */
 
-import { DurableObject } from "cloudflare:workers";
-import {
-  GATEWAY_CAPABILITY_ISSUERS,
-  GATEWAY_SESSION_CAPABILITY_TTL_MS,
-  isManagedModelAudience,
-} from "@stella/contracts/gateway/capability";
-import { signCapability } from "@stella/contracts/gateway/jwt";
-import type { GatewaySessionCapabilityResponse } from "@stella/contracts/gateway/api";
-import {
-  OWNER_SNAPSHOT_VERSION,
-  type OwnerSnapshot,
-} from "@stella/contracts/turn-plane/owner-snapshot";
-import type { IdentityLevel } from "@stella/contracts/gateway/api";
-import {
-  beginOwnerPurge,
-  callerSessionRevoked,
-  noteCallerIdentity,
-  readOwnerState,
-} from "./owner-store/domains/account.js";
-import {
-  type BillingControlResult,
-  type OwnerEnforcementState,
-  type SessionCapabilityRequest,
-  type GatewayUsageEvent,
-} from "@stella/contracts/gateway/usage";
-import {
-  CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE,
-  type BillingPlan,
-} from "@stella/contracts/backend/billing";
-import type { TelemetryEventV1 } from "@stella/contracts/telemetry";
-import {
-  applyGatewayUsage,
-  applyStripeEvent,
-  billingAccess,
-  billingPaying,
-  cloudSandboxAccess,
-  closeStripeCustomer,
-  recordBillingIdentity,
-  reserveSessionGrant,
-  setAdminPlan,
-  turnAllowance,
-  type BillingAccess,
-  type UsageBatchResult,
-} from "./owner-store/domains/billing.js";
-import {
-  abuseState,
-  admitSession,
-  chargeAnonymousNetworks,
-  enforcementForSnapshot,
-  readEnforcement,
-  recordGatewayUsageRisk,
-  setEnforcement,
-  type SetEnforcementInput,
-} from "./owner-store/domains/abuse.js";
-import { handleMobileRoute, snapshotDevices, type MobileRouteInput } from "./owner-store/domains/devices.js";
-import { handleUserAskRoute, type UserAskRouteInput } from "./owner-store/domains/user-asks.js";
-import { DeviceRequestRelay, deviceRequestErrorResponse } from "./device-request-relay.js";
-import {
-  DEVICE_REQUEST_LIMITS,
-  isDeviceRequestMethod,
-  type DeviceRequestDeviceFrame,
-} from "@stella/contracts/turn-plane/device-requests";
-import { snapshotEngines } from "./owner-store/domains/engines.js";
-import type { StripeEvent } from "./billing/stripe.js";
-import { BillingConfigError } from "./billing/plans.js";
-import { capabilitySigningKey } from "./capability-signer.js";
-import {
-  CLOUD_CAPABILITIES,
-  DEVICE_PRESENCE_CLOSE,
-  DEVICE_PRESENCE_MAX_FRAME_BYTES,
-  DEVICE_PRESENCE_PING_INTERVAL_MS,
-  DEVICE_PRESENCE_PROOF_PREFIX,
-  DEVICE_PRESENCE_PROTOCOL_VERSION,
-  DEVICE_PRESENCE_STALE_AFTER_MS,
-  DEVICE_PRESENCE_SUBPROTOCOL,
-  DISPATCH_ACCEPTED_LEASE_MS,
-  DISPATCH_CLAIM_LEASE_MS,
-  DISPATCH_OFFER_WINDOW_MS,
-  DISPATCH_PAYLOAD_TTL_MS,
-  PLACEMENT_PROTOCOL,
-  SELECTED_DEVICE_NEEDS_CONSENT,
-  type DeviceAvailability,
-  type DeviceDestination,
-  type DeviceRemoteExecution,
-  type AgentMessageDeviceOutcome,
-  type DevicePresenceDeviceFrame,
-  type DevicePresenceServerFrame,
-  type DevicesResponse,
-  type DispatchError,
-  type DispatchPayload,
-  type DispatchState,
-  type DispatchStatusResponse,
-  type DispatchSubmitRequest,
-  type DispatchSubmitResponse,
-  type DispatchSummary,
-  type ExecutionCapability,
-  type ExecutionIngress,
-  type ExecutionKind,
-  type ExecutionSubject,
-  type ExecutionTargetMode,
-} from "@stella/contracts/turn-plane/placement";
-import {
-  canonicalDispatchPayloadJson,
-  sha256Hex,
-} from "@stella/contracts/turn-plane/pairing-proof";
-import type { OwnerEvent } from "@stella/contracts/turn-plane/owner-events";
-import {
-  TURN_OWNER_GENERATION_HEADER,
-  TURN_PLANE_PROTOCOL,
-  type CloudAgentTurnStartRequest,
-  type CloudAgentTurnStartResponse,
-  type CloudTurnStartRequest,
-  type CloudTurnStartResponse,
-} from "@stella/contracts/turn-plane/turn-start";
-import {
-  HEADER_GATE_ADMITTED,
-  HEADER_TURN_AUTH_KIND,
-} from "./turn-start-request.js";
-import {
-  MAX_DEVICE_ID_CHARS,
-  MAX_DISPATCH_PAYLOAD_BYTES,
-  MAX_OFFERS_PER_DISPATCH,
-  cloudUnsupportedCapabilities,
-  decideDispatchPlacement,
-  dispatchError,
-  isEligibleDevice,
-  isTerminalDispatchState,
-  type DevicePresenceState,
-  type DeviceRegistration,
-} from "./dispatch-policy.js";
-import { OwnerFenceStore } from "./owner-fence-store.js";
-import { OwnerModelGrantStore, type OwnerModelGrant, type OwnerModelGrantRevokeAllInput } from "./owner-model-grants.js";
-import { OwnerMemoryPolicy, MemoryPolicyError } from "./memory-policy.js";
-import { applyMemoryPolicyChange, readMemoryPolicy } from "./owner-store/domains/home.js";
-import type { MemoryPolicy, MemoryPolicyChange } from "@stella/contracts/turn-plane/memory-policy";
-import {
-  HEADER_OWNER_FENCE_ID,
-  createOwnerFenceHost,
-} from "./owner-fence-do.js";
-import type {
-  OwnerFenceLeaseNamespace,
-  OwnerFenceLeaseRole,
-} from "./owner-fence-store.js";
+export type {
+  OwnerGateEnv,
+  OwnerGateLane,
+  OwnerGateAdmitInput,
+  OwnerGateRefusalCode,
+  OwnerGateRefusal,
+  OwnerGateAdmission,
+  OwnerGateAdmissionWithLease,
+  OwnerGateFenceLeaseRequest,
+  OwnerGateFenceLeaseOutcome,
+  OwnerGateSnapshotWithLease,
+  OwnerGateSubmitInput,
+  OwnerGateCancelInput,
+  OwnerGateDispatchResult,
+  OwnerGateStatusResult,
+} from "./owner-gate/types.js";
+export {
+  HEADER_PRESENCE_DEVICE_ID,
+  HEADER_DEVICE_REQUEST_MOBILE_ID,
+  HEADER_DEVICE_REQUEST_ID,
+  HEADER_DEVICE_REQUEST_METHOD,
+  OWNER_GATE_RUNNING_GRACE_MS,
+  OWNER_AGENT_CONTAINER_LIMIT,
+  DISPATCH_CLOUD_RETRY_DELAY_MS,
+  DISPATCH_CLOUD_MAX_ATTEMPTS,
+} from "./owner-gate/constants.js";
+export {
+  devicePresenceProofMessage,
+  verifyDevicePresenceProof,
+} from "./owner-gate/presence.js";
+export {
+  OwnerGateSnapshotError,
+  snapshotAllowsExecutionEngine,
+  snapshotAllowsCloudSandbox,
+  dispatchSummary,
+} from "./owner-gate/support.js";
 
-export type OwnerGateEnv = Pick<
-  Cloudflare.Env,
-  | "BUILDER_SERVICE_SECRET"
-  | "BACKUP_BUCKET"
-  | "MODEL_GATEWAY_CONTROL"
-> &
-  Partial<
-    Pick<
-      Cloudflare.Env,
-      | "AGENT_HOME"
-      | "TURN_TIMEOUT_MS"
-      | "ORCHESTRATOR_SESSIONS"
-      | "BUILD_SESSIONS"
-      | "CAPABILITY_SIGNING_KEY"
-      | "CAPABILITY_SIGNING_KID"
-      | "TELEMETRY"
-      | "TELEMETRY_ENVIRONMENT"
-    >
-  >;
-
-
-/** Trusted headers the Worker stamps on a forwarded presence upgrade. */
-export const HEADER_PRESENCE_DEVICE_ID = "x-stella-device-id";
-
-/** Trusted headers the Worker stamps on a forwarded device request. */
-export const HEADER_DEVICE_REQUEST_MOBILE_ID = "x-stella-device-request-mobile-id";
-export const HEADER_DEVICE_REQUEST_ID = "x-stella-device-request-id";
-export const HEADER_DEVICE_REQUEST_METHOD = "x-stella-device-request-method";
-
-export type OwnerGateLane = "chat" | "agent";
-
-export type OwnerGateAdmitInput = {
-  lane: OwnerGateLane;
-  turnId: string;
-  conversationId: string;
-  /**
-   * Service callers pin the owner generation they dispatched with. A
-   * mismatch after a forced snapshot refresh is `generation_stale`.
-   */
-  expectedGeneration?: string;
-  deferCloudSandboxCheck?: boolean;
-  /** Test seam; defaults to `Date.now()`. */
-  now?: number;
-};
-
-export type OwnerGateRefusalCode =
-  | "owner_purged"
-  | "sign_in_required"
-  | "subscription_required"
-  | "owner_suspended"
-  | "generation_stale"
-  | "internal";
-
-export type OwnerGateRefusal = {
-  ok: false;
-  code: OwnerGateRefusalCode;
-  message: string;
-  retryable: boolean;
-  retryAfterMs?: number;
-};
-
-export type OwnerGateAdmission =
-  | { ok: true; snapshot: OwnerSnapshot; replayed: boolean }
-  | OwnerGateRefusal;
-
-export type OwnerGateAdmissionWithLease =
-  | {
-      admission: Extract<OwnerGateAdmission, { ok: true }>;
-      homeContext?: OwnerHomeContext;
-      destinations?: DevicesResponse;
-      lease: OwnerGateFenceLeaseOutcome;
-    }
-  | {
-      admission: OwnerGateRefusal;
-      lease: { status: "skipped"; reason: "admission_refused" };
-    };
-
-/** One exact owner-fence lease carried along with a snapshot read. */
-export type OwnerGateFenceLeaseRequest = {
-  leaseId: string;
-  sessionId: string;
-  turnId: string;
-  ownerGeneration: string;
-  namespace: OwnerFenceLeaseNamespace;
-  role: OwnerFenceLeaseRole;
-  /** The open-fence generation an exact replay expects to still hold. */
-  generation?: string;
-  expiresAt?: number;
-};
-
-export type OwnerGateFenceLeaseOutcome =
-  | { status: "registered"; generation: string; expiresAt: number }
-  /** The fence host refused, exactly as `POST /owner-fence/register` would. */
-  | { status: "refused"; httpStatus: number; code?: string; error?: string }
-  /** The snapshot did not authorize the caller, so no register was tried. */
-  | { status: "skipped"; reason: "not_writable" | "generation_stale" };
-
-export type OwnerGateSnapshotWithLease =
-  | { snapshot: OwnerSnapshot; lease: OwnerGateFenceLeaseOutcome }
-  | {
-      snapshot: null;
-      snapshotError: {
-        code: "owner_purged" | "internal";
-        message: string;
-        retryable: boolean;
-      };
-      lease: { status: "skipped"; reason: "snapshot_unavailable" };
-    };
-
-/** Grace added to `TURN_TIMEOUT_MS` before a running row is presumed released. */
-export const OWNER_GATE_RUNNING_GRACE_MS = 60_000;
-/**
- * Agent containers one owner may run at once. Every agent thread has a
- * container of its own (standard-2, about $0.057/h while it runs), so this is
- * what bounds an owner's container spend and keeps a runaway fan-out from
- * taking the account's container capacity: six small ones are about $0.34/h.
- * It is above any parallel spawn the orchestrator makes in practice, and an
- * agent that would be the seventh waits for one to finish
- * (`AGENT_CONTAINER_WAIT_MS`) rather than failing outright. The
- * orchestrator's own container does not count, so the user's chat is never
- * queued behind background work.
- */
-export const OWNER_AGENT_CONTAINER_LIMIT = 6;
-/** A cloud start refused as unavailable (503) is retried once, after this. */
-export const DISPATCH_CLOUD_RETRY_DELAY_MS = 1_000;
-export const DISPATCH_CLOUD_MAX_ATTEMPTS = 2;
-const DEFAULT_TURN_TIMEOUT_MS = 900_000;
-const OWNER_MODEL_GRANT_FREEZE_TIMEOUT_MS = 5_000;
-const CLOUD_CHAT_READER_PREPARE_TIMEOUT_MS = 1_000;
-
-/** Reject with `message` after `ms`; the underlying work is not cancelled. */
-const withTimeout = <T>(work: Promise<T>, ms: number, message: string): Promise<T> => {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms);
-  });
-  return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
-};
-
-const ownerFenceRequest = (path: string, body: unknown, headers?: Record<string, string>): Request =>
-  new Request(`https://owner-gate/owner-fence/${path}`, {
-    method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body),
-  });
-const CLOUD_CHAT_READER_PREPARE_CACHE_MAX = 128;
-/** How long a snapshot may be reused by its readers; it is rebuilt locally on every read. */
-const SNAPSHOT_TTL_MS = 30_000;
-const DDL = [
-  `CREATE TABLE IF NOT EXISTS running (
-     turn_id         TEXT    PRIMARY KEY,
-     lane            TEXT    NOT NULL,
-     conversation_id TEXT    NOT NULL,
-     started_at      INTEGER NOT NULL
-   )`,
-  `CREATE INDEX IF NOT EXISTS running_lane ON running(lane)`,
-  // One row per agent container that is running a turn
-  // (`acquireAgentContainer`). Keyed by the container, so an attach retry or
-  // an OOM restart of the same agent never takes a second slot.
-  `CREATE TABLE IF NOT EXISTS agent_containers (
-     sandbox_id  TEXT    PRIMARY KEY,
-     acquired_at INTEGER NOT NULL
-   )`,
-  // One row per device that has ever proven itself here. `connected` goes
-  // false on close rather than deleting the row, so an offline device still
-  // reports its last availability to `GET /owners/me/devices`.
-  `CREATE TABLE IF NOT EXISTS device_presence (
-     device_id           TEXT    PRIMARY KEY,
-     presence_session_id TEXT    NOT NULL,
-     connection_id       TEXT    NOT NULL,
-     connected           INTEGER NOT NULL,
-     ready               INTEGER NOT NULL,
-     chat_slots          INTEGER NOT NULL,
-     agent_slots         INTEGER NOT NULL,
-     capabilities        TEXT    NOT NULL,
-     protocol_version    INTEGER NOT NULL,
-     last_seen_at        INTEGER NOT NULL,
-     updated_at          INTEGER NOT NULL
-   )`,
-  `CREATE TABLE IF NOT EXISTS dispatches (
-     dispatch_id                  TEXT    PRIMARY KEY,
-     idempotency_key              TEXT    NOT NULL,
-     owner_generation             TEXT    NOT NULL,
-     kind                         TEXT    NOT NULL,
-     ingress                      TEXT    NOT NULL,
-     subject                      TEXT    NOT NULL,
-     requested_target_mode        TEXT,
-     requested_executor_device_id TEXT,
-     conversation_id              TEXT    NOT NULL,
-     parent_turn_id               TEXT,
-     thread_id                    TEXT,
-     requesting_device_id         TEXT,
-     pair_grant_device_id         TEXT,
-     required_capabilities        TEXT    NOT NULL,
-     routing_fingerprint          TEXT    NOT NULL,
-     state                        TEXT    NOT NULL,
-     placement                    TEXT,
-     executor_device_id           TEXT,
-     executor_presence_session_id TEXT,
-     on_no_eligible_computer      TEXT    NOT NULL,
-     revision                     INTEGER NOT NULL,
-     fallback_reason              TEXT,
-     cancel_request_id            TEXT,
-     cancel_reason                TEXT,
-     error_code                   TEXT,
-     error_message                TEXT,
-     result_json                  TEXT,
-     cloud_turn_id                TEXT,
-     cloud_thread_id              TEXT,
-     payload_json                 TEXT,
-     payload_hash                 TEXT    NOT NULL,
-     payload_expires_at           INTEGER,
-     offer_deadline_at            INTEGER,
-     lease_expires_at             INTEGER,
-     started_at                   INTEGER,
-     cloud_attempts               INTEGER NOT NULL DEFAULT 0,
-     cloud_retry_at               INTEGER,
-     gate_held                    INTEGER NOT NULL,
-     created_at                   INTEGER NOT NULL,
-     updated_at                   INTEGER NOT NULL
-   )`,
-  `CREATE TABLE IF NOT EXISTS cloud_dispatch_terminals (
-     turn_id TEXT NOT NULL, owner_generation TEXT NOT NULL,
-     outcome TEXT NOT NULL, result_json TEXT, error_message TEXT,
-     created_at INTEGER NOT NULL, PRIMARY KEY (turn_id, owner_generation)
-   )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS dispatches_idempotency
-     ON dispatches(idempotency_key)`,
-  `CREATE INDEX IF NOT EXISTS dispatches_state ON dispatches(state)`,
-  // Deadline lookups run on every alarm and every authenticated call, so each
-  // one is answered by a seek into a partial index keyed by state. Terminal
-  // dispatches (blocked, canceled, completed, failed) carry no deadline that
-  // can fire, and this object keeps them forever.
-  `CREATE INDEX IF NOT EXISTS dispatches_offer_deadline
-     ON dispatches(state, offer_deadline_at)
-     WHERE offer_deadline_at IS NOT NULL`,
-  `CREATE INDEX IF NOT EXISTS dispatches_lease_deadline
-     ON dispatches(state, lease_expires_at)
-     WHERE lease_expires_at IS NOT NULL`,
-  `CREATE INDEX IF NOT EXISTS dispatches_cloud_retry
-     ON dispatches(state, cloud_retry_at)
-     WHERE cloud_retry_at IS NOT NULL`,
-  `CREATE INDEX IF NOT EXISTS dispatches_payload_expiry
-     ON dispatches(payload_expires_at)
-     WHERE payload_json IS NOT NULL AND payload_expires_at IS NOT NULL`,
-  `CREATE TABLE IF NOT EXISTS dispatch_offers (
-     dispatch_id         TEXT    NOT NULL,
-     device_id           TEXT    NOT NULL,
-     presence_session_id TEXT    NOT NULL,
-     status              TEXT    NOT NULL,
-     expires_at          INTEGER NOT NULL,
-     created_at          INTEGER NOT NULL,
-     updated_at          INTEGER NOT NULL,
-     PRIMARY KEY (dispatch_id, device_id)
-   )`,
-  `CREATE INDEX IF NOT EXISTS dispatch_offers_device
-     ON dispatch_offers(device_id, status)`,
-];
-
-/** How long a steer waits for the device to confirm the agent took it. */
-const STEER_ACK_TIMEOUT_MS = 10_000;
-const LOCAL_AGENT_MESSAGE_ACK_TIMEOUT_MS = 8_000;
-const AGENT_MESSAGE_OUTCOMES: ReadonlySet<string> = new Set<AgentMessageDeviceOutcome>([
-  "steered",
-  "queued",
-  "resumed",
-  "not_found",
-  "refused",
-]);
-
-/**
- * The floor under every re-arm. A deadline that is already past due would
- * otherwise schedule a wake a quarter-second out, which turns any deadline the
- * object cannot clear into a hot alarm loop.
- */
-const ALARM_MIN_DELAY_MS = 1_000;
-
-/** How the snapshot fetch failed. `owner_purged` is definite; the rest are not. */
-export class OwnerGateSnapshotError extends Error {
-  constructor(
-    readonly code: "owner_purged" | "internal",
-    message: string,
-    readonly retryable: boolean,
-  ) {
-    super(message);
-    this.name = "OwnerGateSnapshotError";
-  }
-}
-
-const log = (
-  level: "info" | "error",
-  event: string,
-  fields: Record<string, unknown> = {},
-) => {
-  console[level](
-    JSON.stringify({
-      service: "stella-v2-cloud-builder",
-      component: "owner-gate",
-      event,
-      timestamp: new Date().toISOString(),
-      ...fields,
-    }),
-  );
-};
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-/** True when the snapshot lets a turn pin this execution's engine. */
-export const snapshotAllowsExecutionEngine = (
-  snapshot: Pick<OwnerSnapshot, "connectedEngines">,
-  engine: OwnerSnapshot["execution"]["engine"],
-): boolean =>
-  engine === "stella" || (snapshot.connectedEngines ?? []).includes(engine);
-
-export const snapshotAllowsCloudSandbox = (
-  snapshot: Pick<OwnerSnapshot, "cloudSandbox">,
-): boolean => snapshot.cloudSandbox?.enabled !== false;
-
-const refuse = (
-  code: OwnerGateRefusalCode,
-  message: string,
-  retryable: boolean,
-  retryAfterMs?: number,
-): OwnerGateRefusal => ({
-  ok: false,
-  code,
-  message,
-  retryable,
-  ...(retryAfterMs !== undefined
-    ? { retryAfterMs: Math.max(0, Math.ceil(retryAfterMs)) }
-    : {}),
-});
-
-// ---------------------------------------------------------------------------
-// Device presence and placement
-// ---------------------------------------------------------------------------
-
-/**
- * Everything a presence socket needs to be understood after a hibernation
- * eviction. There is deliberately no in-memory socket map: `getWebSockets()`
- * plus `deserializeAttachment()` is the only thing that survives eviction.
- */
-type PresenceAttachment = {
-  v: 1;
-  deviceId: string;
-  authExpiresAtMs: number;
-  connectionId: string;
-  nonce: string;
-  presenceSessionId?: string;
-  availability?: DeviceAvailability;
-  phase: "challenged" | "begun" | "connected";
-  lastSeenAtMs: number;
-};
-
-const presenceTag = (deviceId: string): string => `device:${deviceId}`;
-
-/** The exact bytes a device signs to prove it holds the registered key. */
-export const devicePresenceProofMessage = (args: {
-  connectionId: string;
-  nonce: string;
-}): string =>
-  `${DEVICE_PRESENCE_PROOF_PREFIX}\0${args.connectionId}\0${args.nonce}`;
-
-const decodeBase64 = (value: string): Uint8Array | null => {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-  let binary: string;
-  try {
-    binary = atob(padded);
-  } catch {
-    return null;
-  }
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-};
-
-const exactBuffer = (bytes: Uint8Array): ArrayBuffer =>
-  bytes.buffer.slice(
-    bytes.byteOffset,
-    bytes.byteOffset + bytes.byteLength,
-  ) as ArrayBuffer;
-
-/**
- * Ed25519 over the SPKI public key the owner snapshot registered. Any failure
- * — malformed material, unknown curve, bad signature — is one answer: the
- * proof is rejected. Telling them apart would only help an attacker.
- */
-export const verifyDevicePresenceProof = async (args: {
-  publicKey: string;
-  message: string;
-  signature: string;
-}): Promise<boolean> => {
-  const publicKeyBytes = decodeBase64(args.publicKey);
-  const signatureBytes = decodeBase64(args.signature);
-  if (
-    !publicKeyBytes ||
-    !signatureBytes ||
-    publicKeyBytes.byteLength > 256 ||
-    signatureBytes.byteLength !== 64
-  ) {
-    return false;
-  }
-  try {
-    const key = await crypto.subtle.importKey(
-      "spki",
-      exactBuffer(publicKeyBytes),
-      { name: "Ed25519" },
-      false,
-      ["verify"],
-    );
-    return await crypto.subtle.verify(
-      { name: "Ed25519" },
-      key,
-      exactBuffer(signatureBytes),
-      new TextEncoder().encode(args.message),
-    );
-  } catch {
-    return false;
-  }
-};
-
-const CAPABILITY_VALUES: readonly ExecutionCapability[] = [
-  "chat",
-  "agent",
-  "computer-use",
-  "local-files",
-  "local-apps",
-  "attachments",
-];
-
-const withReleasedClientSelectability = (availability: DeviceAvailability) => {
-  const selectable = availability.ready ? 1 : 0;
-  return { ...availability, chatSlots: selectable, agentSlots: selectable };
-};
-
-const parseAvailability = (value: unknown): DeviceAvailability | null => {
-  if (!isRecord(value)) return null;
-  if (typeof value.ready !== "boolean") return null;
-  if (!Array.isArray(value.capabilities) || value.capabilities.length > 16) {
-    return null;
-  }
-  const capabilities: ExecutionCapability[] = [];
-  for (const capability of value.capabilities) {
-    if (!CAPABILITY_VALUES.includes(capability as ExecutionCapability)) {
-      return null;
-    }
-    if (!capabilities.includes(capability as ExecutionCapability)) {
-      capabilities.push(capability as ExecutionCapability);
-    }
-  }
-  return {
-    ready: value.ready,
-    capabilities,
-  };
-};
-
-type PresenceRow = {
-  device_id: string;
-  presence_session_id: string;
-  connection_id: string;
-  connected: number;
-  ready: number;
-  capabilities: string;
-  protocol_version: number;
-  last_seen_at: number;
-};
-
-const presenceState = (row: PresenceRow): DevicePresenceState => ({
-  deviceId: row.device_id,
-  presenceSessionId: row.presence_session_id,
-  connected: row.connected === 1,
-  ready: row.ready === 1,
-  capabilities: JSON.parse(row.capabilities) as ExecutionCapability[],
-  protocolVersion: row.protocol_version,
-  lastSeenAt: row.last_seen_at,
-});
-
-type DispatchRow = {
-  dispatch_id: string;
-  idempotency_key: string;
-  owner_generation: string;
-  kind: string;
-  ingress: string;
-  subject: string;
-  requested_target_mode: string | null;
-  requested_executor_device_id: string | null;
-  conversation_id: string;
-  parent_turn_id: string | null;
-  thread_id: string | null;
-  requesting_device_id: string | null;
-  pair_grant_device_id: string | null;
-  required_capabilities: string;
-  routing_fingerprint: string;
-  state: string;
-  placement: string | null;
-  executor_device_id: string | null;
-  executor_presence_session_id: string | null;
-  on_no_eligible_computer: string;
-  revision: number;
-  fallback_reason: string | null;
-  cancel_request_id: string | null;
-  cancel_reason: string | null;
-  error_code: string | null;
-  error_message: string | null;
-  result_json?: string | null;
-  cloud_turn_id: string | null;
-  cloud_thread_id: string | null;
-  payload_json: string | null;
-  payload_hash: string;
-  payload_expires_at: number | null;
-  offer_deadline_at: number | null;
-  lease_expires_at: number | null;
-  started_at: number | null;
-  cloud_attempts: number;
-  cloud_retry_at: number | null;
-  gate_held: number;
-  created_at: number;
-  updated_at: number;
-};
-
-const optional = <T>(value: T | null | undefined, key: string) =>
-  value === null || value === undefined || value === "" ? {} : { [key]: value };
-
-export const dispatchSummary = (row: DispatchRow): DispatchSummary => ({
-  dispatchId: row.dispatch_id,
-  idempotencyKey: row.idempotency_key,
-  kind: row.kind as ExecutionKind,
-  ingress: row.ingress as ExecutionIngress,
-  subject: row.subject as ExecutionSubject,
-  ...(optional(row.requested_target_mode, "requestedTargetMode") as {
-    requestedTargetMode?: ExecutionTargetMode;
-  }),
-  ...optional(row.requested_executor_device_id, "requestedExecutorDeviceId"),
-  conversationId: row.conversation_id,
-  ...optional(row.parent_turn_id, "parentTurnId"),
-  ...optional(row.thread_id, "threadId"),
-  state: row.state as DispatchState,
-  ...(optional(row.placement, "placement") as {
-    placement?: "computer" | "cloud";
-  }),
-  ...optional(row.executor_device_id, "executorDeviceId"),
-  ...optional(row.executor_presence_session_id, "executorPresenceSessionId"),
-  revision: row.revision,
-  ...optional(row.fallback_reason, "fallbackReason"),
-  ...optional(row.cancel_request_id, "cancelRequestId"),
-  ...optional(row.cancel_reason, "cancelReason"),
-  ...optional(row.error_code, "errorCode"),
-  ...optional(row.error_message, "errorMessage"),
-  ...optional(row.result_json, "resultJson"),
-  ...optional(row.cloud_turn_id, "cloudTurnId"),
-  ...optional(row.cloud_thread_id, "cloudThreadId"),
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-});
-
-export type OwnerGateSubmitInput = {
-  request: DispatchSubmitRequest;
-  /** Service callers pin the generation they dispatched with. */
-  expectedGeneration?: string;
-  /** Mobile only: the paired desktop the verified proof names. */
-  pairGrantDeviceId?: string;
-  now?: number;
-};
-
-export type OwnerGateCancelInput = {
-  dispatchId: string;
-  cancelRequestId: string;
-  reason?: string;
-  now?: number;
-};
-
-export type OwnerGateDispatchResult =
-  | { ok: true; response: DispatchSubmitResponse }
-  | { ok: false; error: DispatchError["error"] };
-
-export type OwnerGateStatusResult =
-  | { ok: true; response: DispatchStatusResponse }
-  | { ok: false; error: DispatchError["error"] };
-
-const fail = (
-  code: DispatchError["error"]["code"],
-  message: string,
-  retryable: boolean,
-  retryAfterMs?: number,
-): { ok: false; error: DispatchError["error"] } => ({
-  ok: false,
-  error: dispatchError(code, message, retryable, retryAfterMs).error,
-});
-
-/**
- * The caller the Worker verified, rebuilt from the `x-stella-*` headers it
- * stamps after stripping the client's own. Null when any part is missing.
- */
-const trustedOwnerCaller = (request: Request): OwnerCaller | null => {
-  const ownerId = request.headers.get(HEADER_OWNER)?.trim() ?? "";
-  const subject = request.headers.get(HEADER_SUBJECT)?.trim() ?? "";
-  const sessionId = request.headers.get(HEADER_SESSION)?.trim() ?? "";
-  const expiresAtMs = Number(request.headers.get(HEADER_TOKEN_EXP));
-  const identityLevel = Number(request.headers.get(HEADER_IDENTITY_LEVEL) ?? NaN);
-  const issuedAtMs = Number(request.headers.get(HEADER_TOKEN_IAT) ?? NaN);
-  if (!ownerId || !subject || !Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
-    return null;
-  }
-  return {
-    ownerId,
-    subject,
-    sessionId,
-    expiresAtMs,
-    isAnonymous: request.headers.get(HEADER_ANONYMOUS) === "1",
-    ...(identityLevel === 0 || identityLevel === 1 || identityLevel === 2 || identityLevel === 3
-      ? { identityLevel }
-      : {}),
-    ...(Number.isSafeInteger(issuedAtMs) ? { issuedAtMs } : {}),
-  };
-};
-
-export class OwnerGate extends DurableObject<OwnerGateEnv> {
-  private schemaReady = false;
-  /** Steers waiting for their device's `steer.ack`, by dispatch and message. */
-  private readonly steerAcks = new Map<string, (delivered: boolean) => void>();
-  /** Local-agent messages waiting for `agent-message.ack`, by device and message. */
-  private readonly localAgentMessageAcks = new Map<
-    string,
-    (outcome: AgentMessageDeviceOutcome) => void
-  >();
-  private deviceRequestRelayState?: DeviceRequestRelay;
-  private ownerStoreState?: OwnerStore;
-  private ownerHostState?: OwnerHost;
-  /** The domains this object serves. Test fixtures substitute their own. */
-  protected backendRegistry(): OwnerRegistry {
-    return ownerRegistry;
-  }
+export class OwnerGate extends OwnerGateCloudDispatch {
   private ownerHost(): OwnerHost {
-    return this.ownerHostState ??= createGateHost({
+    return (this.ownerHostState ??= createGateHost({
       ownerId: () => this.ownerId(),
       env: this.env as unknown as Cloudflare.Env,
       snapshot: () => this.snapshot(),
@@ -833,22 +238,25 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       applyOwnerEvents: (events) => this.applyOwnerEvents(events),
       purgeOwner: (mode, requestId) => this.purgeOwnerPass(mode, requestId),
       log,
-    });
+    }));
   }
   /** The owner's database: backend calls, live views and jobs. */
   ownerStore(): OwnerStore {
-    return this.ownerStoreState ??= new OwnerStore({
+    return (this.ownerStoreState ??= new OwnerStore({
       ctx: this.ctx,
       env: this.env as unknown as Cloudflare.Env,
       ownerId: () => this.ownerId(),
       registry: this.backendRegistry(),
       host: this.ownerHost(),
       verifyToken: async (token) => {
-        const verified = await verifyUserToken(token, this.env as unknown as Cloudflare.Env);
+        const verified = await verifyUserToken(
+          token,
+          this.env as unknown as Cloudflare.Env,
+        );
         return verified.ok ? verified.token : null;
       },
       log,
-    });
+    }));
   }
 
   /**
@@ -879,7 +287,12 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     for (const event of current) {
       if (event.kind !== "turn.event" || !event.terminal) continue;
       const outcome = event.terminalStatus;
-      if (outcome !== "completed" && outcome !== "failed" && outcome !== "canceled") continue;
+      if (
+        outcome !== "completed" &&
+        outcome !== "failed" &&
+        outcome !== "canceled"
+      )
+        continue;
       await this.recordCloudDispatchTerminal({
         ownerGeneration: event.ownerGeneration,
         turnId: event.turnId,
@@ -888,7 +301,8 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
       });
     }
-    for (const card of effects.cards) await this.ownerHost().postConversationCard(card);
+    for (const card of effects.cards)
+      await this.ownerHost().postConversationCard(card);
   }
 
   /**
@@ -896,13 +310,22 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
    * A token from before the owner's last sign-out-everywhere is refused; any
    * other notes the identity it claims.
    */
-  async ownerRpc(input: { name: string; args: unknown; caller: OwnerCaller }): Promise<RpcResponse> {
+  async ownerRpc(input: {
+    name: string;
+    args: unknown;
+    caller: OwnerCaller;
+  }): Promise<RpcResponse> {
     const store = this.ownerStore();
     const { db } = store.context(input.caller);
     if (callerSessionRevoked(db, input.caller)) {
       return {
         ok: false,
-        error: toBackendError(new RpcError("UNAUTHENTICATED", "You were signed out. Sign in again to continue.")),
+        error: toBackendError(
+          new RpcError(
+            "UNAUTHENTICATED",
+            "You were signed out. Sign in again to continue.",
+          ),
+        ),
       };
     }
     noteCallerIdentity(db, input.caller);
@@ -930,20 +353,29 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       });
       return {
         ok: false,
-        error: toBackendError(new RpcError("UNAVAILABLE", "Owner state is unavailable.")),
+        error: toBackendError(
+          new RpcError("UNAVAILABLE", "Owner state is unavailable."),
+        ),
       };
     }
     if (current !== input.ownerGeneration) {
       return {
         ok: false,
         error: toBackendError(
-          new RpcError("CONFLICT", "This request is from before your cloud data was reset.", {
-            reason: "owner_generation_stale",
-          }),
+          new RpcError(
+            "CONFLICT",
+            "This request is from before your cloud data was reset.",
+            {
+              reason: "owner_generation_stale",
+            },
+          ),
         ),
       };
     }
-    const response = await this.ownerStore().internalCall(input.name, input.args);
+    const response = await this.ownerStore().internalCall(
+      input.name,
+      input.args,
+    );
     await this.scheduleAlarm(Date.now());
     return response;
   }
@@ -964,7 +396,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
    * Run every domain's purge hook for a reset or account deletion. Returns
    * the domains that still have work and need another call.
    */
-  async purgeOwnerData(input: { mode: OwnerPurgeMode }): Promise<{ pending: string[] }> {
+  async purgeOwnerData(input: {
+    mode: OwnerPurgeMode;
+  }): Promise<{ pending: string[] }> {
     const pending: string[] = [];
     for (const [domain, purge] of this.backendRegistry().purges) {
       const result = await this.billingWrite((ctx) => purge(ctx, input.mode));
@@ -974,17 +408,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   // ── Billing ─────────────────────────────────────────────────────────────
-
-  /** Run a write on the owner's database outside a backend call, then push views and arm jobs. */
-  private async billingWrite<T>(write: (ctx: ReturnType<OwnerStore["context"]>) => T | Promise<T>): Promise<T> {
-    const store = this.ownerStore();
-    try {
-      return await write(store.context(null));
-    } finally {
-      store.flush();
-      await this.scheduleAlarm(Date.now());
-    }
-  }
 
   /**
    * A session capability for a client runtime, asked for by the model
@@ -1003,12 +426,17 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     } catch {
       return { ok: false, status: null, code: null, retryable: true };
     }
-    const admission = await this.billingWrite((ctx) => admitSession(ctx, { ...request, paying, snapshot }));
+    const admission = await this.billingWrite((ctx) =>
+      admitSession(ctx, { ...request, paying, snapshot }),
+    );
     if (!admission.ok) return admission;
-    const { ownerGeneration, isAnonymous, identityLevel, maxRequests } = admission.body;
+    const { ownerGeneration, isAnonymous, identityLevel, maxRequests } =
+      admission.body;
     const jti = crypto.randomUUID();
     const expiresAt =
-      (Math.floor(now / 1000) + Math.ceil(GATEWAY_SESSION_CAPABILITY_TTL_MS / 1000)) * 1000;
+      (Math.floor(now / 1000) +
+        Math.ceil(GATEWAY_SESSION_CAPABILITY_TTL_MS / 1000)) *
+      1000;
     const grant = await this.billingWrite((ctx) => {
       recordBillingIdentity(ctx, { isAnonymous, identityLevel });
       return reserveSessionGrant(ctx, { jti, expiresAt });
@@ -1042,15 +470,25 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   /** The gateway's settled usage for this owner. */
-  async applyGatewayUsage(events: GatewayUsageEvent[]): Promise<UsageBatchResult> {
+  async applyGatewayUsage(
+    events: GatewayUsageEvent[],
+  ): Promise<UsageBatchResult> {
     const result = await this.billingWrite((ctx) => {
       const settled = applyGatewayUsage(ctx, events);
-      const accepted = events.filter((event) => settled.accepted.includes(event.requestId));
+      const accepted = events.filter((event) =>
+        settled.accepted.includes(event.requestId),
+      );
       recordGatewayUsageRisk(ctx, accepted, billingAccess(ctx).identityLevel);
       return settled;
     });
-    const accepted = events.filter((event) => result.accepted.includes(event.requestId));
-    await chargeAnonymousNetworks(this.env as Cloudflare.Env, accepted, Date.now()).catch((error: unknown) => {
+    const accepted = events.filter((event) =>
+      result.accepted.includes(event.requestId),
+    );
+    await chargeAnonymousNetworks(
+      this.env as Cloudflare.Env,
+      accepted,
+      Date.now(),
+    ).catch((error: unknown) => {
       log("error", "anon_network_allowance_failed", {
         message: error instanceof Error ? error.message : String(error),
       });
@@ -1065,7 +503,9 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   /** Set the owner's enforcement (admin). Pushes it to the model gateway. */
-  async setOwnerEnforcement(input: SetEnforcementInput): Promise<OwnerEnforcementState> {
+  async setOwnerEnforcement(
+    input: SetEnforcementInput,
+  ): Promise<OwnerEnforcementState> {
     return await this.billingWrite((ctx) => setEnforcement(ctx, input));
   }
 
@@ -1074,64 +514,15 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     return abuseState(this.ownerStore().context(null));
   }
 
-  /**
-   * Charged model calls to analytics, under this owner's pseudonym: what
-   * the old usage ledger used to log. Best effort.
-   */
-  private async reportCharges(events: GatewayUsageEvent[]): Promise<void> {
-    const telemetry = this.env.TELEMETRY as
-      | { ingestForOwner(ownerId: string, events: TelemetryEventV1[]): Promise<void> }
-      | undefined;
-    const charged = events.filter((event) => event.billable && event.outcome !== "failed");
-    if (!telemetry || charged.length === 0) return;
-    const environment = this.env.TELEMETRY_ENVIRONMENT === "production" ? "production" : "development";
-    await telemetry
-      .ingestForOwner(
-        this.ownerId(),
-        charged.map((event) => ({
-          schemaVersion: 1,
-          eventId: crypto.randomUUID(),
-          occurredAtMs: event.finishedAt,
-          project: "stella",
-          environment,
-          source: "cloud-builder",
-          event: {
-            type: "inference.completed",
-            provider: event.provider,
-            model: event.resolvedModel,
-            agentType: event.agentType,
-            durationMs: Math.max(0, event.finishedAt - event.startedAt),
-            success: event.outcome === "succeeded",
-            inputTokens: event.usage.inputTokens,
-            outputTokens: event.usage.outputTokens,
-            ...(event.usage.cachedInputTokens !== undefined
-              ? { cachedInputTokens: event.usage.cachedInputTokens }
-              : {}),
-            ...(event.usage.cacheWriteTokens !== undefined
-              ? { cacheWriteInputTokens: event.usage.cacheWriteTokens }
-              : {}),
-            ...(event.usage.reasoningTokens !== undefined
-              ? { reasoningTokens: event.usage.reasoningTokens }
-              : {}),
-            totalTokens: event.usage.inputTokens + event.usage.outputTokens,
-            costMicroCents: event.chargedMicroCents,
-          },
-        })),
-      )
-      .catch((error: unknown) => {
-        log("error", "billing_telemetry_failed", {
-          message: error instanceof Error ? error.message : String(error),
-        });
-      });
-  }
-
   /** A verified Stripe event addressed to this owner. */
   async applyStripeEvent(event: StripeEvent): Promise<void> {
     await this.billingWrite((ctx) => applyStripeEvent(ctx, event));
   }
 
   /** What this owner may spend now. */
-  async billingAccess(identity?: { isAnonymous: boolean }): Promise<BillingAccess> {
+  async billingAccess(identity?: {
+    isAnonymous: boolean;
+  }): Promise<BillingAccess> {
     if (!identity) return billingAccess(this.ownerStore().context(null));
     return await this.billingWrite((ctx) => {
       recordBillingIdentity(ctx, identity);
@@ -1156,14 +547,22 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   // ── Devices ─────────────────────────────────────────────────────────────
 
   /** `/api/mobile/*` for phones, verified by the Worker. */
-  async mobileRoute(input: MobileRouteInput): Promise<{ status: number; json: string }> {
-    const result = await this.billingWrite((ctx) => handleMobileRoute(ctx, input));
+  async mobileRoute(
+    input: MobileRouteInput,
+  ): Promise<{ status: number; json: string }> {
+    const result = await this.billingWrite((ctx) =>
+      handleMobileRoute(ctx, input),
+    );
     return { status: result.status, json: JSON.stringify(result.body) };
   }
 
   /** `/api/user-asks/*` for every client, verified by the Worker. */
-  async userAskRoute(input: UserAskRouteInput): Promise<{ status: number; json: string }> {
-    const result = await this.billingWrite((ctx) => handleUserAskRoute(ctx, input));
+  async userAskRoute(
+    input: UserAskRouteInput,
+  ): Promise<{ status: number; json: string }> {
+    const result = await this.billingWrite((ctx) =>
+      handleUserAskRoute(ctx, input),
+    );
     return { status: result.status, json: JSON.stringify(result.body) };
   }
 
@@ -1183,288 +582,132 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     return { pending: purge ? ["owner"] : [] };
   }
 
-  /** One reset or deletion pass across every store; see src/owner-purge.ts. */
-  private async purgeOwnerPass(mode: OwnerPurgeMode, requestId: string): Promise<{ pending: string[] }> {
-    const { runOwnerPurge } = await import("./owner-purge.js");
-    return await runOwnerPurge({
-      env: this.env as unknown as import("./build-session/shared/env.js").Env,
-      ownerId: this.ownerId(),
-      mode,
-      requestId,
-      purgeOwnerData: () => this.purgeOwnerData({ mode }),
-    });
-  }
-  private gatewayOwnerPreparation?: Promise<void>;
-  private memoryPolicyState?: OwnerMemoryPolicy;
-  private homeContextState?: OwnerHomeContextCache;
-  private homeContextCache() { return this.homeContextState ??= new OwnerHomeContextCache(this.ctx.storage); }
-  async homeContext(ownerGeneration: string, fenceGeneration: string): Promise<OwnerHomeContext> {
+  async homeContext(
+    ownerGeneration: string,
+    fenceGeneration: string,
+  ): Promise<OwnerHomeContext> {
     return await this.homeContextCache().load({
       ownerGeneration,
       builtins: (await builtinCloudAppSkill()).versionId,
-      assertPolicy: policy => this.memoryPolicy().assert(policy, fenceGeneration),
+      assertPolicy: (policy) =>
+        this.memoryPolicy().assert(policy, fenceGeneration),
       fetch: async () => {
-        if (!this.env.AGENT_HOME) throw new Error("Cloud home bucket unavailable");
+        if (!this.env.AGENT_HOME)
+          throw new Error("Cloud home bucket unavailable");
         const store = new CloudHomeStore(this.env.AGENT_HOME, {
-          ownerId: this.ownerId(), ownerGeneration,
+          ownerId: this.ownerId(),
+          ownerGeneration,
           control: (op, body) => this.homeControl({ op, body }),
         });
-        const [memory, skills] = await Promise.all([store.getMemoryContext(), store.loadSkillCatalog("orchestrator")]);
+        const [memory, skills] = await Promise.all([
+          store.getMemoryContext(),
+          store.loadSkillCatalog("orchestrator"),
+        ]);
         return { memory, skills };
       },
     });
   }
 
-  private ownerModelGrantState?: OwnerModelGrantStore;
-  // A prepared reader nonce is advisory and only usable by the turn that
-  // started its wake. Later turns must read the durable registration, since an
-  // Orchestrator restart can replace that nonce.
-  private cloudChatReaderPreparationState?: Map<string, Promise<void>>;
-  private cloudChatReaderPreparedState?: Set<string>;
-  private modelGrants(): OwnerModelGrantStore {
-    return this.ownerModelGrantState ??= new OwnerModelGrantStore(this.ctx, this.ownerId());
-  }
-
-  private prepareCloudChatReader(
-    sessions: NonNullable<OwnerGateEnv["ORCHESTRATOR_SESSIONS"]>,
-    conversationId: string,
-  ): Promise<string | undefined> {
-    const preparations = this.cloudChatReaderPreparationState ??=
-      new Map<string, Promise<void>>();
-    const prepared = this.cloudChatReaderPreparedState ??= new Set<string>();
-    if (prepared.has(conversationId)) return Promise.resolve(undefined);
-    const existing = preparations.get(conversationId);
-    // The first caller owns the nonce from a shared wake. Other concurrent
-    // callers wait for the wake but resolve their reader from durable state.
-    if (existing) return existing.then(() => undefined);
-    const preparation = withTimeout(
-      (sessions.getByName(conversationId) as unknown as {
-        prepareCloudChatReader(): Promise<unknown>;
-      }).prepareCloudChatReader(),
-      CLOUD_CHAT_READER_PREPARE_TIMEOUT_MS,
-      "Cloud chat reader preparation timed out.",
-    ).then(readerId =>
-      typeof readerId === "string" && readerId.length > 0 && readerId.length <= 512
-        ? readerId
-        : undefined,
-    ).catch(() => undefined);
-    const completion = preparation.then(readerId => {
-      if (readerId === undefined) return;
-      if (prepared.size >= CLOUD_CHAT_READER_PREPARE_CACHE_MAX) {
-        const oldest = prepared.values().next().value;
-        if (oldest !== undefined) prepared.delete(oldest);
-      }
-      prepared.add(conversationId);
-    }).finally(() => {
-      if (preparations.get(conversationId) === completion) preparations.delete(conversationId);
-    });
-    preparations.set(conversationId, completion);
-    return preparation;
-  }
-
-  private async revokeModelReaders(args: Omit<OwnerModelGrantRevokeAllInput, "freeze">): Promise<void> {
-    const sessions = this.env.ORCHESTRATOR_SESSIONS;
-    await this.modelGrants().revokeAll({ ...args, freeze: async request => {
-      if (!sessions) throw new Error("Conversation execution is not configured.");
-      await withTimeout(
-        sessions.getByName(request.conversationId).freezeOwnerModelGrants(request),
-        OWNER_MODEL_GRANT_FREEZE_TIMEOUT_MS,
-        "Owner model grant freeze timed out.",
-      );
-    } });
-  }
-
-  /** One owner-fence host call from this object; `fetch()` routes external ones. */
-  private ownerFenceCall(path: string, body: unknown, headers?: Record<string, string>): Promise<Response> {
-    return createOwnerFenceHost({ ctx: this.ctx, env: this.env }).fetch(path, ownerFenceRequest(path, body, headers));
-  }
-
   async registerConversationReader(args: {
-    ownerId: string; ownerGeneration: string; conversationId: string; readerId: string;
+    ownerId: string;
+    ownerGeneration: string;
+    conversationId: string;
+    readerId: string;
   }): Promise<void> {
-    if (args.ownerId !== this.ownerId()) throw new MemoryPolicyError("OWNER_MISMATCH", 403);
-    await this.modelGrants().registerReader({ conversationId: args.conversationId, readerId: args.readerId });
+    if (args.ownerId !== this.ownerId())
+      throw new MemoryPolicyError("OWNER_MISMATCH", 403);
+    await this.modelGrants().registerReader({
+      conversationId: args.conversationId,
+      readerId: args.readerId,
+    });
   }
 
   async acquireModelGrant(args: {
-    ownerId: string; ownerGeneration: string; conversationId: string; readerId: string;
-    turnId: string; leaseId: string; fenceGeneration: string; policy: MemoryPolicy;
+    ownerId: string;
+    ownerGeneration: string;
+    conversationId: string;
+    readerId: string;
+    turnId: string;
+    leaseId: string;
+    fenceGeneration: string;
+    policy: MemoryPolicy;
   }): Promise<OwnerModelGrant> {
-    if (args.ownerId !== this.ownerId() || args.ownerGeneration !== args.policy.ownerGeneration)
+    if (
+      args.ownerId !== this.ownerId() ||
+      args.ownerGeneration !== args.policy.ownerGeneration
+    )
       throw new MemoryPolicyError("OWNER_MISMATCH", 403);
     const sessions = this.env.ORCHESTRATOR_SESSIONS;
     if (!sessions) throw new Error("Conversation execution is not configured.");
     const response = await this.ownerFenceCall("assert", {
-      ownerId: args.ownerId, ownerGeneration: args.ownerGeneration,
-      generation: args.fenceGeneration, leaseId: args.leaseId, turnId: args.turnId,
+      ownerId: args.ownerId,
+      ownerGeneration: args.ownerGeneration,
+      generation: args.fenceGeneration,
+      leaseId: args.leaseId,
+      turnId: args.turnId,
       sessionId: sessions.idFromName(args.conversationId).toString(),
     });
     if (!response.ok) throw new MemoryPolicyError("OWNER_FENCE_CHANGED");
     const lease: unknown = await response.json();
-    if (!lease || typeof lease !== "object" || !("expiresAt" in lease) ||
-        typeof lease.expiresAt !== "number" || !Number.isFinite(lease.expiresAt))
+    if (
+      !lease ||
+      typeof lease !== "object" ||
+      !("expiresAt" in lease) ||
+      typeof lease.expiresAt !== "number" ||
+      !Number.isFinite(lease.expiresAt)
+    )
       throw new MemoryPolicyError("OWNER_FENCE_CHANGED");
     return await this.issueModelGrant({ ...args, expiresAt: lease.expiresAt });
   }
 
-  private async issueModelGrant(args: {
-    ownerId: string; ownerGeneration: string; conversationId: string; readerId: string;
-    turnId: string; leaseId: string; fenceGeneration: string; policy: MemoryPolicy; expiresAt: number;
-  }): Promise<OwnerModelGrant> {
-    return await this.memoryPolicy().authorizeGrant(args.policy, args.fenceGeneration, async () => {
-      const lease = new OwnerFenceStore(this.ctx.storage.sql).activeLease(args.leaseId);
-      const sessions = this.env.ORCHESTRATOR_SESSIONS;
-      if (!lease || !sessions || lease.ownerId !== args.ownerId || lease.ownerGeneration !== args.ownerGeneration ||
-          lease.turnId !== args.turnId || lease.sessionId !== sessions.idFromName(args.conversationId).toString() ||
-          lease.reservationGeneration !== args.fenceGeneration || lease.expiresAt !== args.expiresAt ||
-          lease.namespace !== "orchestrator" || lease.role !== "orchestrator")
-        throw new MemoryPolicyError("OWNER_FENCE_CHANGED");
-      await this.modelGrants().registerReader({ conversationId: args.conversationId, readerId: args.readerId });
-      const result = await this.modelGrants().issueGrant({
-        ownerId: args.ownerId, ownerGeneration: args.ownerGeneration, conversationId: args.conversationId,
-        readerId: args.readerId, turnId: args.turnId, leaseId: args.leaseId,
-        fenceGeneration: args.fenceGeneration, memoryPolicy: args.policy, expiresAt: args.expiresAt,
-        grantId: `${args.leaseId}:${args.readerId}:${args.expiresAt}`,
-      });
-      if (result.status !== "issued" && result.status !== "replayed")
-        throw new MemoryPolicyError("OWNER_MODEL_GRANT_UNAVAILABLE", 503);
-      return result.grant;
-    });
-  }
-
-  /**
-   * The memory policy's transport is this object's own `home_state`. A
-   * refusal from the home domain is definitive (400); anything else leaves
-   * the change pending for the alarm to retry.
-   */
-  private memoryPolicy(): OwnerMemoryPolicy {
-    return this.memoryPolicyState ??= new OwnerMemoryPolicy(
-      this.ctx, this.ownerId(), {
-        read: async (ownerGeneration) => {
-          try {
-            return readMemoryPolicy(this.ownerStore().context(null).db, ownerGeneration);
-          } catch (error) {
-            throw new MemoryPolicyError(error instanceof RpcError ? error.reason ?? error.code : "MEMORY_POLICY_UNAVAILABLE", 503);
-          }
-        },
-        apply: async (change) => {
-          try {
-            await this.billingWrite((ctx) => applyMemoryPolicyChange(ctx, change));
-          } catch (error) {
-            if (error instanceof RpcError && !error.retryable) {
-              throw new MemoryPolicyError(error.reason ?? error.code, 400, error.message);
-            }
-            throw new MemoryPolicyError("MEMORY_POLICY_UNAVAILABLE", 503);
-          }
-        },
-      }, {
-        issuanceOpen: () => this.modelGrants().issuanceOpen(),
-        revokeReaders: change => this.revokeModelReaders({
-          operationId: change.requestId, ownerGeneration: change.expectedOwnerGeneration,
-          reason: change.kind === "wipe" ? "memory_wipe" : "memory_policy_change",
-        }),
-      },
-    );
-  }
-
-  /** `memory.setEnabled` / `memory.startWipe`: a policy change, refusals as `RpcError`. */
-  private async changeMemoryPolicyForCall(change: MemoryPolicyChange): Promise<void> {
-    const result = await this.changeMemoryPolicy(change);
-    if (result.ok) return;
-    throw result.code === "BAD_REQUEST"
-      ? new RpcError("BAD_REQUEST", result.message)
-      : result.status === 400
-      ? new RpcError("CONFLICT", result.message, { reason: result.code, retryable: false })
-      : result.status === 503
-        ? new RpcError("UNAVAILABLE", "Cloud memory settings are still being applied. Try again.", { reason: result.code })
-        : new RpcError("CONFLICT", "Cloud memory settings are still being applied. Try again.", {
-            reason: result.code,
-            retryable: true,
-            retryAfterMs: 2_000,
-          });
-  }
-
-  async changeMemoryPolicy(change: MemoryPolicyChange): Promise<
+  async changeMemoryPolicy(
+    change: MemoryPolicyChange,
+  ): Promise<
     { ok: true } | { ok: false; code: string; status: number; message: string }
   > {
     try {
       await this.memoryPolicy().change(change);
       return { ok: true };
     } catch (error) {
-      return { ok: false,
-        code: error instanceof MemoryPolicyError ? error.code : "MEMORY_POLICY_UNAVAILABLE",
+      return {
+        ok: false,
+        code:
+          error instanceof MemoryPolicyError
+            ? error.code
+            : "MEMORY_POLICY_UNAVAILABLE",
         status: error instanceof MemoryPolicyError ? error.status : 503,
-        message: error instanceof MemoryPolicyError ? error.message : "MEMORY_POLICY_UNAVAILABLE" };
+        message:
+          error instanceof MemoryPolicyError
+            ? error.message
+            : "MEMORY_POLICY_UNAVAILABLE",
+      };
     }
   }
 
-  async assertMemoryPolicy(policy: MemoryPolicy, fenceGeneration: string, leaseId: string, turnId?: string): Promise<void> {
+  async assertMemoryPolicy(
+    policy: MemoryPolicy,
+    fenceGeneration: string,
+    leaseId: string,
+    turnId?: string,
+  ): Promise<void> {
     const invokedAt = Date.now();
     const startedAt = performance.now();
     const response = await this.ownerFenceCall("assert", {
-      ownerId: this.ownerId(), ownerGeneration: policy.ownerGeneration, generation: fenceGeneration, leaseId,
+      ownerId: this.ownerId(),
+      ownerGeneration: policy.ownerGeneration,
+      generation: fenceGeneration,
+      leaseId,
     });
     if (!response.ok) throw new MemoryPolicyError("OWNER_FENCE_CHANGED");
     const fenceMs = performance.now() - startedAt;
     await this.memoryPolicy().assert(policy, fenceGeneration);
     log("info", "owner_memory_assertion_timing", {
-      turnId, invokedAt, fenceMs, policyMs: performance.now() - startedAt - fenceMs,
+      turnId,
+      invokedAt,
+      fenceMs,
+      policyMs: performance.now() - startedAt - fenceMs,
       totalMs: performance.now() - startedAt,
     });
-  }
-
-  /** The owner this object gates. The namespace is addressed by name only. */
-  private ownerId(): string {
-    const name = this.ctx.id.name ?? "";
-    if (!name)
-      throw new Error("Owner gate objects must be addressed by owner id.");
-    return name;
-  }
-
-  /**
-   * Start the owner-scoped gateway cache warm-up while this gate performs its
-   * required durable admission. It is intentionally one-shot per DO instance:
-   * preparation is advisory and a failure must never delay or refuse a turn.
-   */
-  private prepareGatewayOwner(): void {
-    if (this.gatewayOwnerPreparation) return;
-    const control = this.env.MODEL_GATEWAY_CONTROL;
-    if (!control) return;
-    const ownerId = this.ownerId();
-    const preparation = Promise.resolve().then(() =>
-      (control as ModelGatewayControl & Fetcher).prepareOwner({ ownerId }))
-      .catch(error => {
-        log("error", "owner_gateway_preparation_failed", {
-          message: error instanceof Error ? error.message : String(error),
-        });
-      });
-    this.gatewayOwnerPreparation = preparation;
-    this.ctx.waitUntil(preparation);
-  }
-
-  private ensureSchema(): void {
-    if (this.schemaReady) return;
-    const startedAt = performance.now();
-    for (const statement of DDL) this.ctx.storage.sql.exec(statement);
-    // Existing owner objects predate durable desktop completion receipts.
-    const dispatchColumns = this.ctx.storage.sql
-      .exec<{ name: string }>("PRAGMA table_info(dispatches)").toArray();
-    if (!dispatchColumns.some((column) => column.name === "result_json")) {
-      this.ctx.storage.sql.exec("ALTER TABLE dispatches ADD COLUMN result_json TEXT");
-    }
-    this.schemaReady = true;
-    const schemaMs = Math.round(performance.now() - startedAt);
-    log("info", "owner_gate_wake_timing", {
-      schemaMs,
-      totalMs: schemaMs,
-    });
-  }
-
-  private turnTimeoutMs(): number {
-    const parsed = Number(this.env.TURN_TIMEOUT_MS ?? "");
-    return Number.isSafeInteger(parsed) && parsed > 0
-      ? parsed
-      : DEFAULT_TURN_TIMEOUT_MS;
   }
 
   /**
@@ -1529,7 +772,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   /** Record the identity a Worker-verified token claims, for the snapshot. */
-  async noteIdentity(input: { isAnonymous: boolean; identityLevel?: IdentityLevel }): Promise<void> {
+  async noteIdentity(input: {
+    isAnonymous: boolean;
+    identityLevel?: IdentityLevel;
+  }): Promise<void> {
     const store = this.ownerStore();
     try {
       noteCallerIdentity(store.context(null).db, input);
@@ -1621,53 +867,19 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       // A context failure must not hide a successfully registered lease. The
       // caller owns its receipt and may retry preparation through the normal path.
       const [homeContext, destinations] = await Promise.all([
-        this.homeContext(input.lease.ownerGeneration, lease.generation).catch(() => undefined),
+        this.homeContext(input.lease.ownerGeneration, lease.generation).catch(
+          () => undefined,
+        ),
         this.devices().catch(() => undefined),
       ]);
-      return { admission, lease, ...(homeContext ? { homeContext } : {}), ...(destinations ? { destinations } : {}) };
-    }
-    return { admission, lease };
-  }
-
-  private async registerFenceLease(
-    lease: OwnerGateFenceLeaseRequest,
-  ): Promise<OwnerGateFenceLeaseOutcome> {
-    const ownerId = this.ownerId();
-    const response = await this.ownerFenceCall(
-      "register",
-      { ...lease, ownerId },
-      { [HEADER_OWNER_FENCE_ID]: ownerId },
-    );
-    const body = (await response.json().catch(() => null)) as {
-      generation?: unknown;
-      expiresAt?: unknown;
-      code?: unknown;
-      error?: unknown;
-    } | null;
-    if (
-      response.ok &&
-      typeof body?.generation === "string" &&
-      typeof body.expiresAt === "number"
-    ) {
       return {
-        status: "registered",
-        generation: body.generation,
-        expiresAt: body.expiresAt,
+        admission,
+        lease,
+        ...(homeContext ? { homeContext } : {}),
+        ...(destinations ? { destinations } : {}),
       };
     }
-    return {
-      status: "refused",
-      httpStatus: response.status,
-      ...(typeof body?.code === "string" ? { code: body.code } : {}),
-      ...(typeof body?.error === "string" ? { error: body.error } : {}),
-    };
-  }
-
-  private prune(now: number): void {
-    this.ctx.storage.sql.exec(
-      `DELETE FROM running WHERE started_at < ?`,
-      now - (this.turnTimeoutMs() + OWNER_GATE_RUNNING_GRACE_MS),
-    );
+    return { admission, lease };
   }
 
   async admit(input: OwnerGateAdmitInput): Promise<OwnerGateAdmission> {
@@ -1794,7 +1006,8 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     this.ensureSchema();
     const now = input.now ?? Date.now();
     const sandboxId = input.sandboxId?.trim() ?? "";
-    if (!sandboxId) throw new TypeError("acquireAgentContainer needs a sandbox id.");
+    if (!sandboxId)
+      throw new TypeError("acquireAgentContainer needs a sandbox id.");
     const sql = this.ctx.storage.sql;
     sql.exec(
       `DELETE FROM agent_containers WHERE acquired_at < ?`,
@@ -1880,85 +1093,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   // told anything: a socket that never sends a valid `proof` is anonymous,
   // receives no offer, and counts as no presence at all.
 
-  private sockets(deviceId?: string): WebSocket[] {
-    try {
-      return deviceId
-        ? this.ctx.getWebSockets(presenceTag(deviceId))
-        : this.ctx.getWebSockets();
-    } catch {
-      return [];
-    }
-  }
-
-  private attachment(socket: WebSocket): PresenceAttachment | null {
-    try {
-      const value = socket.deserializeAttachment() as PresenceAttachment | null;
-      return value && value.v === 1 ? value : null;
-    } catch {
-      return null;
-    }
-  }
-
-  private send(socket: WebSocket, frame: DevicePresenceServerFrame): void {
-    try {
-      socket.send(JSON.stringify(frame));
-    } catch {
-      // The peer is gone; the close path cleans up.
-    }
-  }
-
-  private closeSocket(socket: WebSocket, code: number, reason: string): void {
-    try {
-      socket.close(code, reason);
-    } catch {
-      // Already gone.
-    }
-  }
-
-  /** The device's connected socket, only while its presence is not stale. */
-  private liveSocket(deviceId: string): WebSocket | null {
-    const socket = this.connectedSocket(deviceId);
-    if (!socket) return null;
-    const presence = this.presenceRow(deviceId);
-    return presence?.connected &&
-      presence.lastSeenAt + DEVICE_PRESENCE_STALE_AFTER_MS > Date.now()
-      ? socket
-      : null;
-  }
-
-  /** The one connected, proven socket for a device, if it has one. */
-  private connectedSocket(deviceId: string): WebSocket | null {
-    for (const socket of this.sockets(deviceId)) {
-      const attachment = this.attachment(socket);
-      if (attachment?.phase === "connected") return socket;
-    }
-    return null;
-  }
-
-  /** `body` is `request`'s parsed JSON when the path can change authority. */
-  private async fetchOwnerFence(path: string, request: Request, body: unknown): Promise<Response> {
-    if (path !== "begin") return createOwnerFenceHost({ ctx: this.ctx, env: this.env }).fetch(path, request);
-    // Owner admission and revocation share this section. Reader freeze RPCs
-    // only touch local conversation state; they never call back into OwnerGate.
-    const outcome = await this.ctx.blockConcurrencyWhile(async () => {
-      try {
-        const operationId = await sha256Hex(JSON.stringify({ path, body }));
-        const response = await createOwnerFenceHost({ ctx: this.ctx, env: this.env,
-          beforeAuthorityChange: async change => {
-            await this.modelGrants().beginFenceBarrier({ operationId, path: change.path, body: change.body });
-            await this.revokeModelReaders({ operationId, reason: "owner_purge" });
-          },
-        }).fetch(path, request);
-        // A definite result closes this exact replay marker, including a
-        // successful replay after the fence commit outlived the previous caller.
-        if (response.ok || response.status < 500) await this.modelGrants().completeFenceBarrier(operationId);
-        return { ok: true as const, response };
-      } catch (error) { return { ok: false as const, error }; }
-    });
-    if (!outcome.ok) throw outcome.error;
-    return outcome.response;
-  }
-
   /**
    * `GET /owners/me/devices/:deviceId/presence`, forwarded by the Worker with
    * the owner and device it verified. Answers the 101 immediately and sends
@@ -1971,40 +1105,83 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         return Response.json({ error: "Method not allowed." }, { status: 405 });
       }
       const path = url.pathname.slice("/owner-fence/".length);
-      const body: unknown = path === "begin" || path === "register" || path === "unregister"
-        ? await request.clone().json() : undefined;
+      const body: unknown =
+        path === "begin" || path === "register" || path === "unregister"
+          ? await request.clone().json()
+          : undefined;
       const unregister = path === "unregister" ? body : undefined;
       const response = await this.fetchOwnerFence(path, request, body);
-      if (response.ok && unregister && typeof unregister === "object" &&
-          "turnId" in unregister && typeof unregister.turnId === "string" &&
-          "leaseId" in unregister && typeof unregister.leaseId === "string") {
-        if ("ownerGeneration" in unregister && typeof unregister.ownerGeneration === "string") {
-          await this.modelGrants().retireExactTurnLease({ ownerGeneration: unregister.ownerGeneration,
-            turnId: unregister.turnId, leaseId: unregister.leaseId });
+      if (
+        response.ok &&
+        unregister &&
+        typeof unregister === "object" &&
+        "turnId" in unregister &&
+        typeof unregister.turnId === "string" &&
+        "leaseId" in unregister &&
+        typeof unregister.leaseId === "string"
+      ) {
+        if (
+          "ownerGeneration" in unregister &&
+          typeof unregister.ownerGeneration === "string"
+        ) {
+          await this.modelGrants().retireExactTurnLease({
+            ownerGeneration: unregister.ownerGeneration,
+            turnId: unregister.turnId,
+            leaseId: unregister.leaseId,
+          });
         }
-        const dispatchId = await this.ctx.storage.get<string>(cloudChatTurnKey(unregister.turnId));
-        const handoff = dispatchId ? await this.ctx.storage.get<CloudChatHandoff>(cloudChatHandoffKey(dispatchId)) : undefined;
-        const identity = handoff?.phase === "registered" ? handoff.authority : handoff;
-        if (dispatchId && identity?.turnId === unregister.turnId && identity.leaseId === unregister.leaseId) {
-          await this.ctx.storage.put(cloudChatHandoffKey(dispatchId), { phase: "retired", turnId: identity.turnId, leaseId: identity.leaseId } satisfies CloudChatHandoff);
+        const dispatchId = await this.ctx.storage.get<string>(
+          cloudChatTurnKey(unregister.turnId),
+        );
+        const handoff = dispatchId
+          ? await this.ctx.storage.get<CloudChatHandoff>(
+              cloudChatHandoffKey(dispatchId),
+            )
+          : undefined;
+        const identity =
+          handoff?.phase === "registered" ? handoff.authority : handoff;
+        if (
+          dispatchId &&
+          identity?.turnId === unregister.turnId &&
+          identity.leaseId === unregister.leaseId
+        ) {
+          await this.ctx.storage.put(cloudChatHandoffKey(dispatchId), {
+            phase: "retired",
+            turnId: identity.turnId,
+            leaseId: identity.leaseId,
+          } satisfies CloudChatHandoff);
           await this.release({ turnId: identity.turnId });
-          this.ctx.storage.sql.exec("UPDATE dispatches SET gate_held = 0 WHERE dispatch_id = ?", dispatchId);
+          this.ctx.storage.sql.exec(
+            "UPDATE dispatches SET gate_held = 0 WHERE dispatch_id = ?",
+            dispatchId,
+          );
         }
       }
       return response;
     }
     if (url.pathname === "/live") {
-      if ((request.headers.get("upgrade") ?? "").toLowerCase() !== "websocket") {
-        return Response.json({ error: "This endpoint speaks WebSocket only." }, { status: 426 });
+      if (
+        (request.headers.get("upgrade") ?? "").toLowerCase() !== "websocket"
+      ) {
+        return Response.json(
+          { error: "This endpoint speaks WebSocket only." },
+          { status: 426 },
+        );
       }
       const caller = trustedOwnerCaller(request);
       if (!caller || caller.ownerId !== this.ownerId()) {
-        return Response.json({ error: "Missing verified identity." }, { status: 401 });
+        return Response.json(
+          { error: "Missing verified identity." },
+          { status: 401 },
+        );
       }
       const store = this.ownerStore();
       const { db } = store.context(caller);
       if (callerSessionRevoked(db, caller)) {
-        return Response.json({ error: "You were signed out." }, { status: 401 });
+        return Response.json(
+          { error: "You were signed out." },
+          { status: 401 },
+        );
       }
       noteCallerIdentity(db, caller);
       const response = store.acceptLive(caller);
@@ -2075,8 +1252,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     message: string | ArrayBuffer,
   ): Promise<void> {
     if (this.ownerStore().isLiveSocket(socket)) {
-      await this.ownerStore().onLiveMessage(socket, message);
-      await this.scheduleAlarm(Date.now());
+      const deadlinesMayHaveMoved = await this.ownerStore().onLiveMessage(
+        socket,
+        message,
+      );
+      if (deadlinesMayHaveMoved) await this.scheduleAlarm(Date.now());
       return;
     }
     const text =
@@ -2145,245 +1325,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     }
   }
 
-  private async handleDeviceFrame(
-    socket: WebSocket,
-    attachment: PresenceAttachment,
-    frame: DevicePresenceDeviceFrame,
-    now: number,
-  ): Promise<void> {
-    if (frame.type === "begin") {
-      if (attachment.phase !== "challenged") {
-        this.closeSocket(socket, DEVICE_PRESENCE_CLOSE.protocol, "bad_request");
-        return;
-      }
-      const presenceSessionId =
-        typeof frame.presenceSessionId === "string"
-          ? frame.presenceSessionId.trim()
-          : "";
-      const availability = parseAvailability(frame.availability);
-      if (
-        !presenceSessionId ||
-        presenceSessionId.length > 128 ||
-        frame.protocolVersion !== DEVICE_PRESENCE_PROTOCOL_VERSION ||
-        !availability
-      ) {
-        this.closeSocket(socket, DEVICE_PRESENCE_CLOSE.protocol, "bad_request");
-        return;
-      }
-      attachment.presenceSessionId = presenceSessionId;
-      attachment.availability = availability;
-      attachment.phase = "begun";
-      attachment.lastSeenAtMs = now;
-      socket.serializeAttachment(attachment);
-      return;
-    }
-    if (frame.type === "proof") {
-      if (attachment.phase !== "begun" || !attachment.presenceSessionId) {
-        this.closeSocket(socket, DEVICE_PRESENCE_CLOSE.protocol, "bad_request");
-        return;
-      }
-      const signature =
-        typeof frame.signature === "string" ? frame.signature.trim() : "";
-      let snapshot: OwnerSnapshot;
-      try {
-        snapshot = await this.snapshot({ now });
-      } catch {
-        this.closeSocket(
-          socket,
-          DEVICE_PRESENCE_CLOSE.internal,
-          "presence_unavailable",
-        );
-        return;
-      }
-      const device = (snapshot.devices ?? []).find(
-        (candidate) => candidate.deviceId === attachment.deviceId,
-      );
-      const verified =
-        Boolean(device) &&
-        Boolean(signature) &&
-        (await verifyDevicePresenceProof({
-          publicKey: device!.publicKey,
-          message: devicePresenceProofMessage({
-            connectionId: attachment.connectionId,
-            nonce: attachment.nonce,
-          }),
-          signature,
-        }));
-      if (!verified) {
-        log("error", "device_presence_proof_rejected", {
-          ownerId: this.ownerId(),
-          deviceId: attachment.deviceId,
-          registered: Boolean(device),
-        });
-        this.closeSocket(
-          socket,
-          DEVICE_PRESENCE_CLOSE.proofRejected,
-          "device_proof_rejected",
-        );
-        return;
-      }
-      // The proof is what earns the device its slot, so the older socket for
-      // the same device only loses it here — a failed handshake can never
-      // evict a working one.
-      for (const other of this.sockets(attachment.deviceId)) {
-        if (other === socket) continue;
-        this.deviceRequestRelay().onDeviceGone(attachment.deviceId, other);
-        this.closeSocket(other, DEVICE_PRESENCE_CLOSE.replaced, "replaced");
-      }
-      attachment.phase = "connected";
-      attachment.lastSeenAtMs = now;
-      socket.serializeAttachment(attachment);
-      this.writePresence(attachment, now, true);
-      this.send(socket, {
-        type: "connected",
-        presenceSessionId: attachment.presenceSessionId,
-        serverTimeMs: now,
-      });
-      const flushed = await this.ownerStore().internalCall(
-        "agentThreads.flushDeviceMessages",
-        { deviceId: attachment.deviceId },
-      );
-      if (!flushed.ok) {
-        log("error", "device_agent_messages_flush_failed", {
-          deviceId: attachment.deviceId,
-          message: flushed.error.message,
-        });
-      }
-      await this.scheduleAlarm(now);
-      return;
-    }
-    if (attachment.phase !== "connected" || !attachment.presenceSessionId) {
-      this.closeSocket(
-        socket,
-        DEVICE_PRESENCE_CLOSE.unauthorized,
-        "unauthorized",
-      );
-      return;
-    }
-    attachment.lastSeenAtMs = now;
-    if (frame.type === "ping") {
-      socket.serializeAttachment(attachment);
-      this.touchPresence(attachment.deviceId, now);
-      this.send(socket, { type: "pong", serverTimeMs: now });
-      return;
-    }
-    if (frame.type === "availability") {
-      const availability = parseAvailability(frame.availability);
-      if (!availability) {
-        this.closeSocket(socket, DEVICE_PRESENCE_CLOSE.protocol, "bad_request");
-        return;
-      }
-      attachment.availability = availability;
-      socket.serializeAttachment(attachment);
-      this.writePresence(attachment, now, true);
-      return;
-    }
-    if (frame.type === "consent") {
-      // The answer arrives on the proven presence socket, so it is the machine
-      // itself speaking, not merely someone holding the account. That is what
-      // makes this the on-device half of the decision rather than a second
-      // copy of the enable button.
-      if (typeof frame.allow !== "boolean") {
-        this.closeSocket(socket, DEVICE_PRESENCE_CLOSE.protocol, "bad_request");
-        return;
-      }
-      socket.serializeAttachment(attachment);
-      const written = await this.ownerStore().internalCall(
-        "devices.setRemoteExecution",
-        { deviceId: attachment.deviceId, enabled: frame.allow },
-      );
-      if (!written.ok) {
-        log("error", "device_consent_write_failed", {
-          deviceId: attachment.deviceId,
-          message: written.error.message,
-        });
-        this.send(socket, {
-          type: "error",
-          code: written.error.code,
-          message: written.error.message,
-          retryable: true,
-        });
-      }
-      return;
-    }
-    socket.serializeAttachment(attachment);
-    if (
-      frame.type === "response.start" ||
-      frame.type === "response.chunk" ||
-      frame.type === "response.end" ||
-      frame.type === "response.error"
-    ) {
-      this.deviceRequestRelay().onFrame(
-        socket,
-        attachment.deviceId,
-        frame as DeviceRequestDeviceFrame,
-      );
-      return;
-    }
-    if (frame.type === "agent-message.ack") {
-      const messageId =
-        typeof frame.messageId === "string" ? frame.messageId : "";
-      if (!messageId || !AGENT_MESSAGE_OUTCOMES.has(frame.outcome)) {
-        this.closeSocket(socket, DEVICE_PRESENCE_CLOSE.protocol, "bad_request");
-        return;
-      }
-      this.localAgentMessageAcks.get(`${attachment.deviceId}:${messageId}`)?.(
-        frame.outcome,
-      );
-      return;
-    }
-    await this.handleExecutorFrame(socket, attachment, frame, now);
-  }
-
-  private deviceRequestRelay(): DeviceRequestRelay {
-    return (this.deviceRequestRelayState ??= new DeviceRequestRelay({
-      liveSocket: (deviceId) => this.liveSocket(deviceId),
-      send: (socket, frame) => this.send(socket, frame),
-      log: (event, fields) =>
-        log("error", event, { ownerId: this.ownerId(), ...fields }),
-    }));
-  }
-
-  /**
-   * `POST /owners/me/devices/:deviceId/requests`, forwarded by the Worker
-   * after it verified the account and the phone's pairing proof. The body is
-   * the request's params JSON; the answer streams back from the computer.
-   */
-  private async handleDeviceRequest(request: Request): Promise<Response> {
-    if (request.method !== "POST") {
-      return Response.json({ error: "Method not allowed." }, { status: 405 });
-    }
-    const caller = trustedOwnerCaller(request);
-    if (!caller || caller.ownerId !== this.ownerId()) {
-      return deviceRequestErrorResponse("unauthorized", "Missing verified identity.");
-    }
-    const deviceId = request.headers.get(HEADER_PRESENCE_DEVICE_ID)?.trim() ?? "";
-    const mobileDeviceId =
-      request.headers.get(HEADER_DEVICE_REQUEST_MOBILE_ID)?.trim() ?? "";
-    const requestId = request.headers.get(HEADER_DEVICE_REQUEST_ID)?.trim() ?? "";
-    const method = request.headers.get(HEADER_DEVICE_REQUEST_METHOD)?.trim() ?? "";
-    const paramsJson = await request.text();
-    if (
-      !deviceId ||
-      deviceId.length > MAX_DEVICE_ID_CHARS ||
-      !mobileDeviceId ||
-      !requestId ||
-      requestId.length > DEVICE_REQUEST_LIMITS.requestId ||
-      !isDeviceRequestMethod(method) ||
-      paramsJson.length > DEVICE_REQUEST_LIMITS.paramsBytes
-    ) {
-      return deviceRequestErrorResponse("bad_request", "Malformed device request.");
-    }
-    this.ensureSchema();
-    return await this.deviceRequestRelay().open({
-      deviceId,
-      mobileDeviceId,
-      requestId,
-      method,
-      paramsJson,
-    });
-  }
-
   async webSocketClose(socket: WebSocket, code: number): Promise<void> {
     if (this.ownerStore().isLiveSocket(socket)) {
       this.ownerStore().onLiveClose(socket);
@@ -2394,7 +1335,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     if (attachment?.phase === "connected") {
       this.markDisconnected(attachment, now);
     }
-    if (attachment) this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
+    if (attachment) {
+      this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
+      this.deviceToolRelayState?.onDeviceGone(attachment.deviceId, socket);
+    }
     this.closeSocket(socket, code >= 3000 && code <= 4999 ? code : 1000, "");
     await this.scheduleAlarm(now);
   }
@@ -2409,178 +1353,11 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     if (attachment?.phase === "connected") {
       this.markDisconnected(attachment, now);
     }
-    if (attachment) this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
+    if (attachment) {
+      this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
+      this.deviceToolRelayState?.onDeviceGone(attachment.deviceId, socket);
+    }
     this.closeSocket(socket, 1011, "socket_error");
-  }
-
-  private async dropSocket(
-    socket: WebSocket,
-    attachment: PresenceAttachment,
-    code: number,
-    reason: string,
-    now: number,
-  ): Promise<void> {
-    if (attachment.phase === "connected") {
-      this.markDisconnected(attachment, now);
-    }
-    this.deviceRequestRelay().onDeviceGone(attachment.deviceId, socket);
-    this.closeSocket(socket, code, reason);
-    await this.scheduleAlarm(now);
-  }
-
-  private writePresence(
-    attachment: PresenceAttachment,
-    now: number,
-    connected: boolean,
-  ): void {
-    const availability = attachment.availability ?? {
-      ready: false,
-      capabilities: [],
-    };
-    this.ctx.storage.sql.exec(
-      `INSERT INTO device_presence (
-         device_id, presence_session_id, connection_id, connected, ready,
-         chat_slots, agent_slots, capabilities, protocol_version,
-         last_seen_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(device_id) DO UPDATE SET
-         presence_session_id = excluded.presence_session_id,
-         connection_id = excluded.connection_id,
-         connected = excluded.connected,
-         ready = excluded.ready,
-         chat_slots = excluded.chat_slots,
-         agent_slots = excluded.agent_slots,
-         capabilities = excluded.capabilities,
-         protocol_version = excluded.protocol_version,
-         last_seen_at = excluded.last_seen_at,
-         updated_at = excluded.updated_at`,
-      attachment.deviceId,
-      attachment.presenceSessionId ?? "",
-      attachment.connectionId,
-      connected ? 1 : 0,
-      availability.ready ? 1 : 0,
-      // Retained only for compatibility with existing SQLite tables.
-      0,
-      0,
-      JSON.stringify(availability.capabilities),
-      DEVICE_PRESENCE_PROTOCOL_VERSION,
-      now,
-      now,
-    );
-  }
-
-  private touchPresence(deviceId: string, now: number): void {
-    this.ctx.storage.sql.exec(
-      `UPDATE device_presence SET last_seen_at = ?, updated_at = ? WHERE device_id = ?`,
-      now,
-      now,
-      deviceId,
-    );
-  }
-
-  /**
-   * A device that goes away keeps its row (so the destinations list can say
-   * "offline" rather than "unknown") but is immediately ineligible.
-   */
-  private markDisconnected(attachment: PresenceAttachment, now: number): void {
-    this.ctx.storage.sql.exec(
-      `UPDATE device_presence
-         SET connected = 0, ready = 0, updated_at = ?
-       WHERE device_id = ? AND connection_id = ?`,
-      now,
-      attachment.deviceId,
-      attachment.connectionId,
-    );
-  }
-
-  private presenceRow(deviceId: string): DevicePresenceState | undefined {
-    const row = this.ctx.storage.sql
-      .exec<PresenceRow>(
-        `SELECT device_id, presence_session_id, connection_id, connected, ready,
-                chat_slots, agent_slots, capabilities, protocol_version, last_seen_at
-           FROM device_presence WHERE device_id = ?`,
-        deviceId,
-      )
-      .toArray()[0];
-    return row ? presenceState(row) : undefined;
-  }
-
-  private selectedDeviceRefusal(args: {
-    deviceId: string | null;
-    now: number;
-    remoteExecution?: DeviceRemoteExecution;
-  }): { fallbackReason: string; errorCode: string; errorMessage: string } | null {
-    const presence = args.deviceId ? this.presenceRow(args.deviceId) : undefined;
-    // Consent comes first: a computer that has not agreed to run remote work
-    // is refusing for a reason the owner can fix in one tap, and saying
-    // "offline" or "not ready" instead would send them looking for the wrong
-    // problem. This code is also what keeps a waiting agent waiting.
-    if (args.remoteExecution && args.remoteExecution !== "enabled") {
-      return {
-        fallbackReason: `selected-device-${args.remoteExecution}`,
-        errorCode: SELECTED_DEVICE_NEEDS_CONSENT,
-        errorMessage:
-          args.remoteExecution === "declined"
-            ? "That computer is set not to accept work from your other devices. Enable it in the device list, or allow it on that computer."
-            : "That computer has not agreed to run work sent from elsewhere yet. It is asking on its own screen; you can also tap Enable for it in the device list.",
-      };
-    }
-    if (
-      !args.deviceId ||
-      !presence?.connected ||
-      presence.lastSeenAt + DEVICE_PRESENCE_STALE_AFTER_MS <= args.now
-    ) {
-      return {
-        fallbackReason: "selected-device-offline",
-        errorCode: "SELECTED_DEVICE_OFFLINE",
-        errorMessage: "The selected computer is offline.",
-      };
-    }
-    if (!presence.ready) {
-      return {
-        fallbackReason: "selected-device-unavailable",
-        errorCode: "SELECTED_DEVICE_UNAVAILABLE",
-        errorMessage:
-          "The selected computer is online but isn't accepting work right now. It may still be starting up, be signed out, have cloud sync off, or not allow work from other devices.",
-      };
-    }
-    return null;
-  }
-
-  /**
-   * Ask a device, on its own screen, to start accepting dispatched work.
-   *
-   * Called when something was aimed at a device that has not agreed. The
-   * attempt it came from does not wait on the answer — a human tap is not on
-   * the offer window's timescale — so this only raises the prompt and records
-   * that it is up. Agent work retries for the next hour, which is what makes
-   * "wait for allow" work without holding a dispatch open.
-   */
-  private async requestDeviceConsent(args: {
-    deviceId: string;
-    remoteExecution: DeviceRemoteExecution;
-    requesterLabel?: string;
-    now: number;
-  }): Promise<void> {
-    if (args.remoteExecution === "enabled") return;
-    const recorded = await this.ownerStore().internalCall(
-      "devices.requestRemoteExecution",
-      { deviceId: args.deviceId },
-    );
-    if (!recorded.ok) {
-      log("error", "device_consent_request_failed", {
-        deviceId: args.deviceId,
-        message: recorded.error.message,
-      });
-      return;
-    }
-    const socket = this.connectedSocket(args.deviceId);
-    if (!socket) return;
-    this.send(socket, {
-      type: "consent.request",
-      requestedAt: args.now,
-      ...(args.requesterLabel ? { requesterLabel: args.requesterLabel } : {}),
-    });
   }
 
   /**
@@ -2599,7 +1376,7 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       const presence = this.presenceRow(device.deviceId);
       const online = Boolean(
         presence?.connected &&
-        presence.lastSeenAt + DEVICE_PRESENCE_STALE_AFTER_MS > now,
+          presence.lastSeenAt + DEVICE_PRESENCE_STALE_AFTER_MS > now,
       );
       const remoteExecution =
         device.remoteExecution ??
@@ -2633,792 +1410,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   }
 
   // ── Placement ─────────────────────────────────────────────────────────
-
-  private dispatchRow(dispatchId: string): DispatchRow | undefined {
-    return this.ctx.storage.sql
-      .exec<DispatchRow>(
-        `SELECT * FROM dispatches WHERE dispatch_id = ?`,
-        dispatchId,
-      )
-      .toArray()[0];
-  }
-
-  private notifyExecutor(row: DispatchRow): void {
-    if (!row.executor_device_id) return;
-    const socket = this.connectedSocket(row.executor_device_id);
-    if (!socket) return;
-    this.send(socket, { type: "dispatch", dispatch: dispatchSummary(row) });
-  }
-
-  /** Every transition goes through here: one revision bump. */
-  private async patchDispatch(
-    row: DispatchRow,
-    patch: Record<string, string | number | null>,
-    now: number,
-    options: { notifyExecutor?: boolean } = {},
-  ): Promise<DispatchRow> {
-    const columns = Object.keys(patch);
-    const assignments = [
-      ...columns.map((column) => `${column} = ?`),
-      "revision = revision + 1",
-      "updated_at = ?",
-    ];
-    this.ctx.storage.sql.exec(
-      `UPDATE dispatches SET ${assignments.join(", ")} WHERE dispatch_id = ?`,
-      ...columns.map((column) => patch[column] ?? null),
-      now,
-      row.dispatch_id,
-    );
-    const next = this.dispatchRow(row.dispatch_id)!;
-    if (options.notifyExecutor !== false) this.notifyExecutor(next);
-    if (
-      !isTerminalDispatchState(row.state as DispatchState) &&
-      isTerminalDispatchState(next.state as DispatchState)
-    ) {
-      await this.reportDeviceAgentSettled(next);
-    }
-    return next;
-  }
-
-  /**
-   * A device attempt of an owner agent thread ended: hand the outcome to the
-   * thread ledger, which records it and wakes a cloud requester.
-   */
-  private async reportDeviceAgentSettled(row: DispatchRow): Promise<void> {
-    const key = row.kind === "agent" ? parseDeviceAgentDispatchKey(row.idempotency_key) : null;
-    if (!key) return;
-    const response = await this.ownerStore().internalCall("agentThreads.deviceSettled", {
-      turnId: key.turnId,
-      requeue: key.requeue,
-      state: row.state,
-      ...(row.error_code ? { errorCode: row.error_code } : {}),
-      ...(row.result_json ? { resultJson: row.result_json } : {}),
-      ...(row.error_message ? { errorMessage: row.error_message } : {}),
-    });
-    if (!response.ok) {
-      log("error", "device_agent_settle_failed", {
-        dispatchId: row.dispatch_id,
-        message: response.error.message,
-      });
-    }
-  }
-
-  private openOffers(dispatchId: string): Array<{
-    device_id: string;
-    presence_session_id: string;
-  }> {
-    return this.ctx.storage.sql
-      .exec<{ device_id: string; presence_session_id: string }>(
-        `SELECT device_id, presence_session_id FROM dispatch_offers
-          WHERE dispatch_id = ? AND status = 'open'`,
-        dispatchId,
-      )
-      .toArray();
-  }
-
-  private withdrawOffers(
-    dispatchId: string,
-    keepDeviceId: string | null,
-    reason: string,
-    now: number,
-  ): void {
-    for (const offer of this.openOffers(dispatchId)) {
-      if (keepDeviceId && offer.device_id === keepDeviceId) continue;
-      this.ctx.storage.sql.exec(
-        `UPDATE dispatch_offers SET status = 'withdrawn', updated_at = ?
-          WHERE dispatch_id = ? AND device_id = ?`,
-        now,
-        dispatchId,
-        offer.device_id,
-      );
-      const socket = this.connectedSocket(offer.device_id);
-      if (socket) {
-        this.send(socket, { type: "offer.withdrawn", dispatchId, reason });
-      }
-    }
-  }
-
-  private eligibleDevices(args: {
-    snapshot: OwnerSnapshot;
-    deviceIds: readonly string[];
-    kind: ExecutionKind;
-    requiredCapabilities: readonly ExecutionCapability[];
-    now: number;
-  }): DevicePresenceState[] {
-    const registrations = new Map<string, DeviceRegistration>();
-    for (const device of args.snapshot.devices ?? []) {
-      registrations.set(device.deviceId, device);
-    }
-    const eligible: DevicePresenceState[] = [];
-    for (const deviceId of args.deviceIds) {
-      const presence = this.presenceRow(deviceId);
-      if (
-        isEligibleDevice({
-          presence,
-          device: registrations.get(deviceId),
-          kind: args.kind,
-          requiredCapabilities: args.requiredCapabilities,
-          now: args.now,
-          staleAfterMs: DEVICE_PRESENCE_STALE_AFTER_MS,
-        })
-      ) {
-        eligible.push(presence!);
-      }
-      if (eligible.length >= MAX_OFFERS_PER_DISPATCH) break;
-    }
-    return eligible;
-  }
-
-  /**
-   * The devices an offer for this dispatch may reach, before eligibility is
-   * consulted. One function so a submit and a re-offer after a release can
-   * never disagree about who the work was ever for.
-   */
-  private offerCandidateIds(
-    row: Pick<
-      DispatchRow,
-      | "ingress"
-      | "requesting_device_id"
-      | "pair_grant_device_id"
-      | "requested_target_mode"
-      | "requested_executor_device_id"
-    >,
-    snapshot: OwnerSnapshot,
-  ): string[] {
-    if (row.ingress === "mobile" && row.requesting_device_id) {
-      return [
-        ...new Set(
-          (snapshot.pairedDevices ?? [])
-            .filter(
-              (pairing) =>
-                pairing.mobileDeviceId === row.requesting_device_id &&
-                (!row.pair_grant_device_id ||
-                  pairing.desktopDeviceId === row.pair_grant_device_id),
-            )
-            .map((pairing) => pairing.desktopDeviceId),
-        ),
-      ];
-    }
-    if (
-      (row.ingress === "desktop" ||
-        row.ingress === "browser" ||
-        row.ingress === "schedule" ||
-        // A cloud agent spawned onto a named device (agent threads only;
-        // the public submit route never admits cloud ingress).
-        row.ingress === "cloud") &&
-      row.requested_target_mode === "device" &&
-      row.requested_executor_device_id
-    ) {
-      return [row.requested_executor_device_id];
-    }
-    return [];
-  }
-
-  private openOffer(
-    dispatchId: string,
-    device: DevicePresenceState,
-    expiresAt: number,
-    now: number,
-  ): void {
-    this.ctx.storage.sql.exec(
-      `INSERT INTO dispatch_offers (
-         dispatch_id, device_id, presence_session_id, status, expires_at,
-         created_at, updated_at
-       ) VALUES (?, ?, ?, 'open', ?, ?, ?)
-       ON CONFLICT(dispatch_id, device_id) DO UPDATE SET
-         presence_session_id = excluded.presence_session_id,
-         status = 'open',
-         expires_at = excluded.expires_at,
-         updated_at = excluded.updated_at`,
-      dispatchId,
-      device.deviceId,
-      device.presenceSessionId,
-      expiresAt,
-      now,
-      now,
-    );
-  }
-
-  /** The stored consent for a device id, defaulted for pre-consent rows. */
-  private async deviceRemoteExecution(
-    deviceId: string | null,
-    now: number,
-  ): Promise<DeviceRemoteExecution | undefined> {
-    if (!deviceId) return undefined;
-    const snapshot = await this.snapshot({ now });
-    const device = (snapshot.devices ?? []).find(
-      (candidate) => candidate.deviceId === deviceId,
-    );
-    if (!device) return undefined;
-    return (
-      device.remoteExecution ??
-      (device.remoteExecutionEnabled ? "enabled" : "unconfigured")
-    );
-  }
-
-  private pushOffer(
-    row: DispatchRow,
-    deviceId: string,
-    offerExpiresAt: number,
-  ): void {
-    const socket = this.connectedSocket(deviceId);
-    if (!socket) return;
-    this.send(socket, {
-      type: "offer",
-      dispatch: dispatchSummary(row),
-      payloadJson: row.payload_json ?? "",
-      payloadHash: row.payload_hash,
-      offerExpiresAt,
-    });
-  }
-
-  private async releaseGate(row: DispatchRow): Promise<void> {
-    if (row.gate_held !== 1) return;
-    const handoff = await this.ctx.storage.get<CloudChatHandoff>(cloudChatHandoffKey(row.dispatch_id));
-    await this.release({ turnId: handoff?.phase === "registered" ? handoff.authority.turnId : handoff?.turnId ?? row.dispatch_id });
-    this.ctx.storage.sql.exec(
-      `UPDATE dispatches SET gate_held = 0 WHERE dispatch_id = ?`,
-      row.dispatch_id,
-    );
-    row.gate_held = 0;
-  }
-
-  /**
-   * The one legal local-to-cloud transition. Callers must prove the local
-   * executor has not acknowledged durable ownership before entering here: an
-   * accepted dispatch is never rerouted, it is reconciled.
-   */
-  private async resolveUnaccepted(
-    row: DispatchRow,
-    now: number,
-    fallbackReason: string,
-  ): Promise<DispatchRow> {
-    if (row.state !== "offering" && row.state !== "computer_claimed") {
-      return row;
-    }
-    this.withdrawOffers(row.dispatch_id, null, fallbackReason, now);
-    if (row.on_no_eligible_computer === "cloud" && row.kind === "agent") {
-      const snapshot = await this.snapshot({ now }).catch(() => null);
-      if (snapshot && !snapshotAllowsCloudSandbox(snapshot)) {
-        const refused = await this.patchDispatch(
-          row,
-          {
-            state: "blocked",
-            executor_device_id: null,
-            executor_presence_session_id: null,
-            offer_deadline_at: null,
-            lease_expires_at: null,
-            payload_json: null,
-            payload_expires_at: null,
-            fallback_reason: "subscription-required",
-            error_code: "SUBSCRIPTION_REQUIRED",
-            error_message: CLOUD_SANDBOX_SUBSCRIPTION_REQUIRED_MESSAGE,
-          },
-          now,
-        );
-        await this.releaseGate(refused);
-        return refused;
-      }
-    }
-    if (row.on_no_eligible_computer === "cloud") {
-      const committed = await this.patchDispatch(
-        row,
-        {
-          state: "cloud_committed",
-          placement: "cloud",
-          executor_device_id: null,
-          executor_presence_session_id: null,
-          offer_deadline_at: null,
-          lease_expires_at: now + DISPATCH_ACCEPTED_LEASE_MS,
-          fallback_reason: fallbackReason,
-        },
-        now,
-      );
-      return await this.runCloudBranch(committed, now);
-    }
-    const explicitDevice = row.requested_target_mode === "device";
-    // No consent prompt is raised here. Reaching this path means an offer did
-    // go out, so the device had agreed at submit; a refusal now is the owner
-    // having just revoked it, and asking them again on the spot would be
-    // arguing with them. The message still says what happened.
-    const refusal = explicitDevice
-      ? this.selectedDeviceRefusal({
-          deviceId: row.requested_executor_device_id,
-          now,
-          ...(await this.deviceRemoteExecution(
-            row.requested_executor_device_id,
-            now,
-          ).then((state) => (state ? { remoteExecution: state } : {}))),
-        })
-      : null;
-    const blocked = await this.patchDispatch(
-      row,
-      {
-        state: "blocked",
-        executor_device_id: null,
-        executor_presence_session_id: null,
-        offer_deadline_at: null,
-        lease_expires_at: null,
-        payload_json: null,
-        payload_expires_at: null,
-        fallback_reason: refusal
-          ? refusal.fallbackReason
-          : explicitDevice
-            ? "selected-device-unavailable"
-            : "no-eligible-paired-computer",
-        error_code: refusal
-          ? refusal.errorCode
-          : explicitDevice
-            ? "SELECTED_DEVICE_UNAVAILABLE"
-            : "COMPUTER_REQUIRED_UNAVAILABLE",
-        error_message: refusal
-          ? refusal.errorMessage
-          : explicitDevice
-            ? "The selected computer did not accept the request."
-            : "This work requires your paired computer, but no eligible computer is reachable.",
-      },
-      now,
-    );
-    await this.releaseGate(blocked);
-    return blocked;
-  }
-
-  // ── The cloud branch ──────────────────────────────────────────────────
-
-  private cloudPayload(row: DispatchRow): DispatchPayload | null {
-    if (!row.payload_json) return null;
-    try {
-      return JSON.parse(row.payload_json) as DispatchPayload;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Start the dispatch in Stella's cloud: a chat turn on the conversation
-   * object, an agent attempt on a fresh build session. Both are addressed as
-   * Durable Objects — this gate is already inside the service boundary, so
-   * the trusted headers are stamped directly rather than routed back through
-   * the Worker.
-   */
-  private async runCloudBranch(
-    row: DispatchRow,
-    now: number,
-  ): Promise<DispatchRow> {
-    if (row.state !== "cloud_committed") return row;
-    const required = JSON.parse(
-      row.required_capabilities,
-    ) as ExecutionCapability[];
-    const unsupported = cloudUnsupportedCapabilities(required);
-    if (unsupported.length > 0) {
-      const failed = await this.patchDispatch(
-        row,
-        {
-          state: "failed",
-          payload_json: null,
-          payload_expires_at: null,
-          lease_expires_at: null,
-          error_code: "CLOUD_CAPABILITY_UNAVAILABLE",
-          error_message: `The cloud sandbox cannot provide the required device capability: ${unsupported.join(", ")}.`,
-        },
-        now,
-      );
-      await this.releaseGate(failed);
-      return failed;
-    }
-    const payload = this.cloudPayload(row);
-    if (!payload) {
-      const failed = await this.patchDispatch(
-        row,
-        {
-          state: "failed",
-          lease_expires_at: null,
-          error_code: "CLOUD_PAYLOAD_UNAVAILABLE",
-          error_message: "The dispatch payload is no longer available.",
-        },
-        now,
-      );
-      await this.releaseGate(failed);
-      return failed;
-    }
-    this.ctx.storage.sql.exec(
-      `UPDATE dispatches SET cloud_attempts = cloud_attempts + 1,
-                             cloud_retry_at = NULL
-        WHERE dispatch_id = ?`,
-      row.dispatch_id,
-    );
-    const attempting = this.dispatchRow(row.dispatch_id) ?? row;
-    try {
-      return row.kind === "chat"
-        ? await this.startCloudChat(attempting, payload, now)
-        : await this.startCloudAgent(attempting, payload, now);
-    } catch (error) {
-      // Do not guess that an ambiguous transport failure means the cloud did
-      // not start. The dispatch stays `cloud_committed`; its lease resolves
-      // to `reconciliation_required` rather than to a second start.
-      log("error", "dispatch_cloud_start_unresolved", {
-        dispatchId: row.dispatch_id,
-        kind: row.kind,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return this.dispatchRow(row.dispatch_id) ?? row;
-    }
-  }
-
-  /**
-   * The cloud said no. A fence or shape refusal is the dispatch's own
-   * terminal error, reported with the builder's code so the client sees the
-   * same reason it would have seen submitting the turn directly. Only a 503
-   * — the builder unavailable, not the request refused — is worth one retry.
-   */
-  private async cloudRefusal(
-    row: DispatchRow,
-    response: Response,
-    now: number,
-  ): Promise<DispatchRow> {
-    const body = (await response.json().catch(() => null)) as {
-      error?: { code?: unknown; message?: unknown };
-    } | null;
-    const code =
-      typeof body?.error?.code === "string" ? body.error.code : "internal";
-    const message =
-      typeof body?.error?.message === "string"
-        ? body.error.message
-        : `The cloud refused this dispatch (${response.status}).`;
-    if (
-      response.status === 503 &&
-      row.cloud_attempts < DISPATCH_CLOUD_MAX_ATTEMPTS
-    ) {
-      const retrying = await this.patchDispatch(
-        row,
-        {
-          cloud_retry_at: now + DISPATCH_CLOUD_RETRY_DELAY_MS,
-          lease_expires_at: now + DISPATCH_ACCEPTED_LEASE_MS,
-          error_code: code,
-          error_message: message,
-        },
-        now,
-        { notifyExecutor: false },
-      );
-      await this.scheduleAlarm(now);
-      return retrying;
-    }
-    const failed = await this.patchDispatch(
-      row,
-      {
-        state: "failed",
-        payload_json: null,
-        payload_expires_at: null,
-        lease_expires_at: null,
-        error_code: code,
-        error_message: message,
-      },
-      now,
-    );
-    await this.releaseGate(failed);
-    return failed;
-  }
-
-  private async startCloudChat(
-    row: DispatchRow,
-    payload: DispatchPayload,
-    now: number,
-  ): Promise<DispatchRow> {
-    // The DO name is the authenticated owner identity for this dispatch.
-    // Begin only read-only gateway preparation before durable handoff work.
-    this.prepareGatewayOwner();
-    const sessions = this.env.ORCHESTRATOR_SESSIONS;
-    if (!sessions)
-      throw new Error("Orchestrator session namespace is not bound.");
-    // Start the nonce-only cold wake alongside owner admission and home
-    // preparation. It cannot authorize a request or mutate policy state.
-    const preparedReader = this.prepareCloudChatReader(
-      sessions,
-      row.conversation_id,
-    );
-    const request: CloudTurnStartRequest = {
-      protocol: TURN_PLANE_PROTOCOL,
-      clientMsgId: row.dispatch_id,
-      ...(payload.userMessageEventId ? { originUserMessageId: payload.userMessageEventId } : {}),
-      prompt: payload.prompt,
-      lane: "chat",
-      source: row.ingress === "schedule" ? "schedule" : "placement",
-      ...(payload.locale ? { locale: payload.locale } : {}),
-      ...(payload.attachments ? { attachments: payload.attachments } : {}),
-      ...(payload.execution ? { execution: payload.execution } : {}),
-      ...(payload.handoff ? { hiddenMessage: true } : {}),
-    };
-    const handoffKey = cloudChatHandoffKey(row.dispatch_id);
-    let handoff = await this.ctx.storage.get<CloudChatHandoff>(handoffKey);
-    // Old unresolved dispatches may already have a conversation-created turn.
-    // Only a new dispatch starts the owner-created identity protocol.
-    if (!handoff && row.cloud_attempts === 1) {
-      const allocating: CloudChatHandoff = { phase: "allocating", turnId: crypto.randomUUID(), leaseId: crypto.randomUUID() };
-      await this.ctx.storage.transaction(async txn => {
-        await txn.put(handoffKey, allocating);
-        await txn.put(cloudChatTurnKey(allocating.turnId), row.dispatch_id);
-      });
-      handoff = allocating;
-    }
-    let preparation: CloudChatPreparation = {};
-    if (handoff?.phase === "retired") return this.cloudRefusal(row,
-      turnStartErrorResponse("owner_purged", "This cloud admission was retired.", false), now);
-    if (handoff?.phase === "allocating") {
-      const startedAt = performance.now();
-      const result = await this.admitWithFenceLease({
-        admission: { lane: "chat", turnId: handoff.turnId, conversationId: row.conversation_id, expectedGeneration: row.owner_generation },
-        lease: { leaseId: handoff.leaseId, turnId: handoff.turnId, ownerGeneration: row.owner_generation,
-          sessionId: sessions.idFromName(row.conversation_id).toString(), namespace: "orchestrator", role: "orchestrator" },
-        includeHomeContext: true,
-      });
-      if (!result.admission.ok) return this.cloudRefusal(row, turnStartErrorResponse(
-        result.admission.code, result.admission.message, result.admission.retryable, result.admission.retryAfterMs,
-      ), now);
-      this.ctx.storage.sql.exec("UPDATE dispatches SET gate_held = 1 WHERE dispatch_id = ?", row.dispatch_id);
-      row.gate_held = 1;
-      if (result.lease.status !== "registered") return this.cloudRefusal(row,
-        turnStartErrorResponse("owner_purged", "This account's cloud admission is unavailable.", false), now);
-      const authority: AdmittedCloudChat = {
-        version: 1, ownerId: this.ownerId(), ownerGeneration: row.owner_generation,
-        conversationId: row.conversation_id, clientMsgId: request.clientMsgId,
-        turnId: handoff.turnId, leaseId: handoff.leaseId, fenceGeneration: result.lease.generation,
-        admittedAt: Date.now(), snapshot: result.admission.snapshot,
-        fingerprint: await sha256Hex(chatTurnFingerprintSource(this.ownerId(), row.conversation_id, request)),
-      };
-      if ("homeContext" in result && result.homeContext) {
-        const preparedReaderId = await preparedReader;
-        const reader = preparedReaderId
-          ? { readerId: preparedReaderId }
-          : await this.modelGrants().latestReader(row.conversation_id);
-        if (reader) {
-        authority.ownerModelGrant = await this.issueModelGrant({
-          ownerId: authority.ownerId, ownerGeneration: authority.ownerGeneration,
-          conversationId: authority.conversationId, readerId: reader.readerId,
-          turnId: authority.turnId, leaseId: authority.leaseId, fenceGeneration: authority.fenceGeneration,
-          policy: result.homeContext.memory.preference, expiresAt: result.lease.expiresAt,
-        });
-        }
-      }
-      handoff = { phase: "registered", authority };
-      const latest = await this.ctx.storage.get<CloudChatHandoff>(handoffKey);
-      if (latest?.phase === "retired") {
-        await this.release({ turnId: authority.turnId });
-        return this.cloudRefusal(row, turnStartErrorResponse("owner_purged", "This cloud admission was retired.", false), now);
-      }
-      await this.ctx.storage.put(handoffKey, handoff);
-      preparation = {
-        ...("homeContext" in result ? { homeContext: result.homeContext } : {}),
-        ...("destinations" in result ? { destinations: result.destinations } : {}),
-      };
-      log("info", "owner_chat_admission_timing", { dispatchId: row.dispatch_id, turnId: authority.turnId,
-        totalMs: Math.round(performance.now() - startedAt) });
-    }
-    if (handoff?.phase === "registered") {
-      const current = this.dispatchRow(row.dispatch_id);
-      if (!current || current.state !== "cloud_committed") {
-        await this.retireCloudChatHandoff(handoff.authority);
-        await this.releaseGate(this.dispatchRow(row.dispatch_id) ?? row);
-        return this.dispatchRow(row.dispatch_id) ?? row;
-      }
-      // Stop can target the exact turn even while its admission RPC is in
-      // flight, including before the conversation has imported the handoff.
-      this.ctx.storage.sql.exec("UPDATE dispatches SET cloud_turn_id = ? WHERE dispatch_id = ?", handoff.authority.turnId, row.dispatch_id);
-    }
-    const response = handoff?.phase === "registered"
-      ? await sessions.getByName(row.conversation_id).startAdmittedChat(request, handoff.authority, preparation)
-      : await sessions
-      .getByName(row.conversation_id)
-      .fetch("https://orchestrator-session/turn", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-stella-owner": this.ownerId(),
-          [HEADER_TURN_AUTH_KIND]: "service",
-          "x-stella-conversation-id": row.conversation_id,
-          [TURN_OWNER_GENERATION_HEADER]: row.owner_generation,
-        },
-        body: JSON.stringify(request),
-      });
-    if (!response.ok) {
-      // A definite refusal cannot own an executing turn. An uncertain 5xx
-      // keeps the same registered identity for retry or purge reconciliation.
-      if (handoff?.phase === "registered" && response.status >= 400 && response.status < 500) {
-        await this.retireCloudChatHandoff(handoff.authority);
-      }
-      return await this.cloudRefusal(row, response, now);
-    }
-    const started = (await response.json()) as CloudTurnStartResponse;
-    if (handoff?.phase === "registered" && started.turnId !== handoff.authority.turnId) throw new Error("Cloud admission response identity changed.");
-    const current = this.dispatchRow(row.dispatch_id);
-    if (current && current.state !== "cloud_committed") return current;
-    return await this.patchDispatch(
-      row,
-      {
-        state: "cloud_running",
-        placement: "cloud",
-        cloud_turn_id: started.turnId,
-        cloud_retry_at: null,
-        error_code: null,
-        error_message: null,
-        payload_json: null,
-        payload_expires_at: null,
-        lease_expires_at: null,
-        started_at: now,
-      },
-      now,
-    );
-  }
-
-  private async retireCloudChatHandoff(a: AdmittedCloudChat): Promise<void> {
-    const sessions = this.env.ORCHESTRATOR_SESSIONS;
-    if (!sessions) throw new Error("Orchestrator sessions unavailable.");
-    const retired = await this.ownerFenceCall("unregister", {
-      ownerId: a.ownerId, ownerGeneration: a.ownerGeneration, leaseId: a.leaseId,
-      turnId: a.turnId, sessionId: sessions.idFromName(a.conversationId).toString(), generation: a.fenceGeneration,
-    });
-    if (!retired.ok) throw new Error("Cloud admission retirement is pending.");
-    await this.modelGrants().retireExactTurnLease({
-      ownerGeneration: a.ownerGeneration,
-      conversationId: a.conversationId,
-      turnId: a.turnId,
-      leaseId: a.leaseId,
-    });
-    await this.ctx.storage.put(cloudChatHandoffKey(a.clientMsgId), { phase: "retired", turnId: a.turnId, leaseId: a.leaseId } satisfies CloudChatHandoff);
-  }
-
-  private async startCloudAgent(
-    row: DispatchRow,
-    payload: DispatchPayload,
-    now: number,
-  ): Promise<DispatchRow> {
-    const sessions = this.env.BUILD_SESSIONS;
-    if (!sessions) throw new Error("Build session namespace is not bound.");
-    const snapshot = await this.snapshot({ now });
-    // A fresh thread per placed agent: the gate cannot read a durable
-    // thread's attempt generation, and guessing one would resume the wrong
-    // attempt.
-    const threadId = `thr-${crypto.randomUUID().slice(0, 18)}`;
-    const request: CloudAgentTurnStartRequest = {
-      protocol: TURN_PLANE_PROTOCOL,
-      kind: "agent",
-      ownerId: this.ownerId(),
-      ownerGeneration: row.owner_generation,
-      conversationId: row.conversation_id,
-      threadId,
-      agentDepth: 1,
-      attemptGeneration: 1,
-      // The session adopts the dispatch id as its turn id, so the release it
-      // sends on the terminal path frees exactly the slot this gate admitted.
-      turnId: row.dispatch_id,
-      prompt: payload.prompt,
-      description: payload.description ?? "Placed agent run",
-      execution: payload.execution ?? snapshot.execution,
-      audience: snapshot.allowance.audience,
-      budgetMicroCents: snapshot.allowance.budgetMicroCents,
-      source: "placement",
-      clientMsgId: row.dispatch_id,
-      ...(row.parent_turn_id ? { parentTurnId: row.parent_turn_id } : {}),
-    };
-    const response = await sessions
-      .getByName(threadId)
-      .fetch("https://build-session/turn", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          // The gate admitted this attempt already and owns its release.
-          [HEADER_GATE_ADMITTED]: "1",
-        },
-        body: JSON.stringify(request),
-      });
-    if (!response.ok) return await this.cloudRefusal(row, response, now);
-    const started = (await response.json()) as CloudAgentTurnStartResponse;
-    return await this.patchDispatch(
-      row,
-      {
-        state: "cloud_running",
-        placement: "cloud",
-        cloud_turn_id: started.turnId ?? row.dispatch_id,
-        cloud_retry_at: null,
-        error_code: null,
-        error_message: null,
-        cloud_thread_id: started.threadId ?? threadId,
-        payload_json: null,
-        payload_expires_at: null,
-        lease_expires_at: null,
-        started_at: now,
-      },
-      now,
-    );
-  }
-
-  // ── Submit, status, cancel ────────────────────────────────────────────
-
-  /**
-   * The owner checks a dispatch needs even when it takes no admission: the
-   * write fence and the generation the caller pinned. Same verdicts `admit`
-   * would have produced, without consuming a start or a slot.
-   */
-  private async submitSnapshot(
-    expectedGeneration: string | undefined,
-    now: number,
-  ): Promise<
-    | { ok: true; snapshot: OwnerSnapshot }
-    | { ok: false; error: DispatchError["error"] }
-  > {
-    let snapshot: OwnerSnapshot;
-    try {
-      snapshot = await this.snapshot({ now });
-      if (
-        expectedGeneration &&
-        expectedGeneration !== snapshot.ownerGeneration
-      ) {
-        // The cache can lag a rotation whose push was lost. One forced
-        // refresh separates "stale cache" from "stale caller".
-        snapshot = await this.snapshot({ refresh: true, now });
-      }
-    } catch (error) {
-      const purged =
-        error instanceof OwnerGateSnapshotError &&
-        error.code === "owner_purged";
-      log("error", "dispatch_snapshot_unavailable", {
-        ownerId: this.ownerId(),
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return purged
-        ? fail(
-            "owner_purged",
-            "This account's cloud data is no longer available.",
-            false,
-          )
-        : fail(
-            "internal",
-            "Stella can't check your plan right now. Try again shortly.",
-            true,
-          );
-    }
-    if (expectedGeneration && expectedGeneration !== snapshot.ownerGeneration) {
-      return fail(
-        "generation_stale",
-        "This cloud owner generation is no longer current.",
-        false,
-      );
-    }
-    if (snapshot.enforcement?.status === "suspended") {
-      return fail(
-        "owner_suspended",
-        "This account can't use Stella's cloud right now.",
-        false,
-      );
-    }
-    if (!snapshot.writable) {
-      return fail(
-        "owner_purged",
-        "This account's cloud data is being reset or deleted.",
-        false,
-      );
-    }
-    return { ok: true, snapshot };
-  }
 
   /**
    * Admit a dispatch and route it. The Worker has already authenticated the
@@ -3750,8 +1741,10 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       }
     } else if (state === "cloud_committed") {
       log("info", "dispatch_cloud_route_timing", {
-        dispatchId, originUserMessageId: request.payload.userMessageEventId,
-        receivedAt, conversationDispatchAt: Date.now(),
+        dispatchId,
+        originUserMessageId: request.payload.userMessageEventId,
+        receivedAt,
+        conversationDispatchAt: Date.now(),
         preparationMs: Math.round(performance.now() - startedAt),
       });
       row = await this.runCloudBranch(row, now);
@@ -3770,23 +1763,32 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
   /** Queue delivery may race the admission response. Retain the exact turn
    * receipt so the next status read can reconcile either delivery order. */
   async recordCloudDispatchTerminal(input: {
-    ownerGeneration: string; turnId: string;
+    ownerGeneration: string;
+    turnId: string;
     outcome: "completed" | "failed" | "canceled";
-    resultJson?: string; errorMessage?: string;
+    resultJson?: string;
+    errorMessage?: string;
   }): Promise<void> {
     this.ensureSchema();
     this.ctx.storage.sql.exec(
       `INSERT OR IGNORE INTO cloud_dispatch_terminals
        (turn_id, owner_generation, outcome, result_json, error_message, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`,
-      input.turnId, input.ownerGeneration, input.outcome,
-      input.resultJson ?? null, input.errorMessage ?? null, Date.now(),
+      input.turnId,
+      input.ownerGeneration,
+      input.outcome,
+      input.resultJson ?? null,
+      input.errorMessage ?? null,
+      Date.now(),
     );
-    const dispatch = this.ctx.storage.sql.exec<{ dispatch_id: string }>(
-      `SELECT dispatch_id FROM dispatches
+    const dispatch = this.ctx.storage.sql
+      .exec<{ dispatch_id: string }>(
+        `SELECT dispatch_id FROM dispatches
        WHERE cloud_turn_id = ? AND owner_generation = ? AND placement = 'cloud'`,
-      input.turnId, input.ownerGeneration,
-    ).toArray()[0];
+        input.turnId,
+        input.ownerGeneration,
+      )
+      .toArray()[0];
     if (dispatch) await this.dispatchStatus(dispatch.dispatch_id);
   }
 
@@ -3794,22 +1796,33 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     this.ensureSchema();
     let row = this.dispatchRow(dispatchId.trim());
     if (!row) return fail("not_found", "Dispatch not found.", false);
-    const receipt = row.placement === "cloud" && row.cloud_turn_id
-      ? this.ctx.storage.sql.exec<{
-          outcome: "completed" | "failed" | "canceled";
-          result_json: string | null; error_message: string | null;
-        }>(
-          `SELECT outcome, result_json, error_message FROM cloud_dispatch_terminals
+    const receipt =
+      row.placement === "cloud" && row.cloud_turn_id
+        ? this.ctx.storage.sql
+            .exec<{
+              outcome: "completed" | "failed" | "canceled";
+              result_json: string | null;
+              error_message: string | null;
+            }>(
+              `SELECT outcome, result_json, error_message FROM cloud_dispatch_terminals
            WHERE turn_id = ? AND owner_generation = ?`,
-          row.cloud_turn_id, row.owner_generation,
-        ).toArray()[0]
-      : undefined;
+              row.cloud_turn_id,
+              row.owner_generation,
+            )
+            .toArray()[0]
+        : undefined;
     if (receipt && !isTerminalDispatchState(row.state as DispatchState)) {
-      row = await this.patchDispatch(row, {
-        state: receipt.outcome,
-        error_message: receipt.error_message,
-        payload_json: null, payload_expires_at: null, lease_expires_at: null,
-      }, Date.now());
+      row = await this.patchDispatch(
+        row,
+        {
+          state: receipt.outcome,
+          error_message: receipt.error_message,
+          payload_json: null,
+          payload_expires_at: null,
+          lease_expires_at: null,
+        },
+        Date.now(),
+      );
       await this.releaseGate(row);
       await this.scheduleAlarm(Date.now());
     }
@@ -3917,6 +1930,83 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     return { outcome: await acknowledged };
   }
 
+  /**
+   * One tool call of a cloud agent whose tools run on `deviceId`
+   * (`@stella/contracts/turn-plane/device-tools`), relayed over the device's
+   * presence socket. The device must be enabled for remote execution, online
+   * and ready, checked on every call. Resolves when the device answers, or
+   * with why it did not; never rejects.
+   */
+  async deviceTool(input: {
+    deviceId: string;
+    requestId: string;
+    call: DeviceToolCall;
+  }): Promise<DeviceToolOutcome> {
+    this.ensureSchema();
+    const deviceId = input.deviceId?.trim() ?? "";
+    if (!deviceId || deviceId.length > MAX_DEVICE_ID_CHARS) {
+      return {
+        ok: false,
+        code: "bad_request",
+        message: "A device id is required.",
+      };
+    }
+    const device = (await this.devices()).devices.find(
+      (candidate) => candidate.deviceId === deviceId,
+    );
+    if (!device) {
+      return {
+        ok: false,
+        code: "bad_request",
+        message: `No connected device has device_id ${deviceId}.`,
+      };
+    }
+    // Consent first, as for dispatched work: it is what the owner can fix.
+    if (device.remoteExecution !== "enabled") {
+      return {
+        ok: false,
+        code: "not_enabled",
+        message:
+          device.remoteExecution === "declined"
+            ? "That computer is set not to accept work from your other devices."
+            : "That computer has not been enabled to accept work from other devices.",
+      };
+    }
+    if (!device.online) {
+      return {
+        ok: false,
+        code: "device_offline",
+        message: "That computer is offline.",
+      };
+    }
+    if (device.availability?.ready !== true) {
+      return {
+        ok: false,
+        code: "not_ready",
+        message: "That computer is online but isn't accepting work right now.",
+      };
+    }
+    if (!this.deviceToolRelayState) {
+      const { DeviceToolRelay } = await import("./device-tool-relay.js");
+      this.deviceToolRelayState ??= new DeviceToolRelay({
+        liveSocket: (id) => this.liveSocket(id),
+        send: (socket, frame) => this.send(socket, frame),
+        log: (level, event, fields) =>
+          log(level, event, { ownerId: this.ownerId(), ...fields }),
+      });
+    }
+    return await this.deviceToolRelayState.call({
+      deviceId,
+      requestId: input.requestId,
+      call: input.call,
+    });
+  }
+
+  /** The caller of a device tool call stopped waiting: the device is told to stop it. */
+  async cancelDeviceTool(input: { requestId: string }): Promise<void> {
+    this.deviceToolRelayState?.cancel(input.requestId);
+  }
+
   async cancelDispatch(
     input: OwnerGateCancelInput,
   ): Promise<OwnerGateStatusResult> {
@@ -3995,429 +2085,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     };
   }
 
-  private async cancelCloudDispatch(
-    row: DispatchRow,
-    cancelRequestId: string,
-    reason: string,
-  ): Promise<void> {
-    const body = {
-      turnId: row.cloud_turn_id,
-      cancelRequestId,
-      ownerId: this.ownerId(),
-      ownerGeneration: row.owner_generation,
-      ...(row.kind === "agent" ? { attemptGeneration: 1 } : {}),
-      ...(reason ? { reason } : {}),
-    };
-    try {
-      if (row.kind === "chat") {
-        await this.env.ORCHESTRATOR_SESSIONS?.getByName(
-          row.conversation_id,
-        ).fetch("https://orchestrator-session/cancel", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-        });
-      } else if (row.cloud_thread_id) {
-        await this.env.BUILD_SESSIONS?.getByName(row.cloud_thread_id).fetch(
-          "https://build-session/cancel",
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(body),
-          },
-        );
-      }
-    } catch (error) {
-      // The dispatch stays `cancel_pending`; the executing side's terminal
-      // still settles it, and the operator sees why the stop did not land.
-      log("error", "dispatch_cloud_cancel_failed", {
-        dispatchId: row.dispatch_id,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  // ── Executor frames ───────────────────────────────────────────────────
-
-  private async handleExecutorFrame(
-    socket: WebSocket,
-    attachment: PresenceAttachment,
-    frame: DevicePresenceDeviceFrame,
-    now: number,
-  ): Promise<void> {
-    const dispatchId =
-      "dispatchId" in frame && typeof frame.dispatchId === "string"
-        ? frame.dispatchId.trim()
-        : "";
-    if (!dispatchId) {
-      this.closeSocket(socket, DEVICE_PRESENCE_CLOSE.protocol, "bad_request");
-      return;
-    }
-    const row = this.dispatchRow(dispatchId);
-    if (!row) {
-      this.send(socket, {
-        type: "error",
-        code: "not_found",
-        message: "Dispatch not found.",
-        retryable: false,
-      });
-      return;
-    }
-    const deny = (code: string, message: string) =>
-      this.send(socket, { type: "error", code, message, retryable: false });
-    if (frame.type === "steer.ack") {
-      if (row.executor_device_id === attachment.deviceId) {
-        this.steerAcks.get(`${dispatchId}:${frame.messageId}`)?.(
-          frame.delivered === true,
-        );
-      }
-      return;
-    }
-    if (frame.type === "claim") {
-      await this.handleClaim(socket, attachment, row, frame, now);
-      return;
-    }
-    // Everything past a claim is bound to the exact proven session that holds
-    // it: a second device, or the same device after a reconnect, cannot move
-    // work it does not own.
-    if (
-      row.executor_device_id !== attachment.deviceId ||
-      row.executor_presence_session_id !== attachment.presenceSessionId
-    ) {
-      deny("forbidden", "This runtime session does not own the dispatch.");
-      return;
-    }
-    if (frame.type === "release") {
-      if (row.state !== "computer_claimed") {
-        deny(
-          "conflict",
-          "A durably accepted execution cannot be released or rerouted.",
-        );
-        return;
-      }
-      const released = await this.patchDispatch(
-        row,
-        {
-          state: "offering",
-          executor_device_id: null,
-          executor_presence_session_id: null,
-          lease_expires_at: null,
-        },
-        now,
-        { notifyExecutor: false },
-      );
-      // Its own offer is spent, and a claim already withdrew everyone else's,
-      // so the dispatch takes the fallback the policy chose rather than
-      // re-offering the work to the computer that just declined it.
-      this.ctx.storage.sql.exec(
-        `UPDATE dispatch_offers SET status = 'withdrawn', updated_at = ?
-          WHERE dispatch_id = ? AND device_id = ?`,
-        now,
-        released.dispatch_id,
-        attachment.deviceId,
-      );
-      await this.resolveUnaccepted(
-        released,
-        now,
-        `computer-claim-released:${(frame.reason ?? "").slice(0, 160)}`,
-      );
-      return;
-    }
-    if (frame.type === "ack") {
-      if (
-        row.state === "computer_accepted" ||
-        row.state === "computer_running" ||
-        row.state === "reconciliation_required"
-      ) {
-        return;
-      }
-      if (
-        row.state !== "computer_claimed" ||
-        row.lease_expires_at === null ||
-        row.lease_expires_at <= now
-      ) {
-        deny("conflict", "Claim expired before durable local acceptance.");
-        return;
-      }
-      await this.patchDispatch(
-        row,
-        {
-          state: "computer_accepted",
-          placement: "computer",
-          // The desktop's local inbox is now the only copy.
-          payload_json: null,
-          payload_expires_at: null,
-          lease_expires_at: now + DISPATCH_ACCEPTED_LEASE_MS,
-        },
-        now,
-      );
-      return;
-    }
-    if (frame.type === "running") {
-      if (
-        row.state !== "computer_accepted" &&
-        row.state !== "computer_running" &&
-        row.state !== "reconciliation_required"
-      ) {
-        deny("conflict", "Only an accepted computer execution can start.");
-        return;
-      }
-      await this.patchDispatch(
-        row,
-        {
-          state: "computer_running",
-          started_at: row.started_at ?? now,
-          lease_expires_at: now + DISPATCH_ACCEPTED_LEASE_MS,
-        },
-        now,
-      );
-      return;
-    }
-    if (frame.type === "renew") {
-      if (
-        row.state !== "computer_accepted" &&
-        row.state !== "computer_running" &&
-        row.state !== "cancel_pending" &&
-        row.state !== "reconciliation_required"
-      ) {
-        deny("conflict", "Execution is not renewable.");
-        return;
-      }
-      await this.patchDispatch(
-        row,
-        {
-          state:
-            row.state === "reconciliation_required"
-              ? row.started_at
-                ? "computer_running"
-                : "computer_accepted"
-              : row.state,
-          lease_expires_at: now + DISPATCH_ACCEPTED_LEASE_MS,
-        },
-        now,
-      );
-      return;
-    }
-    if (frame.type === "complete") {
-      const outcome = frame.outcome;
-      if (
-        outcome !== "completed" &&
-        outcome !== "failed" &&
-        outcome !== "canceled"
-      ) {
-        deny("bad_request", "A completion needs a terminal outcome.");
-        return;
-      }
-      if (isTerminalDispatchState(row.state as DispatchState)) {
-        this.notifyExecutor(row);
-        return;
-      }
-      if (
-        row.state !== "computer_accepted" &&
-        row.state !== "computer_running" &&
-        row.state !== "cancel_pending" &&
-        row.state !== "reconciliation_required"
-      ) {
-        deny(
-          "conflict",
-          "Execution is not owned by an accepted computer claim.",
-        );
-        return;
-      }
-      const terminal = await this.patchDispatch(
-        row,
-        {
-          state: outcome,
-          result_json: typeof frame.resultJson === "string" ? frame.resultJson : null,
-          payload_json: null,
-          payload_expires_at: null,
-          lease_expires_at: null,
-          ...(frame.errorCode
-            ? { error_code: frame.errorCode.slice(0, 128) }
-            : {}),
-          ...(frame.errorMessage
-            ? { error_message: frame.errorMessage.slice(0, 1024) }
-            : {}),
-        },
-        now,
-      );
-      await this.releaseGate(terminal);
-      await this.scheduleAlarm(now);
-      return;
-    }
-    this.closeSocket(socket, DEVICE_PRESENCE_CLOSE.protocol, "bad_request");
-  }
-
-  private async handleClaim(
-    socket: WebSocket,
-    attachment: PresenceAttachment,
-    row: DispatchRow,
-    frame: Extract<DevicePresenceDeviceFrame, { type: "claim" }>,
-    now: number,
-  ): Promise<void> {
-    const claimRequestId =
-      typeof frame.claimRequestId === "string"
-        ? frame.claimRequestId.trim().slice(0, 128)
-        : "";
-    if (!claimRequestId) {
-      this.closeSocket(socket, DEVICE_PRESENCE_CLOSE.protocol, "bad_request");
-      return;
-    }
-    const sameClaim =
-      row.state === "computer_claimed" &&
-      row.executor_device_id === attachment.deviceId &&
-      row.executor_presence_session_id === attachment.presenceSessionId &&
-      row.cancel_request_id === null;
-    if (sameClaim) {
-      this.send(socket, {
-        type: "claimed",
-        dispatchId: row.dispatch_id,
-        claimExpiresAt: row.lease_expires_at ?? now,
-        replayed: true,
-      });
-      return;
-    }
-    if (
-      row.state !== "offering" ||
-      row.offer_deadline_at === null ||
-      row.offer_deadline_at <= now
-    ) {
-      this.send(socket, {
-        type: "error",
-        code: "conflict",
-        message: "Execution offer is no longer claimable.",
-        retryable: false,
-      });
-      return;
-    }
-    const offered = this.openOffers(row.dispatch_id).some(
-      (offer) =>
-        offer.device_id === attachment.deviceId &&
-        offer.presence_session_id === attachment.presenceSessionId,
-    );
-    if (!offered) {
-      this.send(socket, {
-        type: "error",
-        code: "forbidden",
-        message: "This runtime session was not offered the execution.",
-        retryable: false,
-      });
-      return;
-    }
-    const snapshot = await this.snapshot({ now });
-    const required = JSON.parse(
-      row.required_capabilities,
-    ) as ExecutionCapability[];
-    const eligible = this.eligibleDevices({
-      snapshot,
-      deviceIds: [attachment.deviceId],
-      kind: row.kind as ExecutionKind,
-      requiredCapabilities: required,
-      now,
-    });
-    if (eligible.length === 0) {
-      this.send(socket, {
-        type: "error",
-        code: "conflict",
-        message: "This runtime is no longer eligible for the execution.",
-        retryable: false,
-      });
-      return;
-    }
-    this.ctx.storage.sql.exec(
-      `UPDATE dispatch_offers SET status = 'claimed', updated_at = ?
-        WHERE dispatch_id = ? AND device_id = ?`,
-      now,
-      row.dispatch_id,
-      attachment.deviceId,
-    );
-    this.withdrawOffers(row.dispatch_id, attachment.deviceId, "claimed", now);
-    const claimExpiresAt = now + DISPATCH_CLAIM_LEASE_MS;
-    await this.patchDispatch(
-      row,
-      {
-        state: "computer_claimed",
-        executor_device_id: attachment.deviceId,
-        executor_presence_session_id: attachment.presenceSessionId ?? "",
-        lease_expires_at: claimExpiresAt,
-      },
-      now,
-      { notifyExecutor: false },
-    );
-    this.send(socket, {
-      type: "claimed",
-      dispatchId: row.dispatch_id,
-      claimExpiresAt,
-      replayed: false,
-    });
-    await this.scheduleAlarm(now);
-  }
-
-  // ── Alarms ────────────────────────────────────────────────────────────
-
-  private async scheduleAlarm(
-    now: number,
-    options: {
-      fenceDeadline?: number | null;
-      preserveExisting?: boolean;
-    } = {},
-  ): Promise<void> {
-    this.ensureSchema();
-    let next = options.fenceDeadline ?? Number.POSITIVE_INFINITY;
-    if (await this.memoryPolicy().pending() || await this.modelGrants().pendingFenceBarrier())
-      next = Math.min(next, now + 5_000);
-    next = Math.min(next, this.ownerStore().nextDeadline());
-    for (const socket of this.sockets()) {
-      const attachment = this.attachment(socket);
-      if (!attachment) continue;
-      next = Math.min(
-        next,
-        attachment.lastSeenAtMs + DEVICE_PRESENCE_STALE_AFTER_MS,
-        attachment.authExpiresAtMs,
-      );
-    }
-    // Each column is one `MIN` seek into a partial index, so a wake reads a
-    // handful of rows no matter how many terminal dispatches this object has
-    // accumulated. Leases are asked for per state because a range over a state
-    // set cannot be answered by one seek, and scalar subqueries are used rather
-    // than a compound SELECT, whose term limit this storage enforces.
-    const deadlines = this.ctx.storage.sql
-      .exec<Record<string, number | null>>(
-        `SELECT
-           (SELECT MIN(offer_deadline_at) FROM dispatches
-              WHERE state = 'offering' AND offer_deadline_at IS NOT NULL) AS offer,
-           (SELECT MIN(lease_expires_at) FROM dispatches
-              WHERE state = 'computer_claimed' AND lease_expires_at IS NOT NULL) AS claimed,
-           (SELECT MIN(lease_expires_at) FROM dispatches
-              WHERE state = 'computer_accepted' AND lease_expires_at IS NOT NULL) AS accepted,
-           (SELECT MIN(lease_expires_at) FROM dispatches
-              WHERE state = 'computer_running' AND lease_expires_at IS NOT NULL) AS running,
-           (SELECT MIN(lease_expires_at) FROM dispatches
-              WHERE state = 'cloud_committed' AND lease_expires_at IS NOT NULL) AS committed,
-           (SELECT MIN(lease_expires_at) FROM dispatches
-              WHERE state = 'cancel_pending' AND lease_expires_at IS NOT NULL) AS canceling,
-           (SELECT MIN(cloud_retry_at) FROM dispatches
-              WHERE state = 'cloud_committed' AND cloud_retry_at IS NOT NULL) AS retry,
-           (SELECT MIN(payload_expires_at) FROM dispatches
-              WHERE payload_json IS NOT NULL AND payload_expires_at IS NOT NULL) AS payload`,
-      )
-      .toArray()[0];
-    for (const deadline of Object.values(deadlines ?? {})) {
-      if (typeof deadline === "number") next = Math.min(next, deadline);
-    }
-    if (options.preserveExisting !== false) {
-      const existingAlarm = await this.ctx.storage.getAlarm();
-      if (existingAlarm !== null) next = Math.min(next, existingAlarm);
-    }
-    if (!Number.isFinite(next)) return;
-    try {
-      await this.ctx.storage.setAlarm(Math.max(now + ALARM_MIN_DELAY_MS, next));
-    } catch {
-      // Alarms are unavailable in some test harnesses; leases still expire on
-      // the next call that reads them.
-    }
-  }
-
   async alarm(): Promise<void> {
     this.ensureSchema();
     const now = Date.now();
@@ -4430,8 +2097,17 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
     try {
       const pendingFence = await this.modelGrants().pendingFenceBarrier();
       if (pendingFence) {
-        await this.fetchOwnerFence(pendingFence.path, ownerFenceRequest(pendingFence.path, pendingFence.body), pendingFence.body).catch((error: unknown) => {
-          log("error", "owner_grant_fence_retry_pending", { message: error instanceof Error ? error.message : "Owner fence replay failed." });
+        await this.fetchOwnerFence(
+          pendingFence.path,
+          ownerFenceRequest(pendingFence.path, pendingFence.body),
+          pendingFence.body,
+        ).catch((error: unknown) => {
+          log("error", "owner_grant_fence_retry_pending", {
+            message:
+              error instanceof Error
+                ? error.message
+                : "Owner fence replay failed.",
+          });
         });
       }
       fenceDeadline = await ownerFenceHost.alarm(now);
@@ -4439,11 +2115,16 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
       await this.expirePresence(now);
       await this.expireDispatches(now);
       await this.ownerStore().onAlarm(now);
-      await this.memoryPolicy().retry().catch((error: unknown) => {
-        log("error", "memory_policy_retry_pending", {
-          message: error instanceof Error ? error.message : "Memory policy retry failed.",
+      await this.memoryPolicy()
+        .retry()
+        .catch((error: unknown) => {
+          log("error", "memory_policy_retry_pending", {
+            message:
+              error instanceof Error
+                ? error.message
+                : "Memory policy retry failed.",
+          });
         });
-      });
     } finally {
       if (!fenceAlarmCompleted) {
         fenceDeadline = await ownerFenceHost.nextDeadline();
@@ -4452,118 +2133,6 @@ export class OwnerGate extends DurableObject<OwnerGateEnv> {
         fenceDeadline,
         preserveExisting: false,
       });
-    }
-  }
-
-  private async expirePresence(now: number): Promise<void> {
-    for (const socket of this.sockets()) {
-      const attachment = this.attachment(socket);
-      if (!attachment) continue;
-      if (attachment.authExpiresAtMs <= now) {
-        await this.dropSocket(
-          socket,
-          attachment,
-          DEVICE_PRESENCE_CLOSE.stale,
-          "stale",
-          now,
-        );
-        continue;
-      }
-      if (attachment.lastSeenAtMs + DEVICE_PRESENCE_STALE_AFTER_MS <= now) {
-        await this.dropSocket(
-          socket,
-          attachment,
-          DEVICE_PRESENCE_CLOSE.stale,
-          "stale",
-          now,
-        );
-      }
-    }
-  }
-
-  /**
-   * Leases, in one pass. An accepted or running computer dispatch whose lease
-   * lapses becomes `reconciliation_required` and stays there: rerouting work
-   * a computer has taken durable ownership of would run it twice.
-   */
-  private async expireDispatches(now: number): Promise<void> {
-    const expired = this.ctx.storage.sql
-      .exec<DispatchRow>(
-        `SELECT * FROM dispatches
-          WHERE (state = 'offering' AND offer_deadline_at IS NOT NULL
-                 AND offer_deadline_at <= ?)
-             OR (state = 'cloud_committed' AND cloud_retry_at IS NOT NULL
-                 AND cloud_retry_at <= ?)
-             OR (state IN ('computer_claimed', 'computer_accepted',
-                           'computer_running', 'cloud_committed',
-                           'cancel_pending')
-                 AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?)
-             OR (payload_json IS NOT NULL AND payload_expires_at IS NOT NULL
-                 AND payload_expires_at <= ?)
-          ORDER BY updated_at ASC
-          LIMIT 64`,
-        now,
-        now,
-        now,
-        now,
-      )
-      .toArray();
-    for (const row of expired) {
-      const offerLapsed =
-        row.state === "offering" &&
-        row.offer_deadline_at !== null &&
-        row.offer_deadline_at <= now;
-      const leaseLapsed =
-        row.lease_expires_at !== null && row.lease_expires_at <= now;
-      if (offerLapsed) {
-        await this.resolveUnaccepted(
-          row,
-          now,
-          "computer-offer-expired-unaccepted",
-        );
-        continue;
-      }
-      // A start the builder refused as unavailable, retried once. This is the
-      // one case where `cloud_committed` is known not to have started, so
-      // replaying it cannot double-run a turn.
-      if (
-        row.state === "cloud_committed" &&
-        row.cloud_retry_at !== null &&
-        row.cloud_retry_at <= now
-      ) {
-        await this.runCloudBranch(row, now);
-        continue;
-      }
-      if (row.state === "computer_claimed" && leaseLapsed) {
-        await this.resolveUnaccepted(row, now, "computer-claim-expired");
-        continue;
-      }
-      if (
-        leaseLapsed &&
-        (row.state === "computer_accepted" ||
-          row.state === "computer_running" ||
-          row.state === "cloud_committed" ||
-          row.state === "cancel_pending")
-      ) {
-        await this.patchDispatch(
-          row,
-          {
-            state: "reconciliation_required",
-            lease_expires_at: null,
-            fallback_reason: `${row.state}-lease-expired`,
-          },
-          now,
-          { notifyExecutor: false },
-        );
-        continue;
-      }
-      if (row.payload_json !== null) {
-        this.ctx.storage.sql.exec(
-          `UPDATE dispatches SET payload_json = NULL, payload_expires_at = NULL
-            WHERE dispatch_id = ?`,
-          row.dispatch_id,
-        );
-      }
     }
   }
 }

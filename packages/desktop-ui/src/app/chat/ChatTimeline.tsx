@@ -45,6 +45,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type RefObject,
@@ -70,6 +71,9 @@ import { timestampHeaders } from "@/features/chat/lib/message-time-labels";
 import type { EventRowViewModel } from "@/features/chat/conversation-row-types";
 import type { AgentModelConfigsByThread } from "@/features/chat/hooks/use-agent-model-configs";
 import { LoaderCircle } from "@/ui/icons";
+import { notifyChatContentGrowth } from "@/shell/chat-scroll-follow";
+import { UserAskRecordCard } from "@/features/user-ask/UserAskRecordCard";
+import { useConversationUserAskRecords } from "@/features/user-ask/user-ask-store";
 import { useT } from "@/shared/i18n";
 
 type ChatTimelineProps = {
@@ -230,6 +234,8 @@ const gapAfterRow = (
 type TimelineListItem = ChatTimelineItem & {
   /** Pre-computed spacing rendered below this row by the separator. */
   gapAfter: number;
+  /** The previous assistant message already shows this row's agent chip. */
+  hideAgentChip?: boolean;
   /**
    * Created time of this row when it opens a new time group, i.e. when it
    * gets the centered iMessage-style divider above it. Undefined on every
@@ -289,6 +295,7 @@ const renderRow = (
   row: EventRowViewModel,
   conversationId?: string | null,
   agentModelConfigByThread?: AgentModelConfigsByThread,
+  hideAgentChip?: boolean,
 ) => {
   if (row.kind === "user") {
     return <UserMessageRow key={row.id} row={row} />;
@@ -299,9 +306,26 @@ const renderRow = (
       row={row}
       conversationId={conversationId}
       agentModelConfigByThread={agentModelConfigByThread}
+      hideAgentChip={hideAgentChip}
     />
   );
 };
+
+const agentChipKey = (row: EventRowViewModel): string => {
+  if (row.kind !== "assistant") return "";
+  const ids = new Set<string>();
+  for (const ref of row.replyRefs ?? []) {
+    if (ref.kind === "agent") ids.add(ref.threadId);
+  }
+  for (const section of row.agentCompletion?.sections ?? []) {
+    ids.add(section.agentId);
+  }
+  return [...ids].sort().join("\u0000");
+};
+
+const hasMessageReplyRef = (row: EventRowViewModel): boolean =>
+  row.kind === "assistant" &&
+  Boolean(row.replyRefs?.some((ref) => ref.kind !== "agent"));
 
 const TimelineUserItem = ({
   item,
@@ -343,11 +367,13 @@ export const ChatTimeline = memo(function ChatTimeline({
   contentContainerStyle,
 }: ChatTimelineProps) {
   const t = useT();
+  const askRecords = useConversationUserAskRecords(conversationId);
   const listItems = useMemo<TimelineListItem[]>(() => {
     const items = buildChatTimelineItems({
       rows,
       queuedUserMessages: queuedUserMessages ?? [],
       includeWorkingIndicator: Boolean(indicator),
+      askRecords,
     });
     // Which rows open a new time group, by the same rule mobile uses.
     const timeHeaders = timestampHeaders(
@@ -359,17 +385,35 @@ export const ChatTimeline = memo(function ChatTimeline({
     );
     return items.map((item, index) => {
       const next = items[index + 1];
+      const previous = items[index - 1];
+      const chipKey = item.type === "message" ? agentChipKey(item.row) : "";
+      const hideAgentChip =
+        chipKey !== "" &&
+        item.type === "message" &&
+        !hasMessageReplyRef(item.row) &&
+        previous?.type === "message" &&
+        previous.row.kind === "assistant" &&
+        agentChipKey(previous.row) === chipKey;
+
       const timeHeaderMs =
         item.type === "message" ? timeHeaders.get(item.id) : undefined;
       // Legend renders the separator after the final item too; the list's
       // bottom padding is the only gap between the tail and the composer.
-      if (!next) return { ...item, gapAfter: 0, timeHeaderMs };
+      if (!next) {
+        return {
+          ...item,
+          gapAfter: 0,
+          timeHeaderMs,
+          ...(hideAgentChip ? { hideAgentChip: true } : {}),
+        };
+      }
       if (item.type === "message") {
         const nextRow = next?.type === "message" ? next.row : undefined;
         return {
           ...item,
           gapAfter: gapAfterRow(item.row, nextRow),
           timeHeaderMs,
+          ...(hideAgentChip ? { hideAgentChip: true } : {}),
         };
       }
       if (item.type === "working-indicator") {
@@ -380,7 +424,22 @@ export const ChatTimeline = memo(function ChatTimeline({
         gapAfter: next?.type === "queued-users" ? 6 : ROW_GAP,
       };
     });
-  }, [indicator, queuedUserMessages, rows]);
+  }, [askRecords, indicator, queuedUserMessages, rows]);
+  const tailItemId = useMemo(() => {
+    for (let index = listItems.length - 1; index >= 0; index -= 1) {
+      const item = listItems[index];
+      if (item?.type === "message" || item?.type === "ask-record") return item.id;
+    }
+    return null;
+  }, [listItems]);
+  const previousTailItemIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousTailItemIdRef.current;
+    previousTailItemIdRef.current = tailItemId;
+    if (!previous || !tailItemId || previous === tailItemId) return;
+    const frame = requestAnimationFrame(() => notifyChatContentGrowth());
+    return () => cancelAnimationFrame(frame);
+  }, [tailItemId]);
   const renderedMessageRowCount = listItems.reduce(
     (count, item) => count + (item.type === "message" ? 1 : 0),
     0,
@@ -388,6 +447,15 @@ export const ChatTimeline = memo(function ChatTimeline({
 
   const renderItem = useCallback(
     ({ item }: LegendListRenderItemProps<TimelineListItem>) => {
+      if (item.type === "ask-record") {
+        return (
+          <div className="event-row event-row--assistant">
+            <div className="event-item assistant">
+              <UserAskRecordCard record={item.record} />
+            </div>
+          </div>
+        );
+      }
       if (item.type === "working-indicator") {
         return indicator ? (
           <div className="event-list-working-indicator">
@@ -399,7 +467,12 @@ export const ChatTimeline = memo(function ChatTimeline({
         item.type === "queued-users" || item.row.kind === "user" ? (
           <TimelineUserItem item={item} onCancelQueued={onCancelQueued} />
         ) : (
-          renderRow(item.row, conversationId, agentModelConfigByThread)
+          renderRow(
+            item.row,
+            conversationId,
+            agentModelConfigByThread,
+            item.hideAgentChip,
+          )
         );
       // The divider rides inside the row's own virtualized item, so it is
       // measured and recycled with it (mobile nests it the same way).
@@ -469,8 +542,18 @@ export const ChatTimeline = memo(function ChatTimeline({
   if (rows.length === 0) {
     return (
       <div className="event-list-fallback" data-empty="true">
-        {emptyState ?? (
-          <div className="event-empty">{t("app.chat.timeline.empty")}</div>
+        {askRecords.length > 0 ? (
+          askRecords.map((record) => (
+            <div className="event-row event-row--assistant" key={record.id}>
+              <div className="event-item assistant">
+                <UserAskRecordCard record={record} />
+              </div>
+            </div>
+          ))
+        ) : (
+          emptyState ?? (
+            <div className="event-empty">{t("app.chat.timeline.empty")}</div>
+          )
         )}
         {extraTail ? (
           <div className="event-list-extra-tail">{extraTail}</div>

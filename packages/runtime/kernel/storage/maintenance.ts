@@ -9,8 +9,7 @@
  *
  * Scheduling. One fixed-rate fiber (`forkFixedRateFiber`, the run-event-log
  * sweep idiom) ticks every `intervalMs`. A tick does nothing unless the
- * caller's `isIdle()` holds — the worker wires the same `hasActiveWork`
- * signal the idle-shutdown logic uses (no orchestrator run, no agents, no
+ * caller's `isIdle()` holds — the worker wires its session-work signal (no orchestrator run, no agents, no
  * in-flight RPC handler, no voice work). Consecutive idle ticks form
  * an idle streak; heavier steps need a longer streak, and a tick runs at most
  * one heavy step:
@@ -78,8 +77,8 @@
  * events the lifecycle server's idle-shutdown counts). That is the worker's
  * pre-idle-shutdown window: Electron is gone, there are no other writers, and
  * blocking our own loop is harmless. Once the preconditions have held on an
- * idle tick, `holdsWorkerAlive()` is ORed into `hasActiveWork`, so the
- * lifecycle's `shouldKeepAlive` postpones idle shutdown until the next tick
+ * idle tick, `holdsWorkerAlive()` is the lifecycle's `shouldKeepAlive`, so it
+ * postpones idle shutdown until the next tick
  * has run the reclaim (the VACUUM itself is synchronous, so no timer can
  * fire mid-VACUUM). Three BUSY deferrals end the hold for the session.
  * Worst-case post-quit linger, once per database: one tick (<= 60 s) +
@@ -783,8 +782,8 @@ export class DatabaseMaintenance {
 
   /**
    * True while the search-index build or the reclaim is running, or either
-   * is pending and waiting for the detached window. The worker ORs this into
-   * `hasActiveWork`, so the lifecycle's idle-shutdown (`shouldKeepAlive`)
+   * is pending and waiting for the detached window. This is the lifecycle's
+   * idle-shutdown keep-alive (`shouldKeepAlive`), so it
    * keeps the process up after the last client detaches until later ticks
    * have run them. (Both are synchronous, so no timer can fire during them.)
    */
@@ -1153,9 +1152,9 @@ export class DatabaseMaintenance {
   }
 
   /**
-   * Retention for durable runs: terminal `run_task` rows and unowned
-   * `tool_intent` rows older than 7 days. Both tables hold one row per run or
-   * tool call, so a pass is one indexed DELETE each; at most once per
+   * Retention for older builds' durable runs: terminal `run_task` rows and
+   * unowned `tool_intent` rows older than 7 days. Both tables hold one row per
+   * run or tool call, so a pass is one indexed DELETE each; at most once per
    * `RUN_ADMISSION_PRUNE_INTERVAL_MS` of idle ticks.
    */
   private pruneRunTasks(connection: SqliteDatabase): void {

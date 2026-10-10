@@ -1,12 +1,19 @@
 import { Cause, Effect, Exit, Scope } from "effect";
 import { loadModelRegistry } from "@stella/contracts/model-registry";
-import "../ai/utils/http-proxy.js";
-import { registerBuiltInApiProviders } from "../ai/providers/register-builtins.js";
+import "../kernel/shared/http-proxy.js";
+import path from "node:path";
 import {
   getFileLogger,
   initFileLogger,
-  installGlobalErrorLogging,
+  installWorkerCrashHandling,
 } from "../observability/file-logger.js";
+import {
+  configureAgentProcessRegistry,
+  describeAgentProcesses,
+  killAgentProcessesSync,
+  reapAgentProcesses,
+  takeOrphanedAgentProcesses,
+} from "../kernel/shared/agent-process-registry.js";
 import { closeRuntimeTelemetry } from "../observability/runtime-telemetry.js";
 import type { JsonRpcPeer } from "@stella/contracts/protocol/rpc-peer";
 import { STELLA_RUNTIME_CLIENT_PROTOCOL_VERSION } from "@stella/contracts/protocol/runtime-client";
@@ -89,9 +96,11 @@ const parseEntryArgs = (argv: string[]): ParsedArgs => {
   return { listenUrl, stellaAppDir, idleShutdownMs };
 };
 
+/** How long a shutdown may spend closing before the process exits regardless. */
+const SHUTDOWN_DEADLINE_MS = 5_000;
+
 const main = async () => {
   await loadModelRegistry();
-  registerBuiltInApiProviders();
   const cliArgs = parseEntryArgs(process.argv.slice(2));
   const transportResult = parseWorkerListenUrl(cliArgs.listenUrl);
   if (!transportResult.ok) {
@@ -161,7 +170,15 @@ const main = async () => {
     }
     detachedMode = true;
     const logger = initFileLogger(cliArgs.stellaAppDir, "worker");
-    installGlobalErrorLogging(logger);
+    installWorkerCrashHandling(logger, {
+      context: () => ({ agentProcesses: describeAgentProcesses() }),
+      beforeFatalExit: () => {
+        killAgentProcessesSync();
+      },
+    });
+    process.on("exit", () => {
+      killAgentProcessesSync();
+    });
     logger.process("worker.starting", { pid: process.pid });
     // Snapshot the runtime tree's identity as loaded by THIS process
     // (process.argv[1] is the entry file the host spawned). The host compares
@@ -176,9 +193,23 @@ const main = async () => {
       ...(cliArgs.idleShutdownMs
         ? { idleShutdownMs: cliArgs.idleShutdownMs }
         : {}),
-      shouldKeepAlive: () => runtimeServer.hasActiveWork(),
+      interruptWork: () => runtimeServer.interruptWork(),
+      shouldKeepAlive: () => runtimeServer.holdsWorkerAlive(),
       onShutdown: async (reason) => {
-        await closeRootScope();
+        // Closing interrupts in-flight turns and ends their commands; pi
+        // keeps the interrupted work pending for the next launch. A teardown
+        // that still wedges must not keep the process alive past the bound.
+        const startedAt = Date.now();
+        const closed = await workerRuntime.runPromise(
+          Effect.raceFirst(
+            Effect.promise(() => closeRootScope()).pipe(Effect.as(true)),
+            Effect.sleep(SHUTDOWN_DEADLINE_MS).pipe(Effect.as(false)),
+          ),
+        );
+        logger.process(closed ? "worker.shutdown-closed" : "worker.shutdown-deadline", {
+          reason,
+          elapsedMs: Date.now() - startedAt,
+        });
         if (reason === "idle" || reason === "restart") {
           setImmediate(() => process.exit(0));
         }
@@ -192,6 +223,27 @@ const main = async () => {
       );
       process.exit(3);
     }
+    const agentRegistryFile = path.join(
+      lifecycle.paths.rootDir,
+      "agent-processes.json",
+    );
+    const orphanedAgents = takeOrphanedAgentProcesses(agentRegistryFile);
+    if (orphanedAgents.length > 0) {
+      logger.warn("worker.orphaned-agents-found", {
+        agents: orphanedAgents.map(({ pid, label, command, startedAt }) => ({
+          pid,
+          label,
+          command,
+          startedAt,
+        })),
+      });
+      void reapAgentProcesses(orphanedAgents).then(() => {
+        logger.process("worker.orphaned-agents-reaped", {
+          pids: orphanedAgents.map(({ pid }) => pid),
+        });
+      });
+    }
+    configureAgentProcessRegistry(agentRegistryFile);
     serverIdentity = createRuntimeServerIdentity({
       rootHash: lifecycle.paths.rootHash,
       buildStamp:
@@ -247,6 +299,7 @@ const main = async () => {
               onShutdownRequested: () => {
                 void runtimeLifecycle.shutdown("restart");
               },
+              onQuitRequested: () => runtimeLifecycle.requestQuit(),
             }),
         ),
         (acquired) => Effect.promise(() => acquired.close()),

@@ -1,3 +1,4 @@
+import type { UserAskRecord } from "@stella/contracts/user-ask-deck";
 import type { ReplyRef } from "@stella/contracts/reply-refs";
 import type { ToolStep } from "./lib/tool-activity";
 
@@ -237,8 +238,11 @@ export type ComposerQuote = {
 };
 
 export type ChatMessage = {
+  /** Compact records of answered `ask_user` questions on this row. */
+  askRecords?: readonly UserAskRecord[];
   /** Durable reply relationships; UI hides adjacent context. */
   replyRefs?: ReplyRef[];
+  agentStates?: Record<string, "running" | "completed" | "error">;
   /**
    * Agent threads this row's `spawn_agent` / `send_message` calls started, from
    * the tool result details. Feeds reply context (the exchange owns the

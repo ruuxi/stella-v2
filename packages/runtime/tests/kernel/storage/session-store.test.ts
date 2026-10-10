@@ -15,11 +15,10 @@ import {
 import { ThreadLog } from "../../../kernel/storage/thread-log.js";
 import type { SqliteDatabase } from "@stella/runtime/kernel/storage/shared";
 import {
-  getThreadImageHistoryStats,
   maybeCompactRuntimeThread,
   parseThreadCheckpoint,
 } from "@stella/runtime/kernel/thread-runtime";
-import { withForcedThreadCompaction } from "@stella/runtime/kernel/agent-runtime/context-budget";
+import { getThreadImageHistoryStats } from "@stella/runtime/kernel/thread-compaction-plan";
 
 type TestContext = {
   rootPath: string;
@@ -60,24 +59,24 @@ describe("session-store", () => {
   it("keeps private history local and excludes it from cloud migration", () => {
     const { store } = createTestContext();
     const id = "local_private-history";
-    store.setActiveDefaultConversationId(id);
-    store.appendEvent({
+    store.chat.setActiveDefaultConversationId(id);
+    store.chat.appendEvent({
       conversationId: id,
       eventId: "first",
       type: "user_message",
       timestamp: 100,
       payload: { text: "Private first" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId: id,
       eventId: "second",
       type: "user_message",
       timestamp: 200,
       payload: { text: "Private second" },
     });
-    expect(store.getOrCreateDefaultConversationId()).toBe(id);
+    expect(store.chat.getOrCreateDefaultConversationId()).toBe(id);
     expect(
-      store
+      store.chat
         .listConversationSummaries({})
         .conversations.some((item) => item.conversationId === id),
     ).toBe(true);
@@ -345,9 +344,12 @@ describe("session-store", () => {
     activeContexts.add(context);
 
     // Chat log imported with order, visibility, and turn anchoring intact.
-    const window = context.store.listMessages(legacyConversation, {
-      maxVisibleMessages: 10,
-    });
+    const window = context.store.messageWindows.listMessages(
+      legacyConversation,
+      {
+        maxVisibleMessages: 10,
+      },
+    );
     expect(window.messages.map((message) => message._id)).toEqual(["m1", "m3"]);
     expect(window.visibleMessageCount).toBe(2);
     expect(window.messages[1]!.toolEvents.map((event) => event._id)).toEqual([
@@ -398,7 +400,7 @@ describe("session-store", () => {
         .all(),
     ).toEqual([]);
     initializeDesktopDatabase(db);
-    expect(context.store.getEventCount(legacyConversation)).toBe(4);
+    expect(context.store.chat.getEventCount(legacyConversation)).toBe(4);
   });
 
   it("projects durable provider usage by conversation and agent thread", () => {
@@ -635,24 +637,27 @@ describe("session-store", () => {
 
   it("starts a fresh default conversation without deleting old messages", () => {
     const { store } = createTestContext();
-    const firstConversationId = store.getOrCreateDefaultConversationId();
-    store.appendEvent({
+    const firstConversationId = store.chat.getOrCreateDefaultConversationId();
+    store.chat.appendEvent({
       conversationId: firstConversationId,
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "Keep this" },
     });
 
-    const nextConversationId = store.createNewDefaultConversationId();
+    const nextConversationId = store.chat.createNewDefaultConversationId();
 
     expect(nextConversationId).not.toBe(firstConversationId);
-    expect(store.getOrCreateDefaultConversationId()).toBe(nextConversationId);
+    expect(store.chat.getOrCreateDefaultConversationId()).toBe(
+      nextConversationId,
+    );
     expect(
-      store.listMessages(nextConversationId, { maxVisibleMessages: 10 })
-        .messages,
+      store.messageWindows.listMessages(nextConversationId, {
+        maxVisibleMessages: 10,
+      }).messages,
     ).toEqual([]);
     expect(
-      store
+      store.messageWindows
         .listMessages(firstConversationId, { maxVisibleMessages: 10 })
         .messages.map((message) => message.payload.text),
     ).toEqual(["Keep this"]);
@@ -660,22 +665,22 @@ describe("session-store", () => {
 
   it("reconstructs chat events from session, message, and part rows", () => {
     const { db, store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
-    const userEvent = store.appendEvent({
+    const userEvent = store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "Plan a trip" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "tool_request",
       timestamp: 1_001,
       requestId: "tool-1",
       payload: { toolName: "web", args: { query: "weather" } },
     });
-    const assistantEvent = store.appendEvent({
+    const assistantEvent = store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 1_002,
@@ -683,9 +688,9 @@ describe("session-store", () => {
     });
 
     expect(
-      store.listEvents(conversationId, 10).map((event) => event.type),
+      store.chat.listEvents(conversationId, 10).map((event) => event.type),
     ).toEqual(["user_message", "tool_request", "assistant_message"]);
-    expect(store.getEventCount(conversationId)).toBe(3);
+    expect(store.chat.getEventCount(conversationId)).toBe(3);
 
     const messageRows = db
       .prepare(
@@ -730,49 +735,49 @@ describe("session-store", () => {
 
   it("anchors turn tools to the first assistant of the turn, falling back to the user_message when none exists", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
-    const userA = store.appendEvent({
+    const userA = store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "Make a chart" },
     });
-    const assistantA = store.appendEvent({
+    const assistantA = store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 1_001,
       payload: { text: "On it." },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "tool_request",
       timestamp: 1_002,
       requestId: "req-1",
       payload: { toolName: "image_gen", args: {} },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "tool_result",
       timestamp: 1_003,
       requestId: "req-1",
       payload: { toolName: "image_gen", resultPreview: "[image]" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "agent-completed",
       timestamp: 1_004,
       payload: { agentId: "agent-1", result: "ok" },
     });
 
-    const userB = store.appendEvent({
+    const userB = store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 2_000,
       payload: { text: "Try again" },
     });
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "tool_request",
       timestamp: 2_001,
@@ -780,7 +785,7 @@ describe("session-store", () => {
       payload: { toolName: "image_gen", args: { prompt: "which?" } },
     });
 
-    const { messages } = store.listMessages(conversationId, {
+    const { messages } = store.messageWindows.listMessages(conversationId, {
       maxVisibleMessages: 10,
     });
     expect(messages.map((m) => m._id)).toEqual([
@@ -801,34 +806,34 @@ describe("session-store", () => {
 
   it("attaches pre-reply tool outputs to the assistant when one fires later in the turn", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
-    const userA = store.appendEvent({
+    const userA = store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "draw a cat" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "tool_request",
       timestamp: 1_001,
       payload: { toolName: "image_gen", args: { prompt: "cat" } },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "tool_result",
       timestamp: 1_002,
       payload: { toolName: "image_gen" },
     });
-    const assistantA = store.appendEvent({
+    const assistantA = store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 1_003,
       payload: { text: "Here's the cat." },
     });
 
-    const { messages } = store.listMessages(conversationId, {
+    const { messages } = store.messageWindows.listMessages(conversationId, {
       maxVisibleMessages: 10,
     });
     expect(messages.map((m) => m._id)).toEqual([userA._id, assistantA._id]);
@@ -841,15 +846,15 @@ describe("session-store", () => {
 
   it("does not anchor tool outputs to hidden assistant messages", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
-    const userA = store.appendEvent({
+    const userA = store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "show this in HTML" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 1_001,
@@ -858,26 +863,26 @@ describe("session-store", () => {
         metadata: { ui: { visibility: "hidden" } },
       },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "tool_request",
       timestamp: 1_002,
       payload: { toolName: "html" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "tool_result",
       timestamp: 1_003,
       payload: { toolName: "html" },
     });
-    const assistantA = store.appendEvent({
+    const assistantA = store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 1_004,
       payload: { text: "Done." },
     });
 
-    const { messages } = store.listMessages(conversationId, {
+    const { messages } = store.messageWindows.listMessages(conversationId, {
       maxVisibleMessages: 10,
     });
 
@@ -890,21 +895,21 @@ describe("session-store", () => {
 
   it("reports visibleMessageCount excluding UI-hidden user messages", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "hi" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 1_001,
       payload: { text: "hello" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_002,
@@ -913,14 +918,14 @@ describe("session-store", () => {
         metadata: { ui: { visibility: "hidden" } },
       },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_003,
       payload: { text: "next prompt" },
     });
 
-    const { messages, visibleMessageCount } = store.listMessages(
+    const { messages, visibleMessageCount } = store.messageWindows.listMessages(
       conversationId,
       { maxVisibleMessages: 10 },
     );
@@ -931,17 +936,17 @@ describe("session-store", () => {
 
   it("listMessages caps the window by visible message count regardless of tool density", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
     for (let i = 0; i < 5; i += 1) {
       const baseTs = 1_000 + i * 100;
-      store.appendEvent({
+      store.chat.appendEvent({
         conversationId,
         type: "user_message",
         timestamp: baseTs,
         payload: { text: `user ${i}` },
       });
-      store.appendEvent({
+      store.chat.appendEvent({
         conversationId,
         type: "assistant_message",
         timestamp: baseTs + 1,
@@ -949,7 +954,7 @@ describe("session-store", () => {
       });
 
       for (let t = 0; t < 10; t += 1) {
-        store.appendEvent({
+        store.chat.appendEvent({
           conversationId,
           type: "tool_request",
           timestamp: baseTs + 2 + t,
@@ -959,7 +964,7 @@ describe("session-store", () => {
       }
     }
 
-    const { messages } = store.listMessages(conversationId, {
+    const { messages } = store.messageWindows.listMessages(conversationId, {
       maxVisibleMessages: 4,
     });
 
@@ -977,54 +982,54 @@ describe("session-store", () => {
 
   it("keeps tool events for the oldest assistant when the message window starts mid-turn", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "old setup" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 1_001,
       payload: { text: "old reply" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 2_000,
       payload: { text: "draw a chart" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "tool_request",
       timestamp: 2_001,
       requestId: "chart",
       payload: { toolName: "image_gen", args: { prompt: "chart" } },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "tool_result",
       timestamp: 2_002,
       requestId: "chart",
       payload: { toolName: "image_gen", resultPreview: "[chart]" },
     });
-    const cutoffAssistant = store.appendEvent({
+    const cutoffAssistant = store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 2_003,
       payload: { text: "Here is the chart." },
     });
-    const latestUser = store.appendEvent({
+    const latestUser = store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 3_000,
       payload: { text: "thanks" },
     });
 
-    const { messages, visibleMessageCount } = store.listMessages(
+    const { messages, visibleMessageCount } = store.messageWindows.listMessages(
       conversationId,
       { maxVisibleMessages: 2 },
     );
@@ -1042,10 +1047,10 @@ describe("session-store", () => {
 
   it("listMessages skips UI-hidden user messages when computing the visible cutoff", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
     for (let i = 0; i < 3; i += 1) {
-      store.appendEvent({
+      store.chat.appendEvent({
         conversationId,
         type: "user_message",
         timestamp: 1_000 + i * 10,
@@ -1053,7 +1058,7 @@ describe("session-store", () => {
       });
     }
     for (let i = 0; i < 5; i += 1) {
-      store.appendEvent({
+      store.chat.appendEvent({
         conversationId,
         type: "user_message",
         timestamp: 2_000 + i,
@@ -1064,7 +1069,7 @@ describe("session-store", () => {
       });
     }
     for (let i = 0; i < 2; i += 1) {
-      store.appendEvent({
+      store.chat.appendEvent({
         conversationId,
         type: "user_message",
         timestamp: 3_000 + i * 10,
@@ -1072,7 +1077,7 @@ describe("session-store", () => {
       });
     }
 
-    const { messages } = store.listMessages(conversationId, {
+    const { messages } = store.messageWindows.listMessages(conversationId, {
       maxVisibleMessages: 4,
     });
 
@@ -1095,11 +1100,11 @@ describe("session-store", () => {
 
   it("listMessagesBefore pages strictly older messages using the oldest-message cursor", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
     for (let i = 0; i < 6; i += 1) {
       const ts = 1_000 + i * 10;
-      store.appendEvent({
+      store.chat.appendEvent({
         conversationId,
         type: "user_message",
         timestamp: ts,
@@ -1107,9 +1112,12 @@ describe("session-store", () => {
       });
     }
 
-    const { messages: latest } = store.listMessages(conversationId, {
-      maxVisibleMessages: 3,
-    });
+    const { messages: latest } = store.messageWindows.listMessages(
+      conversationId,
+      {
+        maxVisibleMessages: 3,
+      },
+    );
     expect(latest.map((m) => m.payload?.text)).toEqual([
       "user 3",
       "user 4",
@@ -1117,11 +1125,14 @@ describe("session-store", () => {
     ]);
 
     const oldest = latest[0]!;
-    const { messages: prior } = store.listMessagesBefore(conversationId, {
-      beforeTimestampMs: oldest.timestamp,
-      beforeId: oldest._id,
-      maxVisibleMessages: 3,
-    });
+    const { messages: prior } = store.messageWindows.listMessagesBefore(
+      conversationId,
+      {
+        beforeTimestampMs: oldest.timestamp,
+        beforeId: oldest._id,
+        maxVisibleMessages: 3,
+      },
+    );
     expect(prior.map((m) => m.payload?.text)).toEqual([
       "user 0",
       "user 1",
@@ -1131,11 +1142,11 @@ describe("session-store", () => {
 
   it("listMessagesBefore resolves the source cursor onto sequence ordering", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
     const timestamps = [6_000, 1_000, 5_000, 2_000, 4_000, 3_000];
 
     timestamps.forEach((timestamp, index) => {
-      store.appendEvent({
+      store.chat.appendEvent({
         conversationId,
         type: "user_message",
         timestamp,
@@ -1143,9 +1154,12 @@ describe("session-store", () => {
       });
     });
 
-    const { messages: latest } = store.listMessages(conversationId, {
-      maxVisibleMessages: 3,
-    });
+    const { messages: latest } = store.messageWindows.listMessages(
+      conversationId,
+      {
+        maxVisibleMessages: 3,
+      },
+    );
     expect(latest.map((message) => message.payload?.text)).toEqual([
       "sequence user 3",
       "sequence user 4",
@@ -1153,11 +1167,14 @@ describe("session-store", () => {
     ]);
 
     const oldest = latest[0]!;
-    const { messages: prior } = store.listMessagesBefore(conversationId, {
-      beforeTimestampMs: oldest.timestamp,
-      beforeId: oldest._id,
-      maxVisibleMessages: 3,
-    });
+    const { messages: prior } = store.messageWindows.listMessagesBefore(
+      conversationId,
+      {
+        beforeTimestampMs: oldest.timestamp,
+        beforeId: oldest._id,
+        maxVisibleMessages: 3,
+      },
+    );
     expect(prior.map((message) => message.payload?.text)).toEqual([
       "sequence user 0",
       "sequence user 1",
@@ -1167,8 +1184,8 @@ describe("session-store", () => {
 
   it("bounds eager turn activity and pages complete detail on demand", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
-    store.appendEvent({
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
+    store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_000,
@@ -1177,7 +1194,7 @@ describe("session-store", () => {
     const eventIds: string[] = [];
     for (let index = 0; index < 100; index += 1) {
       eventIds.push(
-        store.appendEvent({
+        store.chat.appendEvent({
           conversationId,
           type: index % 2 === 0 ? "tool_request" : "tool_result",
           timestamp: 1_001 + index,
@@ -1191,14 +1208,14 @@ describe("session-store", () => {
         })._id,
       );
     }
-    const assistant = store.appendEvent({
+    const assistant = store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 1_200,
       payload: { text: "done" },
     });
 
-    const window = store.listMessages(conversationId, {
+    const window = store.messageWindows.listMessages(conversationId, {
       maxVisibleMessages: 10,
     });
     const row = window.messages.find(
@@ -1223,25 +1240,31 @@ describe("session-store", () => {
       ),
     ).toBeLessThanOrEqual(4_096);
 
-    const firstPage = store.listMessageToolEvents(conversationId, {
-      messageId: assistant._id,
-      messageTimestampMs: assistant.timestamp,
-      limit: 25,
-    });
+    const firstPage = store.messageWindows.listMessageToolEvents(
+      conversationId,
+      {
+        messageId: assistant._id,
+        messageTimestampMs: assistant.timestamp,
+        limit: 25,
+      },
+    );
     expect(firstPage.events).toHaveLength(25);
     expect(firstPage.hasMore).toBe(true);
     expect(
       new TextEncoder().encode(firstPage.events[0]?.payload?.output as string)
         .byteLength,
     ).toBeGreaterThan(20_000);
-    const secondPage = store.listMessageToolEvents(conversationId, {
-      messageId: assistant._id,
-      messageTimestampMs: assistant.timestamp,
-      limit: 25,
-      afterId: firstPage.nextCursor!.id,
-      afterTimestampMs: firstPage.nextCursor!.timestamp,
-      afterSequence: firstPage.nextCursor!.sequence,
-    });
+    const secondPage = store.messageWindows.listMessageToolEvents(
+      conversationId,
+      {
+        messageId: assistant._id,
+        messageTimestampMs: assistant.timestamp,
+        limit: 25,
+        afterId: firstPage.nextCursor!.id,
+        afterTimestampMs: firstPage.nextCursor!.timestamp,
+        afterSequence: firstPage.nextCursor!.sequence,
+      },
+    );
     expect(secondPage.events.map((event) => event._id)).toEqual(
       eventIds.slice(25, 50),
     );
@@ -1249,28 +1272,28 @@ describe("session-store", () => {
 
   it("offers lazy full detail when a single eager tool payload is projected", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
-    store.appendEvent({
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
+    store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "show one large result" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       eventId: "large-single-tool-result",
       type: "tool_result",
       timestamp: 1_001,
       payload: { output: "x".repeat(10_000) },
     });
-    const assistant = store.appendEvent({
+    const assistant = store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 1_002,
       payload: { text: "done" },
     });
 
-    const row = store
+    const row = store.messageWindows
       .listMessages(conversationId, { maxVisibleMessages: 10 })
       .messages.find((message) => message._id === assistant._id)!;
     expect(row.toolEventSummary).toMatchObject({
@@ -1284,7 +1307,7 @@ describe("session-store", () => {
       fullDetailAvailable: true,
     });
 
-    const detail = store.listMessageToolEvents(conversationId, {
+    const detail = store.messageWindows.listMessageToolEvents(conversationId, {
       messageId: assistant._id,
       messageTimestampMs: assistant.timestamp,
       limit: 10,
@@ -1346,36 +1369,36 @@ describe("session-store", () => {
 
   it("keeps bounded and lazy tool detail owned by the correct assistant", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
-    store.appendEvent({
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
+    store.chat.appendEvent({
       conversationId,
       eventId: "user-anchor",
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "research this" },
     });
-    const beforeFirst = store.appendEvent({
+    const beforeFirst = store.chat.appendEvent({
       conversationId,
       eventId: "tool-before-first",
       type: "tool_result",
       timestamp: 1_001,
       payload: { output: "before first" },
     });
-    const first = store.appendEvent({
+    const first = store.chat.appendEvent({
       conversationId,
       eventId: "assistant-first",
       type: "assistant_message",
       timestamp: 1_002,
       payload: { text: "I found one lead" },
     });
-    const afterFirst = store.appendEvent({
+    const afterFirst = store.chat.appendEvent({
       conversationId,
       eventId: "tool-after-first",
       type: "tool_result",
       timestamp: 1_003,
       payload: { output: "after first" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       eventId: "assistant-hidden",
       type: "assistant_message",
@@ -1385,21 +1408,21 @@ describe("session-store", () => {
         metadata: { ui: { visibility: "hidden" } },
       },
     });
-    const afterHidden = store.appendEvent({
+    const afterHidden = store.chat.appendEvent({
       conversationId,
       eventId: "tool-after-hidden",
       type: "tool_result",
       timestamp: 1_003.2,
       payload: { output: "after hidden" },
     });
-    const second = store.appendEvent({
+    const second = store.chat.appendEvent({
       conversationId,
       eventId: "assistant-second",
       type: "assistant_message",
       timestamp: 1_004,
       payload: { text: "Here is the answer" },
     });
-    const afterSecond = store.appendEvent({
+    const afterSecond = store.chat.appendEvent({
       conversationId,
       eventId: "tool-after-second",
       type: "tool_result",
@@ -1407,7 +1430,7 @@ describe("session-store", () => {
       payload: { output: "after second" },
     });
 
-    const window = store.listMessages(conversationId, {
+    const window = store.messageWindows.listMessages(conversationId, {
       maxVisibleMessages: 10,
     });
     expect(
@@ -1418,13 +1441,13 @@ describe("session-store", () => {
     ).toEqual([afterSecond]);
 
     expect(
-      store.listMessageToolEvents(conversationId, {
+      store.messageWindows.listMessageToolEvents(conversationId, {
         messageId: first._id,
         messageTimestampMs: first.timestamp,
       }).events,
     ).toEqual([beforeFirst, afterFirst, afterHidden]);
     expect(
-      store.listMessageToolEvents(conversationId, {
+      store.messageWindows.listMessageToolEvents(conversationId, {
         messageId: second._id,
         messageTimestampMs: second.timestamp,
       }).events,
@@ -1433,34 +1456,34 @@ describe("session-store", () => {
 
   it("advances event cursors by sequence when timestamps and ids disagree", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
-    store.appendEvent({
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
+    store.chat.appendEvent({
       conversationId,
       eventId: "z-user",
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "go" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       eventId: "z-assistant",
       type: "assistant_message",
       timestamp: 1_000,
       payload: { text: "working" },
     });
-    const initial = store.listMessages(conversationId, {
+    const initial = store.messageWindows.listMessages(conversationId, {
       maxVisibleMessages: 10,
     });
     expect(initial.nextCursor?.sequence).toBeTypeOf("number");
 
-    const later = store.appendEvent({
+    const later = store.chat.appendEvent({
       conversationId,
       eventId: "a-later-tool",
       type: "tool_result",
       timestamp: 1_000,
       payload: { output: "done" },
     });
-    const tail = store.listMessagesAfter(conversationId, {
+    const tail = store.messageWindows.listMessagesAfter(conversationId, {
       afterTimestampMs: initial.nextCursor!.timestamp,
       afterId: initial.nextCursor!.id,
       afterSequence: initial.nextCursor!.sequence,
@@ -1473,21 +1496,21 @@ describe("session-store", () => {
 
   it("listMessagesAfter returns only messages after the mobile cursor", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
-    const first = store.appendEvent({
+    const first = store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "already synced" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_010,
       payload: { text: "new user" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "tool_result",
       timestamp: 1_011,
@@ -1496,18 +1519,21 @@ describe("session-store", () => {
         producedFiles: [{ path: "/tmp/report.pdf", kind: { type: "add" } }],
       },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 1_012,
       payload: { text: "new assistant" },
     });
 
-    const { messages, sourceEvents } = store.listMessagesAfter(conversationId, {
-      afterTimestampMs: first.timestamp,
-      afterId: first._id,
-      maxVisibleMessages: 10,
-    });
+    const { messages, sourceEvents } = store.messageWindows.listMessagesAfter(
+      conversationId,
+      {
+        afterTimestampMs: first.timestamp,
+        afterId: first._id,
+        maxVisibleMessages: 10,
+      },
+    );
 
     expect(messages.map((m) => m.payload?.text)).toEqual([
       "new user",
@@ -1525,15 +1551,15 @@ describe("session-store", () => {
 
   it("keeps middle-of-turn mobile artifacts before advancing the source cursor", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
-    const cursor = store.appendEvent({
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
+    const cursor = store.chat.appendEvent({
       conversationId,
       eventId: "artifact-cursor",
       type: "assistant_message",
       timestamp: 1_000,
       payload: { text: "ready" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       eventId: "artifact-turn",
       type: "user_message",
@@ -1541,7 +1567,7 @@ describe("session-store", () => {
       payload: { text: "make a report" },
     });
     for (let index = 0; index < 41; index += 1) {
-      store.appendEvent({
+      store.chat.appendEvent({
         conversationId,
         eventId: `artifact-event-${index}`,
         type: index === 20 ? "tool_result" : "agent-progress",
@@ -1557,7 +1583,7 @@ describe("session-store", () => {
             : { agentId: "noise", statusText: `step ${index}` },
       });
     }
-    const last = store.appendEvent({
+    const last = store.chat.appendEvent({
       conversationId,
       eventId: "artifact-finished",
       type: "assistant_message",
@@ -1565,7 +1591,7 @@ describe("session-store", () => {
       payload: { text: "done" },
     });
 
-    const delta = store.listMessagesAfter(conversationId, {
+    const delta = store.messageWindows.listMessagesAfter(conversationId, {
       afterTimestampMs: cursor.timestamp,
       afterId: cursor._id,
       afterSequence: cursor.sequence,
@@ -1586,21 +1612,21 @@ describe("session-store", () => {
 
   it("listMessagesAfter returns an existing assistant when its turn gets a new artifact", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "make a report" },
     });
-    const assistant = store.appendEvent({
+    const assistant = store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 1_010,
       payload: { text: "Working on it." },
     });
-    const artifact = store.appendEvent({
+    const artifact = store.chat.appendEvent({
       conversationId,
       type: "tool_result",
       timestamp: 1_020,
@@ -1610,11 +1636,14 @@ describe("session-store", () => {
       },
     });
 
-    const { messages, sourceEvents } = store.listMessagesAfter(conversationId, {
-      afterTimestampMs: assistant.timestamp,
-      afterId: assistant._id,
-      maxVisibleMessages: 10,
-    });
+    const { messages, sourceEvents } = store.messageWindows.listMessagesAfter(
+      conversationId,
+      {
+        afterTimestampMs: assistant.timestamp,
+        afterId: assistant._id,
+        maxVisibleMessages: 10,
+      },
+    );
 
     expect(messages.map((m) => m._id)).toEqual([assistant._id]);
     expect(messages[0]?.toolEvents.map((event) => event._id)).toEqual([
@@ -1625,44 +1654,47 @@ describe("session-store", () => {
 
   it("listMessagesAfter returns existing rows when agent lifecycle state changes", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "run background work" },
     });
-    const assistant = store.appendEvent({
+    const assistant = store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 1_010,
       payload: { text: "Working on it." },
     });
-    const started = store.appendEvent({
+    const started = store.chat.appendEvent({
       conversationId,
       type: "agent-started",
       timestamp: 1_020,
       payload: { agentId: "task-1", description: "Check docs" },
     });
-    const progress = store.appendEvent({
+    const progress = store.chat.appendEvent({
       conversationId,
       type: "agent-progress",
       timestamp: 1_030,
       payload: { agentId: "task-1", statusText: "Reading docs" },
     });
-    const failed = store.appendEvent({
+    const failed = store.chat.appendEvent({
       conversationId,
       type: "agent-failed",
       timestamp: 1_040,
       payload: { agentId: "task-1", error: "Timed out" },
     });
 
-    const { messages, sourceEvents } = store.listMessagesAfter(conversationId, {
-      afterTimestampMs: assistant.timestamp,
-      afterId: assistant._id,
-      maxVisibleMessages: 10,
-    });
+    const { messages, sourceEvents } = store.messageWindows.listMessagesAfter(
+      conversationId,
+      {
+        afterTimestampMs: assistant.timestamp,
+        afterId: assistant._id,
+        maxVisibleMessages: 10,
+      },
+    );
 
     expect(messages.map((message) => message._id)).toEqual([assistant._id]);
     expect(messages[0]?.toolEvents.map((event) => event._id)).toEqual([
@@ -1679,21 +1711,21 @@ describe("session-store", () => {
 
   it("paginates mobile source events without skipping past the row budget", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
-    store.appendEvent({
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
+    store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "large turn" },
     });
-    const assistant = store.appendEvent({
+    const assistant = store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 1_001,
       payload: { text: "working" },
     });
     for (let index = 0; index < 4_005; index += 1) {
-      store.appendEvent({
+      store.chat.appendEvent({
         conversationId,
         eventId: `mobile-tail-${index.toString().padStart(4, "0")}`,
         type: "tool_result",
@@ -1702,7 +1734,7 @@ describe("session-store", () => {
       });
     }
 
-    const firstPage = store.listMessagesAfter(conversationId, {
+    const firstPage = store.messageWindows.listMessagesAfter(conversationId, {
       afterTimestampMs: assistant.timestamp,
       afterId: assistant._id,
       afterSequence: assistant.sequence,
@@ -1711,7 +1743,7 @@ describe("session-store", () => {
     expect(firstPage.sourceEvents).toHaveLength(4_000);
     expect(firstPage.nextCursor?.id).toBe("mobile-tail-3999");
 
-    const secondPage = store.listMessagesAfter(conversationId, {
+    const secondPage = store.messageWindows.listMessagesAfter(conversationId, {
       afterTimestampMs: firstPage.nextCursor!.timestamp,
       afterId: firstPage.nextCursor!.id,
       afterSequence: firstPage.nextCursor!.sequence,
@@ -1729,11 +1761,11 @@ describe("session-store", () => {
 
   it("bounds listMessagesAfter storage work to the requested cursor page", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
     const anchors = [];
     for (let index = 0; index < 500; index += 1) {
       anchors.push(
-        store.appendEvent({
+        store.chat.appendEvent({
           conversationId,
           type: index % 2 === 0 ? "user_message" : "assistant_message",
           timestamp: 10_000 + index * 2,
@@ -1743,31 +1775,41 @@ describe("session-store", () => {
     }
 
     const fetchedRowCounts: number[] = [];
-    const pageEnd = store.findVisibleMessagePageEndAfter(conversationId, 10, {
-      timestamp: anchors[0]!.timestamp,
-      id: anchors[0]!._id,
-    });
+    const pageEnd = store.messageWindows.findVisibleMessagePageEndAfter(
+      conversationId,
+      10,
+      {
+        timestamp: anchors[0]!.timestamp,
+        id: anchors[0]!._id,
+      },
+    );
     expect(pageEnd?.id).toBe(anchors[10]!._id);
     expect(
-      store.findVisibleMessageCursorAfter(conversationId, pageEnd!)?.id,
+      store.messageWindows.findVisibleMessageCursorAfter(
+        conversationId,
+        pageEnd!,
+      )?.id,
     ).toBe(anchors[11]!._id);
-    const chatLogPrototype = Object.getPrototypeOf(
-      (store as unknown as { chat: object }).chat,
+    const messageWindowPrototype = Object.getPrototypeOf(
+      store.messageWindows,
     ) as { fetchEntryRows: (...args: unknown[]) => unknown[] };
-    const originalFetch = chatLogPrototype.fetchEntryRows;
+    const originalFetch = messageWindowPrototype.fetchEntryRows;
     const fetchSpy = vi
-      .spyOn(chatLogPrototype, "fetchEntryRows")
+      .spyOn(messageWindowPrototype, "fetchEntryRows")
       .mockImplementation(function (this: unknown, ...args: unknown[]) {
         const rows = originalFetch.apply(this, args) as unknown[];
         fetchedRowCounts.push(rows.length);
         return rows;
       });
 
-    const { messages } = store.listMessagesAfter(conversationId, {
-      afterTimestampMs: anchors[0]!.timestamp,
-      afterId: anchors[0]!._id,
-      maxVisibleMessages: 10,
-    });
+    const { messages } = store.messageWindows.listMessagesAfter(
+      conversationId,
+      {
+        afterTimestampMs: anchors[0]!.timestamp,
+        afterId: anchors[0]!._id,
+        maxVisibleMessages: 10,
+      },
+    );
     fetchSpy.mockRestore();
 
     expect(messages.map((message) => message.payload?.text)).toEqual(
@@ -1778,10 +1820,10 @@ describe("session-store", () => {
 
   it("hard-caps oversized visible-window requests", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
     for (let i = 0; i < 4_050; i += 1) {
-      store.appendEvent({
+      store.chat.appendEvent({
         conversationId,
         type: "user_message",
         timestamp: 1_000 + i,
@@ -1789,7 +1831,7 @@ describe("session-store", () => {
       });
     }
 
-    const { messages, visibleMessageCount } = store.listMessages(
+    const { messages, visibleMessageCount } = store.messageWindows.listMessages(
       conversationId,
       { maxVisibleMessages: 4_001 },
     );
@@ -1803,8 +1845,8 @@ describe("session-store", () => {
   // Allow for populating 4,002 real indexed entries on slower CI disks.
   it("finds visible history beyond more than 4,000 hidden successors", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
-    const visible = store.appendEvent({
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
+    const visible = store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_000,
@@ -1813,7 +1855,7 @@ describe("session-store", () => {
     // This is a pagination fixture, so populate it in one durable transaction.
     store.withTransaction(() => {
       for (let index = 0; index < 4_001; index += 1) {
-        store.appendEvent({
+        store.chat.appendEvent({
           conversationId,
           type: "user_message",
           timestamp: 2_000 + index,
@@ -1825,7 +1867,9 @@ describe("session-store", () => {
       }
     });
 
-    const page = store.listMessages(conversationId, { maxVisibleMessages: 80 });
+    const page = store.messageWindows.listMessages(conversationId, {
+      maxVisibleMessages: 80,
+    });
 
     expect(page.visibleMessageCount).toBe(1);
     expect(page.messages.map((message) => message._id)).toEqual([visible._id]);
@@ -1833,15 +1877,15 @@ describe("session-store", () => {
 
   it("maintains the indexed visibility projection at write time", () => {
     const { db, store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
-    const visible = store.appendEvent({
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
+    const visible = store.chat.appendEvent({
       conversationId,
       eventId: "visibility-visible",
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "visible" },
     });
-    const hidden = store.appendEvent({
+    const hidden = store.chat.appendEvent({
       conversationId,
       eventId: "visibility-hidden",
       type: "user_message",
@@ -1876,7 +1920,7 @@ describe("session-store", () => {
       "idx_entry_conv_visible_seq",
     );
 
-    const patched = store.mergeEventPayload({
+    const patched = store.chat.mergeEventPayload({
       conversationId,
       eventId: hidden._id,
       patch: {
@@ -1889,7 +1933,7 @@ describe("session-store", () => {
       db.prepare("SELECT visible FROM entry WHERE id = ?").get(hidden._id),
     ).toEqual({ visible: 0 });
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       eventId: hidden._id,
       type: "user_message",
@@ -1897,7 +1941,7 @@ describe("session-store", () => {
       payload: { text: "now visible" },
     });
     expect(
-      store
+      store.messageWindows
         .listMessages(conversationId, { maxVisibleMessages: 10 })
         .messages.map((message) => message._id),
     ).toEqual([visible._id, hidden._id]);
@@ -1905,15 +1949,15 @@ describe("session-store", () => {
 
   it("listActivity returns only lifecycle events", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "Plan a trip" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "agent-started",
       timestamp: 1_010,
@@ -1923,33 +1967,33 @@ describe("session-store", () => {
         agentType: "general",
       },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "agent-progress",
       timestamp: 1_020,
       payload: { agentId: "general-1", statusText: "Reading guides" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "tool_request",
       timestamp: 1_021,
       requestId: "tool-1",
       payload: { toolName: "web", args: { query: "weather" } },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 1_030,
       payload: { text: "Here you go." },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "agent-completed",
       timestamp: 1_040,
       payload: { agentId: "general-1", result: "Done" },
     });
 
-    const { activities } = store.listActivity(conversationId);
+    const { activities } = store.chat.listActivity(conversationId);
 
     expect(activities.map((event) => event.type)).toEqual([
       "agent-started",
@@ -1960,11 +2004,11 @@ describe("session-store", () => {
 
   it("listActivity pages older activity via beforeTimestampMs/beforeId", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
     for (let i = 0; i < 6; i += 1) {
       const ts = 1_000 + i * 10;
-      store.appendEvent({
+      store.chat.appendEvent({
         conversationId,
         type: "agent-started",
         timestamp: ts,
@@ -1976,7 +2020,7 @@ describe("session-store", () => {
       });
     }
 
-    const { activities: latest } = store.listActivity(conversationId, {
+    const { activities: latest } = store.chat.listActivity(conversationId, {
       limit: 3,
     });
     expect(
@@ -1984,7 +2028,7 @@ describe("session-store", () => {
     ).toEqual(["agent-3", "agent-4", "agent-5"]);
 
     const oldest = latest[0]!;
-    const { activities: older } = store.listActivity(conversationId, {
+    const { activities: older } = store.chat.listActivity(conversationId, {
       limit: 3,
       beforeTimestampMs: oldest.timestamp,
       beforeId: oldest._id,
@@ -1996,16 +2040,16 @@ describe("session-store", () => {
 
   it("listFiles returns only responses containing local Markdown links", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "user_message",
       timestamp: 1_000,
       payload: { text: "Edit something" },
     });
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "tool_result",
       timestamp: 1_010,
@@ -2013,7 +2057,7 @@ describe("session-store", () => {
       payload: { toolName: "web", result: "ok" },
     });
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "assistant_message",
       timestamp: 1_020,
@@ -2024,7 +2068,7 @@ describe("session-store", () => {
       },
     });
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "tool_result",
       timestamp: 1_025,
@@ -2036,7 +2080,7 @@ describe("session-store", () => {
       },
     });
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "agent-completed",
       timestamp: 1_030,
@@ -2049,14 +2093,14 @@ describe("session-store", () => {
       },
     });
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       type: "agent-completed",
       timestamp: 1_040,
       payload: { agentId: "general-2", result: "Done" },
     });
 
-    const { files } = store.listFiles(conversationId);
+    const { files } = store.chat.listFiles(conversationId);
     expect(files.map((event) => event._id)).toEqual(
       files.map((event) => event._id),
     );
@@ -2070,11 +2114,11 @@ describe("session-store", () => {
 
   it("listFiles pages older file events via beforeTimestampMs/beforeId", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
     for (let i = 0; i < 6; i += 1) {
       const ts = 1_000 + i * 10;
-      store.appendEvent({
+      store.chat.appendEvent({
         conversationId,
         type: "assistant_message",
         timestamp: ts,
@@ -2088,13 +2132,15 @@ describe("session-store", () => {
       });
     }
 
-    const { files: latest } = store.listFiles(conversationId, { limit: 3 });
+    const { files: latest } = store.chat.listFiles(conversationId, {
+      limit: 3,
+    });
     expect(latest.map((event) => event.timestamp)).toEqual([
       1_030, 1_040, 1_050,
     ]);
 
     const oldest = latest[0]!;
-    const { files: older } = store.listFiles(conversationId, {
+    const { files: older } = store.chat.listFiles(conversationId, {
       limit: 3,
       beforeTimestampMs: oldest.timestamp,
       beforeId: oldest._id,
@@ -2106,9 +2152,9 @@ describe("session-store", () => {
 
   it("upserts local chat events by explicit event id", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       eventId: "assistant-for-user-1",
       type: "assistant_message",
@@ -2116,7 +2162,7 @@ describe("session-store", () => {
       requestId: "user-1",
       payload: { text: "First draft", userMessageId: "user-1" },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       eventId: "assistant-for-user-1",
       type: "assistant_message",
@@ -2125,7 +2171,7 @@ describe("session-store", () => {
       payload: { text: "Final answer", userMessageId: "user-1" },
     });
 
-    const events = store.listEvents(conversationId, 10);
+    const events = store.chat.listEvents(conversationId, 10);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       _id: "assistant-for-user-1",
@@ -2137,10 +2183,10 @@ describe("session-store", () => {
 
   it("keeps each assistant message in a single user turn as its own row", () => {
     const { store } = createTestContext();
-    const conversationId = store.getOrCreateDefaultConversationId();
+    const conversationId = store.chat.getOrCreateDefaultConversationId();
     const userMessageId = "user-web-turn";
 
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       eventId: `assistant-msg-run-1-2`,
       type: "assistant_message",
@@ -2151,7 +2197,7 @@ describe("session-store", () => {
         userMessageId,
       },
     });
-    store.appendEvent({
+    store.chat.appendEvent({
       conversationId,
       eventId: `assistant-msg-run-1-5`,
       type: "assistant_message",
@@ -2163,7 +2209,7 @@ describe("session-store", () => {
       },
     });
 
-    const events = store.listEvents(conversationId, 10);
+    const events = store.chat.listEvents(conversationId, 10);
     expect(events).toHaveLength(2);
     expect(events.map((event) => event.payload?.text)).toEqual([
       "Let me look that up.",
@@ -3111,60 +3157,6 @@ describe("session-store", () => {
       )
       .get(threadId) as { count: number };
     expect(compactionRows.count).toBe(1);
-
-    store.appendThreadMessage({
-      threadKey: threadId,
-      timestamp: 6_040,
-      role: "toolResult",
-      content: "same image again",
-      toolCallId: "duplicate-image-call",
-      payload: {
-        role: "toolResult",
-        toolCallId: "duplicate-image-call",
-        toolName: "screenshot",
-        content: [images[0]!],
-        isError: false,
-        timestamp: 6_040,
-      },
-    });
-    for (let index = 0; index < 3; index += 1) {
-      store.appendThreadMessage({
-        threadKey: threadId,
-        timestamp: 6_041 + index,
-        role: "user",
-        content: `follow-up ${index}`,
-        payload: {
-          role: "user",
-          content: `follow-up ${index}`,
-          timestamp: 6_041 + index,
-        },
-      });
-    }
-    await withForcedThreadCompaction(threadId, () =>
-      maybeCompactRuntimeThread({
-        store,
-        threadKey: threadId,
-        resolvedLlm: {
-          route: "stella",
-          model: { id: "test/model", contextWindow: 128_000 },
-          getApiKey: async () => "unused",
-        } as never,
-        agentType: "orchestrator",
-        overrideSummary: "Successor checkpoint.",
-        stellaDataDir: rootPath,
-      }),
-    );
-    const successor = store.loadThreadMessages(threadId)[0]!;
-    const successorMatch = successor.content.match(
-      /<image-receipts version="1">\n(.+)\n<\/image-receipts>/,
-    );
-    const successorReceipts = JSON.parse(successorMatch![1]!) as Array<{
-      id: string;
-    }>;
-    expect(successorReceipts).toHaveLength(10);
-    expect(new Set(successorReceipts.map((receipt) => receipt.id)).size).toBe(
-      10,
-    );
   });
 
   it("preserves exact oversized payloads for an evictable working set", () => {

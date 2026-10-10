@@ -1,16 +1,15 @@
 /**
- * The container side of the compute ladder.
+ * An agent's container, attached to tools that run outside it.
  *
- * `agent-compute-ladder.ts` decides when a resident turn needs a container;
- * this is what actually makes one. It brings the world up on the instance the
- * ladder already reserved, hands the daemon its broker capability through the
- * same root-owned file the container executor uses, starts the daemon, and
- * then relays one tool call at a time through a request file, a one-shot
- * client process, and a result file.
+ * A cloud pi agent (`pi-agent-compute.ts`) runs its file and shell tools
+ * here. This brings the world up on the instance its lease reserved, hands
+ * the daemon its broker capability through the same root-owned file the
+ * container executor uses, starts the daemon, and then relays one tool call
+ * at a time through a request file, a one-shot client process, and a result
+ * file.
  *
  * Nothing here decides policy. It boots what it is told to boot and reports
- * what the daemon answered, which is what keeps the phase machine testable
- * without a container and keeps the failure of a container from becoming a
+ * what the daemon answered, so the failure of a container never becomes a
  * decision this module gets to make.
  */
 
@@ -30,9 +29,45 @@ import {
   type AttachedToolRequest,
   type AttachedToolResponse,
 } from "@stella/executor-cloud/attached-tool-protocol";
-import type { AttachBoot, SandboxAttachment } from "./agent-compute-ladder.js";
 import { SANDBOX_EXECUTOR } from "./sandbox-code.js";
 import type { TurnExecutionContext } from "./turn-cancellation.js";
+
+export type AttachBoot = Readonly<{
+  coldStartMs: number;
+  restoreMs: number;
+}>;
+
+export type SandboxAttachment = Readonly<{
+  /** Boot the instance the lease already names. Never mints an id. */
+  boot(args: {
+    sandboxId: string;
+    instanceSize: "small" | "large";
+    sessionId: string;
+    daemonDirectory: string;
+  }): Promise<AttachBoot>;
+  callTool(args: {
+    sandboxId: string;
+    request: AttachedToolRequest;
+  }): Promise<AttachedToolResponse>;
+  control(args: {
+    sandboxId: string;
+    control: "boot_report" | "quiesce";
+    turnId: string;
+    attemptGeneration: number;
+    /** Required for `quiesce`: untrusted reply-linked paths to deliver. */
+    linkedPaths?: readonly string[];
+  }): Promise<AttachedToolControlResponse>;
+  release(args: {
+    sandboxId: string;
+    instanceSize: "small" | "large";
+    sessionId: string;
+    daemonDirectory: string;
+  }): Promise<void>;
+  destroy(args: {
+    sandboxId: string;
+    instanceSize: "small" | "large";
+  }): Promise<void>;
+}>;
 
 /** The executor CLI from the code bundle the container installed at start. */
 const DAEMON_ARGV = [SANDBOX_EXECUTOR, "--attached-tool-host"] as const;
@@ -572,7 +607,7 @@ export const createAgentSandboxAttachment = (
               },
         ),
       );
-      // The ladder tolerates a failed control call (a quiesce that failed
+      // Its caller tolerates a failed control call (a quiesce that failed
       // simply delivers no files), so this event is the only record of why
       // the daemon could not answer it.
       if (response.status === "failed") {

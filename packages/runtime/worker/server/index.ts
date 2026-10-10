@@ -24,12 +24,14 @@ import { piChatHandlers } from "./handlers/pi-chat.js";
  * docs/effect-architecture.md.
  *
  * Signature-compatible with the old monolithic server.ts: same peer wiring,
- * same `{ hasActiveWork, shutdown }` surface for the worker entrypoint.
+ * same `{ interruptWork, holdsWorkerAlive, shutdown }` surface for the
+ * worker entrypoint.
  */
 export const createRuntimeWorkerServer = (
   peer: WorkerPeerLike,
 ): {
-  hasActiveWork: () => boolean;
+  interruptWork: () => Promise<void>;
+  holdsWorkerAlive: () => boolean;
   prefetchRunner: () => void;
   shutdown: () => Promise<void>;
 } => {
@@ -51,13 +53,20 @@ export const createRuntimeWorkerServer = (
     ...piChatHandlers,
   });
 
-  // Warm the base layer so the sync hasActiveWork path never has to build it.
+  // Warm the base layer so the sync holdsWorkerAlive path never has to build it.
   const ready = runtime.runPromise(Effect.void).catch(() => undefined);
 
-  const hasActiveWork = (): boolean =>
+  const holdsWorkerAlive = (): boolean =>
     runtime.runSync(
       Effect.map(WorkerSessions.Service, (sessions) =>
-        sessions.hasActiveWork(),
+        sessions.holdsWorkerAlive(),
+      ),
+    );
+
+  const interruptWork = (): Promise<void> =>
+    runtime.runPromise(
+      Effect.flatMap(WorkerSessions.Service, (sessions) =>
+        sessions.interruptWork(),
       ),
     );
 
@@ -95,5 +104,5 @@ export const createRuntimeWorkerServer = (
     );
   };
 
-  return { hasActiveWork, prefetchRunner, shutdown };
+  return { interruptWork, holdsWorkerAlive, prefetchRunner, shutdown };
 };

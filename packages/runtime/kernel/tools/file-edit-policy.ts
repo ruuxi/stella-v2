@@ -1,6 +1,6 @@
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import type { AgentRuntimeEngine } from "@stella/contracts/agent-engine";
-import type { Api, Model } from "../../ai/types.js";
+import type { Api, Model } from "@earendil-works/pi-ai";
 
 export const APPLY_PATCH_TOOL_NAME = "apply_patch";
 export const WRITE_TOOL_NAME = "Write";

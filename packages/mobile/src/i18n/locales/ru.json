@@ -163,7 +163,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Не удалось загрузить этот тред",
+        "errorBody": "Закройте его и откройте снова через минуту."
       },
       "generatedImage": {
         "generating": "Генерация...",
@@ -846,7 +848,6 @@
     },
     "integrations": {
       "connectStellaApp": "Подключить к приложению Stella",
-      "connectStellaAppSub": "Свяжите приложение Stella на телефоне с этим компьютером",
       "connectTitle": "Подключение",
       "connected": "Подключено",
       "credential": {
@@ -862,11 +863,16 @@
         "saving": "Сохранение...",
         "title": "Подключить {provider}"
       },
-      "heroTagline": "Пишите Stella с любой удобной платформы — общайтесь непринуждённо или просите выполнить задачи прямо на вашем компьютере.",
       "phoneTitle": "Ваш телефон",
       "signInHeadline": "Войдите, чтобы начать",
       "signInSub": "Войдите в аккаунт Stella, чтобы подключить {provider}.",
-      "signInToConnect": "Войдите в Stella, чтобы подключить"
+      "signInToConnect": "Войдите в Stella, чтобы подключить",
+      "getApp": {
+        "appStoreQrAlt": "Отсканируйте, чтобы скачать Stella из App Store",
+        "platformLabel": "Выберите мобильную платформу",
+        "playStoreQrAlt": "Отсканируйте, чтобы скачать Stella из Google Play",
+        "title": "Скачать приложение"
+      }
     },
     "legal": {
       "privacy": {
@@ -920,9 +926,16 @@
         "title": "Этот разговор"
       },
       "files": {
-        "empty": "Файлов пока нет. Всё, что создаёт Stella, появится здесь.",
+        "empty": "Здесь появятся файлы, которые Stella создаёт или отправляет.",
         "emptyFiltered": "Нет подходящих файлов.",
-        "searchPlaceholder": "Поиск файлов"
+        "filterAll": "Все файлы",
+        "filterLabel": "Фильтр и сортировка файлов",
+        "searchPlaceholder": "Поиск файлов",
+        "sortName": "Имя",
+        "sortNewest": "Сначала новые",
+        "sortOldest": "Сначала старые",
+        "sourceCloud": "Облако",
+        "sourceUpload": "Отправлено вами"
       },
       "schedule": {
         "actionFailed": "Не получилось.",
@@ -930,7 +943,9 @@
         "customCadence": "Особое расписание",
         "deleteConfirm": "«{title}» больше не будет запускаться.",
         "deleteSchedule": "Удалить расписание",
-        "empty": "Расписаний пока нет. Попросите Stella на компьютере запускать что-нибудь регулярно — и это появится здесь.",
+        "empty": "Пока ничего не запланировано.",
+        "emptyAction": "Запланировать",
+        "emptyActionPrompt": "Напомни мне ",
         "lastRunFailed": "Последний запуск не удался: {error}",
         "loadFailed": "Не удалось загрузить расписания.",
         "next": "Следующий запуск {when}",
@@ -955,6 +970,11 @@
         "stopped": "Остановлено",
         "working": "Работает в фоне"
       }
+    },
+    "apps": {
+      "empty": "Здесь будут приложения, которые Stella создаст для вас.",
+      "emptyAction": "Создать приложение",
+      "emptyActionPrompt": "Сделай мне приложение, которое "
     },
     "authCallback": {
       "backToSignIn": "Назад ко входу",
@@ -1023,7 +1043,6 @@
       "disconnectedLabel": "Компьютер отключён",
       "guestHeroBody": "Попросите Stella сделать что-нибудь на вашем компьютере — открыть сайт, разобрать файлы, запустить задачи и не только.",
       "guestHeroTitle": "Ваш компьютер под рукой",
-      "pairLabel": "Подключить компьютер",
       "statusAsleep": "Спит",
       "statusChecking": "Проверяем…",
       "statusConnected": "Подключено"
@@ -1031,20 +1050,11 @@
     "desktop": {
       "connecting": "Подключение к компьютеру",
       "deviceUnreachable": "Устройство {platform} недоступно",
-      "enterCode": "Введите код, показанный на вашем компьютере.",
-      "guestBody": "Смотрите приложение Stella для компьютера прямо на телефоне. После связывания телефон будет подключаться автоматически.",
       "guestSignInPrompt": "Войдите, чтобы начать.",
       "limitedCapabilities": "Для некоторых задач нужен ваш компьютер",
       "linkInterrupted": "Связь с вашим компьютером прервалась.",
-      "pairAnother": "Связать другой компьютер",
-      "pairTitle": "Свяжите телефон",
-      "pairing": "Связывание этого телефона",
       "reconnecting": "Переподключение...",
-      "repairNeeded": "Этот телефон нужно снова связать с вашим компьютером.",
       "retryLabel": "Попробовать подключиться снова",
-      "startPairingLabel": "Начать связывание компьютера",
-      "unavailableBodyPaired": "Убедитесь, что Stella открыта на вашем компьютере и подключена к интернету. После подключения приложение появится прямо здесь, на телефоне.",
-      "unavailableBodyUnpaired": "Смотрите приложение Stella для компьютера прямо на телефоне. Отсканируйте QR-код, показанный в Stella на компьютере, — после этого телефон будет подключаться автоматически.",
       "unreachable": "Не удаётся связаться с компьютером"
     },
     "engineAccounts": {
@@ -1157,26 +1167,17 @@
         "signInBody": "Сохраните разговор, настройки и подключённый компьютер на всех своих устройствах.",
         "signInTitle": "Вход в Stella",
         "skip": "Пока пропустить",
-        "subscriptionsBody": "Уже платите за Claude или ChatGPT? Подключите, и я буду использовать его в облаке. Ваши компьютеры используют собственные входы.",
+        "subscriptionsBody": "Использовать вашу текущую подписку Claude или ChatGPT?",
         "subscriptionsLabel": "По желанию"
       },
       "composerPlaceholder": "Или просто спросите меня о чём-нибудь",
       "computer": {
-        "body": "Свяжите этот телефон со Stella на компьютере, и я смогу выполнять задачи там, пока вас нет рядом.",
-        "connectedBody": "Просите откуда угодно, а я сделаю работу на вашем компьютере.",
+        "body": "Войдите на компьютере, и он подключится автоматически.",
         "connectedTo": "Подключено к {name}",
-        "guestHint": "Подключение привязано к вашему аккаунту Stella, поэтому сначала войдите. Я продолжу прямо отсюда.",
-        "hint": "На компьютере откройте Stella и выберите «Свяжите телефон».",
+        "getDesktop": "Скачать Stella для компьютера",
         "later": "Позже",
-        "pair": "Связать мой компьютер",
-        "point1": "Найти файл и прислать его вам",
-        "point2": "Завершить экспорт или загрузку",
-        "point3": "Пользоваться приложениями, которые у вас уже есть",
-        "settledConnectedDesc": "Я могу выполнять там задачи с вашего телефона.",
-        "settledSkippedDesc": "Связать его можно в любой момент в Настройках.",
         "settledSkippedTitle": "Компьютера пока нет",
-        "signInToPair": "Войдите, чтобы подключить",
-        "title": "Ваш компьютер, прямо из кармана"
+        "title": "Stella на вашем компьютере"
       },
       "gmail": {
         "body": "Находите письма, догоняйте переписки и готовьте черновики ответов, просто попросив.",
@@ -1395,7 +1396,6 @@
         "enableFailedTitle": "Не удалось включить этот компьютер",
         "enableLabel": "Включить {name}",
         "enabling": "Включение…",
-        "pairingCode": "Использовать код сопряжения",
         "sectionLabel": "Где работает Stella",
         "statusAwaitingConsent": "Ожидание разрешения на том компьютере",
         "statusDeclined": "Отклонено на том компьютере",
@@ -1411,10 +1411,6 @@
       "deleteConfirmTitle": "Удалить аккаунт",
       "deleteFailedTitle": "Не удалось удалить аккаунт",
       "deletingAccount": "Удаляем аккаунт…",
-      "forget": "Забыть",
-      "forgetConfirmBody": "Этот телефон перестанет подключаться к тому компьютеру, пока вы не свяжете их снова.",
-      "forgetConfirmTitle": "Забыть устройство {name}?",
-      "forgetLabel": "Забыть устройство {name}",
       "hideEmailLabel": "Скрыть эл. почту",
       "loadingSession": "Загрузка сессии…",
       "notificationsSection": "Уведомления",
@@ -1424,9 +1420,6 @@
       "paired": {
         "unnamedComputer": "Компьютер · {id}"
       },
-      "pairedEmpty": "Пока нет связанных компьютеров.",
-      "pairedOn": "Связано {date}",
-      "pairedSection": "Связанные компьютеры",
       "privacyPolicy": "Политика конфиденциальности",
       "pushToggleA11y": "Переключить push-уведомления",
       "pushToggleLabel": "Разрешить push-уведомления",
@@ -1484,8 +1477,6 @@
       "cantRightNow": "Сейчас не могу",
       "deadline": "Осталось {time}",
       "deadlinePassed": "Время истекло",
-      "deadlineWithDefault": "Осталось {time} — иначе «{option}»",
-      "defaultOption": "По умолчанию",
       "hideSecret": "Скрыть {label}",
       "missingFields": "Заполните все обязательные поля.",
       "notification": {
@@ -1498,14 +1489,11 @@
       "plain": "Отправляется открытым текстом",
       "revealSecret": "Показать {label}",
       "sealFailed": "Не удалось зашифровать это на устройстве.",
-      "send": "Отправить",
       "sendSecurely": "Отправить безопасно",
       "sending": "Отправка…",
       "sensitive": "Сквозное шифрование",
       "sensitiveToggleA11y": "Шифровать {label}",
       "sensitiveUnavailable": "Это устройство пока не может это зашифровать",
-      "somethingElse": "Другое",
-      "somethingElsePlaceholder": "Скажите Stella, что сделать вместо этого",
       "unnamedComputer": "Компьютер · {id}",
       "waitingBadge": "Ждёт вас"
     }
@@ -1604,6 +1592,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Большая часть жизни проходит через почту. Подключите Gmail, и я помогу с вашей.",
         "memory": "One more thing that makes me different.",
+        "phone": "Я есть и на вашем телефоне.",
         "quickstart": "Это всё. Остался один шаг, необязательный: быстрый старт.",
         "quickstartDone": "Готово. Вот что я узнала, и несколько дел, с которых можно начать.",
         "quickstartFailed": "На этот раз я не смогла дочитать ваш браузер. Мы можем начать и так, а я буду учиться по ходу дела.",
@@ -1893,10 +1882,10 @@
       "microphoneDeviceFallback": "Микрофон {index}",
       "recovery": {
         "closing": "Закрытие…",
-        "manageDescription": "Если разрешение на микрофон зависнет, вы можете сбросить его и попросить macOS запросить снова.",
+        "manageDescription": "Сбросьте разрешение микрофона, если оно зависло.",
         "manageLabel": "Управление доступом к микрофону",
         "openSettings": "Открыть настройки",
-        "recoverDescription": "После отказа macOS больше не спрашивает сам. Сбросьте разрешение, затем закройте и снова откройте Stella.",
+        "recoverDescription": "macOS больше не спросит. Сбросьте его и снова откройте Stella.",
         "recoverLabel": "Восстановить доступ к микрофону",
         "reset": "Сбросить и перезапустить"
       },
@@ -1909,22 +1898,22 @@
       },
       "speakerDeviceFallback": "Динамик {index}",
       "superFast": {
-        "description": "Держит микрофон наготове, чтобы диктовка начиналась с меньшей задержкой.",
+        "description": "Держит микрофон наготове, чтобы диктовка начиналась быстрее.",
         "label": "Сверхбыстрая диктовка"
       },
       "systemDefault": "Системный по умолчанию",
       "wakeWord": {
-        "description": "Слушает «Hey Stella» в фоне и начинает голосовой разговор. Когда выключено, микрофон бездействует, пока вы не нажмёте диктовку.",
+        "description": "Скажите «Hey Stella», чтобы начать голосовой разговор.",
         "label": "Слово активации «Hey Stella»"
       }
     },
     "browserExtension": {
       "action": "Установить расширение",
-      "description": "Позволяет Stella видеть открытую страницу и выполнять действия в браузере.",
+      "description": "Разрешите Stella видеть браузер и действовать в нём.",
       "title": "Stella для Chrome"
     },
     "chatStorage": {
-      "description": "Доступ к чатам на всех устройствах. Отключите, чтобы хранить отдельную историю чатов только на этом компьютере. При повторном включении эти чаты не будут загружены. Поставщики ИИ по-прежнему обрабатывают ваши сообщения.",
+      "description": "Синхронизирует чаты между устройствами. Если выключено, они остаются на этом компьютере.",
       "endVoice": "Завершите голосовой разговор, чтобы изменить хранение чатов.",
       "error": "Не удалось изменить хранение чатов. Попробуйте ещё раз.",
       "title": "Сохранять историю чатов в облаке"
@@ -1943,13 +1932,13 @@
       "upgrade": "Улучшить план"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Маленькая Stella, парящая над рабочим столом.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "Ключ API",
-      "empty": "Пока нет подключённых провайдеров. Выберите выше в списке моделей вариант, отличный от Stella, чтобы добавить ключ API или войти.",
+      "empty": "Провайдеров пока нет. Добавьте их в выборе модели выше.",
       "removeKey": "Удалить ключ",
       "removingKey": "Удаление…",
       "signOut": "Выйти",
@@ -1968,7 +1957,7 @@
       "addClaude": "Добавить аккаунт Claude",
       "addInCloud": "В облаке",
       "addOnComputer": "На этом компьютере",
-      "cardIntro": "Используйте план Claude или ChatGPT, за который вы уже платите. Вход выполняется отдельно в каждом месте: на каждом компьютере и в вашем облаке.",
+      "cardIntro": "Используйте план Claude или ChatGPT, за который уже платите.",
       "cardTitle": "Аккаунты Claude и ChatGPT",
       "chatgptBrowserWaiting": "Завершите вход в ChatGPT в браузере.",
       "chatgptCloudSignedIn": "В вашем облаке выполнен вход в ChatGPT.",
@@ -1989,7 +1978,7 @@
         "whereComputer": "Вход в Claude Code на этом компьютере."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Code не установлен на этом компьютере. Установите его, чтобы использовать Claude здесь.",
+      "cliMissing": "Установите Claude Code на этот компьютер, чтобы пользоваться Claude здесь.",
       "connecting": "Подключение…",
       "defaultSignedOut": "В Claude Code на этом компьютере вход не выполнен.",
       "enablePlanUsage": "Включить использование плана ChatGPT",
@@ -2000,14 +1989,14 @@
       "needsChatgptCloud": "Сначала продолжите с ChatGPT для облака",
       "needsClaudeCloud": "Сначала войдите в Claude в облаке",
       "openChatgptAgain": "Снова открыть ChatGPT",
-      "pasteHintChatgpt": "После подтверждения ChatGPT перенаправит вас на страницу, которая не загрузится. Скопируйте полный адрес этой страницы и вставьте его сюда.",
+      "pasteHintChatgpt": "Скопируйте адрес страницы, которую откроет ChatGPT, и вставьте его сюда.",
       "pastePlaceholderUrl": "Вставьте адрес сюда",
       "placeCloud": "Облако",
       "placeComputer": "Этот компьютер",
       "placeOtherComputer": "Другой компьютер",
       "placeSignedIn": "{place}: вход выполнен",
       "placeSignedOut": "{place}: вход не выполнен",
-      "planUsageOffBody": "Stella не может использовать ваш план ChatGPT, пока вы это не разрешите. Выберите «Включить использование плана ChatGPT» в аккаунте или используйте другую модель.",
+      "planUsageOffBody": "Выберите «Включить использование плана ChatGPT» в аккаунте или другую модель.",
       "planUsageOffTitle": "Вход выполнен, но использование плана ChatGPT не включено",
       "remove": "Удалить",
       "removed": "Удалено.",
@@ -2064,7 +2053,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Насколько настойчиво Stella ищет вас, когда ей нужен ответ.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2099,16 +2088,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2122,16 +2106,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Выберите язык, который Stella будет использовать в приложении и в ответах.",
+      "description": "Для приложения и ответов Stella.",
       "title": "Язык"
     },
     "lockedComputerUse": {
-      "description": "Позволяет Stella продолжать задачи управления компьютером после блокировки этого Mac. Требует запроса администратора и закрывает экран, пока Stella работает.",
+      "description": "Задачи управления компьютером продолжаются после блокировки этого Mac.",
       "title": "Использование при заблокированном компьютере",
       "unsupported": "Использование при заблокированном компьютере доступно только в macOS."
     },
     "memory": {
-      "description": "Включать сохранённые воспоминания и ваш профиль в контекст модели Stella. Ваши компьютеры и облако хранят одну и ту же память, зашифрованную при передаче и хранении. Если отключить эту функцию, синхронизация приостановится и память не будет использоваться в будущих диалогах, но не будет удалена.",
+      "description": "Использовать сохранённые воспоминания в ответах. Выключение их не удаляет.",
       "title": "Память"
     },
     "modelPicker": {
@@ -2165,7 +2149,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Используйте любой локальный сервер, совместимый с OpenAI. Ollama обычно работает по адресу ниже.",
+        "hint": "Любой локальный сервер, совместимый с OpenAI, например Ollama.",
         "modelNameAriaLabel": "Название локальной модели",
         "serverUrlAriaLabel": "URL локального сервера"
       },
@@ -2209,7 +2193,7 @@
       "title": "Анимация"
     },
     "nativeFontSmoothing": {
-      "description": "Отображать текст как в приложениях macOS, со сглаживанием в градациях серого.",
+      "description": "Сглаживание в оттенках серого, как в нативных приложениях macOS.",
       "title": "Системное сглаживание шрифтов"
     },
     "notifications": {
@@ -2218,18 +2202,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Пройти знакомство заново. Ваши данные сохранятся.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Позволяет Stella читать выделенный текст и открываться по сочетанию ⌘+правый клик в любом месте компьютера.",
+        "description": "Читать выделенный текст и открывать по ⌘+правому клику.",
         "label": "Универсальный доступ"
       },
       "enable": "Включить",
       "granted": "Предоставлено",
       "microphone": {
-        "description": "Используется для голоса и диктовки. Сбросьте, если ранее Stella была отклонена и macOS больше не запрашивает.",
+        "description": "Для голоса и диктовки.",
         "label": "Микрофон"
       },
       "opening": "Открытие…",
@@ -2238,57 +2222,14 @@
       "restart": {
         "action": "Перезапустить",
         "closing": "Закрытие…",
-        "description": "Запись экрана только что включена. Закройте и снова откройте Stella, чтобы завершить настройку.",
+        "description": "Снова откройте Stella, чтобы завершить включение записи экрана.",
         "label": "Перезапустить Stella"
       },
       "screen": {
-        "description": "Позволяет Stella видеть ваш экран, чтобы помогать с тем, на что вы смотрите. После включения может потребоваться закрыть и снова открыть Stella.",
+        "description": "Разрешите Stella видеть, что на экране.",
         "label": "Запись экрана"
       },
       "title": "Разрешения"
-    },
-    "phoneAccess": {
-      "copy": "Копировать",
-      "deviceFallback": "Телефон",
-      "errors": {
-        "createPairing": "Не удалось создать код привязки."
-      },
-      "expired": "Истёк",
-      "getCode": "Получить код",
-      "intro": {
-        "headline": "Подключите телефон к компьютеру"
-      },
-      "pairedCount": {
-        "few": "Привязано {count} телефона",
-        "many": "Привязано {count} телефонов",
-        "one": "Привязан {count} телефон",
-        "other": "Привязано {count} телефона"
-      },
-      "pairing": {
-        "body": "Откройте приложение Stella на телефоне и отсканируйте QR-код или введите код ниже. Это нужно сделать только один раз.",
-        "headline": "Отсканируйте или введите этот код",
-        "qrAlt": "Отсканируйте, чтобы связать телефон"
-      },
-      "preparing": "Подготовка...",
-      "remove": "Удалить",
-      "removing": "Удаление...",
-      "signedOut": {
-        "body": "Войдите в аккаунт Stella, чтобы связать его с мобильным приложением.",
-        "headline": "Войдите, чтобы начать"
-      },
-      "steps": {
-        "appStoreQrAlt": "Отсканируйте, чтобы скачать Stella из App Store",
-        "connect": "Подключите телефон",
-        "download": "Скачайте приложение",
-        "platformSelectorLabel": "Выберите мобильную платформу",
-        "playStoreQrAlt": "Отсканируйте, чтобы скачать Stella из Google Play"
-      },
-      "timeLeft": "осталось {time}",
-      "toasts": {
-        "codeCopied": "Код скопирован в буфер обмена",
-        "phoneRemoved": "Телефон удалён",
-        "removeFailed": "Не удалось удалить телефон"
-      }
     },
     "power": {
       "description": "Не позволяет компьютеру переходить в режим сна, пока открыта Stella.",
@@ -2301,7 +2242,7 @@
         "description": "Направлять чат-ассистента Stella через {provider}.",
         "label": "Ассистент"
       },
-      "description": "{provider} может обслуживать сразу несколько частей Stella. Выберите, где он возьмёт управление на себя, — остальное Stella оставит за собой.",
+      "description": "Выберите, для чего использовать {provider}.",
       "errors": {
         "apply": "Не удалось применить настройки провайдера."
       },
@@ -2330,7 +2271,7 @@
     },
     "resetCustomizations": {
       "action": "Восстановить настройки по умолчанию",
-      "description": "Удаляет ваши изменения навыков и правки личности, чтобы применялись стандартные настройки Stella. Удалённое сохраняется в ~/.stella/.trash на случай, если захотите вернуть.",
+      "description": "Вернуть стандартные навыки и характер. Старые файлы попадут в ~/.stella/.trash.",
       "done": "Настройки по умолчанию восстановлены. Ваши прежние изменения перемещены в ~/.stella/.trash.",
       "error": "Не удалось восстановить настройки по умолчанию.",
       "none": "Вы уже используете настройки Stella по умолчанию.",
@@ -2364,7 +2305,7 @@
       "change": "Изменить",
       "clear": "Очистить",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Нажмите, чтобы начать диктовку, и ещё раз, чтобы закончить."
       },
       "errors": {
         "load": "Не удалось загрузить сочетания клавиш.",
@@ -2402,7 +2343,7 @@
       "defaultOption": "Стандартный Stella",
       "delete": "Удалить",
       "deleted": "Промпт удалён.",
-      "description": "Стандартный промпт Stella всегда обновляется вместе с приложением. Сохраните свой, чтобы использовать его вместо этого — он хранится отдельно, поэтому обновления его не перезапишут.",
+      "description": "Используйте свой промпт вместо стандартного от Stella.",
       "duplicate": "Дублировать",
       "edit": "Изменить",
       "error": "Что-то пошло не так.",
@@ -2419,11 +2360,12 @@
       "account": "Аккаунт и право",
       "audio": "Звук",
       "general": "Основные",
-      "shortcuts": "Горячие клавиши"
+      "shortcuts": "Горячие клавиши",
+      "privacy": "Конфиденциальность"
     },
     "title": "Настройки",
     "voiceAgent": {
-      "description": "Показывать кнопки голоса и звонка, чтобы говорить со Stella вслух. Диктовка работает в любом случае.",
+      "description": "Показывать кнопки голоса и звонков. Диктовка работает в любом случае.",
       "error": "Не удалось обновить настройку голоса.",
       "title": "Голосовые разговоры"
     },
@@ -2445,6 +2387,13 @@
         "openai": "Голоса OpenAI",
         "xai": "Голоса Grok"
       }
+    },
+    "groups": {
+      "app": "Приложение",
+      "personal": "Личное"
+    },
+    "nav": {
+      "more": "Ещё"
     }
   },
   "shell": {
@@ -2487,7 +2436,9 @@
         "skipped": "Пропущенные",
         "undoing": "Отмена…",
         "upToDate": "Ничего не ожидает",
-        "waiting": "Ожидают"
+        "waiting": "Ожидают",
+        "upToDateTitle": "Всё обновлено",
+        "upToDateBody": "Новые версии Stella появляются здесь."
       },
       "updating": "Обновление…"
     },
@@ -2517,7 +2468,9 @@
       "noMatches": "Ни один коннектор не соответствует запросу.",
       "searchLabel": "Поиск коннекторов",
       "searchPlaceholder": "Поиск",
-      "title": "Коннекторы"
+      "title": "Коннекторы",
+      "noMatchesTitle": "Ничего не найдено",
+      "noMatchesBody": "Попробуйте другое название."
     },
     "display": {
       "agentThread": {
@@ -2575,11 +2528,19 @@
       },
       "canvasShare": {
         "copyLink": "Скопировать ссылку",
-        "empty": "Активных публикаций пока нет. Опубликуйте холст, чтобы получить публичную ссылку.",
+        "empty": "Публичных холстов пока нет. Сделайте холст публичным, чтобы поделиться ссылкой.",
         "expires": "Истекает {date}",
         "links": "Ссылки",
         "live": "Холст опубликован",
         "loadFailed": "Не удалось загрузить ваши публикации.",
+        "makePrivate": "Сделать приватным",
+        "makePublic": "Сделать публичным",
+        "noLink": "У этого холста пока нет ссылки. Сделайте его публичным, чтобы получить ссылку, которую может открыть любой.",
+        "openInBrowser": "Открыть в браузере",
+        "privateHint": "Эту ссылку можете открыть только вы.",
+        "privateLink": "Приватная ссылка",
+        "public": "Публичный",
+        "publicHint": "Любой, у кого есть ссылка, может просмотреть.",
         "publicLink": "Публичная ссылка на холст",
         "publishFailed": "Не удалось опубликовать этот холст. Попробуйте ещё раз.",
         "publishing": "Публикация холста…",
@@ -2591,8 +2552,12 @@
         "toasts": {
           "copyFailed": "Не удалось скопировать ссылку",
           "linkCopied": "Ссылка скопирована",
+          "madePrivate": "Ссылка теперь приватная",
+          "madePublic": "Ссылка теперь публичная",
+          "openFailed": "Не удалось открыть ссылку",
           "revokeFailed": "Не удалось отозвать эту публикацию",
-          "revoked": "Доступ отозван"
+          "revoked": "Доступ отозван",
+          "visibilityFailed": "Не удалось изменить, кто может открыть эту ссылку"
         },
         "untitled": "Холст без названия"
       },
@@ -2601,7 +2566,10 @@
         "codeChanges": "Изменения в коде",
         "desktopRequired": "Предпросмотр кода доступен в настольном приложении Stella.",
         "empty": "Изменений в файлах пока нет. Когда агент отредактирует код, изменения появятся здесь.",
-        "noChanges": "Изменений не найдено."
+        "noChanges": "Изменений не найдено.",
+        "emptyTitle": "Пока нет изменений",
+        "emptyBody": "Когда агент правит код, изменения появляются здесь.",
+        "noChangesTitle": "Нет изменений"
       },
       "filePreview": {
         "copy": "Копировать",
@@ -2636,7 +2604,11 @@
         "revealInFinder": "Показать в Finder",
         "save": "Сохранить",
         "saveFailed": "Не удалось сохранить",
-        "saved": "Сохранено"
+        "saved": "Сохранено",
+        "zoom": "Увеличить изображение",
+        "imageUnavailable": "Изображение недоступно",
+        "videoUnavailable": "Видео недоступно",
+        "audioUnavailable": "Аудио недоступно"
       },
       "office": {
         "frameTitle": "Предпросмотр — {kind}: {title}",
@@ -2666,7 +2638,11 @@
       },
       "preview": {
         "limited": "Предпросмотр ограничен. Сохраните или откройте исходный файл, чтобы увидеть всё содержимое.",
-        "unavailable": "Не удалось подготовить этот предпросмотр."
+        "unavailable": "Не удалось подготовить этот предпросмотр.",
+        "failedTitle": "Не удаётся показать предпросмотр",
+        "failedBody": "Попробуйте ещё раз или сохраните файл, чтобы открыть его в другом месте.",
+        "unavailableTitle": "Файл недоступен",
+        "emptyTitle": "Этот файл пуст"
       },
       "spreadsheet": {
         "column": "Столбец {index}",
@@ -2690,7 +2666,9 @@
         "pendingPurge": "Ожидает очистки",
         "refresh": "Обновить",
         "title": "Корзина",
-        "trashedAgo": "Удалено {time} назад"
+        "trashedAgo": "Удалено {time} назад",
+        "emptyTitle": "Корзина пуста",
+        "emptyBody": "Удалённое хранится здесь 24 часа."
       },
       "url": {
         "eyebrow": "Живой предпросмотр",
@@ -2789,22 +2767,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "Осталось {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Использовать этот ответ",
+      "default": "По умолчанию",
+      "next": "Следующий вопрос",
+      "previous": "Предыдущий вопрос",
+      "progress": "{current} из {total}",
+      "sending": "Отправка…",
+      "skip": "Пропустить",
+      "skipped": "Пропущено",
+      "somethingElse": "Другое",
+      "submit": "Отправить"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

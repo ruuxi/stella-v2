@@ -32,6 +32,7 @@ import { SignInCard } from "./cards/SignInCard";
 import { ThemeCard } from "./cards/ThemeCard";
 import { ExtrasCard } from "./cards/ExtrasCard";
 import { GmailCard } from "./cards/GmailCard";
+import { PhoneAppCard } from "./cards/PhoneAppCard";
 import { QuickstartCard } from "./cards/QuickstartCard";
 import { useDiscoveryJob } from "./discovery-job";
 import type { OnboardingChatStep } from "./onboarding-chat-flow";
@@ -65,6 +66,7 @@ const STEP_MOODS: Record<OnboardingChatStep, StellaCharacterState> = {
   gmail: "idle",
   theme: "listening",
   extras: "idle",
+  phone: "idle",
   quickstart: "happy",
 };
 
@@ -339,6 +341,14 @@ export function OnboardingChat({ isAuthenticated, onComplete }: OnboardingChatPr
             active={active}
             answered={answered}
             isAuthenticated={isAuthenticated}
+            onAnswer={(kind) => answer(step, kind)}
+          />
+        );
+      case "phone":
+        return (
+          <PhoneAppCard
+            active={active}
+            answered={answered}
             onAnswer={(kind) => answer(step, kind)}
           />
         );

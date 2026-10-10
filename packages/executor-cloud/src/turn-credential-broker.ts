@@ -5,7 +5,6 @@ import {
   TURN_BROKER_RESPONSE_HEADERS,
   TURN_BROKER_TURN_TOKEN_HEADER,
   TURN_BROKER_VERSION,
-  type TurnBrokerCheckpointTranscriptRow,
   type TurnBrokerHandoff,
   type TurnBrokerInput,
   type TurnBrokerNativeStateCheckpoint,
@@ -26,8 +25,6 @@ import {
 const MAX_HANDOFF_BYTES = 16 * 1024;
 const MAX_HANDOFF_FUTURE_MS = 30 * 60_000 + 10_000;
 const MAX_CHECKPOINT_RECEIPT_BYTES = 16 * 1024;
-const MAX_SUSPENSION_TRANSCRIPT_ROWS = 1_024;
-const MAX_SUSPENSION_TRANSCRIPT_BYTES = 4 * 1024 * 1024;
 const CAPABILITY_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const CHECKPOINT_REPLAY_TIMEOUT_MS = 30_000;
 
@@ -267,55 +264,9 @@ const validCheckpoint = (
 
 const HISTORY_CURSOR_PATTERN = /^(?:v1:empty|v1:[0-9a-f]{64})$/;
 
-const canonicalSuspensionTranscript = (
-  value: readonly TurnBrokerCheckpointTranscriptRow[] | undefined,
-): TurnBrokerCheckpointTranscriptRow[] | undefined => {
-  if (value === undefined) return undefined;
-  if (value.length === 0 || value.length > MAX_SUSPENSION_TRANSCRIPT_ROWS) {
-    throw new Error("Suspended turn transcript is invalid.");
-  }
-  let bytes = 0;
-  return value.map((entry, ordinal) => {
-    if (
-      !entry ||
-      typeof entry !== "object" ||
-      Array.isArray(entry) ||
-      Object.keys(entry).sort().join(",") !== "ordinal,payloadJson,role" ||
-      entry.ordinal !== ordinal ||
-      !["user", "assistant", "toolResult"].includes(entry.role) ||
-      typeof entry.payloadJson !== "string"
-    ) {
-      throw new Error("Suspended turn transcript is invalid.");
-    }
-    bytes += new TextEncoder().encode(entry.payloadJson).byteLength;
-    if (bytes > MAX_SUSPENSION_TRANSCRIPT_BYTES) {
-      throw new Error("Suspended turn transcript is too large.");
-    }
-    try {
-      const payload = JSON.parse(entry.payloadJson) as unknown;
-      if (
-        !payload ||
-        typeof payload !== "object" ||
-        Array.isArray(payload) ||
-        (payload as Record<string, unknown>).role !== entry.role
-      ) {
-        throw new Error("Suspended turn transcript is invalid.");
-      }
-    } catch {
-      throw new Error("Suspended turn transcript is invalid.");
-    }
-    return {
-      ordinal,
-      role: entry.role,
-      payloadJson: entry.payloadJson,
-    };
-  });
-};
-
 const canonicalCheckpointRequest = (args: {
   historyCursor: string;
   nativeCheckpoint?: TurnBrokerNativeStateCheckpoint;
-  suspensionTranscript?: readonly TurnBrokerCheckpointTranscriptRow[];
 }): TurnBrokerTurnStateCheckpointRequest => {
   if (!HISTORY_CURSOR_PATTERN.test(args.historyCursor)) {
     throw new Error("Turn state history cursor is invalid.");
@@ -327,9 +278,6 @@ const canonicalCheckpointRequest = (args: {
   ) {
     throw new Error("Native state checkpoint is invalid.");
   }
-  const suspensionTranscript = canonicalSuspensionTranscript(
-    args.suspensionTranscript,
-  );
   return {
     schemaVersion: 1,
     historyCursor: args.historyCursor,
@@ -349,7 +297,6 @@ const canonicalCheckpointRequest = (args: {
           },
         }
       : {}),
-    ...(suspensionTranscript ? { suspensionTranscript } : {}),
   };
 };
 
@@ -731,7 +678,6 @@ export class TurnCredentialBrokerClient {
     checkpoint: {
       historyCursor: string;
       nativeCheckpoint?: TurnBrokerNativeStateCheckpoint;
-      suspensionTranscript?: readonly TurnBrokerCheckpointTranscriptRow[];
     },
     signal?: AbortSignal,
   ): Promise<TurnBrokerTurnStateCheckpointReceipt> {

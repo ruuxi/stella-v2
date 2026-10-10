@@ -2,8 +2,47 @@ import { stopAllDesktopAutomationDaemons } from "../services/desktop-automation-
 import { stopOrphanedStellaBrowserDaemons } from "../services/stella-browser-bridge-service.js";
 import { stopNativeHelperDaemons } from "../native-helper-daemon.js";
 import { stopOfficePreviewSessions } from "./office-preview-bridge.js";
+import { joinWithTimeout } from "@stella/runtime/kernel/shared/join-timeout";
+const RUNTIME_SHELLS_SHUTDOWN_TIMEOUT_MS = 4_000;
+const RUNTIME_EXIT_TIMEOUT_MS = 2_500;
+const RUNTIME_TEARDOWN_TIMEOUT_MS = RUNTIME_SHELLS_SHUTDOWN_TIMEOUT_MS + RUNTIME_EXIT_TIMEOUT_MS + 500;
 export const registerBootstrapProcessCleanups = (context) => {
     const { processRuntime } = context.state;
+    // Quitting (a restart or an update included) stops the runtime with the
+    // app. Agent shells live in the runtime, so they are ended first, while
+    // the app is still attached. Then the runtime is asked to exit, which
+    // interrupts every in-flight turn instead of letting it run on unattended;
+    // pi keeps interrupted work pending for the next launch. The runtime bounds
+    // its own teardown, and these bounds keep a wedged runtime from holding
+    // quit hostage.
+    let runtimeTeardown = null;
+    const startRuntimeTeardown = () => {
+        const runner = context.state.stellaHostRunner;
+        if (!runner) {
+            return Promise.resolve();
+        }
+        if (runtimeTeardown?.runner !== runner) {
+            const teardown = (async () => {
+                await joinWithTimeout(Promise.resolve()
+                    .then(() => runner.killAllShells())
+                    .catch((error) => {
+                    console.warn("[cleanup] Runtime shell teardown failed:", error);
+                }), RUNTIME_SHELLS_SHUTDOWN_TIMEOUT_MS, () => {
+                    console.warn("[cleanup] Runtime shell teardown exceeded the quit bound; stopping the runtime anyway.");
+                });
+                await runner.stop({ shutdownRuntime: true, quit: true, exitTimeoutMs: RUNTIME_EXIT_TIMEOUT_MS });
+            })().catch((error) => {
+                console.warn("[cleanup] Runtime shutdown failed:", error);
+            });
+            runtimeTeardown = {
+                runner,
+                promise: joinWithTimeout(teardown, RUNTIME_TEARDOWN_TIMEOUT_MS, () => {
+                    console.warn("[cleanup] Runtime shutdown exceeded the quit bound; quitting anyway.");
+                }),
+            };
+        }
+        return runtimeTeardown.promise;
+    };
     processRuntime.registerCleanup("before-quit", "auth-refresh-loop", () => {
         context.services.authService.stopAuthRefreshLoop();
     });
@@ -24,12 +63,15 @@ export const registerBootstrapProcessCleanups = (context) => {
         });
         await context.services.telemetry.close({ timeoutMs: 3000 });
     });
-    processRuntime.registerCleanup("before-quit", "runtime-shells", () => {
-        context.state.stellaHostRunner?.killAllShells();
-    });
     processRuntime.registerCleanup("before-quit", "runtime-worker", async () => {
-        await context.state.stellaHostRunner?.stop({ killWorker: false });
-        context.state.stellaHostRunner = null;
+        const runner = context.state.stellaHostRunner;
+        if (!runner) {
+            return;
+        }
+        await startRuntimeTeardown();
+        if (context.state.stellaHostRunner === runner) {
+            context.state.stellaHostRunner = null;
+        }
     });
     processRuntime.registerCleanup("before-quit", "browser-bridge", async () => {
         await context.state.stellaBrowserBridgeService?.stop();
@@ -85,5 +127,11 @@ export const registerBootstrapProcessCleanups = (context) => {
         context.services.globalInputHook.stop();
         context.state.globalInputHooksStarted = false;
         context.state.globalInputHooksStartScheduled = false;
+    });
+    // Registered last so it runs first. Teardown happens in the runtime, so
+    // starting it here overlaps it with every other cleanup instead of
+    // leaving it to whatever remains of the quit budget.
+    processRuntime.registerCleanup("before-quit", "runtime-shells", () => {
+        void startRuntimeTeardown();
     });
 };

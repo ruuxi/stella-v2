@@ -26,9 +26,14 @@ import {
   type SourceDiffBatch,
 } from "@/features/workspace-display/source-diff-batches";
 
-import { DIFF_PREVIEW_MAX_BYTES, type PreviewResult } from "./preview-parser";
+import {
+  DIFF_PREVIEW_MAX_BYTES,
+  MARKDOWN_PREVIEW_MAX_BYTES,
+  type PreviewResult,
+} from "./preview-parser";
 import { usePreviewParser } from "./use-preview-parser";
 import { usePreviewWindow } from "./use-preview-window";
+import { PreviewEmpty, PreviewProblem } from "./preview-states";
 
 // Heavy, payload-specific renderers are lazy-loaded so they stay out of the
 // always-eager shell's first-paint module graph (dev server transforms every
@@ -144,6 +149,7 @@ export const OfficeFileTabContent = ({
   const cloudSource = useContext(DisplayFileSourceContext);
   const [previewRef, setPreviewRef] = useState<OfficePreviewRef | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -159,13 +165,18 @@ export const OfficeFileTabContent = ({
       })
       .catch((caught) => {
         if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : String(caught));
+          setError(
+            (caught instanceof Error ? caught.message : String(caught)).replace(
+              /^Error invoking remote method '[^']*': (?:\w*Error: )?/u,
+              "",
+            ),
+          );
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [filePath, title, refreshToken, cloudSource]);
+  }, [filePath, title, refreshToken, cloudSource, attempt]);
 
   if (previewRef) {
     return <OfficeTabContent previewRef={previewRef} />;
@@ -175,25 +186,28 @@ export const OfficeFileTabContent = ({
     <div className="right-sidebar__rich">
       <section className="display-artifact-panel">
         <div className="display-artifact-panel__body">
-          <div className="display-artifact-status">
-            <div
-              className={
-                error
-                  ? "display-artifact-status__text"
-                  : "display-artifact-status__text loading-shimmer-pure-text"
-              }
-              title={filePath}
-            >
-              {error || t("shell.display.office.preparing")}
+          {error ? (
+            <PreviewProblem
+              error={error}
+              {...(cloudSource
+                ? {}
+                : { onRetry: () => setAttempt((value) => value + 1) })}
+            />
+          ) : (
+            <div className="display-artifact-status">
+              <div
+                className="display-artifact-status__text loading-shimmer-pure-text"
+                title={filePath}
+              >
+                {t("shell.display.office.preparing")}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </section>
     </div>
   );
 };
-
-const textDecoder = new TextDecoder("utf-8");
 
 const PreviewLimitNotice = () => {
   const t = useT();
@@ -204,15 +218,31 @@ const PreviewLimitNotice = () => {
   );
 };
 
-export const DelimitedTableTabContent = ({
-  filePath,
-  title,
-}: {
+export const DelimitedTableTabContent = (props: {
   filePath: string;
   title?: string;
 }) => {
+  const [attempt, setAttempt] = useState(0);
+  return (
+    <DelimitedTableView
+      key={attempt}
+      {...props}
+      onRetry={() => setAttempt((value) => value + 1)}
+    />
+  );
+};
+
+const DelimitedTableView = ({
+  filePath,
+  title,
+  onRetry,
+}: {
+  filePath: string;
+  title?: string;
+  onRetry: () => void;
+}) => {
   const t = useT();
-  const { bytes, error, loading, truncated } = useDisplayFileBytes(
+  const { bytes, error, loading, missing, truncated } = useDisplayFileBytes(
     filePath,
     t("shell.display.spreadsheet.desktopRequired"),
     undefined,
@@ -270,17 +300,17 @@ export const DelimitedTableTabContent = ({
           </div>
         </header>
         {error || parsed?.error ? (
-          <div className="display-file-preview__error">
-            {error || parsed?.error}
-          </div>
+          <PreviewProblem
+            error={error || parsed?.error}
+            missing={missing}
+            {...(missing ? {} : { onRetry })}
+          />
         ) : loading || (request && !parsed) ? (
           <div className="display-file-preview__empty">
             {t("common.loading")}
           </div>
         ) : rows.length === 0 ? (
-          <div className="display-file-preview__empty">
-            {t("shell.display.spreadsheet.noRows")}
-          </div>
+          <PreviewEmpty title={t("shell.display.preview.emptyTitle")} />
         ) : (
           <div
             className="display-file-preview__table-wrap"
@@ -365,25 +395,47 @@ export const PdfTabContent = ({
   </div>
 );
 
-const decodeTextBytes = (bytes: Uint8Array | null): string =>
-  bytes ? textDecoder.decode(bytes) : "";
-
-export const MarkdownTabContent = ({
-  filePath,
-  title,
-}: {
+export const MarkdownTabContent = (props: {
   filePath: string;
   title?: string;
 }) => {
+  const [attempt, setAttempt] = useState(0);
+  return (
+    <MarkdownView
+      key={attempt}
+      {...props}
+      onRetry={() => setAttempt((value) => value + 1)}
+    />
+  );
+};
+
+const MarkdownView = ({
+  filePath,
+  title,
+  onRetry,
+}: {
+  filePath: string;
+  title?: string;
+  onRetry: () => void;
+}) => {
   const t = useT();
-  const { bytes, error, loading } = useDisplayFileBytes(
+  const { bytes, error, loading, missing, truncated } = useDisplayFileBytes(
     filePath,
     t("shell.display.markdown.desktopRequired"),
+    undefined,
+    undefined,
+    MARKDOWN_PREVIEW_MAX_BYTES,
   );
-  const markdown = useMemo(() => decodeTextBytes(bytes), [bytes]);
+  const request = useMemo(
+    () => (bytes ? { kind: "markdown" as const, bytes, truncated } : null),
+    [bytes, truncated],
+  );
+  const parsed = usePreviewParser(request);
+  const markdown = parsed?.result?.text ?? "";
   const { actionStatus, handleSave, handleCopy } = useFilePreviewActions({
     sourcePath: filePath,
-    copyText: markdown,
+    // A partial document is never put on the clipboard as if it were whole.
+    ...(parsed?.result && !parsed.result.limited ? { copyText: markdown } : {}),
     suggestedName: title ?? filePath.split(/[\\/]/).pop() ?? "document.md",
   });
 
@@ -412,22 +464,25 @@ export const MarkdownTabContent = ({
           </div>
         </header>
         <div className="display-markdown-viewer">
-          {error ? (
-            <div className="display-file-preview__error">{error}</div>
-          ) : loading ? (
+          {error || parsed?.error ? (
+            <PreviewProblem
+              error={error || parsed?.error}
+              missing={missing}
+              {...(missing ? {} : { onRetry })}
+            />
+          ) : loading || (request && !parsed) ? (
             <div className="display-file-preview__empty">
               {t("shell.display.filePreview.loading")}
             </div>
           ) : markdown.trim().length === 0 ? (
-            <div className="display-file-preview__empty">
-              {t("shell.display.markdown.noContent")}
-            </div>
+            <PreviewEmpty title={t("shell.display.preview.emptyTitle")} />
           ) : (
             <Suspense fallback={null}>
               <Markdown text={markdown} />
             </Suspense>
           )}
         </div>
+        {parsed?.result?.limited && <PreviewLimitNotice />}
       </section>
     </div>
   );
@@ -485,7 +540,7 @@ const ParsedDiff = ({
 }) => {
   const t = useT();
   if (parsed?.error)
-    return <div className="display-file-preview__error">{parsed.error}</div>;
+    return <PreviewProblem error={parsed.error} size="compact" />;
   if (!parsed?.result)
     return (
       <div className="display-file-preview__empty">
@@ -494,9 +549,11 @@ const ParsedDiff = ({
     );
   if (!parsed.result.lines.length && !parsed.result.limited)
     return (
-      <div className="display-file-preview__empty">
-        {t("shell.display.diff.noChanges")}
-      </div>
+      <PreviewEmpty
+        motif="changes"
+        size="compact"
+        title={t("shell.display.diff.noChangesTitle")}
+      />
     );
   return <DiffRows preview={parsed.result} />;
 };
@@ -517,7 +574,7 @@ const SourceDiffPatchBlock = ({ patch }: { patch: string }) => {
 
 const SourceDiffFileBytesBlock = ({ filePath }: { filePath: string }) => {
   const t = useT();
-  const { bytes, error, truncated } = useDisplayFileBytes(
+  const { bytes, error, missing, truncated } = useDisplayFileBytes(
     filePath,
     t("shell.display.diff.desktopRequired"),
     undefined,
@@ -530,7 +587,8 @@ const SourceDiffFileBytesBlock = ({ filePath }: { filePath: string }) => {
     [bytes, filePath, truncated],
   );
   const parsed = usePreviewParser(request);
-  if (error) return <div className="display-file-preview__error">{error}</div>;
+  if (error)
+    return <PreviewProblem error={error} missing={missing} size="compact" />;
   return <ParsedDiff parsed={parsed} />;
 };
 
@@ -643,9 +701,11 @@ export const SourceDiffTabContent = () => {
         </header>
         <div className="display-diff-batches-body">
           {!activeBatch ? (
-            <div className="display-file-preview__empty">
-              {t("shell.display.diff.empty")}
-            </div>
+            <PreviewEmpty
+              motif="changes"
+              title={t("shell.display.diff.emptyTitle")}
+              body={t("shell.display.diff.emptyBody")}
+            />
           ) : (
             <div className="display-diff-batches-body__scroll">
               {activeBatch.payloads

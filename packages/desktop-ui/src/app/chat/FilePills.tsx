@@ -6,8 +6,10 @@
  * uses the authority-aware opener (owner-scoped drive URL for a cloud file,
  * display payload for a local file). At most `PILL_CAP` chips show, then an
  * animated "+N more" expands the rest. The strip has no card surface: it
- * sits under a bubble, or inside the task quote bubble above a reply.
+ * sits at the bottom of the reply bubble, or on its own when a reply has no
+ * text.
  */
+import { fileDisplayName } from "@stella/contracts/file-display-name";
 import { useState } from "react";
 import { ChevronDown } from "@/ui/icons";
 import { DisplayTabIcon } from "@/features/workspace-display/icons";
@@ -35,7 +37,7 @@ const PILL_CAP = 5;
 const pillName = (entry: ConversationFileEntry): string =>
   entry.payload.kind === "canvas-html"
     ? getDisplayPayloadTitle(entry.payload)
-    : basenameOf(entry.path);
+    : fileDisplayName(basenameOf(entry.path));
 
 const FilePillView = ({
   entry,
@@ -98,8 +100,8 @@ export const FilePills = ({
   variant = "row",
 }: {
   files: ConversationFileEntry[];
-  /** `inline`: inside a quote bubble, without the under-row indent. */
-  variant?: "row" | "inline" | "standalone";
+  /** `bubble`: at the bottom of the reply bubble, without the under-row indent. */
+  variant?: "row" | "bubble" | "standalone";
 }) => {
   const t = useT();
   const tPlural = useTPlural();

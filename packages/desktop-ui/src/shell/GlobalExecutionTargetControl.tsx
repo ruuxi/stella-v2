@@ -147,7 +147,7 @@ export function GlobalExecutionTargetControl() {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="pill-btn execution-target-button"
+          className="sidebar-footer-button execution-target-button"
           data-active={open || undefined}
           aria-label={`Run on ${label}`}
           aria-pressed={open}

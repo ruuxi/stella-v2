@@ -125,12 +125,12 @@ const legacyVisibleWindow = () => {
 };
 
 const currentVisibleWindow = () =>
-  store.listMessages(CONVERSATION_ID, {
+  store.messageWindows.listMessages(CONVERSATION_ID, {
     maxVisibleMessages: VISIBLE_MESSAGES,
   });
 
 const currentOneEventTail = () =>
-  store.listMessagesAfter(CONVERSATION_ID, {
+  store.messageWindows.listMessagesAfter(CONVERSATION_ID, {
     afterTimestampMs: tailCursor.timestamp,
     afterId: tailCursor.id,
     afterSequence: tailCursor.sequence,

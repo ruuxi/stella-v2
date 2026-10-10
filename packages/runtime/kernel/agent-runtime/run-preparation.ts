@@ -1,14 +1,7 @@
-import { Buffer } from "node:buffer";
+import fs from "node:fs";
+import path from "node:path";
 import type { AgentMessage } from "../agent-core/types.js";
-import type { ImageContent } from "../../ai/types.js";
-import {
-  detectImageMediaType,
-  isCompleteImage,
-} from "../../ai/utils/image-payload.js";
-import {
-  resolveImageCaps,
-  type ImageCapTarget,
-} from "../../ai/utils/image-caps.js";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import type {
   RuntimeAttachmentRef,
   RuntimePromptMessage,
@@ -20,7 +13,6 @@ import {
 import { resolveAgentWorkingDirectory } from "./shared.js";
 import { buildSystemPromptSections } from "./thread-memory.js";
 import type { OrchestratorRunOptions, SubagentRunOptions } from "./types.js";
-import { resizeImage } from "../shared/image-resize.js";
 
 const DATA_URL_RE = /^data:([^;,]+);base64,(.+)$/i;
 
@@ -106,53 +98,6 @@ export const withFileAttachmentPromptInput = (
   return fileContext ? [...promptMessages, fileContext] : promptMessages;
 };
 
-/**
- * Validate and resize inline images before they enter native agent history.
- * Invalid or unshrinkable images are omitted instead of becoming permanent,
- * replayed request failures.
- */
-export const prepareRuntimeAttachments = async (
-  attachments: RuntimeAttachmentRef[] | undefined,
-  target: ImageCapTarget = {},
-): Promise<RuntimeAttachmentRef[] | undefined> => {
-  if (!attachments?.length) return attachments;
-  const imageCount = attachments.filter((attachment) =>
-    DATA_URL_RE.test(attachment.url.trim()),
-  ).length;
-  const prepared = await Promise.all(
-    attachments.map(
-      async (attachment): Promise<RuntimeAttachmentRef | null> => {
-        const match = DATA_URL_RE.exec(attachment.url.trim());
-        if (!match) return attachment;
-        const claimedMimeType = (
-          attachment.mimeType?.trim() || match[1]
-        ).toLowerCase();
-        if (!claimedMimeType.startsWith("image/")) return attachment;
-        const bytes = Buffer.from(match[2], "base64");
-        const detectedMimeType = detectImageMediaType(bytes);
-        if (!detectedMimeType || !isCompleteImage(bytes, detectedMimeType)) {
-          return null;
-        }
-        const resized = await resizeImage(
-          bytes,
-          detectedMimeType,
-          resolveImageCaps({ ...target, imageCount }),
-        );
-        if (!resized) return null;
-        return {
-          ...attachment,
-          mimeType: resized.mimeType,
-          url: `data:${resized.mimeType};base64,${resized.data}`,
-          size: Buffer.byteLength(resized.data, "base64"),
-        };
-      },
-    ),
-  );
-  return prepared.filter(
-    (attachment): attachment is RuntimeAttachmentRef => attachment !== null,
-  );
-};
-
 export const createUserPromptMessage = (
   text: string,
   attachments?: RuntimeAttachmentRef[],
@@ -195,20 +140,55 @@ export const createRuntimePromptAgentMessage = (
 
 export { renderSystemPrompt, type SystemPromptSection };
 
+/** How much of a project's AGENTS.md an agent is shown. */
+const AGENTS_MD_MAX_CHARS = 32_000;
+
+/** The directory's AGENTS.md as a startup doc, read fresh for each run. */
+const agentsMdText = (directory: string): string | undefined => {
+  const file = path.join(directory, "AGENTS.md");
+  let body: string;
+  try {
+    body = fs.readFileSync(file, "utf8").trim();
+  } catch {
+    return undefined;
+  }
+  if (!body) return undefined;
+  const shown =
+    body.length > AGENTS_MD_MAX_CHARS
+      ? `${body.slice(0, AGENTS_MD_MAX_CHARS)}\n\n[Truncated: read ${file} for the rest.]`
+      : body;
+  return `The project's instructions for agents, from ${file}:\n\n<startup_doc path="${file}">\n${shown}\n</startup_doc>`;
+};
+
 const workingDirectorySection = (
   opts: Pick<
     OrchestratorRunOptions,
-    "agentType" | "stellaAppDir" | "toolWorkspaceRoot"
+    "agentType" | "stellaAppDir" | "toolWorkspaceRoot" | "agentWorkingDirectory"
   >,
 ): SystemPromptSection[] => {
   const cwd = resolveAgentWorkingDirectory({
     agentType: opts.agentType,
     stellaAppDir: opts.stellaAppDir,
-    workingDirectory: opts.toolWorkspaceRoot,
+    workingDirectory: opts.toolWorkspaceRoot ?? opts.agentWorkingDirectory,
   });
-  return cwd
-    ? [{ id: "working-directory", text: `Current working directory: ${cwd}` }]
-    : [];
+  if (!cwd) return [];
+  // A spawned agent starts in its directory without being confined to it,
+  // and follows that directory's AGENTS.md.
+  const agentsMd =
+    !opts.toolWorkspaceRoot && opts.agentWorkingDirectory
+      ? agentsMdText(cwd)
+      : undefined;
+  return [
+    {
+      id: "working-directory",
+      text: [
+        opts.agentWorkingDirectory && !opts.toolWorkspaceRoot
+          ? `Current working directory: ${cwd}. Shell commands start there; you can still read and change files anywhere the work needs.`
+          : `Current working directory: ${cwd}`,
+        ...(agentsMd ? [agentsMd] : []),
+      ].join("\n\n"),
+    },
+  ];
 };
 
 /**

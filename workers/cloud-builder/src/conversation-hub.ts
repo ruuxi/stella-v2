@@ -95,8 +95,8 @@ export type ReadyFrame = {
   serverTimeMs: number;
   live: LiveTurnSnapshot | null;
   /**
-   * Every agent this conversation's journal still shows as running, folded over
-   * the whole journal rather than over the window this connect delivers.
+   * Every agent this conversation has running (`JournalReader.runningAgents`),
+   * whatever window this connect delivers; `agents` frames carry it on.
    *
    * A client cannot derive this for itself: an agent started before anything it
    * holds leaves no row in its window, so folding what it has would report that
@@ -105,6 +105,13 @@ export type ReadyFrame = {
    */
   agents: AgentActivityEntry[];
 };
+
+/**
+ * The running agents again, whenever they change: a client lists these and
+ * no others. Its cards only draw the agents' rows. `atMs` is when the list
+ * was read, so a start card newer than it is not yet in it.
+ */
+export type AgentsFrame = { type: "agents"; agents: AgentActivityEntry[]; atMs: number };
 
 export type RecordFrame = { type: "record" } & JournalRecord;
 
@@ -169,6 +176,7 @@ export type ServerFrame =
   | PiEventsFrame
   | PiOlderFrame
   | ReadyFrame
+  | AgentsFrame
   | RecordFrame
   | BackfillFrame
   | GapFrame
@@ -849,6 +857,8 @@ class ConversationHubImpl implements ConversationHub {
         this.turnState(record.turnId);
       }
       this.broadcast({ type: "record", ...record });
+      // A journal folded for its running agents changes with its rows.
+      this.agentsChanged();
       // Storage also calls endTurn explicitly. Doing it here as well costs
       // nothing (it is idempotent) and means a missed call upstream leaks a
       // tool map rather than being invisible.
@@ -859,6 +869,30 @@ class ConversationHubImpl implements ConversationHub {
       this.deps.log("error", "conversation_broadcast_failed", {
         conversationId: this.deps.conversationId(),
         seq: record.seq,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  // ── Running agents ───────────────────────────────────────────────────────
+
+  /** The list the sockets last heard, by what a client shows of each agent. */
+  private agentsHeard: string | undefined;
+
+  agentsChanged(): void {
+    try {
+      if (this.deps.ctx.getWebSockets().length === 0) {
+        this.agentsHeard = undefined;
+        return;
+      }
+      const agents = this.runningAgents();
+      const heard = JSON.stringify(agents.map((agent) => [agent.agentId, agent.attemptGeneration ?? 0, agent.title]));
+      if (heard === this.agentsHeard) return;
+      this.agentsHeard = heard;
+      this.broadcast({ type: "agents", agents, atMs: Date.now() });
+    } catch (error) {
+      this.deps.log("error", "conversation_agents_frame_failed", {
+        conversationId: this.deps.conversationId(),
         message: error instanceof Error ? error.message : String(error),
       });
     }
@@ -932,10 +966,10 @@ class ConversationHubImpl implements ConversationHub {
   }
 
   /**
-   * The authoritative running-agent list for `ready`. Synchronous and bounded:
-   * it reads a cached fold over resident rows, which is why it can sit on the
-   * connect path with no await left to spend. A reader that cannot answer costs
-   * the client its activity list for one connect, never the connect itself.
+   * The authoritative running-agent list for `ready` and `agents`. Synchronous
+   * and bounded: it reads memory, which is why it can sit on the connect path
+   * with no await left to spend. A reader that cannot answer costs the client
+   * its activity list for one connect, never the connect itself.
    */
   private runningAgents(): AgentActivityEntry[] {
     try {

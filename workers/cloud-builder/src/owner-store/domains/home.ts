@@ -39,9 +39,11 @@ import type {
   MemoryPolicy,
   MemoryPolicyChange,
 } from "@stella/contracts/turn-plane/memory-policy";
-import { sha256Hex } from "../../hash.js";
+import { isSyncedMemoryPath } from "@stella/runtime/kernel/memory/memory-client.js";
+import { sha256BytesHex, sha256Hex } from "../../hash.js";
 import {
   MemorySyncFileError,
+  createWorldMemoryFile,
   createWorldMemorySync,
   ownerMemoryWorld,
   wipeWorldMemory,
@@ -537,6 +539,7 @@ const runMemoryWipe = async (ctx: OwnerContext, rawPayload: unknown): Promise<vo
   let deleted = 0;
   let failure: string | null = null;
   try {
+    await eraseLegacyMemory(ctx);
     deleted = await wipeWorldMemory(await ownerMemoryWorld(ctx.env.WORLDS, ctx.ownerId));
   } catch {
     // World errors can carry internal paths; keep only the class.
@@ -672,6 +675,112 @@ const settleAgainstWipe = async (
     .remove(path, sha)
     .catch(() => undefined);
   throw state.memory_state === "wiping" ? wipeActive() : epochStale();
+};
+
+// ── Legacy memory ────────────────────────────────────────────────────────
+//
+// Before memory moved into the world it was `memory_docs` rows (with
+// `memory_doc_versions` and `memory_write_intents`) over R2 copies in
+// `AGENT_HOME`. An owner whose home was created then still has those tables.
+// `importLegacyMemory` copies each document the world layout keeps into the
+// world, never over a file already there, and records that it ran in
+// `memory_legacy_import`, so it happens once. It changes nothing in the
+// legacy rows or their R2 copies; only a wipe or an owner purge erases them.
+
+const LEGACY_MEMORY_TABLES = ["memory_docs", "memory_doc_versions", "memory_write_intents"] as const;
+const LEGACY_DISPLAY_PREFIX = "~/.stella/";
+
+type LegacyDocRow = { display_path: string; memory_epoch: string; r2_key: string; sha256: string };
+
+const LEGACY_IMPORT_TABLE = "memory_legacy_import";
+
+const tableExists = (db: OwnerDbReader, name: string): boolean =>
+  db.one("SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = ?", name) !== null;
+
+const hasLegacyMemory = (db: OwnerDbReader): boolean => tableExists(db, "memory_docs");
+
+const legacyImportDone = (db: OwnerDbReader): boolean =>
+  tableExists(db, LEGACY_IMPORT_TABLE) &&
+  db.one(`SELECT 1 AS done FROM ${LEGACY_IMPORT_TABLE} WHERE id = 1`) !== null;
+
+const markLegacyImportDone = (db: OwnerDb, now: number, imported: number): void => {
+  db.run(
+    `CREATE TABLE IF NOT EXISTS ${LEGACY_IMPORT_TABLE} (
+       id INTEGER PRIMARY KEY CHECK (id = 1),
+       imported INTEGER NOT NULL,
+       completed_at INTEGER NOT NULL
+     )`,
+  );
+  db.run(
+    `INSERT INTO ${LEGACY_IMPORT_TABLE} (id, imported, completed_at) VALUES (1, ?, ?)
+     ON CONFLICT (id) DO NOTHING`,
+    imported,
+    now,
+  );
+};
+
+/** Delete every legacy memory row's R2 copy, then the legacy tables. */
+const eraseLegacyMemory = async (ctx: OwnerContext): Promise<void> => {
+  if (!hasLegacyMemory(ctx.db)) return;
+  const keys = [
+    ...new Set(
+      LEGACY_MEMORY_TABLES.flatMap((table) =>
+        ctx.db.all<{ r2_key: string }>(`SELECT r2_key FROM ${table}`).map((row) => row.r2_key),
+      ),
+    ),
+  ];
+  if (keys.length > 0) {
+    const bucket = ctx.env.AGENT_HOME;
+    if (!bucket) throw new Error("Cloud home storage is unavailable.");
+    for (let index = 0; index < keys.length; index += 1_000) {
+      await bucket.delete(keys.slice(index, index + 1_000));
+    }
+  }
+  for (const table of LEGACY_MEMORY_TABLES) ctx.db.run(`DROP TABLE IF EXISTS ${table}`);
+};
+
+/** Where a legacy document lives in the world, or null when the layout keeps no such file. */
+const legacyWorldPath = (displayPath: string): string | null => {
+  if (!displayPath.startsWith(LEGACY_DISPLAY_PREFIX)) return null;
+  const path = displayPath.slice(LEGACY_DISPLAY_PREFIX.length);
+  return isSyncedMemoryPath(path) ? path : null;
+};
+
+/** Copy legacy memory into the world, once; the files written. Never deletes legacy data. */
+const importLegacyMemory = async (ctx: OwnerContext): Promise<number> => {
+  if (!hasLegacyMemory(ctx.db) || legacyImportDone(ctx.db)) return 0;
+  const state = readState(ctx.db);
+  // The wipe erases legacy memory itself.
+  if (state.memory_state === "wiping") return 0;
+  const rows = ctx.db.all<LegacyDocRow>("SELECT display_path, memory_epoch, r2_key, sha256 FROM memory_docs");
+  const bucket = ctx.env.AGENT_HOME;
+  if (rows.length > 0 && !bucket) throw new Error("Cloud home storage is unavailable.");
+  const world = () => ownerMemoryWorld(ctx.env.WORLDS, ctx.ownerId);
+  const written: { path: string; sha: string }[] = [];
+  for (const row of rows) {
+    // Imported and user Markdown copies have no place in the world layout;
+    // they stay where they are.
+    const path = legacyWorldPath(row.display_path);
+    if (!path || row.memory_epoch !== state.memory_epoch || !bucket) continue;
+    const object = await bucket.get(row.r2_key);
+    if (!object) continue;
+    const bytes = new Uint8Array(await object.arrayBuffer());
+    if ((await sha256BytesHex(bytes)) !== row.sha256) continue;
+    const sha = await createWorldMemoryFile(world, path, bytes);
+    if (sha) written.push({ path, sha });
+  }
+  const after = readState(ctx.db);
+  if (after.memory_state === "wiping" || after.memory_epoch !== state.memory_epoch) {
+    // A wipe began meanwhile and may already have swept: take the copies back out.
+    for (const file of written) {
+      await memorySync(ctx)
+        .remove(file.path, file.sha)
+        .catch(() => undefined);
+    }
+    return 0;
+  }
+  markLegacyImportDone(ctx.db, Date.now(), written.length);
+  return written.length;
 };
 
 const syncPathArg = string({ min: 1, max: 240 });
@@ -1181,6 +1290,11 @@ const internal: Record<string, InternalDef> = {
     assertMemoryOpen(ctx.db);
     return readMemoryPolicy(ctx.db, args.ownerGeneration);
   },
+  /** Copy memory from before the move into the world, once (`importLegacyMemory`). */
+  "memory.legacyImport": async (ctx, raw) => {
+    generationOnly(raw);
+    return { imported: await importLegacyMemory(ctx) };
+  },
   "skills.catalog": (ctx, raw) => {
     const args = object({ ownerGeneration: generationArg, agentType: literal("orchestrator", "general") })(raw);
     return skillCatalog(ctx.db, args.agentType);
@@ -1263,6 +1377,8 @@ export const homeDomain = {
       scope: "owner",
       parse: empty(),
       handler: async (ctx: OwnerContext) => {
+        assertSyncOpen(ctx.db);
+        await importLegacyMemory(ctx);
         const before = assertSyncOpen(ctx.db);
         const files = await fileRefusal(() => memorySync(ctx).list());
         // The listing holds only for the epoch it was taken in.
@@ -1354,6 +1470,7 @@ export const homeDomain = {
     if (wipe) ctx.jobs.cancel(wipeJobId(wipe.operation_id));
     ctx.jobs.cancel(INTENT_SWEEP_JOB_ID);
     for (const table of HOME_TABLES) ctx.db.run(`DELETE FROM ${table}`);
+    for (const table of [...LEGACY_MEMORY_TABLES, LEGACY_IMPORT_TABLE]) ctx.db.run(`DROP TABLE IF EXISTS ${table}`);
     return { pending: false };
   },
 } satisfies OwnerDomain;

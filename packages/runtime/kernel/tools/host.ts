@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { AGENT_IDS, getAgentDefinition } from "@stella/contracts/agent-runtime";
 
-import type { Api, Model } from "../../ai/types.js";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   APPLY_PATCH_TOOL_NAME,
   EDIT_TOOL_NAME,
@@ -38,6 +38,7 @@ import {
 
 import { log, logError, recoverStaleSecretFiles } from "./utils.js";
 import {
+  buildAgentShellEnvironment,
   createShellState,
   listRunningShellSessionsOwnedBy,
   readShellExitSnapshot,
@@ -55,7 +56,6 @@ import {
 } from "./registry.js";
 import { buildBuiltinTools } from "./defs/index.js";
 import { AGENT_CONTROL_TOOL_NAMES } from "./defs/task.js";
-import { isAgentToolSuspendedError } from "../agent-core/suspension.js";
 import type { ToolDefinition as BuiltinToolDefinition } from "./types.js";
 import { sanitizeToolError, sanitizeToolResult } from "./safety.js";
 import { describeToolCatalogEntry, searchToolCatalog } from "./code-catalog.js";
@@ -679,7 +679,6 @@ export const createToolHost = ({
       });
       return result;
     } catch (error) {
-      if (isAgentToolSuspendedError(error)) throw error;
       const duration = Date.now() - startedAt;
       logError(`Tool ${toolName} threw after ${duration}ms:`, error);
       return {
@@ -690,11 +689,7 @@ export const createToolHost = ({
     }
   };
 
-  const killAllShells = () => {
-    for (const shell of shellState.shells.values()) {
-      if (shell.running) shell.kill();
-    }
-  };
+  const killAllShells = () => shutdownManagedShells(shellState);
 
   const killShellsByPort = (port: number) => {
     const portStr = String(port);
@@ -760,10 +755,10 @@ export const createToolHost = ({
       if (isAgentControlToolWithheld(tool.name, options?.parentOwned)) {
         return false;
       }
-      // Demoted tools stay in the catalog: the runtime adapter
-      // (`createPiTools`) decides per turn whether they surface directly or
-      // only through code's catalog. Voice and other realtime surfaces
-      // filter them out explicitly.
+      // Demoted tools stay in the catalog: each engine's tool list
+      // (`getProviderToolMetadata`, pi's `runner/pi-tools.ts`) decides
+      // whether they surface directly or only through code's catalog. Voice
+      // and other realtime surfaces filter them out explicitly.
       // Swap the file-edit tool family to the agent's engine: Claude Code
       // wants Write/Edit, Stella wants apply_patch.
       if (
@@ -797,6 +792,9 @@ export const createToolHost = ({
     getToolCatalog,
     getHandlerNames: () => Object.keys(handlers),
     getShells: () => Array.from(shellState.shells.values()),
+    /** Stella's managed-shell environment, for CLIs that bring their own shell. */
+    buildAgentShellEnvironment: (context: ToolContext, cwd: string) =>
+      buildAgentShellEnvironment(shellState, context, cwd),
     /**
      * Session ids still running, optionally scoped to the sessions a run
      * touched. Shells outlive the run that started them by design (see the

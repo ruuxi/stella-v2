@@ -1,11 +1,9 @@
-import type { Api, Model } from "../ai/types.js";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { getAllModels } from "@stella/contracts/model-catalog";
-import { getModelProviders, getModels } from "../ai/models.js";
-import {
-  mergeModelHeaders,
-  modelRuntime,
-} from "../ai/model-runtime.js";
+import type { StellaGatewayAccess, StellaModelSpec } from "@stella/agent/provider/stella";
+import { getModelProviders, getModels } from "./model-catalog.js";
+import { mergeModelHeaders, modelRuntime } from "./model-runtime.js";
 import {
   formatLlmRouteFailure,
   type LlmRouteFailure,
@@ -46,6 +44,11 @@ export type ResolvedLlmRoute = {
   credentialless?: boolean;
   getApiKey: () => Promise<string | undefined> | string | undefined;
   refreshApiKey?: () => Promise<string | undefined> | string | undefined;
+  /**
+   * A Stella route's lane to the model gateway and the model it asks for
+   * there: the `stella` provider (`@stella/agent`) runs its requests.
+   */
+  stella?: { access: StellaGatewayAccess; spec: StellaModelSpec };
 };
 
 const LOCAL_PROVIDER = "local";
@@ -103,13 +106,6 @@ const parseLocalModelId = (
     modelId: trimmed,
     baseUrl: DEFAULT_LOCAL_OPENAI_BASE_URL,
   };
-};
-
-export const getResolvedLlmApiKey = async (
-  resolved: ResolvedLlmRoute,
-): Promise<string | undefined> => {
-  const apiKey = (await resolved.getApiKey())?.trim();
-  return apiKey ? apiKey : undefined;
 };
 
 /**
@@ -342,7 +338,7 @@ const synthesizeGatewayModelFromTemplate = (
   if (!isOpenEndedGatewayProvider(registryProvider) && registryProvider !== "chatgpt") {
     return null;
   }
-  const template = (getModels(registryProvider as never) as Model<Api>[])[0];
+  const template = getModels(registryProvider)[0];
   if (!template) return null;
   return {
     ...template,
@@ -673,6 +669,38 @@ const resolveLlmRouteResult = (args: {
       provider: parsed.provider,
       model: parsed.fullModelId,
     },
+  };
+};
+
+/**
+ * An explicit pick on the user's own key (`<provider>/<model>`, not Stella),
+ * resolved as the model picker lists it: models.json and extension
+ * providers, builtin overrides, their keys and configured headers. Desktop
+ * chats (`@stella/agent`) run their BYOK models on it.
+ */
+export const resolveDirectLlmRoute = (args: {
+  stellaAppDir: string;
+  modelName: string;
+}): ResolvedLlmRoute | { error: string } => {
+  const parsed = parseModelReference(
+    normalizeDesktopLocalEngineModelReference(args.modelName),
+  );
+  if (!parsed || parsed.provider === STELLA_PROVIDER) {
+    return { error: `${args.modelName} isn't a model on your own key.` };
+  }
+  const direct = resolveDirectProviderRoute({
+    stellaAppDir: args.stellaAppDir,
+    provider: parsed.provider,
+    modelId: parsed.modelId,
+    fullModelId: parsed.fullModelId,
+  });
+  if (direct.kind === "route") return direct.route;
+  return {
+    error: formatLlmRouteFailure({
+      kind: direct.kind,
+      provider: parsed.provider,
+      model: parsed.fullModelId,
+    }),
   };
 };
 

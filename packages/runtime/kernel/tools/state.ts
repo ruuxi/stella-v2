@@ -35,7 +35,7 @@ import type {
   SpawnEngineSelection,
   SpawnReasoningEffort,
 } from "@stella/contracts/agent-engine";
-import { isRegisteredModelReference } from "../../ai/models.js";
+import { isRegisteredModelReference } from "../model-catalog.js";
 import {
   isOpenEndedModelReference,
   isRegisteredBareStellaModelReference,
@@ -230,6 +230,22 @@ export const parseSpawnAgentModel = (
     ...(reasoningEffort ? { reasoningEffort } : {}),
   };
 };
+
+/**
+ * Why an agent with this model selection cannot run on this computer, or
+ * null when it can. This computer's agents run on Claude Code: Stella's own
+ * engine runs on pi-durable, which spawns its agents itself, so a selection
+ * naming another engine (`stella`, `codex`) or a plain model reference has
+ * nothing to run on here. Cloud and other-device placements are unaffected.
+ */
+export const localSpawnSelectionError = (
+  selection: SpawnModelSelection,
+): string | null =>
+  selection.kind === "default" ||
+  (selection.kind === "engine" &&
+    selection.engine.engine === "claude_code_local")
+    ? null
+    : 'Agents on this computer run on Claude Code. Omit model, or pick a Claude Code model with "claude-code" or "claude-code/<model>".';
 
 export const createStateContext = (
   stateRoot: string,
@@ -684,6 +700,10 @@ export const handleAgentStatus = async (
   };
 };
 
+/** POSIX or Windows absolute, without node:path (this module also runs in workers). */
+const isAbsoluteDirectory = (value: string): boolean =>
+  value.startsWith("/") || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\");
+
 export const handleSpawnAgent = async (
   ctx: StateContext,
   args: Record<string, unknown>,
@@ -816,11 +836,23 @@ export const handleSpawnAgent = async (
   // is nowhere honest to put the work — refuse rather than silently run it in
   // the wrong place.
   const destination = parseSpawnDestination(args.destination);
+  const workingDirectory = toOptionalString(args.directory);
+  if (workingDirectory && !isAbsoluteDirectory(workingDirectory)) {
+    return {
+      error: `directory must be an absolute path; got "${workingDirectory}".`,
+    };
+  }
   const targetDeviceId =
     destination.kind === "device" && destination.deviceId !== context.deviceId
       ? destination.deviceId
       : undefined;
   const cloudPlacement = destination.kind === "cloud" || targetDeviceId !== undefined;
+  if (cloudPlacement && workingDirectory) {
+    // The cloud's and another computer's tools start in their own home.
+    return {
+      error: "directory works only for an agent that runs on this computer. Leave it out, and name the directory in the prompt instead.",
+    };
+  }
   if (cloudPlacement && context.conversationId.startsWith("local_")) {
     return {
       error: "This chat is stored only on this computer, so its agents run here too. Leave destination empty.",
@@ -846,6 +878,12 @@ export const handleSpawnAgent = async (
     });
   } catch (error) {
     return { error: (error as Error).message };
+  }
+  const localSelectionError = cloudPlacement
+    ? null
+    : localSpawnSelectionError(modelSelection);
+  if (localSelectionError) {
+    return { error: localSelectionError };
   }
   if (modelSelection.kind === "model") {
     // Fail the spawn loudly on an unroutable model — never silently fall
@@ -1019,6 +1057,7 @@ export const handleSpawnAgent = async (
             ? { modelConfigSnapshot: context.modelConfigSnapshot }
             : {}),
         rootRunId: context.rootRunId,
+        ...(workingDirectory ? { workingDirectory } : {}),
         agentDepth: nextAgentDepth,
         ...(typeof maxAgentDepth === "number" ? { maxAgentDepth } : {}),
         parentAgentId,

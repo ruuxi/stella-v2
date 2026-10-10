@@ -18,6 +18,7 @@ import { worldName } from "../workspace.js";
 import { Hono, type MiddlewareHandler } from "hono";
 import { GATEWAY_NETWORK_POLICY } from "@stella/contracts/gateway/api";
 import { TURN_BROKER_HEADERS } from "@stella/contracts/turn-credential-broker";
+import { JOURNAL_CHECKPOINT_PATH, JOURNAL_CHECKPOINT_SUMMARY_MAX_BYTES } from "@stella/contracts/journal-checkpoint";
 import type { OwnerSnapshot } from "@stella/contracts/turn-plane/owner-snapshot";
 import {
   buildMobilePairingChallenge,
@@ -38,6 +39,7 @@ import {
   TURN_OWNER_GENERATION_HEADER,
   TURN_OWNER_ID_HEADER,
 } from "@stella/contracts/turn-plane/turn-start";
+import { bearerCredential } from "../../../shared/bearer.js";
 import { classifyNetwork } from "../../../shared/network-class.js";
 import { verifyUserToken } from "../auth-jwt.js";
 import { noteOwnerIdentity } from "../owner-identity.js";
@@ -95,12 +97,13 @@ import { handleStellaModelsRoute } from "../catalog/models.js";
 import { handleDevicesRoute } from "../devices/routes.js";
 import { handleUserAsksRoute } from "../user-asks/routes.js";
 import { handleDeviceRequestRoute } from "../devices/device-request-route.js";
+import { handleDeviceToolRoute } from "../devices/device-tool-route.js";
+import { DEVICE_TOOL_LIMITS } from "@stella/contracts/turn-plane/device-tools";
 import { DEVICE_REQUEST_LIMITS } from "@stella/contracts/turn-plane/device-requests";
 import { validateTurnBrokerTarget } from "../turn-credential-broker.js";
 import type { TurnAuthKind } from "../turn-start-request.js";
 import {
   HEADER_TURN_AUTH_KIND,
-  parseCloudAgentTurnStartRequest,
   parseCloudTurnStartRequest,
   serviceOnlyTurnFields,
   turnStartErrorResponse,
@@ -114,10 +117,7 @@ import {
 import { retireSandboxInstance } from "./session-sandbox.js";
 import type { Env } from "./shared/env.js";
 import {
-  HEADER_BUILD_SESSION_NAME,
   HEADER_CONVERSATION_ID,
-  HEADER_PREVIEW_BASE_URL,
-  HEADER_TURN_BROKER_ENDPOINT,
   json,
   log,
   ORCHESTRATOR_INTERNAL_ORIGIN,
@@ -189,8 +189,7 @@ const authenticateConversationCaller = async (
     }
     token = offer.token;
   } else {
-    const header = request.headers.get("authorization") ?? "";
-    if (header.startsWith("Bearer ")) token = header.slice(7).trim();
+    token = bearerCredential(request.headers.get("authorization")) ?? "";
   }
   if (!token) {
     return deny(
@@ -894,7 +893,6 @@ const forwardBody = async (
 
 const WORLD_KEY = "[0-9a-f]{64}:[0-9a-f]{64}";
 const APP_SLUG = "[a-z][a-z0-9-]{0,31}";
-const SESSION_ID = "[A-Za-z0-9._~-]{1,128}";
 /**
  * A broker session may also be the orchestrator's `orch:<conversationId>`
  * thread, whose name reaches this route percent-encoded
@@ -1050,6 +1048,20 @@ app.post(
   (c) =>
     handleDeviceRequestRoute(c.req.raw, c.env, c.req.param("deviceId"), c.var.caller),
 );
+// One of the owner's computers runs a tool call on another, for its own
+// conversation's tools (`@stella/contracts/turn-plane/device-tools`).
+app.post(
+  "/owners/me/devices/:deviceId{[A-Za-z0-9._~-]{1,256}}/tool-calls",
+  userAuth(),
+  jsonBody(DEVICE_TOOL_LIMITS.callBytes + 4096),
+  (c) => handleDeviceToolRoute(c.req.raw, c.env, c.req.param("deviceId"), c.var.caller, "call"),
+);
+app.post(
+  "/owners/me/devices/:deviceId{[A-Za-z0-9._~-]{1,256}}/tool-calls/cancel",
+  userAuth(),
+  jsonBody(tinyControl),
+  (c) => handleDeviceToolRoute(c.req.raw, c.env, c.req.param("deviceId"), c.var.caller, "cancel"),
+);
 app.get(DEVICES_PATH, userAuth(), async (c) => {
   try {
     return Response.json(
@@ -1100,6 +1112,28 @@ app.get("/conversations/:id/history", userAuth(), (c) =>
 );
 app.post("/conversations/:id/history/query", userAuth(), jsonBody(tinyControl), (c) =>
   forwardToConversation(c.req.raw, c.env, c.req.param("id"), "/history/query", c.var.caller),
+);
+// A computer's compaction, as the conversation's checkpoint for every host.
+app.post(
+  `/conversations/:id${JOURNAL_CHECKPOINT_PATH}`,
+  userAuth(),
+  jsonBody(JOURNAL_CHECKPOINT_SUMMARY_MAX_BYTES + 4096),
+  (c) => forwardToConversation(c.req.raw, c.env, c.req.param("id"), JOURNAL_CHECKPOINT_PATH, c.var.caller),
+);
+// Where the conversation's Stella runs, read and moved by the owner's devices.
+app.get("/conversations/:id/pi-brain", userAuth(), (c) =>
+  forwardToConversation(c.req.raw, c.env, c.req.param("id"), "/pi-brain", c.var.caller),
+);
+app.post("/conversations/:id/pi-brain", userAuth(), jsonBody(tinyControl), (c) =>
+  forwardToConversation(c.req.raw, c.env, c.req.param("id"), "/pi-brain", c.var.caller),
+);
+// A computer's own conversation whose tools it moved to the cloud: a call in
+// the container the conversation's object holds for it, or its release.
+app.post(
+  "/conversations/:id/pi-workspace",
+  userAuth(),
+  jsonBody(DEVICE_TOOL_LIMITS.callBytes + 4096),
+  (c) => forwardToConversation(c.req.raw, c.env, c.req.param("id"), "/pi-workspace", c.var.caller),
 );
 app.post(
   "/conversations/:id/journal",
@@ -1192,59 +1226,6 @@ app.all(`/sessions/:sessionId{${BROKER_SESSION_ID}}/turn-broker`, async (c) => {
 
 app.use(serviceSecret);
 
-app.post(
-  `/sessions/:sessionId{${SESSION_ID}}/turns`,
-  jsonBody(CLOUD_BUILDER_BODY_LIMITS.turn),
-  async (c) => {
-    const buildSessionName = c.req.param("sessionId");
-    const origin = new URL(c.req.url).origin;
-    const turnBrokerEndpoint = new URL(
-      `/sessions/${encodeURIComponent(buildSessionName)}/turn-broker`,
-      origin,
-    ).toString();
-    const previewBaseUrl = new URL(
-      `/internal/previews/${encodeURIComponent(buildSessionName)}/`,
-      origin,
-    ).toString();
-    const text = await c.req.raw.text();
-    // The desktop dispatch, execution placement's agent branch and a
-    // hosted-browser resume all arrive here. Refuse a malformed agent body at
-    // the edge rather than instantiating the session for it; the session
-    // repeats the same parse, because it trusts nothing it did not check.
-    const payload: unknown = JSON.parse(text);
-    if (
-      payload &&
-      typeof payload === "object" &&
-      !Array.isArray(payload) &&
-      (payload as { kind?: unknown }).kind === "agent"
-    ) {
-      const parsed = parseCloudAgentTurnStartRequest(payload);
-      if (!parsed.ok) return json({ error: parsed.message }, 400);
-      if (parsed.request.threadId !== buildSessionName) {
-        return json({ error: "threadId must match the session in the path." }, 400);
-      }
-    }
-    // Built from scratch: nothing the caller sent may reach the session under
-    // a trusted name, including the orchestrator's gate-admitted marker — a
-    // turn that comes through this route is admitted there.
-    return c.env.BUILD_SESSIONS.getByName(buildSessionName).fetch(
-      "https://build-session/turn",
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          [HEADER_BUILD_SESSION_NAME]: buildSessionName,
-          [HEADER_TURN_BROKER_ENDPOINT]: turnBrokerEndpoint,
-          [HEADER_PREVIEW_BASE_URL]: previewBaseUrl,
-        },
-        body: text,
-      },
-    );
-  },
-);
-app.post("/sessions/:sessionId/turns", () =>
-  json({ error: "Invalid build session name." }, 400),
-);
 // Exact placement turn + cancellation identity must survive the gateway.
 // Dropping this body regresses to conversation-wide Stop and can cancel a
 // newer turn after a delayed retry.
@@ -1281,13 +1262,6 @@ app.get("/conversations/:id/journal", (c) => {
     { method: "GET" },
   );
 });
-app.post("/sessions/:sessionId/steer", jsonBody(tinyControl), (c) =>
-  forwardBody(
-    c.env.BUILD_SESSIONS.getByName(c.req.param("sessionId")),
-    "https://build-session/steer",
-    c.req.raw,
-  ),
-);
 app.post("/sessions/:sessionId/cancel", jsonBody(tinyControl), (c) =>
   forwardBody(
     c.env.BUILD_SESSIONS.getByName(c.req.param("sessionId")),

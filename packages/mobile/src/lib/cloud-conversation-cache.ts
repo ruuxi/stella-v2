@@ -2,7 +2,7 @@ import type { ChatMessage } from "../types";
 import {
   decodeSequencedJournalEntry,
   type JournalRecord,
-} from "./cloud-conversation-protocol";
+} from "@stella/contracts/conversation-protocol";
 import {
   loadChatSyncState,
   loadCloudJournalCache,

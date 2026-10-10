@@ -174,8 +174,32 @@ fn emit(event: &Event<'_>) {
     }
 }
 
+/// The app holds our stdin open for as long as it runs. When it is killed
+/// without stopping us (a crash, a force quit) the pipe closes, and the
+/// listener exits instead of keeping the microphone open with no one reading.
+/// Only when the spawner asks: an inherited or null stdin would read EOF at once.
+fn exit_when_stdin_closes() {
+    if std::env::var("STELLA_EXIT_ON_STDIN_CLOSE").as_deref() != Ok("1") {
+        return;
+    }
+    std::thread::spawn(|| {
+        use std::io::Read;
+        let mut stdin = std::io::stdin();
+        let mut buffer = [0u8; 256];
+        loop {
+            match stdin.read(&mut buffer) {
+                Ok(0) => std::process::exit(0),
+                Ok(_) => continue,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => std::process::exit(0),
+            }
+        }
+    });
+}
+
 fn main() {
     let cli = Cli::parse();
+    exit_when_stdin_closes();
     let result = match cli.command {
         Command::Probe { model } => run_probe(model),
         Command::Bench { model, iterations } => run_bench(model, iterations),

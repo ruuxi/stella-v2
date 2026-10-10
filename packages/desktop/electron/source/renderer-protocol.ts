@@ -79,14 +79,12 @@ export const serveRendererSource = (options: {
   sourceRoot: string;
   /** Repo root whose packages/desktop-ui .env files supply the defines; defaults to sourceRoot. */
   envRoot?: string;
-  /** Stella data dir, whose `outputs/` canvases are served from. */
-  stellaDataDir: string;
   mode: RendererBuildMode;
   log: (message: string) => void;
 }): RendererSourceHandle => {
   const partitionSession = session.fromPartition(options.partition);
   serveMediaProtocol(options.partition);
-  serveCanvasProtocol(options.partition, options.stellaDataDir);
+  serveCanvasProtocol(options.partition);
   const pages = () =>
     webContents
       .getAllWebContents()

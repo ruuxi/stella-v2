@@ -38,14 +38,15 @@ Every worker the bench spawns gets:
   - **Network guard.** `fetch` never leaves the machine. The pi.dev model
     catalog refresh gets a 404 (the runtime records an empty refresh and
     moves on); anything else throws and is counted (`fetch.blocked`).
-  - **Scripted fake provider** (`STELLA_PERF_FAKE_PROVIDER=1`, source entry
-    only). Registers api `perf-scripted`. The bench writes a `models.json`
-    provider `perf` / model `scripted` and pins `orchestrator` and
-    `general` to `perf/scripted` in `preferences.json`. Replies are
-    synchronous and instant, so a turn's wall-clock is pure runtime overhead.
-    A prompt containing `[perf:tool]` gets one tool call
-    (`STELLA_PERF_FAKE_TOOL`, default `Read` of a 3-line fixture), then
-    `done`.
+  - **Scripted model** (`STELLA_PERF_FAKE_PROVIDER=1`, source entry only).
+    The network guard answers OpenAI-compatible chat completions at
+    `http://perf-scripted.invalid/v1` in process. The bench pins
+    `orchestrator` to `local/<that base URL>/scripted` in
+    `preferences.json`, which pi-durable runs on its `local` provider, the
+    way it runs a user's Ollama or LM Studio model. Replies are instant
+    streams, so a turn's wall-clock is pure runtime overhead. A prompt
+    containing `[perf:tool]` gets one tool call (`STELLA_PERF_FAKE_TOOL`,
+    default `Read` of a 3-line fixture), then `done`.
   - **Counters**: every bun:sqlite statement (count, time, rows, per SQL
     shape and database file; `prepare` count and time), stdout JSON-RPC
     lines/bytes per method. `STELLA_PERF_SQL_COUNTERS=0` disables the SQL
@@ -118,13 +119,15 @@ between runs, and `check` fails if it is non-empty.
 
 ### J2 chat-turn overhead (`turn`, plain)
 
-`internal.worker.startChat` on a local conversation; marks from the worker's
-own `run.event` notifications: send → ack (startChat response) →
-`run-started` → first `assistant-message` → `run-finished` → `toIdleMs`.
-There is no per-token STREAM event any more: `assistant-message` is the only
-assistant-text carrier, so "first assistant-message" is the first-text mark.
-`toIdleMs` is a health RPC written the instant `run-finished` arrives; it is
-answered only when synchronous post-turn work yields the event loop.
+A composer send on a conversation kept on this computer (`local_…`), as the
+desktop chat sends it: `internal.worker.piChat` `submit` on a conversation
+the bench watches (`watch`), answered by pi-durable. Marks come from the
+conversation's `piChat.events` notifications: send → ack (submit response) →
+`run_start` → first assistant entry (`message_end`) → `run_end` →
+`toIdleMs`. `toIdleMs` is a health RPC written the instant `run_end`
+arrives; it is answered only when synchronous post-turn work yields the
+event loop. Counters include pi's own SQLite file per conversation
+(`<data>/agent/<conversation>.sqlite`) and the chat-log mirror's writes.
 
 The first turn after boot is reported separately (`firstTurn`: lazy imports,
 cold statement paths). Then `--warmup` turns, then `--repeat` timed turns
@@ -138,7 +141,7 @@ and bytes out (per method), host round trips, retained heap per turn.
 ### J3 tool-call overhead (`turn`, tool)
 
 Same as J2 with `[perf:tool]`: model call → `Read` tool → model call → text.
-`nonToolMs = toRunFinishedMs − (tool-end − tool-start)`.
+`nonToolMs = toRunFinishedMs − (tool_execution_end − tool_execution_start)`.
 
 ### J4 history read (`history`)
 
@@ -148,15 +151,16 @@ A conversation seeded with N = 1k / 10k / 100k `user_message` /
 seeding cost is itself reported as append ms/statements per event). Then
 `internal.worker.localChat.listEvents` (default window) and `getEventCount`,
 `--repeat` calls each (first call separate), with statements/rows per call.
-Also runs 5 turns on that conversation to show whether history size leaks
-into turn cost, and records boot-to-ready on the large DB.
+Then opens the conversation on pi (`watch`), which imports its N events into
+pi's transcript (`openMs`), runs 5 turns on it to show whether history size
+leaks into turn cost, and records boot-to-ready on the large DB.
 
 `--history-shape modern` seeds a different template: one real turn first,
-then the N events after it, so the durable thread is the model history and
-the events only feed reminders and locale (a conversation that started after
-the durable-store transition). The default `legacy` shape has every event
-predate the thread, so the pre-transition shim projects up to 800 of them
-into every prompt; `check` uses the default.
+then the N events after it, so the conversation's pi transcript already
+exists and its chat-log mirror imports only the events written after it.
+The default `legacy` shape has every event predate the transcript, so the
+mirror imports all of them when the conversation first opens; `check` uses
+the default.
 
 ### J5 persistence write (derived, in `turn`)
 
@@ -221,13 +225,18 @@ cold × transport/ready); turn SQL statements and RPC bytes vs turn time
   warm cache, 1k history template only; ~20 s including seeding, no bundle
   build) with `STELLA_PERF_LAB_DIR` under the runner temp and uploads the JSON
   report as the `runtime-perf-report` artifact. It needs no secrets and no
-  network: the fake provider serves every model call, and the network guard
+  network: the scripted model serves every model call, and the network guard
   answers the pi.dev catalog refresh a fresh seed triggers with a local 404
   (the seed logs how many it answered) and blocks any other fetch.
 - `check --ratchet` lowers every ceiling this run beat (never raises).
 - `--add-missing` (any command) adds the metrics this run measured that
   `baseline.json` lacks, with fresh ceilings, and never touches an existing
   entry. Use it to introduce a new metric without re-recording the others.
+- `--rerecord P,Q` (any command) re-records, from this run, the metrics whose
+  keys start with `P` or `Q` (value and a fresh ceiling), and leaves every
+  other entry alone. It is for a journey that itself changed, whose old
+  numbers measured something else; like raising a ceiling, it needs a
+  written reason in the PR.
 - `all --write-baseline` rewrites the baseline from scratch; do it on the CI
   machine class, not a laptop, before wiring `check` into CI.
 - To lower a ceiling by hand after an optimization lands, edit `ceiling` in
@@ -240,5 +249,5 @@ ceilings are only meaningful on the machine class that recorded them.
 ## Files
 
 - `bench.mjs` — harness, journeys, reporting, baseline/check.
-- `probe-preload.ts` — network guard, fake provider, counters, census.
+- `probe-preload.ts` — network guard, scripted model, counters, census.
 - `baseline.json` — recorded baseline and ceilings.

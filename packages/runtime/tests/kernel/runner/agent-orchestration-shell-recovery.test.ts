@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
@@ -11,16 +14,22 @@ vi.mock("@stella/runtime/kernel/agent-runtime", () => ({
   shutdownSubagentRuntimes: vi.fn(),
 }));
 
-vi.mock("@stella/runtime/kernel/runner/model-selection", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@stella/runtime/kernel/runner/model-selection")
-  >()),
-  createRunnerImageDescriptionService: vi.fn(() =>
-    vi.fn(async () => "described image"),
-  ),
-}));
-
 import { createAgentOrchestration } from "@stella/runtime/kernel/runner/agent-orchestration";
+import {
+  loadLocalPreferences,
+  saveLocalPreferences,
+} from "@stella/runtime/kernel/preferences/local-preferences";
+
+// Terminal events here also deliver a lifecycle report. On Stella's own
+// engine (pi) that goes to a pi chat these doubles do not wire; chat on
+// Claude Code reports through the `sendMessage` stub instead.
+const stellaDataDir = mkdtempSync(
+  path.join(tmpdir(), "stella-shell-recovery-"),
+);
+saveLocalPreferences(stellaDataDir, {
+  ...loadLocalPreferences(stellaDataDir),
+  agentRuntimeEngine: "claude_code_local",
+});
 
 describe("subagent shell recovery scope", () => {
   it("ends the browser turn when a subagent run settles", async () => {
@@ -28,13 +37,12 @@ describe("subagent shell recovery scope", () => {
     const context = {
       deviceId: "device-1",
       stellaAppDir: "/tmp/stella-app",
-      stellaDataDir: "/tmp/stella-data",
+      stellaDataDir,
       state: {
         authToken: null,
         backendUrl: "https://example.test",
         hasConnectedAccount: false,
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
         conversationCallbacks: new Map(),
         compactionScheduler: {},
@@ -103,12 +111,11 @@ describe("subagent shell recovery scope", () => {
     const disarm = vi.fn();
     const listRunningShellSessionsOwnedBy = vi.fn(() => ["shell-1"]);
     const context = {
-      stellaDataDir: "/tmp/stella-data",
+      stellaDataDir,
       state: {
         isRunning: true,
         backgroundExitWake: { arm, disarm },
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
       },
       runtimeStore: {},
@@ -172,12 +179,11 @@ describe("subagent shell recovery scope", () => {
     const disarm = vi.fn();
     const listRunningShellSessionsOwnedBy = vi.fn(() => ["shell-1"]);
     const context = {
-      stellaDataDir: "/tmp/stella-data",
+      stellaDataDir,
       state: {
         isRunning: false,
         backgroundExitWake: { arm, disarm },
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
       },
       runtimeStore: {},
@@ -217,12 +223,11 @@ describe("subagent shell recovery scope", () => {
   it("explicit cancellation disarms an already-terminal durable thread", async () => {
     const disarm = vi.fn();
     const context = {
-      stellaDataDir: "/tmp/stella-data",
+      stellaDataDir,
       state: {
         isRunning: true,
         backgroundExitWake: { arm: vi.fn(), disarm },
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
       },
       runtimeStore: {
@@ -261,18 +266,19 @@ describe("subagent shell recovery scope", () => {
     const durableSettings = new Map<string, string>();
     const runtimeStore = {
       getAgentRecord: vi.fn(() => null),
-      getSetting: vi.fn((key: string) => durableSettings.get(key) ?? null),
-      setSetting: vi.fn((key: string, value: string) => {
-        durableSettings.set(key, value);
-      }),
+      chat: {
+        getSetting: vi.fn((key: string) => durableSettings.get(key) ?? null),
+        setSetting: vi.fn((key: string, value: string) => {
+          durableSettings.set(key, value);
+        }),
+      },
     };
     const context = {
-      stellaDataDir: "/tmp/stella-data",
+      stellaDataDir,
       state: {
         isRunning: true,
         backgroundExitWake: null,
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
         conversationCallbacks: new Map(),
       },
@@ -307,7 +313,6 @@ describe("subagent shell recovery scope", () => {
       state: {
         ...context.state,
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
         conversationCallbacks: new Map(),
       },
@@ -341,7 +346,7 @@ describe("subagent shell recovery scope", () => {
       error: "Canceled by placement",
       threadId: "placement-agent:exact-pre-cancel",
     });
-    expect(runtimeStore.setSetting).toHaveBeenCalledOnce();
+    expect(runtimeStore.chat.setSetting).toHaveBeenCalledOnce();
     expect(createAgent).not.toHaveBeenCalled();
     expect(restartedCreateAgent).not.toHaveBeenCalled();
     expect(cancelAgent).not.toHaveBeenCalled();
@@ -357,20 +362,21 @@ describe("subagent shell recovery scope", () => {
       },
     );
     const context = {
-      stellaDataDir: "/tmp/stella-data",
+      stellaDataDir,
       state: {
         isRunning: true,
         backgroundExitWake: null,
         localAgentManager: null,
-        orchestratorSessions: new Map(),
         runCallbacksByRunId: new Map(),
         conversationCallbacks: new Map(),
       },
       runtimeStore: {
-        getSetting: vi.fn((key: string) => durableSettings.get(key) ?? null),
-        setSetting: vi.fn((key: string, value: string) => {
-          durableSettings.set(key, value);
-        }),
+        chat: {
+          getSetting: vi.fn((key: string) => durableSettings.get(key) ?? null),
+          setSetting: vi.fn((key: string, value: string) => {
+            durableSettings.set(key, value);
+          }),
+        },
         getAgentRecord: vi.fn(() =>
           created
             ? {

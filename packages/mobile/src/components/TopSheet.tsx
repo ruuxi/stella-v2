@@ -8,6 +8,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import {
   TOP_SHEET_HEIGHT_FRACTION,
   topSheetMaxHeight,
@@ -121,10 +122,13 @@ export function TopSheet({
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <View style={styles.fill}>
+      {/* A Modal is its own native root, so gestures inside it (the image
+          viewer's pinch and swipe) need their own gesture-handler root. */}
+      <GestureHandlerRootView style={styles.fill}>
         <AnimatedPressable
           style={[styles.backdrop, { opacity: backdropOpacity }]}
           onPress={onClose}
+          accessibilityRole="button"
           accessibilityLabel="Close"
         />
         {/* Auto-height: the sheet takes its own height and the floating
@@ -165,7 +169,7 @@ export function TopSheet({
             </View>
           ) : null}
         </Animated.View>
-      </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }

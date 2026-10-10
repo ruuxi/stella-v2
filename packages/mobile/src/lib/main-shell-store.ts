@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 import type { AutomaticExecutionTarget } from "./execution-placement";
 import type { StoredPhoneAccess } from "./phone-access";
 import type { ModelSettings } from "./use-cloud-model-settings";
@@ -21,6 +21,10 @@ export type ActivityHubData = {
   artifacts: ChatArtifact[];
   /** Desktop pairing used to load artifact contents for the viewer. */
   access: StoredPhoneAccess | null;
+  /** The cloud conversation whose journal lists every file it holds. */
+  conversationId?: string | null;
+  /** Changes whenever the conversation gains a message. */
+  revision?: string | null;
 };
 
 /** The paired computer and where turns run, for Settings' Computer section. */
@@ -61,12 +65,15 @@ type ShellState = {
   activity: ActivityHubData | null;
   computer: ComputerControl | null;
   back: BackOverride | null;
+  /** A page's own control for the top bar's right-hand slot. */
+  accessory: ReactNode;
 };
 
 const EMPTY_STATE: ShellState = {
   activity: null,
   computer: null,
   back: null,
+  accessory: null,
 };
 
 let state: ShellState = EMPTY_STATE;
@@ -99,6 +106,17 @@ export function publishBackOverride(next: BackOverride | null): void {
   if (state.back === next) return;
   state = { ...state, back: next };
   emit();
+}
+
+export function publishTopBarAccessory(next: ReactNode): void {
+  if (state.accessory === next) return;
+  state = { ...state, accessory: next };
+  emit();
+}
+
+const readAccessory = () => state.accessory;
+export function useTopBarAccessory(): ReactNode {
+  return useSyncExternalStore(subscribe, readAccessory, readAccessory);
 }
 
 const readBack = () => state.back;

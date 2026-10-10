@@ -10,7 +10,6 @@ import { ensureStellaDataDirSeeded } from "@stella/runtime/kernel/home/stella-ho
 import { createStellaHostRunner, } from "../stella-host-runner.js";
 import { broadcastLocalChatUpdated, broadcastThreadActivityUpdated, broadcastScheduleUpdated, broadcastToWindows, } from "./context.js";
 import { startOfficePreviewBridge } from "./office-preview-bridge.js";
-import { IPC_PI_CHAT_EVENTS } from "@stella/contracts/desktop/ipc-channels";
 import { showStellaNotification } from "../services/notification-service.js";
 import { serveDeviceRequest } from "../services/device-request-service.js";
 import { requestMacPermission } from "../utils/macos-permissions.js";
@@ -18,6 +17,12 @@ import { getMainLogger } from "../observability/main-logger.js";
 import { getLocalLlmCredential, listLocalLlmCredentials, } from "@stella/runtime/kernel/storage/llm-credentials";
 import { getLocalLlmOAuthApiKey, listLocalLlmOAuthCredentials, } from "@stella/runtime/kernel/storage/llm-oauth-credentials";
 import { getChatGptAccessToken, hasUsableChatGptProfile, } from "@stella/runtime/kernel/storage/chatgpt-profiles";
+import {
+  IPC_DISPLAY_UPDATE,
+  IPC_EXECUTION_REMOTE_REQUEST,
+  IPC_EXECUTION_TARGET_SET,
+  IPC_PI_CHAT_EVENTS,
+} from "@stella/contracts/desktop/ipc-channels";
 // Module-level one-shot cache for the skills home reconciliation. This
 // seeding used to run on the pre-window path inside `resolveStellaDataDir`, where
 // its ~100 awaited fs ops + sha256 over hundreds of KB contended with first
@@ -150,6 +155,8 @@ const spawnAutomationDaemonFromHost = async (params) => {
                 ...extraEnv,
                 STELLA_COMPUTER_SESSION: sessionId,
                 STELLA_COMPUTER_STATE_DIR: stateDir,
+                // The daemon exits if this process dies without stopping it.
+                STELLA_PARENT_PID: String(process.pid),
             },
         });
         await new Promise((resolve, reject) => {
@@ -263,7 +270,7 @@ export const createHostRunnerHandlers = (context, options) => ({
     displayUpdate: (payload) => {
         // Forward structured DisplayPayload objects to all windows. The renderer
         // validates them before routing to the workspace panel.
-        broadcastToWindows(context, "display:update", payload);
+        broadcastToWindows(context, IPC_DISPLAY_UPDATE, payload);
     },
     showNotification: ({ title, body, sound }) => {
         const stellaAppDir = context.state.stellaAppDir;
@@ -285,10 +292,10 @@ export const createHostRunnerHandlers = (context, options) => ({
         // Broadcast rather than await: the question belongs on this computer's
         // screen, and the renderer answers whenever its user does through
         // `execution:answerRemoteExecutionRequest`.
-        broadcastToWindows(context, "execution:remoteExecutionRequest", payload);
+        broadcastToWindows(context, IPC_EXECUTION_REMOTE_REQUEST, payload);
     },
     setExecutionTarget: (payload) => {
-        broadcastToWindows(context, "execution:targetSet", payload);
+        broadcastToWindows(context, IPC_EXECUTION_TARGET_SET, payload);
     },
     // A paired phone's request, relayed by the cloud over the presence socket.
     // The handlers carry the same remote policy the IPC handlers apply.

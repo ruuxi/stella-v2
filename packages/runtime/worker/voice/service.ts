@@ -68,7 +68,6 @@ type VoiceRunner = {
     decorateUserTimestampTag?: boolean;
     timezone?: string;
   }) => void;
-  notifyOrchestratorHistoryChanged: (conversationId: string) => void;
   appendCloudJournal: CloudTranscriptWriter["append"];
   beginVoiceToolCallReceipt: RuntimeStore["beginVoiceToolCallReceipt"];
   completeVoiceToolCallReceipt: RuntimeStore["completeVoiceToolCallReceipt"];
@@ -276,9 +275,6 @@ export class VoiceRuntimeService {
           }
         : {}),
     });
-    this.ensureRunner().notifyOrchestratorHistoryChanged(
-      payload.conversationId,
-    );
     const chatStore = this.options.getChatStore?.();
     if (chatStore) {
       const timestamp = Date.now();
@@ -292,7 +288,7 @@ export class VoiceRuntimeService {
         metadata.voiceSession = { durationMs: payload.voiceSession.durationMs };
       }
       const hasMetadata = Object.keys(metadata).length > 0;
-      chatStore.appendEvent({
+      chatStore.chat.appendEvent({
         conversationId: payload.conversationId,
         type,
         ...(payload.role === "user" && this.options.getDeviceId()
@@ -606,7 +602,7 @@ export class VoiceRuntimeService {
   }) {
     const chatStore = this.options.getChatStore?.();
     if (!chatStore) return;
-    chatStore.appendEvent({
+    chatStore.chat.appendEvent({
       conversationId: args.conversationId,
       type: args.type,
       requestId: args.requestId,
@@ -631,7 +627,6 @@ export class VoiceRuntimeService {
         `args: ${stringifyBounded(payload.args, THREAD_VISIBLE_JSON_MAX_CHARS)}`,
       ].join("\n"),
     });
-    runner.notifyOrchestratorHistoryChanged(payload.conversationId);
     this.appendLocalToolEvent({
       conversationId: payload.conversationId,
       type: "tool_request",
@@ -667,7 +662,6 @@ export class VoiceRuntimeService {
       role: "user",
       content,
     });
-    runner.notifyOrchestratorHistoryChanged(payload.conversationId);
     this.appendLocalToolEvent({
       conversationId: payload.conversationId,
       type: "tool_result",

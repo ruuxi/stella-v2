@@ -1,6 +1,7 @@
 import type { MessagePort } from "node:worker_threads";
 
-import { installBrowserWorkerApi } from "../browser-use/worker-api.js";
+import { browserWorkerApiSource } from "../browser-use/worker-api-source.js";
+import type { installBrowserWorkerApi } from "../browser-use/worker-api.js";
 import { installConnectWorkerApi } from "../connectors/connect-worker-api.js";
 import type {
   BrowserMethod,
@@ -605,8 +606,7 @@ const nodeReplWorkerMain = async (
         return { name, distance };
       })
       .filter(
-        ({ distance }) =>
-          distance <= Math.max(2, Math.ceil(wanted.length / 3)),
+        ({ distance }) => distance <= Math.max(2, Math.ceil(wanted.length / 3)),
       )
       .sort(
         (left, right) =>
@@ -1195,4 +1195,4 @@ const nodeReplWorkerMain = async (
 };
 
 export const createNodeReplWorkerSource = (): string =>
-  `const __name = (target, value) => Object.defineProperty(target, "name", { value, configurable: true });\n(${nodeReplWorkerMain.toString()})((${installBrowserWorkerApi.toString()}), (${installConnectWorkerApi.toString()})).catch((error) => setImmediate(() => { throw error; }))`;
+  `const __name = (target, value) => Object.defineProperty(target, "name", { value, configurable: true });\n(${nodeReplWorkerMain.toString()})((${browserWorkerApiSource()}), (${installConnectWorkerApi.toString()})).catch((error) => setImmediate(() => { throw error; }))`;

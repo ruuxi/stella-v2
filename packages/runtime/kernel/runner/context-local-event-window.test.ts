@@ -45,7 +45,7 @@ type SeedEvent = {
 };
 
 const append = (conversationId: string, event: SeedEvent, eventId: string) =>
-  store.appendEvent({
+  store.chat.appendEvent({
     conversationId,
     type: event.type,
     payload: event.payload,
@@ -70,7 +70,10 @@ const mixedEvents = (count: number, localeEvery?: number): SeedEvent[] =>
         };
       case 1:
       case 5:
-        return { type: "assistant_message", payload: { text: `assistant ${i}` } };
+        return {
+          type: "assistant_message",
+          payload: { text: `assistant ${i}` },
+        };
       case 2:
         return {
           type: "tool_request",
@@ -132,14 +135,14 @@ const build = (
     stellaDataDir: dataDir,
     runtimeStore: store,
     listLocalChatEvents: (id: string, maxItems: number) => {
-      const events = store.listEvents(id, maxItems);
+      const events = store.chat.listEvents(id, maxItems);
       reads.push({ rows: events.length });
       return events;
     },
     ...(bounded
       ? {
           openLocalChatEventWindow: (id: string, maxItems: number) => {
-            const window = store.openEventWindow(id, maxItems);
+            const window = store.chat.openEventWindow(id, maxItems);
             return {
               query: (query: never) => {
                 const rows = window.query(query);
@@ -161,7 +164,10 @@ const build = (
       route: "direct-provider",
       getApiKey: () => undefined,
     },
-  }).then(({ resolvedLlm: _resolvedLlm, ...rest }) => ({ context: rest, reads }));
+  }).then(({ resolvedLlm: _resolvedLlm, ...rest }) => ({
+    context: rest,
+    reads,
+  }));
 };
 
 const modelFacing = (context: Record<string, unknown>) =>
@@ -195,7 +201,11 @@ const scenarios: Array<{
         ...mixedEvents(300),
         {
           type: "user_message",
-          payload: { text: "from the phone", source: "connector", provider: "stella_app" },
+          payload: {
+            text: "from the phone",
+            source: "connector",
+            provider: "stella_app",
+          },
           timestamp: nextTimestamp() + 3 * 60 * MINUTE,
         },
       ]);
@@ -230,7 +240,11 @@ const scenarios: Array<{
     name: "locale deep inside the window, stale gap and connector transition",
     setup: () => {
       seed("deep", mixedEvents(400));
-      append("deep", { type: "user_message", payload: { text: "hi", locale: "ja" } }, "deep-ja");
+      append(
+        "deep",
+        { type: "user_message", payload: { text: "hi", locale: "ja" } },
+        "deep-ja",
+      );
       seed("deep", mixedEvents(600));
       append(
         "deep",
@@ -256,18 +270,35 @@ const scenarios: Array<{
       seed("tool-run", mixedEvents(700, 14));
       append(
         "tool-run",
-        { type: "user_message", payload: { text: "do the thing" }, timestamp: nextTimestamp() + 45 * MINUTE },
+        {
+          type: "user_message",
+          payload: { text: "do the thing" },
+          timestamp: nextTimestamp() + 45 * MINUTE,
+        },
         "tool-run-user",
       );
       seed(
         "tool-run",
-        Array.from({ length: 40 }, (_, i): SeedEvent =>
-          i % 2
-            ? { type: "tool_result", requestId: `run-${i - 1}`, payload: { toolName: "Bash", result: i } }
-            : { type: "tool_request", requestId: `run-${i}`, payload: { toolName: "Bash", args: { i } } },
+        Array.from(
+          { length: 40 },
+          (_, i): SeedEvent =>
+            i % 2
+              ? {
+                  type: "tool_result",
+                  requestId: `run-${i - 1}`,
+                  payload: { toolName: "Bash", result: i },
+                }
+              : {
+                  type: "tool_request",
+                  requestId: `run-${i}`,
+                  payload: { toolName: "Bash", args: { i } },
+                },
         ),
       );
-      return { conversationId: "tool-run", currentUserMessageId: "tool-run-user" };
+      return {
+        conversationId: "tool-run",
+        currentUserMessageId: "tool-run-user",
+      };
     },
   },
   {
@@ -275,7 +306,10 @@ const scenarios: Array<{
     setup: () => {
       seed("noise", [
         ...mixedEvents(300, 7),
-        ...Array.from({ length: 850 }, (_, i) => ({ type: "agent-started", payload: { i } })),
+        ...Array.from({ length: 850 }, (_, i) => ({
+          type: "agent-started",
+          payload: { i },
+        })),
       ]);
       return { conversationId: "noise" };
     },
@@ -287,15 +321,23 @@ describe("orchestrator context: bounded local-event reads", () => {
     test(scenario.name, async () => {
       const { conversationId, currentUserMessageId } = scenario.setup();
 
-      const fullWindow = await build(conversationId, currentUserMessageId, false);
+      const fullWindow = await build(
+        conversationId,
+        currentUserMessageId,
+        false,
+      );
       const bounded = await build(conversationId, currentUserMessageId, true);
 
       // The whole agent context, and the model-facing parts byte for byte.
-      expect(modelFacing(bounded.context)).toBe(modelFacing(fullWindow.context));
-      expect(JSON.stringify(bounded.context)).toBe(JSON.stringify(fullWindow.context));
+      expect(modelFacing(bounded.context)).toBe(
+        modelFacing(fullWindow.context),
+      );
+      expect(JSON.stringify(bounded.context)).toBe(
+        JSON.stringify(fullWindow.context),
+      );
 
       // The history equals the pre-change build over the full 800 window.
-      const window = store
+      const window = store.chat
         .listEvents(conversationId, 800)
         .filter((event) => LOCAL_CONTEXT_EVENT_TYPES.has(event.type))
         .filter(
@@ -316,9 +358,14 @@ describe("orchestrator context: bounded local-event reads", () => {
       );
 
       // The bounded path never falls back to the full window read.
-      expect(bounded.reads.every((read) => read.query !== undefined)).toBe(true);
+      expect(bounded.reads.every((read) => read.query !== undefined)).toBe(
+        true,
+      );
       if (scenario.expectRowsAtMost !== undefined) {
-        const rows = bounded.reads.reduce((total, read) => total + read.rows, 0);
+        const rows = bounded.reads.reduce(
+          (total, read) => total + read.rows,
+          0,
+        );
         expect(rows).toBeLessThanOrEqual(scenario.expectRowsAtMost);
       }
     });
@@ -327,8 +374,13 @@ describe("orchestrator context: bounded local-event reads", () => {
 
 describe("formatTimestampForHistory", () => {
   // The pre-change implementation (a fresh Intl formatter per call).
-  const reference = (timestamp: number, prevDate?: string, timezone?: string) => {
-    const tz = timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
+  const reference = (
+    timestamp: number,
+    prevDate?: string,
+    timezone?: string,
+  ) => {
+    const tz =
+      timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
     const d = new Date(timestamp);
     const timeStr = d.toLocaleTimeString("en-US", {
       hour: "numeric",
@@ -349,17 +401,31 @@ describe("formatTimestampForHistory", () => {
   };
 
   test("matches the per-call toLocale* output across zones and dates", () => {
-    const zones = [undefined, "UTC", "America/Los_Angeles", "Asia/Kolkata", "Australia/Lord_Howe", "Pacific/Chatham"];
+    const zones = [
+      undefined,
+      "UTC",
+      "America/Los_Angeles",
+      "Asia/Kolkata",
+      "Australia/Lord_Howe",
+      "Pacific/Chatham",
+    ];
     let prevDate: string | undefined;
     for (const timezone of zones) {
       for (let i = 0; i < 400; i += 1) {
-        const timestamp = Date.UTC(2025, 2, 8) + i * 37 * MINUTE + (i % 60) * 1000;
+        const timestamp =
+          Date.UTC(2025, 2, 8) + i * 37 * MINUTE + (i % 60) * 1000;
         const expected = reference(timestamp, prevDate, timezone);
-        expect(formatTimestampForHistory(timestamp, prevDate, timezone)).toEqual(expected);
+        expect(
+          formatTimestampForHistory(timestamp, prevDate, timezone),
+        ).toEqual(expected);
         prevDate = expected.dateStr;
       }
     }
-    expect(formatTimestampForHistory(Number.NaN)).toEqual(reference(Number.NaN));
-    expect(() => formatTimestampForHistory(0, undefined, "Not/AZone")).toThrow(RangeError);
+    expect(formatTimestampForHistory(Number.NaN)).toEqual(
+      reference(Number.NaN),
+    );
+    expect(() => formatTimestampForHistory(0, undefined, "Not/AZone")).toThrow(
+      RangeError,
+    );
   });
 });

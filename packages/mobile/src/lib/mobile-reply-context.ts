@@ -6,26 +6,10 @@ import {
   type ReplyContextProjection,
   type ReplyContextRow,
 } from "@stella/contracts/reply-context";
+import { journalAgents } from "@stella/contracts/agent-titles";
 import type { ChatMessage, ChatArtifact } from "../types";
-import type { JournalFile, JournalRecord } from "./cloud-conversation-protocol";
+import type { JournalFile, JournalRecord } from "@stella/contracts/conversation-protocol";
 import { cloudFileArtifact } from "./cloud-file-payload";
-
-const WAKE_THREAD_RE = /^\[(?:Agent completed|Task failed|Task canceled|Subagent paused)\][\s\S]*?(?:^thread_id:\s*(\S+)|\(thread ([^)]+)\))/mu;
-const WAKE_DESCRIPTION_RE = /^\[(?:Agent completed|Task failed|Task canceled|Subagent paused)\][\s\S]*?^description:\s*(.+)$/mu;
-
-/**
- * The task named by a hidden lifecycle wake prompt (`[Agent completed]` and
- * friends): its thread id and, when carried, its description. A locally
- * executed turn mirrored into the journal has no lifecycle card, so this is
- * where a cited task's title comes from.
- */
-export function lifecycleWakeTask(text: string): { threadId: string; description?: string } | null {
-  const match = WAKE_THREAD_RE.exec(text);
-  const threadId = (match?.[1] ?? match?.[2])?.trim();
-  if (!threadId) return null;
-  const description = WAKE_DESCRIPTION_RE.exec(text)?.[1]?.trim();
-  return description ? { threadId, description } : { threadId };
-}
 
 const SUMMARY_MAX_CHARS = 160;
 
@@ -50,16 +34,6 @@ export function summaryExcerpt(result: string): string {
   return `${cut.trimEnd()}…`;
 }
 
-const wakeText = (record: JournalRecord): string => {
-  if (record.kind !== "message") return "";
-  const content = record.payload.content;
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  return content
-    .map((block) => (block && typeof block === "object" && "text" in block && typeof block.text === "string" ? block.text : ""))
-    .join("\n");
-};
-
 /**
  * Lifecycle cards onto transcript rows, matching desktop:
  *   - the turn that spawned a task carries the spawn card, which settles
@@ -72,12 +46,9 @@ const wakeText = (record: JournalRecord): string => {
  * particular reply existing at the moment a card is read.
  */
 export function projectMobileLifecycle(messages: ChatMessage[], records: readonly JournalRecord[], conversationId: string): ChatMessage[] {
+  const journal = journalAgents(records);
   const titles = new Map<string, string>();
-  for (const record of records) {
-    if (record.kind !== "message" || record.role !== "user" || !record.hidden) continue;
-    const task = lifecycleWakeTask(wakeText(record));
-    if (task?.description && !titles.has(task.threadId)) titles.set(task.threadId, task.description);
-  }
+  for (const [threadId, agent] of journal) if (agent.title) titles.set(threadId, agent.title);
   const messagesById = new Map(messages.map(message => [message.id, message]));
   const assistantsByTurn = new Map<string, Array<{ seq: number; message: ChatMessage }>>();
   for (const record of records) {
@@ -179,8 +150,22 @@ export function projectMobileLifecycle(messages: ChatMessage[], records: readonl
     (ref.title && ref.title !== ref.threadId ? ref.title : "") ||
     descriptions.find(description => titleNamesThread(description, ref.threadId)) ||
     ref.title;
+  const stateFor = (threadId: string): MobileAgentState | undefined => {
+    const status = journal.get(threadId)?.status;
+    if (!status) return undefined;
+    return status === "running" ? "running" : status === "completed" ? "completed" : "error";
+  };
+  const statesFor = (refs: readonly ReplyRef[]) => {
+    const states: Record<string, MobileAgentState> = {};
+    for (const ref of refs) {
+      const state = ref.kind === "agent" ? stateFor(ref.threadId) : undefined;
+      if (ref.kind === "agent" && state) states[ref.threadId] = state;
+    }
+    return Object.keys(states).length ? { agentStates: states } : {};
+  };
   return messages.map(message => ({ ...message, ...(message.replyRefs ? {
     replyRefs: message.replyRefs.map(ref => ref.kind === "agent" ? { ...ref, title: titleFor(ref) } : ref),
+    ...statesFor(message.replyRefs),
   } : {}) }));
 }
 
@@ -249,6 +234,7 @@ export function mobileOwnedAgentIds(messages: readonly ChatMessage[]): (message:
 
 export function mobileReplyContexts(messages: readonly ChatMessage[]): MobileReplyContexts {
   const agentStates = new Map<string, MobileAgentState>();
+  const latestStates = new Map<string, MobileAgentState>();
   const ownedAgents = mobileOwnedAgentIds(messages);
   const rows: ReplyContextRow[] = messages.map(message => {
     const aliasIds = message.canonicalId ? [message.canonicalId] : undefined;
@@ -258,6 +244,7 @@ export function mobileReplyContexts(messages: readonly ChatMessage[]): MobileRep
       const state: MobileAgentState = artifact.payload.state === "running" ? "running" : artifact.payload.failed ? "error" : "completed";
       for (const id of artifact.payload.agentIds ?? []) agentStates.set(id, state);
     }
+    for (const [id, state] of Object.entries(message.agentStates ?? {})) latestStates.set(id, state);
     const ownsAgentIds = ownedAgents(message);
     return {
       id: message.id,
@@ -269,6 +256,7 @@ export function mobileReplyContexts(messages: readonly ChatMessage[]): MobileRep
     };
   });
   const projection = projectReplyContexts(rows);
+  for (const [id, state] of latestStates) agentStates.set(id, state);
   return { ...projection, agentStates };
 }
 
@@ -302,20 +290,3 @@ export function mobileReplyLineage(messages: readonly ChatMessage[], root: Reply
   return messages.filter(m => selectedIds.has(m.id) || userIds.has(m.id) || (Boolean(m.canonicalId) && userIds.has(m.canonicalId)));
 }
 
-/** Desktop-executed turns persist resolved refs instead of a model fence. */
-export function resolvedMobileReplyRefs(payload: Record<string, unknown>): ReplyRef[] {
-  const metadata = payload.metadata;
-  if (!metadata || typeof metadata !== "object" || !("runtime" in metadata)) return [];
-  const runtime = metadata.runtime;
-  if (!runtime || typeof runtime !== "object" || !("replyRefs" in runtime) || !Array.isArray(runtime.replyRefs)) return [];
-  return runtime.replyRefs.flatMap((ref: unknown): ReplyRef[] => {
-    if (!ref || typeof ref !== "object" || !("kind" in ref)) return [];
-    if (ref.kind === "agent" && "threadId" in ref && typeof ref.threadId === "string") {
-      return [{ kind: "agent", threadId: ref.threadId, title: "title" in ref && typeof ref.title === "string" ? ref.title : "" }];
-    }
-    if (ref.kind === "message" && "id" in ref && typeof ref.id === "string" && "sequence" in ref && typeof ref.sequence === "number" && "role" in ref && (ref.role === "user" || ref.role === "assistant")) {
-      return [{ kind: "message", id: ref.id, sequence: ref.sequence, role: ref.role, preview: "preview" in ref && typeof ref.preview === "string" ? ref.preview : "" }];
-    }
-    return [];
-  });
-}

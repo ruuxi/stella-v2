@@ -14,11 +14,7 @@ import type {
   ToolContext,
   ToolHostOptions,
 } from "@stella/runtime/kernel/tools/types";
-import {
-  createPiTools,
-  getRuntimeToolMetadata,
-} from "@stella/runtime/kernel/agent-runtime/tool-adapters.js";
-import { estimateProviderPayloadTokens } from "@stella/runtime/kernel/agent-runtime/context-budget.js";
+import { getRuntimeToolMetadata } from "@stella/runtime/kernel/agent-runtime/tool-adapters.js";
 import { loadParsedAgentsFromDir } from "@stella/runtime/kernel/agents/markdown-agent-loader";
 import { loadStellaRuntimeAgents } from "@stella/runtime/extensions/stella-runtime/index";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
@@ -36,15 +32,6 @@ const metadataDir = path.join(
   repoRoot,
   "packages/runtime/extensions/stella-runtime/agent-metadata",
 );
-const BUILT_IN_DEMOTED_TOOL_NAMES = [
-  "schedule_add",
-  "schedule_list",
-  "schedule_update",
-  "schedule_remove",
-  "ScriptDraft",
-  "connector_status",
-] as const;
-
 const createTestHost = async (
   options: Pick<
     ToolHostOptions,
@@ -191,130 +178,6 @@ describe("working orchestrator surface", () => {
     expect(childGeneral.has("pause_agent")).toBe(false);
     expect(childGeneral.has("send_message")).toBe(true);
     expect(childGeneral.has("agent_status")).toBe(true);
-  });
-
-  it("builds the real orchestrated provider request with only the bounded deferred surface", async () => {
-    const { host } = await createTestHost();
-    const agents = loadParsedAgentsFromDir(metadataDir);
-    const orchestrated = agents.find(
-      (agent) => agent.id === AGENT_IDS.ORCHESTRATOR,
-    );
-    const buildProviderTools = (toolsAllowlist: string[] | undefined) =>
-      createPiTools({
-        runId: "run-1",
-        conversationId: "conv-1",
-        agentType: AGENT_IDS.ORCHESTRATOR,
-        deviceId: "device-1",
-        toolsAllowlist,
-        toolCatalog: host.getToolCatalog(AGENT_IDS.ORCHESTRATOR),
-        store: {} as never,
-        toolExecutor: async () => ({ result: "unused" }),
-      }) as Array<{
-        name: string;
-        description: string;
-        parameters: unknown;
-      }>;
-
-    const providerTools = buildProviderTools(orchestrated?.toolsAllowlist);
-    expect(providerTools.map((tool) => tool.name).sort()).toEqual([
-      "Read",
-      "agent_status",
-      "code",
-      "html",
-      "image_gen",
-      "pause_agent",
-      "send_message",
-      "spawn_agent",
-      "switch_destination",
-      "web",
-    ]);
-    for (const toolName of BUILT_IN_DEMOTED_TOOL_NAMES) {
-      expect(
-        providerTools.some((tool) => tool.name === toolName),
-        toolName,
-      ).toBe(false);
-    }
-    expect(providerTools.some((tool) => tool.name === "map")).toBe(false);
-    const code = providerTools.find((tool) => tool.name === "code");
-    for (const toolName of BUILT_IN_DEMOTED_TOOL_NAMES) {
-      expect(code?.description, toolName).toContain(`tools.${toolName}(`);
-    }
-    expect(code?.description).toContain("tools.map(");
-
-    const fallbackTools = buildProviderTools(
-      orchestrated?.toolsAllowlist?.filter((name) => name !== "code"),
-    );
-    expect(fallbackTools.map((tool) => tool.name).sort()).toEqual([
-      "Read",
-      "ScriptDraft",
-      "agent_status",
-      "connector_status",
-      "drive_download",
-      "drive_upload",
-      "html",
-      "image_gen",
-      "map",
-      "pause_agent",
-      "schedule_add",
-      "schedule_list",
-      "schedule_remove",
-      "schedule_update",
-      "send_message",
-      "spawn_agent",
-      "switch_destination",
-      "web",
-    ]);
-    const deferredTokens = estimateProviderPayloadTokens(
-      {
-        tools: providerTools,
-      },
-      1,
-    );
-    const fallbackTokens = estimateProviderPayloadTokens(
-      {
-        tools: fallbackTools,
-      },
-      1,
-    );
-    expect(providerTools).toHaveLength(10);
-    expect(fallbackTools).toHaveLength(18);
-    expect(deferredTokens).toBeLessThan(fallbackTokens);
-    expect(fallbackTokens - deferredTokens).toBeGreaterThan(1_000);
-
-    const schemaMarker = `HOST_ONLY_FULL_SCHEMA_${"z".repeat(12_000)}`;
-    host.registerExtensionTools([
-      {
-        name: "schema_bloat_probe",
-        description: "Deferred provider accounting probe.",
-        parameters: {
-          type: "object",
-          properties: {
-            nested: {
-              type: "object",
-              properties: {
-                value: { type: "string", description: schemaMarker },
-              },
-            },
-          },
-        },
-        demoted: { searchTerms: ["schema accounting probe"] },
-        execute: async () => ({ result: "unused" }),
-      },
-    ]);
-    const deferredWithProbe = buildProviderTools(orchestrated?.toolsAllowlist);
-    const fallbackWithProbe = buildProviderTools(
-      orchestrated?.toolsAllowlist?.filter((name) => name !== "code"),
-    );
-    expect(
-      deferredWithProbe.some((tool) => tool.name === "schema_bloat_probe"),
-    ).toBe(false);
-    expect(JSON.stringify(deferredWithProbe)).not.toContain(schemaMarker);
-    expect(JSON.stringify(fallbackWithProbe)).toContain(schemaMarker);
-    expect(
-      estimateProviderPayloadTokens({ tools: deferredWithProbe }, 1),
-    ).toBeLessThan(
-      estimateProviderPayloadTokens({ tools: fallbackWithProbe }, 1),
-    );
   });
 
   it("never demotes core built-ins and preserves the voice map fallback", async () => {

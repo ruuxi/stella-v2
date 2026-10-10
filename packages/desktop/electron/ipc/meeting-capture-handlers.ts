@@ -1,14 +1,26 @@
-import { ipcMain, shell, type IpcMainInvokeEvent } from "electron";
+import { shell, type IpcMainInvokeEvent } from "electron";
 import path from "node:path";
 import { promises as fs } from "node:fs";
 import type { MeetingCaptureController } from "../services/meeting-capture-controller.js";
 import { MeetingCaptureController as MeetingCaptureControllerCtor } from "../services/meeting-capture-controller.js";
+import {
+  IPC_MEETINGS_STATUS,
+  IPC_MEETINGS_START,
+  IPC_MEETINGS_PAUSE,
+  IPC_MEETINGS_RESUME,
+  IPC_MEETINGS_STOP,
+  IPC_MEETINGS_OPEN_FOLDER,
+} from "@stella/contracts/desktop/ipc-channels";
+import { handleIpc } from "./typed-ipc.js";
 
 export type MeetingCaptureHandlersOptions = {
   getStellaDataDir: () => string | null;
   getController: () => MeetingCaptureController | null;
   setController: (controller: MeetingCaptureController | null) => void;
-  assertPrivilegedSender: (event: IpcMainInvokeEvent, channel: string) => boolean;
+  assertPrivilegedSender: (
+    event: IpcMainInvokeEvent,
+    channel: string,
+  ) => boolean;
 };
 
 const ensureController = (
@@ -26,8 +38,8 @@ const ensureController = (
 export const registerMeetingCaptureHandlers = (
   options: MeetingCaptureHandlersOptions,
 ): void => {
-  ipcMain.handle("meetings:status", async (event) => {
-    if (!options.assertPrivilegedSender(event, "meetings:status")) {
+  handleIpc(IPC_MEETINGS_STATUS, async (event) => {
+    if (!options.assertPrivilegedSender(event, IPC_MEETINGS_STATUS)) {
       throw new Error("Blocked untrusted meetings:status request.");
     }
     const controller = ensureController(options);
@@ -37,10 +49,13 @@ export const registerMeetingCaptureHandlers = (
     return await controller.status();
   });
 
-  ipcMain.handle(
-    "meetings:start",
-    async (event, payload?: { sessionId?: string; segmentSeconds?: number }) => {
-      if (!options.assertPrivilegedSender(event, "meetings:start")) {
+  handleIpc(
+    IPC_MEETINGS_START,
+    async (
+      event,
+      payload?: { sessionId?: string; segmentSeconds?: number },
+    ) => {
+      if (!options.assertPrivilegedSender(event, IPC_MEETINGS_START)) {
         throw new Error("Blocked untrusted meetings:start request.");
       }
       const controller = ensureController(options);
@@ -54,8 +69,8 @@ export const registerMeetingCaptureHandlers = (
     },
   );
 
-  ipcMain.handle("meetings:pause", async (event) => {
-    if (!options.assertPrivilegedSender(event, "meetings:pause")) {
+  handleIpc(IPC_MEETINGS_PAUSE, async (event) => {
+    if (!options.assertPrivilegedSender(event, IPC_MEETINGS_PAUSE)) {
       throw new Error("Blocked untrusted meetings:pause request.");
     }
     const controller = ensureController(options);
@@ -63,8 +78,8 @@ export const registerMeetingCaptureHandlers = (
     return { ok: await controller.pause() } as const;
   });
 
-  ipcMain.handle("meetings:resume", async (event) => {
-    if (!options.assertPrivilegedSender(event, "meetings:resume")) {
+  handleIpc(IPC_MEETINGS_RESUME, async (event) => {
+    if (!options.assertPrivilegedSender(event, IPC_MEETINGS_RESUME)) {
       throw new Error("Blocked untrusted meetings:resume request.");
     }
     const controller = ensureController(options);
@@ -72,8 +87,8 @@ export const registerMeetingCaptureHandlers = (
     return { ok: await controller.resume() } as const;
   });
 
-  ipcMain.handle("meetings:stop", async (event) => {
-    if (!options.assertPrivilegedSender(event, "meetings:stop")) {
+  handleIpc(IPC_MEETINGS_STOP, async (event) => {
+    if (!options.assertPrivilegedSender(event, IPC_MEETINGS_STOP)) {
       throw new Error("Blocked untrusted meetings:stop request.");
     }
     const controller = ensureController(options);
@@ -83,21 +98,24 @@ export const registerMeetingCaptureHandlers = (
     return await controller.stop();
   });
 
-  ipcMain.handle("meetings:openFolder", async (event, payload?: { sessionId?: string }) => {
-    if (!options.assertPrivilegedSender(event, "meetings:openFolder")) {
-      throw new Error("Blocked untrusted meetings:openFolder request.");
-    }
-    const home = options.getStellaDataDir();
-    if (!home) return { ok: false } as const;
-    const dir = payload?.sessionId
-      ? path.join(home, "meetings", payload.sessionId)
-      : path.join(home, "meetings");
-    try {
-      await fs.mkdir(dir, { recursive: true });
-    } catch {
-      // best-effort
-    }
-    shell.openPath(dir);
-    return { ok: true } as const;
-  });
+  handleIpc(
+    IPC_MEETINGS_OPEN_FOLDER,
+    async (event, payload?: { sessionId?: string }) => {
+      if (!options.assertPrivilegedSender(event, IPC_MEETINGS_OPEN_FOLDER)) {
+        throw new Error("Blocked untrusted meetings:openFolder request.");
+      }
+      const home = options.getStellaDataDir();
+      if (!home) return { ok: false } as const;
+      const dir = payload?.sessionId
+        ? path.join(home, "meetings", payload.sessionId)
+        : path.join(home, "meetings");
+      try {
+        await fs.mkdir(dir, { recursive: true });
+      } catch {
+        // best-effort
+      }
+      shell.openPath(dir);
+      return { ok: true } as const;
+    },
+  );
 };

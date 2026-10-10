@@ -4,8 +4,8 @@ import {
   messageText,
   type JournalMessageRecord,
   type JournalRecord,
-} from "./cloud-conversation-protocol";
-import { lifecycleWakeTask } from "./mobile-reply-context";
+} from "@stella/contracts/conversation-protocol";
+import { lifecycleWakeTask } from "@stella/contracts/conversation-journal-projection";
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value)
@@ -132,11 +132,33 @@ export const markAuthoritativeRunning = (
   );
 };
 
+/**
+ * The server's running-agent list is what runs. A row the record fold left
+ * running and the list does not name has ended, or never ran at all (a start
+ * card whose end was never written): it reads as done. Except a row started
+ * after the list was read (`listedAtMs`, the server's clock as records'
+ * times are), which the next list has yet to name.
+ */
+export const settleUnlistedTasks = (
+  tasks: readonly MobileTask[],
+  agents: readonly AgentActivityEntry[],
+  listedAtMs: number,
+): MobileTask[] => {
+  const listed = new Set(agents.map((agent) => agent.agentId));
+  return tasks.map((task) => {
+    if (task.status !== "running" || listed.has(task.id) || task.createdAt > listedAtMs) {
+      return task;
+    }
+    const { statusText: _statusText, ...rest } = task;
+    return { ...rest, status: "completed" as const, completedAt: rest.updatedAt ?? rest.createdAt };
+  });
+};
+
 export const collectJournalTasks = (
   records: readonly JournalRecord[],
   /**
-   * Agents the journal's owner reports as running, folded over the whole
-   * journal rather than these records.
+   * Agents the server lists as running, over the whole conversation rather
+   * than these records.
    *
    * They are seeded as running rows before the fold so that a terminal row
    * inside the window can settle them. Without the seed, an agent whose
@@ -146,9 +168,16 @@ export const collectJournalTasks = (
    */
   runningAgents: readonly AgentActivityEntry[] = [],
 ): MobileTask[] => {
+  // An agent with a start card is told by its cards alone. A terminal card
+  // without one settles a mirrored agent: the owner of its record writes it
+  // when the agent ended without a wake prompt (`foldAgentActivity`).
   const carded = new Set<string>();
   for (const record of records) {
-    if (record.kind === "card" && record.card.type === "agent-lifecycle") {
+    if (
+      record.kind === "card" &&
+      record.card.type === "agent-lifecycle" &&
+      record.card.event.type === "agent-started"
+    ) {
       carded.add(record.card.event.payload.agentId);
     }
   }
@@ -156,6 +185,7 @@ export const collectJournalTasks = (
   const tasks = new Map<string, MobileTask>();
   for (const task of agentSnapshotTasks(runningAgents)) tasks.set(task.id, task);
   const generations = new Map<string, number>();
+  const settledGenerations = new Map<string, number>();
 
   const start = (
     id: string,
@@ -193,6 +223,7 @@ export const collectJournalTasks = (
       const current = generations.get(id) ?? 0;
       if (event.type === "agent-started") {
         if (generation < current) continue;
+        if (generation <= (settledGenerations.get(id) ?? 0)) continue;
         generations.set(id, generation);
         start(id, event.payload.description, record.createdAtMs, {
           ...(event.payload.agentType ? { agentType: event.payload.agentType } : {}),
@@ -202,8 +233,12 @@ export const collectJournalTasks = (
         });
         continue;
       }
-      if (generation !== current) continue;
+      if (event.type !== "agent-progress") {
+        settledGenerations.set(id, Math.max(generation, settledGenerations.get(id) ?? 0));
+      }
+      if (generation !== current && generations.has(id)) continue;
       if (event.type === "agent-progress") {
+        if (!generations.has(id)) continue;
         const existing = tasks.get(id);
         const statusText = event.payload.statusText.trim();
         if (existing?.status === "running" && statusText) {

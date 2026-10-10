@@ -50,7 +50,6 @@ const ensureDraftDependencies = async (draftRoot: string) => {
 export const openDraftPreview = async (options: {
   name: string;
   stellaAppDir: string;
-  stellaDataDir: string;
   preloadPath: string;
 }): Promise<DraftPreview> => {
   if (!isDraftName(options.name)) {
@@ -72,7 +71,6 @@ export const openDraftPreview = async (options: {
     partition,
     sourceRoot: worktree.path,
     envRoot: options.stellaAppDir,
-    stellaDataDir: options.stellaDataDir,
     // A preview is an authoring surface: the agent iterating on the draft wants
     // hot updates and readable errors, whichever mode the app itself serves.
     mode: "development",

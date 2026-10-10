@@ -20,7 +20,8 @@
 //
 // `--watch-pi` also opens the conversation socket with `pi=1`, prints the pi
 // view's frames as they arrive, and folds them with the clients' reducer
-// (`@stella/contracts/pi-chat`) into the final state it prints.
+// (`@stella/contracts/pi-chat`) into the final state it prints. Each user
+// entry says whether the clients' rule (`piUserHidden`) hides it.
 //
 // `--wait-report` keeps polling past the turn's answer until an agent's
 // report (`[Agent completed]`, `[Task failed]`, `[Task canceled]`) has arrived
@@ -119,14 +120,19 @@ if (!started.ok) process.exit(1);
 // The pi view over the conversation socket, folded as a client folds it.
 let pi;
 if (watchPi) {
-  const { emptyPiChat, reducePiChat, piMessageText } = await import("../../../packages/contracts/pi-chat.ts");
-  pi = { state: emptyPiChat(), frames: 0, piMessageText };
+  const { emptyPiChat, reducePiChat, piMessageText, piUserHidden } = await import("../../../packages/contracts/pi-chat.ts");
+  pi = { state: emptyPiChat(), frames: 0, piMessageText, piUserHidden };
   const socket = new WebSocket(
     `${builderUrl.replace(/^http/, "ws")}/conversations/${conversationId}/socket?protocol=1&pi=1`,
     ["stella.v1", `stella.token.${session.token}`],
   );
   pi.socket = socket;
-  const brief = (entry) => ({ id: entry.id, kind: entry.kind, text: piMessageText(entry.model?.[0]).slice(0, 80) });
+  const brief = (entry) => ({
+    id: entry.id,
+    kind: entry.kind,
+    text: piMessageText(entry.model?.[0]).slice(0, 80),
+    ...(entry.kind === "pi.user" && entry.model?.[0]?.role === "user" ? { hidden: piUserHidden(entry.model[0]) } : {}),
+  });
   socket.onmessage = (message) => {
     const frame = JSON.parse(String(message.data));
     if (frame.type === "pi.snapshot") {

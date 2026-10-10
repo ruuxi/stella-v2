@@ -6,7 +6,6 @@
  */
 
 import type { CloudExecutionSelection } from "@stella/contracts/agent-engine";
-import { isCloudBrowserResumeReceipt } from "@stella/contracts/cloud-browser";
 import {
   orchestratorCliThreadId,
   parseCloudOrchestratorCliTurnSpec,
@@ -344,24 +343,22 @@ export const turnStartErrorResponse = (
 };
 
 // ---------------------------------------------------------------------------
-// Agent turns (`POST /sessions/:threadId/turns` and the orchestrator's direct
-// `BuildSession` dispatch).
+// Agent turns (a `BuildSession` dispatch from the conversation, the owner's
+// agent threads or a placed agent).
 // ---------------------------------------------------------------------------
 
 /**
- * Set by the OrchestratorSession on the spawn/continuation it dispatches
- * straight to a `BuildSession`. It means "this owner gate admission already
- * happened, and the caller releases it if the dispatch fails" — so the session
- * must not admit a second time for the same turn. It is an internal Durable
- * Object-to-Durable Object header: the public `/sessions/:id/turns` route
- * builds its forwarded headers from scratch and never copies it.
+ * Set by the dispatcher on the spawn/continuation it sends straight to a
+ * `BuildSession`. It means "this owner gate admission already happened, and
+ * the caller releases it if the dispatch fails" — so the session must not
+ * admit a second time for the same turn. It is an internal Durable
+ * Object-to-Durable Object header no public route forwards.
  */
 export const HEADER_GATE_ADMITTED = "x-stella-gate-admitted";
 
 const AGENT_SOURCES: readonly CloudAgentTurnSource[] = [
   "desktop",
   "placement",
-  "browser-resume",
   "agent-thread",
   "orchestrator",
 ];
@@ -508,12 +505,6 @@ export const parseCloudAgentTurnStartRequest = (
       return fail("originConversationId is malformed.");
     request.originConversationId = originConversationId;
   }
-  if (value.browserResume !== undefined) {
-    if (!isCloudBrowserResumeReceipt(value.browserResume)) {
-      return fail("browserResume is malformed.");
-    }
-    request.browserResume = value.browserResume;
-  }
   if (!orchestratorRole) {
     if (request.source === "orchestrator") {
       return fail('source "orchestrator" requires agentRole "orchestrator".');
@@ -535,7 +526,6 @@ export const parseCloudAgentTurnStartRequest = (
     request.turnId === undefined ||
     request.parentThreadId !== undefined ||
     request.parentTurnId !== undefined ||
-    request.browserResume !== undefined ||
     request.threadId !== orchestratorCliThreadId(request.conversationId)
   ) {
     return fail("An orchestrator turn has a malformed identity.");

@@ -158,7 +158,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Impossible de charger ce fil",
+        "errorBody": "Fermez-le et rouvrez-le dans un instant."
       },
       "generatedImage": {
         "generating": "Génération...",
@@ -838,7 +840,6 @@
     },
     "integrations": {
       "connectStellaApp": "Se connecter à l’app Stella",
-      "connectStellaAppSub": "Associez l’app Stella de votre téléphone à cet ordinateur",
       "connectTitle": "Connecter",
       "connected": "Connecté",
       "credential": {
@@ -854,11 +855,16 @@
         "saving": "Enregistrement...",
         "title": "Connecter {provider}"
       },
-      "heroTagline": "Écrivez à Stella depuis la plateforme de votre choix — discutez naturellement, ou demandez-lui d’agir directement sur votre ordinateur.",
       "phoneTitle": "Votre téléphone",
       "signInHeadline": "Connectez-vous pour commencer",
       "signInSub": "Connectez-vous à votre compte Stella pour connecter {provider}.",
-      "signInToConnect": "Connectez-vous à Stella pour établir la connexion"
+      "signInToConnect": "Connectez-vous à Stella pour établir la connexion",
+      "getApp": {
+        "appStoreQrAlt": "Scannez pour télécharger Stella depuis l'App Store",
+        "platformLabel": "Choisissez une plateforme mobile",
+        "playStoreQrAlt": "Scannez pour télécharger Stella depuis Google Play",
+        "title": "Obtenir l’app"
+      }
     },
     "legal": {
       "privacy": {
@@ -911,9 +917,16 @@
         "title": "Cette conversation"
       },
       "files": {
-        "empty": "Aucun fichier pour l’instant. Tout ce que Stella produit apparaît ici.",
+        "empty": "Les fichiers que Stella crée ou partage apparaîtront ici.",
         "emptyFiltered": "Aucun fichier ne correspond.",
-        "searchPlaceholder": "Rechercher des fichiers"
+        "filterAll": "Tous les fichiers",
+        "filterLabel": "Filtrer et trier les fichiers",
+        "searchPlaceholder": "Rechercher des fichiers",
+        "sortName": "Nom",
+        "sortNewest": "Plus récents d’abord",
+        "sortOldest": "Plus anciens d’abord",
+        "sourceCloud": "Cloud",
+        "sourceUpload": "Envoyés par vous"
       },
       "schedule": {
         "actionFailed": "Ça n’a pas fonctionné.",
@@ -921,7 +934,9 @@
         "customCadence": "Planification personnalisée",
         "deleteConfirm": "« {title} » ne s’exécutera plus.",
         "deleteSchedule": "Supprimer la planification",
-        "empty": "Aucune planification pour l’instant. Demandez à Stella sur votre ordinateur d’exécuter quelque chose régulièrement et elle apparaîtra ici.",
+        "empty": "Rien de programmé pour l’instant.",
+        "emptyAction": "Programmer quelque chose",
+        "emptyActionPrompt": "Rappelle-moi de ",
         "lastRunFailed": "Échec de la dernière exécution : {error}",
         "loadFailed": "Impossible de charger les planifications.",
         "next": "Prochaine exécution {when}",
@@ -946,6 +961,11 @@
         "stopped": "Arrêté",
         "working": "Travaille en arrière-plan"
       }
+    },
+    "apps": {
+      "empty": "Les apps que Stella crée pour vous apparaîtront ici.",
+      "emptyAction": "Créer une app",
+      "emptyActionPrompt": "Crée-moi une app qui "
     },
     "authCallback": {
       "backToSignIn": "Retour à la connexion",
@@ -1013,7 +1033,6 @@
       "disconnectedLabel": "Ordinateur déconnecté",
       "guestHeroBody": "Demandez à Stella d'agir sur votre ordinateur : naviguer sur le web, gérer des fichiers, exécuter des tâches et bien plus.",
       "guestHeroTitle": "Votre ordinateur à portée de main",
-      "pairLabel": "Associer un ordinateur",
       "statusAsleep": "En veille",
       "statusChecking": "Vérification…",
       "statusConnected": "Connecté"
@@ -1021,20 +1040,11 @@
     "desktop": {
       "connecting": "Connexion au bureau",
       "deviceUnreachable": "Votre {platform} est injoignable",
-      "enterCode": "Saisissez le code affiché sur votre ordinateur.",
-      "guestBody": "Retrouvez votre app de bureau Stella directement sur votre téléphone. Après l'association, votre téléphone se reconnectera automatiquement.",
       "guestSignInPrompt": "Connectez-vous pour commencer.",
       "limitedCapabilities": "Certaines choses nécessitent votre ordinateur",
       "linkInterrupted": "La liaison avec votre ordinateur a été interrompue.",
-      "pairAnother": "Associer un autre ordinateur",
-      "pairTitle": "Associez votre téléphone",
-      "pairing": "Association de ce téléphone",
       "reconnecting": "Reconnexion...",
-      "repairNeeded": "Ce téléphone doit être associé à nouveau à votre ordinateur.",
       "retryLabel": "Réessayer de se connecter",
-      "startPairingLabel": "Commencer à associer un ordinateur",
-      "unavailableBodyPaired": "Vérifiez que Stella est ouverte sur votre ordinateur et connectée à internet. Une fois connectée, votre app de bureau apparaîtra ici même, sur votre téléphone.",
-      "unavailableBodyUnpaired": "Retrouvez votre app de bureau Stella directement sur votre téléphone. Scannez le QR code affiché dans Stella sur votre ordinateur pour commencer — ensuite, votre téléphone se reconnectera automatiquement.",
       "unreachable": "Impossible de joindre votre ordinateur de bureau"
     },
     "engineAccounts": {
@@ -1147,26 +1157,17 @@
         "signInBody": "Retrouvez votre conversation, vos réglages et votre ordinateur connecté sur chaque appareil.",
         "signInTitle": "Connectez-vous à Stella",
         "skip": "Pas maintenant",
-        "subscriptionsBody": "Vous payez déjà Claude ou ChatGPT ? Connectez-le et je l'utiliserai dans le cloud. Vos ordinateurs utilisent leurs propres connexions.",
+        "subscriptionsBody": "Utiliser votre abonnement Claude ou ChatGPT existant ?",
         "subscriptionsLabel": "Facultatif"
       },
       "composerPlaceholder": "Ou posez-moi simplement une question",
       "computer": {
-        "body": "Associez ce téléphone à Stella sur votre ordinateur et je pourrai y exécuter des tâches pendant que vous êtes dehors.",
-        "connectedBody": "Demandez depuis n'importe où et je ferai le travail sur votre ordinateur.",
+        "body": "Connectez-vous sur votre ordinateur et il se relie automatiquement.",
         "connectedTo": "Connecté à {name}",
-        "guestHint": "L'association est liée à votre compte Stella : connectez-vous d'abord. Je reprends exactement ici.",
-        "hint": "Sur votre ordinateur, ouvrez Stella et choisissez Associer le téléphone.",
+        "getDesktop": "Obtenir Stella pour ordinateur",
         "later": "Plus tard",
-        "pair": "Associer mon ordinateur",
-        "point1": "Retrouver un fichier et vous l'envoyer",
-        "point2": "Terminer un export ou un téléchargement",
-        "point3": "Utiliser les apps que vous avez déjà",
-        "settledConnectedDesc": "Je peux y exécuter des tâches depuis votre téléphone.",
-        "settledSkippedDesc": "Vous pouvez en associer un à tout moment dans Paramètres.",
         "settledSkippedTitle": "Pas encore d'ordinateur",
-        "signInToPair": "Se connecter pour associer",
-        "title": "Votre ordinateur, dans votre poche"
+        "title": "Stella sur votre ordinateur"
       },
       "gmail": {
         "body": "Retrouve des e-mails, rattrape des conversations et rédige des réponses, simplement en demandant.",
@@ -1385,7 +1386,6 @@
         "enableFailedTitle": "Impossible d'activer cet ordinateur",
         "enableLabel": "Activer {name}",
         "enabling": "Activation…",
-        "pairingCode": "Utiliser un code d'association",
         "sectionLabel": "Où Stella travaille",
         "statusAwaitingConsent": "En attente d'autorisation sur cet ordinateur",
         "statusDeclined": "Refusé sur cet ordinateur",
@@ -1401,10 +1401,6 @@
       "deleteConfirmTitle": "Supprimer le compte",
       "deleteFailedTitle": "Impossible de supprimer le compte",
       "deletingAccount": "Suppression du compte…",
-      "forget": "Oublier",
-      "forgetConfirmBody": "Ce téléphone cessera de se reconnecter à cet ordinateur jusqu'à ce que vous l'associez de nouveau.",
-      "forgetConfirmTitle": "Oublier {name} ?",
-      "forgetLabel": "Oublier {name}",
       "hideEmailLabel": "Masquer l'e-mail",
       "loadingSession": "Chargement de la session…",
       "notificationsSection": "Notifications",
@@ -1414,9 +1410,6 @@
       "paired": {
         "unnamedComputer": "Ordinateur · {id}"
       },
-      "pairedEmpty": "Aucun ordinateur associé.",
-      "pairedOn": "Associé le {date}",
-      "pairedSection": "Ordinateurs associés",
       "privacyPolicy": "Politique de confidentialité",
       "pushToggleA11y": "Activer ou désactiver les notifications push",
       "pushToggleLabel": "Autoriser les notifications push",
@@ -1474,8 +1467,6 @@
       "cantRightNow": "Pas maintenant",
       "deadline": "{time} restantes",
       "deadlinePassed": "Temps écoulé",
-      "deadlineWithDefault": "{time} restantes — sinon « {option} »",
-      "defaultOption": "Par défaut",
       "hideSecret": "Masquer {label}",
       "missingFields": "Remplis tous les champs obligatoires.",
       "notification": {
@@ -1488,14 +1479,11 @@
       "plain": "Envoyé en clair",
       "revealSecret": "Afficher {label}",
       "sealFailed": "Impossible de chiffrer ça sur cet appareil.",
-      "send": "Envoyer",
       "sendSecurely": "Envoyer en sécurité",
       "sending": "Envoi…",
       "sensitive": "Chiffré de bout en bout",
       "sensitiveToggleA11y": "Chiffrer {label}",
       "sensitiveUnavailable": "Cet appareil ne peut pas encore le chiffrer",
-      "somethingElse": "Autre chose",
-      "somethingElsePlaceholder": "Dis à Stella quoi faire à la place",
       "unnamedComputer": "Ordinateur · {id}",
       "waitingBadge": "Attend ta réponse"
     }
@@ -1594,6 +1582,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Une grande partie de la vie passe par l'e-mail. Connecte Gmail et je t'aiderai avec le tien.",
         "memory": "One more thing that makes me different.",
+        "phone": "Je suis aussi sur votre téléphone.",
         "quickstart": "C'est tout. Une dernière chose, facultative : un démarrage rapide.",
         "quickstartDone": "C'est fait. Voici ce que j'ai retenu, et quelques idées pour commencer.",
         "quickstartFailed": "Je n'ai pas pu finir de lire votre navigateur cette fois. Nous pouvons commencer quand même, et j'apprendrai en chemin.",
@@ -2089,16 +2078,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Les ordinateurs connectés s'affichent ici. Activez-en un pour lui confier du travail.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2236,48 +2220,6 @@
         "label": "Capture d'écran"
       },
       "title": "Autorisations"
-    },
-    "phoneAccess": {
-      "copy": "Copier",
-      "deviceFallback": "Téléphone",
-      "errors": {
-        "createPairing": "Impossible de créer un code d'association."
-      },
-      "expired": "Expiré",
-      "getCode": "Obtenir un code",
-      "intro": {
-        "headline": "Connectez votre téléphone à votre ordinateur"
-      },
-      "pairedCount": {
-        "many": "{count} téléphones associés",
-        "one": "{count} téléphone associé",
-        "other": "{count} téléphones associés"
-      },
-      "pairing": {
-        "body": "Scannez le QR code dans l'app Stella sur téléphone, ou saisissez le code.",
-        "headline": "Scannez ou saisissez ce code",
-        "qrAlt": "Scannez pour associer votre téléphone"
-      },
-      "preparing": "Préparation...",
-      "remove": "Supprimer",
-      "removing": "Suppression...",
-      "signedOut": {
-        "body": "Connectez-vous à votre compte Stella pour l'associer à l'app mobile.",
-        "headline": "Connectez-vous pour commencer"
-      },
-      "steps": {
-        "appStoreQrAlt": "Scannez pour télécharger Stella depuis l'App Store",
-        "connect": "Connectez votre téléphone",
-        "download": "Téléchargez l'app",
-        "platformSelectorLabel": "Choisissez une plateforme mobile",
-        "playStoreQrAlt": "Scannez pour télécharger Stella depuis Google Play"
-      },
-      "timeLeft": "{time} restant",
-      "toasts": {
-        "codeCopied": "Code copié dans le presse-papiers",
-        "phoneRemoved": "Téléphone supprimé",
-        "removeFailed": "Échec de la suppression du téléphone"
-      }
     },
     "power": {
       "description": "Empêche votre ordinateur de se mettre en veille pendant que Stella est ouverte.",
@@ -2483,7 +2425,9 @@
         "skipped": "Ignorées",
         "undoing": "Annulation…",
         "upToDate": "Rien en attente",
-        "waiting": "En attente"
+        "waiting": "En attente",
+        "upToDateTitle": "Tout est à jour",
+        "upToDateBody": "Les nouvelles versions de Stella apparaissent ici."
       },
       "updating": "Mise à jour…"
     },
@@ -2513,7 +2457,9 @@
       "noMatches": "Aucun connecteur ne correspond à cette recherche.",
       "searchLabel": "Rechercher des connecteurs",
       "searchPlaceholder": "Rechercher",
-      "title": "Connecteurs"
+      "title": "Connecteurs",
+      "noMatchesTitle": "Aucun résultat",
+      "noMatchesBody": "Essayez un autre nom."
     },
     "display": {
       "agentThread": {
@@ -2569,11 +2515,19 @@
       },
       "canvasShare": {
         "copyLink": "Copier le lien",
-        "empty": "Aucun partage actif pour l’instant. Publiez un canvas pour obtenir un lien public.",
+        "empty": "Aucun canevas public pour l’instant. Rendez un canevas public pour partager son lien.",
         "expires": "Expire le {date}",
         "links": "Liens",
         "live": "Le canvas est en ligne",
         "loadFailed": "Impossible de charger vos partages.",
+        "makePrivate": "Rendre privé",
+        "makePublic": "Rendre public",
+        "noLink": "Ce canevas n’a pas encore de lien. Rendez-le public pour obtenir un lien que tout le monde peut ouvrir.",
+        "openInBrowser": "Ouvrir dans le navigateur",
+        "privateHint": "Vous seul pouvez ouvrir ce lien.",
+        "privateLink": "Lien privé",
+        "public": "Public",
+        "publicHint": "Toute personne disposant du lien peut le voir.",
         "publicLink": "Lien public du canvas",
         "publishFailed": "Impossible de publier ce canvas. Veuillez réessayer.",
         "publishing": "Publication du canvas…",
@@ -2585,8 +2539,12 @@
         "toasts": {
           "copyFailed": "Impossible de copier le lien",
           "linkCopied": "Lien de partage copié",
+          "madePrivate": "Le lien est désormais privé",
+          "madePublic": "Le lien est désormais public",
+          "openFailed": "Impossible d’ouvrir le lien",
           "revokeFailed": "Impossible de révoquer ce partage",
-          "revoked": "Partage révoqué"
+          "revoked": "Partage révoqué",
+          "visibilityFailed": "Impossible de modifier qui peut ouvrir ce lien"
         },
         "untitled": "Canvas sans titre"
       },
@@ -2595,7 +2553,10 @@
         "codeChanges": "Modifications de code",
         "desktopRequired": "L’aperçu de code nécessite l’app Stella pour ordinateur.",
         "empty": "Aucune modification de fichier pour l’instant. Quand un agent modifie du code, les changements apparaissent ici.",
-        "noChanges": "Aucune modification trouvée."
+        "noChanges": "Aucune modification trouvée.",
+        "emptyTitle": "Aucune modification pour l'instant",
+        "emptyBody": "Quand un agent modifie du code, les changements apparaissent ici.",
+        "noChangesTitle": "Aucune modification"
       },
       "filePreview": {
         "copy": "Copier",
@@ -2630,7 +2591,11 @@
         "revealInFinder": "Afficher dans le Finder",
         "save": "Enregistrer",
         "saveFailed": "Impossible d’enregistrer",
-        "saved": "Enregistré"
+        "saved": "Enregistré",
+        "zoom": "Zoomer sur l’image",
+        "imageUnavailable": "Image indisponible",
+        "videoUnavailable": "Vidéo indisponible",
+        "audioUnavailable": "Audio indisponible"
       },
       "office": {
         "frameTitle": "Aperçu {kind} : {title}",
@@ -2658,7 +2623,11 @@
       },
       "preview": {
         "limited": "Aperçu limité. Enregistrez ou ouvrez le fichier d'origine pour voir tout le contenu.",
-        "unavailable": "Impossible de préparer cet aperçu."
+        "unavailable": "Impossible de préparer cet aperçu.",
+        "failedTitle": "Impossible d'afficher un aperçu",
+        "failedBody": "Réessayez, ou enregistrez le fichier pour l'ouvrir ailleurs.",
+        "unavailableTitle": "Fichier indisponible",
+        "emptyTitle": "Ce fichier est vide"
       },
       "spreadsheet": {
         "column": "Colonne {index}",
@@ -2681,7 +2650,9 @@
         "pendingPurge": "Purge en attente",
         "refresh": "Actualiser",
         "title": "Corbeille",
-        "trashedAgo": "Mis à la corbeille il y a {time}"
+        "trashedAgo": "Mis à la corbeille il y a {time}",
+        "emptyTitle": "La corbeille est vide",
+        "emptyBody": "Les éléments supprimés restent ici pendant 24 heures."
       },
       "url": {
         "eyebrow": "Aperçu en direct",
@@ -2778,22 +2749,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "{time} restantes"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Utiliser cette réponse",
+      "default": "Par défaut",
+      "next": "Question suivante",
+      "previous": "Question précédente",
+      "progress": "{current} sur {total}",
+      "sending": "Envoi…",
+      "skip": "Passer",
+      "skipped": "Passée",
+      "somethingElse": "Autre chose",
+      "submit": "Envoyer"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

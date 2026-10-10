@@ -24,9 +24,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { loadModelRegistry } from "@stella/contracts/model-registry";
-import { desktopPiRuntime } from "@stella/contracts/pi-chat";
-import "../ai/utils/http-proxy.js";
-import { registerBuiltInApiProviders } from "../ai/providers/register-builtins.js";
+import "../kernel/shared/http-proxy.js";
 
 type CliMode = "chat" | "completion" | "list-models";
 
@@ -54,10 +52,9 @@ Options:
   --mode <mode>             chat (default) | completion | list-models
   --model <id>              Explicit model id, e.g. stella/light or
                             anthropic/claude-haiku-4-5. In completion mode
-                            it pins the one-shot; in chat mode the turn runs
-                            through the automation path with this model
-                            override. Without it, chat routes via the user's
-                            preferences exactly like a composer send.
+                            it pins the one-shot; in chat mode it overrides
+                            the automation turn's model. Without it, chat
+                            routes via the user's preferences.
   --agent <agentType>       Agent type (chat: orchestrator by default;
                             completion default: general).
   --conversation <id>       Conversation id (default: fresh headless-<ts>).
@@ -187,7 +184,6 @@ const readDesktopUiBackendUrl = (stellaAppDir: string): string | null => {
 
 const main = async (): Promise<void> => {
   await loadModelRegistry();
-  registerBuiltInApiProviders();
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
     process.stderr.write(`${USAGE}\n`);
@@ -213,9 +209,6 @@ const main = async (): Promise<void> => {
     "./host.js"
   );
   const { StellaRuntimeHost } = await import("../host/index.js");
-  const { AGENT_STREAM_EVENT_TYPES, AGENT_RUN_FINISH_OUTCOMES } = await import(
-    "@stella/contracts/agent-runtime"
-  );
 
   const paths = resolveHeadlessHostPaths({
     stellaAppDir,
@@ -330,85 +323,36 @@ const main = async (): Promise<void> => {
     await shutdown(0);
   }
 
-  // chat mode: a full orchestrator turn with streamed run events. With
-  // --model the turn goes through the automation path (the scheduler's turn
-  // surface), which is the runtime's supported way to pin a model for a
-  // single orchestrator run; without it, routing follows the user's
-  // preferences exactly like a composer send.
+  // chat mode: a full orchestrator turn through the automation path (the
+  // scheduler's turn surface). pi answers it, or Claude Code when that is the
+  // user's engine, and hands back the final text. With --model it pins the
+  // model for this run; without it, routing follows the user's preferences.
   const conversationId =
     options.conversationId ?? `headless-${Date.now().toString(36)}`;
-  let rootRunId: string | null = null;
-  let finished = false;
-  let finishOutcome: string | null = null;
-  let finishError: string | null = null;
-  const finishWaiter = new Promise<void>((resolve) => {
-    host.on(
-      "run-event",
-      (event: Record<string, unknown> & { type?: string }) => {
-        if (stopping) return;
-        emit({ kind: "run.event", event });
-        if (
-          event.type === AGENT_STREAM_EVENT_TYPES.RUN_FINISHED &&
-          (rootRunId == null || event.runId === rootRunId)
-        ) {
-          finished = true;
-          finishOutcome =
-            typeof event.outcome === "string" ? event.outcome : null;
-          finishError = typeof event.error === "string" ? event.error : null;
-          resolve();
-        }
-      },
-    );
+  host.on("run-event", (event: Record<string, unknown>) => {
+    if (stopping) return;
+    emit({ kind: "run.event", event });
   });
 
-  // On pi-durable every headless turn is an automation turn: pi answers it
-  // and hands back the final text.
-  if (options.model || desktopPiRuntime(process.env.STELLA_AGENT_RUNTIME)) {
-    const resultPromise = host.runAutomationTurn({
-      conversationId,
-      userPrompt: options.prompt,
-      ...(options.model ? { modelOverride: options.model } : {}),
-      ...(options.agentType ? { agentType: options.agentType } : {}),
-    }) as Promise<{ status: string; finalText: string; error?: string }>;
-    log(
-      `automation turn started (conversation=${conversationId} model=${options.model ?? "default"})`,
-    );
-    const result = await resultPromise;
-    clearTimeout(timeout);
-    const ok = result.status === "ok";
-    emit({
-      kind: "cli.result",
-      ok,
-      conversationId,
-      status: result.status,
-      finalText: result.finalText,
-      ...(result.error ? { error: result.error } : {}),
-    });
-    await shutdown(ok ? 0 : 1);
-  }
-
-  const startResult = (await host.startChat({
+  const resultPromise = host.runAutomationTurn({
     conversationId,
     userPrompt: options.prompt,
-    requestId: `headless-${Date.now().toString(36)}`,
-    platform: process.platform,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    storageMode: "local",
+    ...(options.model ? { modelOverride: options.model } : {}),
     ...(options.agentType ? { agentType: options.agentType } : {}),
-  })) as { runId?: string };
-  rootRunId = startResult.runId ?? null;
-  log(`turn started (conversation=${conversationId} run=${rootRunId})`);
-
-  await finishWaiter;
+  }) as Promise<{ status: string; finalText: string; error?: string }>;
+  log(
+    `automation turn started (conversation=${conversationId} model=${options.model ?? "default"})`,
+  );
+  const result = await resultPromise;
   clearTimeout(timeout);
-  const ok = finished && finishOutcome === AGENT_RUN_FINISH_OUTCOMES.COMPLETED;
+  const ok = result.status === "ok";
   emit({
     kind: "cli.result",
     ok,
     conversationId,
-    runId: rootRunId,
-    outcome: finishOutcome,
-    ...(finishError ? { error: finishError } : {}),
+    status: result.status,
+    finalText: result.finalText,
+    ...(result.error ? { error: result.error } : {}),
   });
   await shutdown(ok ? 0 : 1);
 };

@@ -4,7 +4,7 @@
  * orchestrator Durable Object's SQLite.
  */
 import type { Context } from "@earendil-works/chord";
-import type { Models } from "@earendil-works/pi-ai";
+import type { ModelThinkingLevel, Models } from "@earendil-works/pi-ai";
 import {
   createRegistry,
   Harness,
@@ -19,6 +19,7 @@ import {
 import { STELLA_PROVIDER_ID, stellaModelId } from "./provider/stella.ts";
 import {
   stellaAgents,
+  type AgentOrigin,
   type PlacedAgentResult,
   type PlacedAgentRun,
   type StellaAgentRecord,
@@ -85,7 +86,15 @@ export type OpenStellaHarness = {
   refreshTools(): void;
   /** Start an agent the host asked for (see `stellaAgents`). */
   startAgent(
-    args: { key: string; description: string; prompt: string; threadId?: string; origin?: { deviceId: string } },
+    args: {
+      key: string;
+      description: string;
+      prompt: string;
+      threadId?: string;
+      origin?: AgentOrigin;
+      model?: ModelRef;
+      thinkingLevel?: ModelThinkingLevel;
+    },
     context: Context,
   ): Promise<{ threadId: string; existing: boolean }>;
   /** Pause one of the orchestrator's agents by thread id. */

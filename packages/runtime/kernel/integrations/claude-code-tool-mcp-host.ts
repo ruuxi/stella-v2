@@ -24,7 +24,7 @@ import {
   neutralizeLegacyAttachImageMarkers,
   prepareAuthorizedToolImageBlocks,
 } from "../agent-runtime/tool-adapters.js";
-import { normalizeProviderToolInputSchema } from "../../ai/utils/tool-schema.js";
+import { normalizeProviderToolInputSchema } from "../tools/provider-tool-schema.js";
 import { forkCancelableTimeout } from "./effect-runtime.js";
 
 const HOST = "127.0.0.1";

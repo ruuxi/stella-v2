@@ -148,7 +148,9 @@
         "error": "Couldn't load this thread.",
         "kickerAgent": "Task",
         "kickerMessage": "Message",
-        "messageFallback": "Message"
+        "messageFallback": "Message",
+        "errorTitle": "Tidak bisa memuat utas ini",
+        "errorBody": "Tutup lalu buka lagi sebentar lagi."
       },
       "generatedImage": {
         "generating": "Membuat...",
@@ -822,7 +824,6 @@
     },
     "integrations": {
       "connectStellaApp": "Hubungkan ke Aplikasi Stella",
-      "connectStellaAppSub": "Pasangkan aplikasi Stella di ponsel Anda dengan komputer ini",
       "connectTitle": "Hubungkan",
       "connected": "Terhubung",
       "credential": {
@@ -838,11 +839,16 @@
         "saving": "Menyimpan...",
         "title": "Hubungkan {provider}"
       },
-      "heroTagline": "Kirim pesan ke Stella dari platform mana pun yang Anda suka — mengobrol dengan santai, atau minta dia menyelesaikan pekerjaan langsung di komputer Anda.",
       "phoneTitle": "Ponsel Anda",
       "signInHeadline": "Masuk untuk memulai",
       "signInSub": "Masuk ke akun Stella Anda untuk menghubungkan {provider}.",
-      "signInToConnect": "Masuk ke Stella untuk menghubungkan"
+      "signInToConnect": "Masuk ke Stella untuk menghubungkan",
+      "getApp": {
+        "appStoreQrAlt": "Pindai untuk mengunduh Stella dari App Store",
+        "platformLabel": "Pilih platform seluler",
+        "playStoreQrAlt": "Pindai untuk mengunduh Stella dari Google Play",
+        "title": "Dapatkan aplikasinya"
+      }
     },
     "legal": {
       "privacy": {
@@ -893,9 +899,16 @@
         "title": "Percakapan ini"
       },
       "files": {
-        "empty": "Belum ada file. Semua yang dibuat Stella muncul di sini.",
+        "empty": "File yang dibuat atau dibagikan Stella akan muncul di sini.",
         "emptyFiltered": "Tidak ada file yang cocok.",
-        "searchPlaceholder": "Cari file"
+        "filterAll": "Semua file",
+        "filterLabel": "Filter dan urutkan file",
+        "searchPlaceholder": "Cari file",
+        "sortName": "Nama",
+        "sortNewest": "Terbaru dulu",
+        "sortOldest": "Terlama dulu",
+        "sourceCloud": "Cloud",
+        "sourceUpload": "Dikirim olehmu"
       },
       "schedule": {
         "actionFailed": "Tidak berhasil.",
@@ -903,7 +916,9 @@
         "customCadence": "Jadwal kustom",
         "deleteConfirm": "“{title}” akan berhenti berjalan.",
         "deleteSchedule": "Hapus jadwal",
-        "empty": "Belum ada jadwal. Minta Stella di komputermu menjalankan sesuatu secara rutin, nanti muncul di sini.",
+        "empty": "Belum ada yang dijadwalkan.",
+        "emptyAction": "Jadwalkan sesuatu",
+        "emptyActionPrompt": "Ingatkan aku untuk ",
         "lastRunFailed": "Eksekusi terakhir gagal: {error}",
         "loadFailed": "Tidak dapat memuat jadwal.",
         "next": "Berikutnya {when}",
@@ -928,6 +943,11 @@
         "stopped": "Dihentikan",
         "working": "Bekerja di latar belakang"
       }
+    },
+    "apps": {
+      "empty": "Aplikasi yang dibuat Stella untukmu akan ada di sini.",
+      "emptyAction": "Buat aplikasi",
+      "emptyActionPrompt": "Buatkan aku aplikasi yang "
     },
     "authCallback": {
       "backToSignIn": "Kembali ke halaman masuk",
@@ -993,7 +1013,6 @@
       "disconnectedLabel": "Komputer terputus",
       "guestHeroBody": "Minta Stella melakukan berbagai hal di komputer Anda — menjelajah web, mengelola berkas, menjalankan tugas, dan lainnya.",
       "guestHeroTitle": "Komputer Anda, dalam genggaman",
-      "pairLabel": "Pasangkan komputer",
       "statusAsleep": "Tidur",
       "statusChecking": "Memeriksa…",
       "statusConnected": "Terhubung"
@@ -1001,20 +1020,11 @@
     "desktop": {
       "connecting": "Menghubungkan ke desktop",
       "deviceUnreachable": "{platform} Anda tidak terjangkau",
-      "enterCode": "Masukkan kode yang tampil di komputer Anda.",
-      "guestBody": "Lihat aplikasi desktop Stella langsung di ponsel Anda. Setelah dipasangkan, ponsel Anda akan terhubung kembali secara otomatis.",
       "guestSignInPrompt": "Masuk untuk memulai.",
       "limitedCapabilities": "Beberapa hal butuh komputer Anda",
       "linkInterrupted": "Koneksi ke komputer Anda terputus.",
-      "pairAnother": "Pasangkan komputer lain",
-      "pairTitle": "Pasangkan ponsel Anda",
-      "pairing": "Memasangkan ponsel ini",
       "reconnecting": "Menghubungkan kembali...",
-      "repairNeeded": "Ponsel ini perlu dipasangkan lagi dengan komputer Anda.",
       "retryLabel": "Coba hubungkan lagi",
-      "startPairingLabel": "Mulai memasangkan komputer",
-      "unavailableBodyPaired": "Pastikan Stella terbuka di komputer Anda dan terhubung ke internet. Setelah terhubung, aplikasi desktop Anda akan muncul di sini pada ponsel Anda.",
-      "unavailableBodyUnpaired": "Lihat aplikasi desktop Stella langsung di ponsel Anda. Pindai kode QR yang tampil di Stella pada komputer Anda untuk memulai — setelah itu ponsel Anda akan terhubung kembali secara otomatis.",
       "unreachable": "Tidak bisa menjangkau desktop Anda"
     },
     "engineAccounts": {
@@ -1127,26 +1137,17 @@
         "signInBody": "Simpan percakapan, pengaturan, dan komputer terhubung Anda di setiap perangkat.",
         "signInTitle": "Masuk ke Stella",
         "skip": "Lewati dulu",
-        "subscriptionsBody": "Sudah berlangganan Claude atau ChatGPT? Hubungkan dan saya akan menggunakannya di cloud. Komputer Anda menggunakan login masing-masing.",
+        "subscriptionsBody": "Pakai langganan Claude atau ChatGPT yang sudah kamu punya?",
         "subscriptionsLabel": "Opsional"
       },
       "composerPlaceholder": "Atau tanyakan saja sesuatu kepada saya",
       "computer": {
-        "body": "Pasangkan ponsel ini dengan Stella di komputer Anda, dan saya bisa menjalankan tugas di sana selagi Anda bepergian.",
-        "connectedBody": "Minta dari mana saja, dan saya akan mengerjakannya di komputer Anda.",
+        "body": "Masuk di komputermu dan semuanya terhubung otomatis.",
         "connectedTo": "Terhubung ke {name}",
-        "guestHint": "Pemasangan terikat ke akun Stella Anda, jadi masuk dulu. Saya lanjutkan tepat dari sini.",
-        "hint": "Di komputer Anda, buka Stella lalu pilih Pasangkan ponsel.",
+        "getDesktop": "Dapatkan Stella untuk desktop",
         "later": "Nanti",
-        "pair": "Pasangkan komputer saya",
-        "point1": "Mencari file dan mengirimkannya kepada Anda",
-        "point2": "Menyelesaikan ekspor atau unduhan",
-        "point3": "Memakai aplikasi yang sudah Anda punya",
-        "settledConnectedDesc": "Saya bisa menjalankan tugas di sana dari ponsel Anda.",
-        "settledSkippedDesc": "Anda bisa memasangkannya kapan saja di Pengaturan.",
         "settledSkippedTitle": "Belum ada komputer",
-        "signInToPair": "Masuk untuk memasangkan",
-        "title": "Komputer Anda, dari saku Anda"
+        "title": "Stella di komputermu"
       },
       "gmail": {
         "body": "Cari email, ikuti percakapan, dan buat draf balasan, cukup dengan meminta.",
@@ -1365,7 +1366,6 @@
         "enableFailedTitle": "Tidak dapat mengaktifkan komputer itu",
         "enableLabel": "Aktifkan {name}",
         "enabling": "Mengaktifkan…",
-        "pairingCode": "Gunakan kode pemasangan",
         "sectionLabel": "Tempat Stella bekerja",
         "statusAwaitingConsent": "Menunggu izin di komputer itu",
         "statusDeclined": "Ditolak di komputer itu",
@@ -1381,10 +1381,6 @@
       "deleteConfirmTitle": "Hapus akun",
       "deleteFailedTitle": "Tidak bisa menghapus akun",
       "deletingAccount": "Menghapus akun…",
-      "forget": "Lupakan",
-      "forgetConfirmBody": "Ponsel ini tidak akan terhubung lagi ke komputer itu sampai Anda memasangkannya kembali.",
-      "forgetConfirmTitle": "Lupakan {name}?",
-      "forgetLabel": "Lupakan {name}",
       "hideEmailLabel": "Sembunyikan email",
       "loadingSession": "Memuat sesi…",
       "notificationsSection": "Notifikasi",
@@ -1394,9 +1390,6 @@
       "paired": {
         "unnamedComputer": "Komputer · {id}"
       },
-      "pairedEmpty": "Belum ada komputer yang dipasangkan.",
-      "pairedOn": "Dipasangkan {date}",
-      "pairedSection": "Komputer terpasang",
       "privacyPolicy": "Kebijakan Privasi",
       "pushToggleA11y": "Alihkan notifikasi push",
       "pushToggleLabel": "Izinkan notifikasi push",
@@ -1454,8 +1447,6 @@
       "cantRightNow": "Tidak sekarang",
       "deadline": "Sisa {time}",
       "deadlinePassed": "Waktu habis",
-      "deadlineWithDefault": "Sisa {time} — jika tidak, “{option}”",
-      "defaultOption": "Bawaan",
       "hideSecret": "Sembunyikan {label}",
       "missingFields": "Isi semua kolom yang wajib.",
       "notification": {
@@ -1468,14 +1459,11 @@
       "plain": "Dikirim sebagai teks biasa",
       "revealSecret": "Tampilkan {label}",
       "sealFailed": "Tidak bisa mengenkripsi itu di perangkat ini.",
-      "send": "Kirim",
       "sendSecurely": "Kirim dengan aman",
       "sending": "Mengirim…",
       "sensitive": "Terenkripsi ujung ke ujung",
       "sensitiveToggleA11y": "Enkripsi {label}",
       "sensitiveUnavailable": "Perangkat ini belum bisa mengenkripsinya",
-      "somethingElse": "Hal lain",
-      "somethingElsePlaceholder": "Beri tahu Stella apa yang harus dilakukan",
       "unnamedComputer": "Komputer · {id}",
       "waitingBadge": "Menunggumu"
     }
@@ -1574,6 +1562,7 @@
         "extras": "Almost done. A little housekeeping, then we start.",
         "gmail": "Banyak urusan hidup lewat email. Hubungkan Gmail dan aku bisa membantu mengurusnya.",
         "memory": "One more thing that makes me different.",
+        "phone": "Aku juga ada di ponselmu.",
         "quickstart": "Itu saja. Satu hal terakhir, dan ini opsional: panduan mulai cepat.",
         "quickstartDone": "Selesai. Ini yang saya pelajari, dan beberapa hal yang bisa kita mulai.",
         "quickstartFailed": "Kali ini saya tidak bisa selesai membaca browser Anda. Kita tetap bisa mulai, dan saya akan belajar seiring berjalan.",
@@ -1863,10 +1852,10 @@
       "microphoneDeviceFallback": "Mikrofon {index}",
       "recovery": {
         "closing": "Menutup…",
-        "manageDescription": "Jika izin mikrofon macet, Anda dapat mengaturnya ulang dan meminta macOS untuk bertanya lagi.",
+        "manageDescription": "Atur ulang izin mikrofon jika macet.",
         "manageLabel": "Kelola akses mikrofon",
         "openSettings": "Buka Pengaturan",
-        "recoverDescription": "Setelah Anda menolak, macOS tidak akan bertanya lagi dengan sendirinya. Atur ulang izin, lalu tutup dan buka kembali Stella.",
+        "recoverDescription": "macOS tidak akan bertanya lagi. Atur ulang, lalu buka kembali Stella.",
         "recoverLabel": "Pulihkan akses mikrofon",
         "reset": "Atur ulang & mulai ulang"
       },
@@ -1879,22 +1868,22 @@
       },
       "speakerDeviceFallback": "Speaker {index}",
       "superFast": {
-        "description": "Menjaga mikrofon tetap siap agar dikte dimulai dengan lebih sedikit jeda.",
+        "description": "Menjaga mikrofon tetap siap agar dikte mulai lebih cepat.",
         "label": "Dikte super cepat"
       },
       "systemDefault": "Default sistem",
       "wakeWord": {
-        "description": "Mendengarkan “Hey Stella” di latar belakang dan memulai percakapan suara. Saat nonaktif, mikrofon tetap diam hingga Anda menekan dikte.",
+        "description": "Ucapkan “Hey Stella” untuk memulai percakapan suara.",
         "label": "Kata pemicu “Hey Stella”"
       }
     },
     "browserExtension": {
       "action": "Dapatkan ekstensi",
-      "description": "Memungkinkan Stella melihat halaman yang sedang Anda buka dan melakukan tindakan di browser Anda.",
+      "description": "Izinkan Stella melihat dan bertindak di browser Anda.",
       "title": "Stella untuk Chrome"
     },
     "chatStorage": {
-      "description": "Akses obrolan Anda di semua perangkat. Nonaktifkan untuk menyimpan riwayat obrolan terpisah hanya di komputer ini. Saat diaktifkan kembali, obrolan tersebut tidak akan diunggah. Penyedia AI tetap memproses pesan Anda.",
+      "description": "Sinkronkan chat antar perangkat. Jika nonaktif, chat tetap di komputer ini.",
       "endVoice": "Akhiri percakapan suara untuk mengubah penyimpanan obrolan.",
       "error": "Tidak dapat mengubah penyimpanan obrolan. Coba lagi.",
       "title": "Simpan riwayat obrolan di cloud"
@@ -1913,13 +1902,13 @@
       "upgrade": "Tingkatkan"
     },
     "companion": {
-      "description": "Keep a small Stella floating over your desktop. Click it to ask something, drag it anywhere, and press the dictation shortcut from any app to talk to it.",
+      "description": "Stella kecil yang melayang di atas desktop Anda.",
       "error": "Couldn't update the desktop companion.",
       "title": "Desktop companion"
     },
     "connectedProviders": {
       "apiKey": "Kunci API",
-      "empty": "Belum ada penyedia yang terhubung. Pilih opsi selain Stella di pemilih model di atas untuk menambahkan kunci API atau masuk.",
+      "empty": "Belum ada penyedia. Tambahkan dari pemilih model di atas.",
       "removeKey": "Hapus kunci",
       "removingKey": "Menghapus…",
       "signOut": "Keluar",
@@ -1938,7 +1927,7 @@
       "addClaude": "Tambahkan akun Claude",
       "addInCloud": "Di cloud",
       "addOnComputer": "Di komputer ini",
-      "cardIntro": "Gunakan paket Claude atau ChatGPT yang sudah Anda bayar. Setiap tempat masuk sendiri-sendiri: tiap komputer, dan cloud Anda.",
+      "cardIntro": "Gunakan paket Claude atau ChatGPT yang sudah Anda bayar.",
       "cardTitle": "Akun Claude & ChatGPT",
       "chatgptBrowserWaiting": "Selesaikan proses masuk ke ChatGPT di browser Anda.",
       "chatgptCloudSignedIn": "Cloud Anda sudah masuk ke ChatGPT.",
@@ -1959,7 +1948,7 @@
         "whereComputer": "Masuk ke Claude Code di komputer ini."
       },
       "claudeTitle": "Claude (Pro/Max)",
-      "cliMissing": "Claude Code belum terpasang di komputer ini. Pasang untuk menggunakan Claude di sini.",
+      "cliMissing": "Instal Claude Code di komputer ini untuk menggunakan Claude di sini.",
       "connecting": "Menghubungkan…",
       "defaultSignedOut": "Claude Code di komputer ini belum masuk.",
       "enablePlanUsage": "Aktifkan penggunaan paket ChatGPT",
@@ -1970,14 +1959,14 @@
       "needsChatgptCloud": "Siapkan ChatGPT untuk cloud Anda terlebih dahulu",
       "needsClaudeCloud": "Masuk ke Claude di cloud terlebih dahulu",
       "openChatgptAgain": "Buka ChatGPT lagi",
-      "pasteHintChatgpt": "Setelah Anda menyetujui, ChatGPT mengarahkan Anda ke halaman yang tidak dapat dimuat. Salin alamat lengkap halaman itu dan tempel di sini.",
+      "pasteHintChatgpt": "Salin alamat halaman yang dibuka ChatGPT dan tempel di sini.",
       "pastePlaceholderUrl": "Tempel alamat di sini",
       "placeCloud": "Cloud",
       "placeComputer": "Komputer ini",
       "placeOtherComputer": "Komputer lain",
       "placeSignedIn": "{place}: sudah masuk",
       "placeSignedOut": "{place}: belum masuk",
-      "planUsageOffBody": "Stella tidak dapat menggunakan paket ChatGPT Anda sampai Anda mengizinkannya. Pilih “Aktifkan penggunaan paket ChatGPT” pada akun, atau gunakan model lain.",
+      "planUsageOffBody": "Pilih “Aktifkan penggunaan paket ChatGPT” pada akun, atau pilih model lain.",
       "planUsageOffTitle": "Sudah masuk, tetapi penggunaan paket ChatGPT belum diaktifkan",
       "remove": "Hapus",
       "removed": "Dihapus.",
@@ -2034,7 +2023,7 @@
         "label": "Reach me at most by",
         "sublabel": "Stella never escalates past this, however urgent the ask."
       },
-      "description": "How far Stella may go to reach you when it's waiting on an answer.",
+      "description": "Seberapa gigih Stella menghubungi Anda saat butuh jawaban.",
       "errors": {
         "load": "Couldn't load these settings.",
         "save": "Couldn't save that. Try again.",
@@ -2069,16 +2058,11 @@
       "title": "When Stella needs you"
     },
     "executionDevices": {
-      "disable": "Turn off",
-      "disabling": "Turning off…",
       "empty": "No computer is signed in to this account yet.",
-      "enable": "Enable",
-      "enabling": "Enabling…",
       "errors": {
         "load": "Unable to read the computers on this account.",
         "update": "That change didn't go through. Try again."
       },
-      "note": "Signing in lists a computer here. Each one has to be enabled before work can be sent to it.",
       "offline": "Offline",
       "online": "Online",
       "state": {
@@ -2092,16 +2076,16 @@
       "unnamed": "Computer"
     },
     "language": {
-      "description": "Pilih bahasa yang digunakan Stella di aplikasi dan saat menjawab Anda.",
+      "description": "Untuk aplikasi dan balasan Stella.",
       "title": "Bahasa"
     },
     "lockedComputerUse": {
-      "description": "Memungkinkan Stella melanjutkan tugas penggunaan komputer setelah Mac ini terkunci. Memerlukan izin administrator dan menutupi layar selama Stella bekerja.",
+      "description": "Tugas penggunaan komputer tetap berjalan saat Mac ini terkunci.",
       "title": "Penggunaan komputer saat terkunci",
       "unsupported": "Penggunaan komputer saat terkunci hanya tersedia di macOS."
     },
     "memory": {
-      "description": "Sertakan memori tersimpan dan profil Anda dalam konteks model Stella. Komputer Anda dan cloud menyimpan memori yang sama, dienkripsi saat dikirim maupun disimpan. Menonaktifkan opsi ini akan menjedanya dan mengecualikan memori dari percakapan berikutnya, tetapi tidak menghapusnya.",
+      "description": "Gunakan memori tersimpan dalam balasan. Menonaktifkan tidak menghapusnya.",
       "title": "Memori"
     },
     "modelPicker": {
@@ -2135,7 +2119,7 @@
       },
       "loadFailed": "Couldn't load models",
       "local": {
-        "hint": "Gunakan server lokal apa pun yang kompatibel dengan OpenAI. Ollama biasanya berjalan di URL di bawah ini.",
+        "hint": "Server lokal apa pun yang kompatibel dengan OpenAI, seperti Ollama.",
         "modelNameAriaLabel": "Nama model lokal",
         "serverUrlAriaLabel": "URL server lokal"
       },
@@ -2179,7 +2163,7 @@
       "title": "Gerakan"
     },
     "nativeFontSmoothing": {
-      "description": "Merender teks seperti aplikasi macOS, dengan anti-aliasing skala abu-abu.",
+      "description": "Anti-aliasing skala abu-abu, seperti aplikasi macOS asli.",
       "title": "Penghalusan font asli"
     },
     "notifications": {
@@ -2188,18 +2172,18 @@
     },
     "onboardingReplay": {
       "action": "Replay",
-      "description": "Run first-run onboarding again. Your account, memory, and conversations are not touched.",
+      "description": "Jalankan orientasi lagi. Data Anda tetap ada.",
       "title": "Onboarding"
     },
     "permissions": {
       "accessibility": {
-        "description": "Memungkinkan Stella membaca teks yang dipilih dan terbuka melalui pintasan ⌘+klik kanan di mana saja di komputer Anda.",
+        "description": "Baca teks terpilih dan buka dengan ⌘+klik kanan.",
         "label": "Aksesibilitas"
       },
       "enable": "Aktifkan",
       "granted": "Diberikan",
       "microphone": {
-        "description": "Digunakan untuk suara dan dikte. Atur ulang jika Stella sebelumnya ditolak dan macOS tidak meminta lagi.",
+        "description": "Untuk suara dan dikte.",
         "label": "Mikrofon"
       },
       "opening": "Membuka…",
@@ -2208,54 +2192,14 @@
       "restart": {
         "action": "Mulai ulang",
         "closing": "Menutup…",
-        "description": "Rekam layar baru saja diaktifkan. Tutup dan buka kembali Stella untuk menyelesaikan pengaturan.",
+        "description": "Buka kembali Stella untuk menyelesaikan pengaktifan perekaman layar.",
         "label": "Mulai ulang Stella"
       },
       "screen": {
-        "description": "Memungkinkan Stella melihat layar Anda agar bisa membantu dengan apa yang Anda lihat. Anda mungkin perlu menutup dan membuka kembali Stella setelah mengaktifkannya.",
+        "description": "Izinkan Stella melihat apa yang ada di layar Anda.",
         "label": "Rekam layar"
       },
       "title": "Izin"
-    },
-    "phoneAccess": {
-      "copy": "Salin",
-      "deviceFallback": "Ponsel",
-      "errors": {
-        "createPairing": "Tidak dapat membuat kode pemasangan."
-      },
-      "expired": "Kedaluwarsa",
-      "getCode": "Dapatkan Kode",
-      "intro": {
-        "headline": "Hubungkan ponsel Anda ke komputer Anda"
-      },
-      "pairedCount": {
-        "other": "{count} ponsel dipasangkan"
-      },
-      "pairing": {
-        "body": "Buka aplikasi Stella di ponsel Anda dan pindai kode QR, atau ketik kode di bawah ini. Anda hanya perlu melakukannya sekali.",
-        "headline": "Pindai atau masukkan kode ini",
-        "qrAlt": "Pindai untuk memasangkan ponsel Anda"
-      },
-      "preparing": "Menyiapkan...",
-      "remove": "Hapus",
-      "removing": "Menghapus...",
-      "signedOut": {
-        "body": "Masuk ke akun Stella Anda untuk memasangkan dengan aplikasi seluler.",
-        "headline": "Masuk untuk memulai"
-      },
-      "steps": {
-        "appStoreQrAlt": "Pindai untuk mengunduh Stella dari App Store",
-        "connect": "Hubungkan ponsel Anda",
-        "download": "Unduh aplikasinya",
-        "platformSelectorLabel": "Pilih platform seluler",
-        "playStoreQrAlt": "Pindai untuk mengunduh Stella dari Google Play"
-      },
-      "timeLeft": "{time} tersisa",
-      "toasts": {
-        "codeCopied": "Kode disalin ke papan klip",
-        "phoneRemoved": "Ponsel dihapus",
-        "removeFailed": "Gagal menghapus ponsel"
-      }
     },
     "power": {
       "description": "Mencegah komputer Anda tidur selama Stella terbuka.",
@@ -2268,7 +2212,7 @@
         "description": "Alihkan asisten obrolan Stella melalui {provider}.",
         "label": "Asisten"
       },
-      "description": "{provider} dapat menjalankan lebih dari satu bagian Stella. Pilih bagian mana yang ingin Anda serahkan — Stella tetap menangani sisanya.",
+      "description": "Pilih apa yang harus dijalankan {provider}.",
       "errors": {
         "apply": "Gagal menerapkan pengaturan penyedia."
       },
@@ -2297,7 +2241,7 @@
     },
     "resetCustomizations": {
       "action": "Pulihkan default",
-      "description": "Menghapus kustomisasi skill dan pengeditan kepribadian Anda agar default bawaan Stella berlaku. Yang dihapus disimpan di ~/.stella/.trash jika Anda ingin mengembalikannya.",
+      "description": "Pulihkan skill dan kepribadian bawaan. File lama dipindah ke ~/.stella/.trash.",
       "done": "Default dipulihkan. Kustomisasi Anda sebelumnya dipindahkan ke ~/.stella/.trash.",
       "error": "Tidak dapat memulihkan default.",
       "none": "Anda sudah menggunakan default Stella.",
@@ -2331,7 +2275,7 @@
       "change": "Ubah",
       "clear": "Hapus",
       "dictation": {
-        "description": "Press once to start dictating, again to finish. Inside Stella the text lands in the composer; anywhere else it summons the desktop companion and sends."
+        "description": "Tekan untuk mulai dikte, tekan lagi untuk selesai."
       },
       "errors": {
         "load": "Gagal memuat pintasan.",
@@ -2369,7 +2313,7 @@
       "defaultOption": "Bawaan Stella",
       "delete": "Hapus",
       "deleted": "Prompt dihapus.",
-      "description": "Prompt bawaan Stella selalu diperbarui bersama aplikasi. Simpan prompt Anda sendiri untuk dipakai sebagai gantinya — disimpan terpisah, jadi pembaruan tidak akan menimpanya.",
+      "description": "Gunakan prompt Anda sendiri, bukan bawaan Stella.",
       "duplicate": "Duplikat",
       "edit": "Edit",
       "error": "Terjadi kesalahan.",
@@ -2386,11 +2330,12 @@
       "account": "Akun & legal",
       "audio": "Audio",
       "general": "Umum",
-      "shortcuts": "Pintasan"
+      "shortcuts": "Pintasan",
+      "privacy": "Privasi"
     },
     "title": "Pengaturan",
     "voiceAgent": {
-      "description": "Tampilkan kontrol suara dan panggilan agar kamu bisa berbicara dengan Stella. Dikte tetap berfungsi.",
+      "description": "Tampilkan kontrol suara dan panggilan. Dikte tetap berfungsi.",
       "error": "Gagal memperbarui pengaturan suara.",
       "title": "Percakapan suara"
     },
@@ -2412,6 +2357,13 @@
         "openai": "Suara OpenAI",
         "xai": "Suara Grok"
       }
+    },
+    "groups": {
+      "app": "Aplikasi",
+      "personal": "Pribadi"
+    },
+    "nav": {
+      "more": "Lainnya"
     }
   },
   "shell": {
@@ -2451,7 +2403,9 @@
         "skipped": "Dilewati",
         "undoing": "Membatalkan…",
         "upToDate": "Tidak ada yang menunggu",
-        "waiting": "Menunggu"
+        "waiting": "Menunggu",
+        "upToDateTitle": "Semua sudah terbaru",
+        "upToDateBody": "Versi baru Stella muncul di sini."
       },
       "updating": "Memperbarui…"
     },
@@ -2481,7 +2435,9 @@
       "noMatches": "Tidak ada konektor yang cocok dengan pencarian itu.",
       "searchLabel": "Cari konektor",
       "searchPlaceholder": "Cari",
-      "title": "Konektor"
+      "title": "Konektor",
+      "noMatchesTitle": "Tidak ada yang cocok",
+      "noMatchesBody": "Coba nama lain."
     },
     "display": {
       "agentThread": {
@@ -2531,11 +2487,19 @@
       },
       "canvasShare": {
         "copyLink": "Salin tautan",
-        "empty": "Belum ada berbagi aktif. Terbitkan sebuah kanvas untuk mendapatkan tautan publik.",
+        "empty": "Belum ada kanvas publik. Jadikan kanvas publik untuk membagikan tautannya.",
         "expires": "Kedaluwarsa {date}",
         "links": "Tautan",
         "live": "Kanvas sudah tayang",
         "loadFailed": "Tidak dapat memuat item yang Anda bagikan.",
+        "makePrivate": "Jadikan privat",
+        "makePublic": "Jadikan publik",
+        "noLink": "Kanvas ini belum punya tautan. Jadikan publik untuk mendapatkan tautan yang bisa dibuka siapa saja.",
+        "openInBrowser": "Buka di browser",
+        "privateHint": "Hanya kamu yang bisa membuka tautan ini.",
+        "privateLink": "Tautan privat",
+        "public": "Publik",
+        "publicHint": "Siapa pun yang punya tautan dapat melihatnya.",
         "publicLink": "Tautan kanvas publik",
         "publishFailed": "Tidak dapat menerbitkan kanvas ini. Silakan coba lagi.",
         "publishing": "Menerbitkan kanvas…",
@@ -2547,8 +2511,12 @@
         "toasts": {
           "copyFailed": "Tidak dapat menyalin tautan",
           "linkCopied": "Tautan berbagi disalin",
+          "madePrivate": "Tautan sekarang privat",
+          "madePublic": "Tautan sekarang publik",
+          "openFailed": "Tidak dapat membuka tautan",
           "revokeFailed": "Tidak dapat mencabut berbagi ini",
-          "revoked": "Berbagi dicabut"
+          "revoked": "Berbagi dicabut",
+          "visibilityFailed": "Tidak dapat mengubah siapa yang bisa membuka tautan ini"
         },
         "untitled": "Kanvas tanpa judul"
       },
@@ -2557,7 +2525,10 @@
         "codeChanges": "Perubahan kode",
         "desktopRequired": "Pratinjau kode memerlukan aplikasi desktop Stella.",
         "empty": "Belum ada perubahan berkas. Saat agen mengedit kode, perubahannya muncul di sini.",
-        "noChanges": "Tidak ada perubahan ditemukan."
+        "noChanges": "Tidak ada perubahan ditemukan.",
+        "emptyTitle": "Belum ada perubahan",
+        "emptyBody": "Saat agen mengedit kode, perubahannya muncul di sini.",
+        "noChangesTitle": "Tidak ada perubahan"
       },
       "filePreview": {
         "copy": "Salin",
@@ -2592,7 +2563,11 @@
         "revealInFinder": "Tampilkan di Finder",
         "save": "Simpan",
         "saveFailed": "Tidak dapat menyimpan",
-        "saved": "Tersimpan"
+        "saved": "Tersimpan",
+        "zoom": "Perbesar gambar",
+        "imageUnavailable": "Gambar tidak tersedia",
+        "videoUnavailable": "Video tidak tersedia",
+        "audioUnavailable": "Audio tidak tersedia"
       },
       "office": {
         "frameTitle": "Pratinjau {kind}: {title}",
@@ -2616,7 +2591,11 @@
       },
       "preview": {
         "limited": "Pratinjau terbatas. Simpan atau buka berkas asli untuk melihat seluruh isinya.",
-        "unavailable": "Tidak dapat menyiapkan pratinjau ini."
+        "unavailable": "Tidak dapat menyiapkan pratinjau ini.",
+        "failedTitle": "Tidak bisa menampilkan pratinjau",
+        "failedBody": "Coba lagi, atau simpan file untuk membukanya di tempat lain.",
+        "unavailableTitle": "File tidak tersedia",
+        "emptyTitle": "File ini kosong"
       },
       "spreadsheet": {
         "column": "Kolom {index}",
@@ -2637,7 +2616,9 @@
         "pendingPurge": "Menunggu pembersihan",
         "refresh": "Segarkan",
         "title": "Sampah",
-        "trashedAgo": "Dibuang {time} lalu"
+        "trashedAgo": "Dibuang {time} lalu",
+        "emptyTitle": "Sampah kosong",
+        "emptyBody": "Item yang dihapus tetap di sini selama 24 jam."
       },
       "url": {
         "eyebrow": "Pratinjau langsung",
@@ -2730,22 +2711,25 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "Sisa {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
     },
     "eyebrow": {
-      "question": "Stella needs a decision",
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Gunakan jawaban ini",
+      "default": "Default",
+      "next": "Pertanyaan berikutnya",
+      "previous": "Pertanyaan sebelumnya",
+      "progress": "{current} dari {total}",
+      "sending": "Mengirim…",
+      "skip": "Lewati",
+      "skipped": "Dilewati",
+      "somethingElse": "Lainnya",
+      "submit": "Kirim"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

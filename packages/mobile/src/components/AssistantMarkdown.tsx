@@ -8,8 +8,8 @@
  * manage. A message's text only changes if the turn's canonical row later
  * replaces it, which is a normal re-render.
  */
-import { memo, useCallback, useMemo, type ReactNode } from "react";
-import { Alert, Linking, Platform, ScrollView, StyleSheet, View } from "react-native";
+import { memo, useCallback, useMemo, useRef, type ReactNode } from "react";
+import { Alert, Linking, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import {
   Markdown,
   List,
@@ -30,6 +30,7 @@ import { fonts } from "../theme/fonts";
 import type { Colors } from "../theme/colors";
 import { SelectableMarkdownText, nativeMarkdownSelectionAvailable } from "./SelectableMarkdownText";
 import { AssistantMarkdownTable } from "./AssistantMarkdownTable";
+import { useT } from "../i18n";
 
 const BASE_FONT_SIZE = 17;
 
@@ -155,6 +156,24 @@ function buildNodeStyles(colors: Colors): NodeStyleOverrides {
   };
 }
 
+const MORE_LINK_HREF = "stella-more:";
+
+/**
+ * Append the reply's "more" links to its markdown so they flow on the line of
+ * the last paragraph. A reply that ends in a block (list, quote, code, table,
+ * heading or rule) gets them as their own short paragraph instead, so the
+ * block's syntax is never disturbed (desktop does the same).
+ */
+const withMoreLinks = (text: string, count: number): string => {
+  if (count === 0) return text;
+  const links = Array.from({ length: count }, (_, index) => `[more](${MORE_LINK_HREF}${index})`).join(" · ");
+  const body = text.replace(/\s+$/, "");
+  const lastLine = body.slice(body.lastIndexOf("\n") + 1).trim();
+  const endsInBlock =
+    lastLine === "" || /^(```|~~~|\||#{1,6}\s|>|[-*+]\s|\d+[.)]\s|---|\*\*\*|___)/.test(lastLine);
+  return endsInBlock ? `${body}\n\n${links}` : `${body} ${links}`;
+};
+
 const containsImage = (node: MarkdownNode): boolean => node.type === "image" || Boolean(node.children?.some(containsImage));
 
 const PARSER_OPTIONS = { gfm: true, math: false, html: false } as const;
@@ -175,6 +194,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
   fill = true,
   onStellaFileLink,
   onAskStella,
+  moreLinks,
 }: {
   text: string;
   colors: Colors;
@@ -194,9 +214,25 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
    */
   onStellaFileLink?: (path: string) => void;
   onAskStella?: (text: string) => void;
+  /**
+   * Quiet "more" links appended after the last paragraph, one per task whose
+   * full report this reply offers. Each opens that report.
+   */
+  moreLinks?: readonly { key: string; label: string; onPress: () => void }[];
 }) {
   const theme = useMemo(() => buildTheme(colors), [colors]);
+  // Callers rebuild the link list every render; only its labels shape the
+  // rendered tree, and taps read the latest handlers.
+  const moreLinksRef = useRef(moreLinks);
+  moreLinksRef.current = moreLinks;
+  const moreLinksKey = moreLinks?.map((link) => `${link.key}\u0000${link.label}`).join("\n") ?? "";
+  const moreLabels = useMemo(
+    () => (moreLinksKey ? moreLinksKey.split("\n").map((entry) => entry.split("\u0000")[1] ?? "") : []),
+    [moreLinksKey],
+  );
   const nodeStyles = useMemo(() => buildNodeStyles(colors), [colors]);
+  const t = useT();
+  const showMoreLabel = t("app.chat.userMessage.showMore");
 
   const onLinkPress = useCallback(
     (url: string): boolean => {
@@ -273,6 +309,23 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
           </View>
         ),
       } : {}),
+      link: ({ node }: CustomRendererProps) => {
+        const href = node.href ?? "";
+        if (!href.startsWith(MORE_LINK_HREF)) return undefined;
+        const index = Number(href.slice(MORE_LINK_HREF.length));
+        const label = moreLabels[index];
+        if (label === undefined) return null;
+        return (
+          <Text
+            accessibilityRole="link"
+            accessibilityLabel={label}
+            onPress={() => moreLinksRef.current?.[index]?.onPress()}
+            style={{ color: colors.textMuted, fontFamily: fonts.sans.medium, fontSize: BASE_FONT_SIZE }}
+          >
+            {showMoreLabel}
+          </Text>
+        );
+      },
       table: ({ node, Renderer }: CustomRendererProps) => (
         <AssistantMarkdownTable
           node={node}
@@ -284,7 +337,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         />
       ),
     }),
-    [colors, selectable, nodeStyles, onLinkPress, onAskStella],
+    [colors, selectable, nodeStyles, onLinkPress, onAskStella, moreLabels, showMoreLabel],
   );
 
   const content: ReactNode = (
@@ -297,7 +350,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
       onLinkPress={onLinkPress}
       selectable={selectable}
     >
-      {text}
+      {withMoreLinks(text, moreLabels.length)}
     </Markdown>
   );
 

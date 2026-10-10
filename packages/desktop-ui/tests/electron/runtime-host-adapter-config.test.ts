@@ -182,7 +182,6 @@ describe("RuntimeHostAdapter resumed chat sessions", () => {
   const createCallbacks = () => ({
     onRunFinished: vi.fn(),
     onAssistantMessage: vi.fn(),
-    onProviderLifecycle: vi.fn(),
     onToolStart: vi.fn(),
     onToolEnd: vi.fn(),
   });
@@ -211,42 +210,6 @@ describe("RuntimeHostAdapter resumed chat sessions", () => {
     expect(callbacks.onAssistantMessage).toHaveBeenCalledTimes(1);
     expect(callbacks.onAssistantMessage).toHaveBeenCalledWith(
       expect.objectContaining({ assistantMessageText: "still here" }),
-    );
-  });
-
-  it("forwards hash-only provider lifecycle receipts to the owning chat session", () => {
-    const adapter = createAdapter();
-    const callbacks = createCallbacks();
-
-    adapter.attachResumedLocalChatSession(
-      {
-        conversationId: "conversation-1",
-        runId: "run-1",
-        active: true,
-      },
-      callbacks,
-    );
-
-    emitRunEvent(adapter, {
-      type: AGENT_STREAM_EVENT_TYPES.PROVIDER_LIFECYCLE,
-      runId: "run-1",
-      seq: 1,
-      conversationId: "conversation-1",
-      providerLifecyclePhase: "transport-joined",
-      providerRequestIdSha256: "a".repeat(64),
-      providerPhysicalAttempt: 1,
-      providerStreamOrdinal: 1,
-      providerName: "openai",
-      providerModelId: "gpt-test",
-      providerOutcome: "canceled",
-    });
-
-    expect(callbacks.onProviderLifecycle).toHaveBeenCalledOnce();
-    expect(callbacks.onProviderLifecycle).toHaveBeenCalledWith(
-      expect.objectContaining({
-        providerLifecyclePhase: "transport-joined",
-        providerRequestIdSha256: "a".repeat(64),
-      }),
     );
   });
 

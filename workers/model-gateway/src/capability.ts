@@ -16,6 +16,7 @@ import {
   type CapabilityVerificationKeys,
 } from "@stella/contracts/gateway/jwt";
 import { verifyDpopRequest } from "@stella/contracts/gateway/dpop";
+import { bearerCredential } from "../../shared/bearer.js";
 import { GatewayError } from "./errors.js";
 
 /**
@@ -124,12 +125,14 @@ export const verificationKeys = (
   return keyCache.keys;
 };
 
-export const bearerToken = (request: Request): string | null => {
-  const header = request.headers.get(GATEWAY_AUTHORIZATION_HEADER);
-  if (!header || header.length > 16_384) return null;
-  const match = /^Bearer\s+(\S+)$/iu.exec(header);
-  return match?.[1] ?? null;
-};
+/** A capability header is at most 16 KiB. */
+const MAX_CAPABILITY_LENGTH = 16_384 - "Bearer ".length;
+
+export const bearerToken = (request: Request): string | null =>
+  bearerCredential(
+    request.headers.get(GATEWAY_AUTHORIZATION_HEADER),
+    MAX_CAPABILITY_LENGTH,
+  );
 
 export const capabilityFailureError = (
   reason: CapabilityVerificationFailure,

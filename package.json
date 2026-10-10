@@ -97,8 +97,6 @@
     "check:ratchet": "node packages/runtime/scripts/check-effect-ratchet.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.131.0",
-    "@google/genai": "^2.27.0",
     "@googleapis/calendar": "^20.1.0",
     "@googleapis/docs": "^14.1.0",
     "@googleapis/drive": "^26.0.2",
@@ -125,7 +123,6 @@
     "@tanstack/router-generator": "1.167.40",
     "@tanstack/router-plugin": "^1.168.42",
     "ajv": "^8.20.0",
-    "ajv-formats": "^3.0.1",
     "better-auth": "1.7.7",
     "cjs-module-lexer": "^2.2.1",
     "clsx": "^2.1.1",
@@ -134,8 +131,6 @@
     "gaxios": "^7.3.1",
     "googleapis-common": "^9.1.0",
     "motion": "^14.0.0",
-    "openai": "7.27.0",
-    "partial-json": "^0.1.7",
     "picomatch": "^4.0.7",
     "qrcode": "^1.5.4",
     "react": "^19.3.0",
@@ -210,6 +205,7 @@
     "react-native-carplay@2.3.0": "patches/react-native-carplay@2.3.0.patch",
     "react-native-nitro-markdown@0.6.2": "patches/react-native-nitro-markdown@0.6.2.patch",
     "react-native@0.86.3": "patches/react-native@0.86.3.patch",
-    "streamdown@2.7.0": "patches/streamdown@2.7.0.patch"
+    "streamdown@2.7.0": "patches/streamdown@2.7.0.patch",
+    "@earendil-works/pi-durable@1.1.0": "patches/@earendil-works%2Fpi-durable@1.1.0.patch"
   }
 }

@@ -1,5 +1,9 @@
+import {
+  bearerCredential,
+  MAX_BEARER_CREDENTIAL_LENGTH,
+} from "../../shared/bearer.js";
+
 const BEARER_CREDENTIAL = /^[A-Za-z0-9._~+/-]+={0,}$/u;
-const MAX_BEARER_CREDENTIAL_LENGTH = 8_192;
 const INVALID_LEFT_SECRET = "stella-invalid-left-secret";
 const INVALID_RIGHT_SECRET = "stella-invalid-right-secret";
 
@@ -26,17 +30,8 @@ export type ServiceBearerVerificationOptions = {
 };
 
 const parseBearerCredential = (authorization: string | null): string | null => {
-  if (
-    authorization === null ||
-    authorization.length > "Bearer ".length + MAX_BEARER_CREDENTIAL_LENGTH
-  ) {
-    return null;
-  }
-  const match = /^Bearer ([^\s]+)$/iu.exec(authorization);
-  const credential = match?.[1] ?? "";
-  return credential.length > 0 &&
-    credential.length <= MAX_BEARER_CREDENTIAL_LENGTH &&
-    BEARER_CREDENTIAL.test(credential)
+  const credential = bearerCredential(authorization);
+  return credential !== null && BEARER_CREDENTIAL.test(credential)
     ? credential
     : null;
 };

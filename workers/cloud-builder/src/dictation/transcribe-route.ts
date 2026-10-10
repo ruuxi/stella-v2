@@ -1,7 +1,8 @@
-import { rpcErrorStatus } from "@stella/contracts/backend/protocol";
 import { STELLA_MEDIA_MODELS } from "@stella/contracts/media-models";
+import { readBodyBytes } from "../http/body.js";
+import { requireCaller } from "../http/caller.js";
+import { fail, failRpcError, json } from "../http/response.js";
 import { RpcError } from "../owner-store/errors.js";
-import { verifyCaller } from "../owner-store/routes.js";
 import { ownerGeneration, voiceInternal } from "../voice/routes.js";
 
 export const DICTATION_TRANSCRIBE_PATH = "/api/dictation/transcribe";
@@ -24,38 +25,7 @@ type DictationEnv = Cloudflare.Env & {
   STELLA_DICTATION_MODEL?: string;
 };
 
-const json = (body: unknown, status = 200): Response =>
-  Response.json(body, { status, headers: { "cache-control": "no-store" } });
-
-const fail = (status: number, error: string, code?: string): Response =>
-  json({ error, ...(code ? { code } : {}) }, status);
-
 const apiKey = (env: DictationEnv): string | undefined => env.OPENROUTER_API_KEY?.trim() || undefined;
-
-const readBounded = async (request: Request, maxBytes: number): Promise<Uint8Array | null> => {
-  if (Number(request.headers.get("content-length") ?? "0") > maxBytes) return null;
-  if (!request.body) return new Uint8Array(0);
-  const reader = request.body.getReader();
-  const parts: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel().catch(() => undefined);
-      return null;
-    }
-    parts.push(value);
-  }
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const part of parts) {
-    out.set(part, offset);
-    offset += part.byteLength;
-  }
-  return out;
-};
 
 const ascii = (bytes: Uint8Array, offset: number, length: number): string =>
   String.fromCharCode(...bytes.subarray(offset, offset + length));
@@ -155,15 +125,14 @@ export const handleDictationTranscribeRoute = async (
   }
   if (request.method !== "POST") return fail(405, "Method not allowed.");
 
-  const header = request.headers.get("authorization") ?? "";
-  const verified = await verifyCaller(env, header.startsWith("Bearer ") ? header.slice(7).trim() : "");
-  if (!verified.ok) return fail(rpcErrorStatus(verified.error.code), verified.error.message);
+  const verified = await requireCaller(request, env, { allowAnonymous: true });
+  if (!verified.ok) return failRpcError(verified.error);
   const key = apiKey(env);
-  if (!key) return fail(503, "Dictation isn't set up on this Stella.", "dictation_unavailable");
+  if (!key) return fail(503, "Dictation isn't set up on this Stella.", { code: "dictation_unavailable" });
 
-  const bytes = await readBounded(request, MAX_BODY_BYTES);
-  if (!bytes) return fail(413, "That recording is longer than 15 minutes.");
-  const pcm = readPcm16Wav(bytes);
+  const body = await readBodyBytes(request, MAX_BODY_BYTES);
+  if (!body.ok) return fail(body.status, body.status === 413 ? "That recording is longer than 15 minutes." : body.error);
+  const pcm = readPcm16Wav(body.value);
   if (typeof pcm === "string") return fail(400, pcm);
   if (pcm.byteLength > MAX_PCM_BYTES) return fail(413, "That recording is longer than 15 minutes.");
   if (pcm.byteLength < PCM_BYTES_PER_SECOND / 10) return json({ text: "", seconds: 0 });
@@ -176,7 +145,7 @@ export const handleDictationTranscribeRoute = async (
     await call("dictation.reserveClip", { sessionId, audioBytes: pcm.byteLength });
   } catch (error) {
     if (error instanceof RpcError && (error.code === "FORBIDDEN" || error.code === "RATE_LIMITED")) {
-      return fail(error.code === "RATE_LIMITED" ? 429 : 403, error.message, "usage_limit_reached");
+      return fail(error.code === "RATE_LIMITED" ? 429 : 403, error.message, { code: "usage_limit_reached" });
     }
     throw error;
   }

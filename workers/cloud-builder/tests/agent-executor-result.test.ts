@@ -33,20 +33,6 @@ const messages = [
     payloadJson: JSON.stringify({ role: "assistant", content: [] }),
   },
 ];
-const suspension = {
-  schemaVersion: 1,
-  outcome: "waiting_for_user" as const,
-  interactionId: "browser-interaction-1",
-  interactionRevision: 1,
-  interactionKind: "login_takeover" as const,
-  toolCallId: "tool-call-1",
-  requestDigest: hex("f"),
-  profileId: "default",
-  profileEpoch: 1,
-  displayOrigin: "https://example.test",
-  expiresAt: 60_001,
-};
-
 describe("agent executor result decoder", () => {
   test("accepts only a checkpointed normal result", () => {
     expect(
@@ -83,57 +69,6 @@ describe("agent executor result decoder", () => {
     ).toMatchObject({ checkpointPolicy: "preserve_prior" });
   });
 
-  test("accepts only the exact durable browser suspension shape", () => {
-    expect(
-      parseAgentExecutorResult({
-        outcome: "suspended",
-        ok: false,
-        finalText: "",
-        suspension,
-        checkpointMs: 7,
-        turnStateCheckpoint: receipt,
-      }),
-    ).toMatchObject({ outcome: "suspended", suspension });
-
-    for (const value of [
-      {
-        outcome: "suspended",
-        ok: true,
-        finalText: "",
-        suspension,
-        turnStateCheckpoint: receipt,
-      },
-      {
-        outcome: "suspended",
-        ok: false,
-        finalText: "waiting",
-        suspension,
-        turnStateCheckpoint: receipt,
-      },
-      {
-        outcome: "suspended",
-        ok: false,
-        finalText: "",
-        suspension,
-      },
-      {
-        ok: false,
-        finalText: "",
-        suspension,
-        turnStateCheckpoint: receipt,
-      },
-      {
-        outcome: "suspended",
-        ok: false,
-        finalText: "",
-        suspension: { ...suspension, credentialValue: "must-not-cross" },
-        turnStateCheckpoint: receipt,
-      },
-    ]) {
-      expect(parseAgentExecutorResult(value)).toBeNull();
-    }
-  });
-
   test("rejects parseable but untrusted stdout shapes", () => {
     for (const value of [
       null,
@@ -151,6 +86,13 @@ describe("agent executor result decoder", () => {
         turnStateCheckpoint: receipt,
       },
       { ok: true, turnStateCheckpoint: receipt, injected: true },
+      {
+        outcome: "suspended",
+        ok: false,
+        finalText: "",
+        checkpointMs: 7,
+        turnStateCheckpoint: receipt,
+      },
     ]) {
       expect(parseAgentExecutorResult(value)).toBeNull();
     }
@@ -158,10 +100,8 @@ describe("agent executor result decoder", () => {
 
   test("observes the root-only result independently of process-log capture", async () => {
     const expected = JSON.stringify({
-      outcome: "suspended",
-      ok: false,
-      finalText: "",
-      suspension,
+      ok: true,
+      finalText: "done",
       checkpointMs: 7,
       turnStateCheckpoint: receipt,
     });

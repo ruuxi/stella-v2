@@ -21,7 +21,7 @@ describe("execution placement durable local ownership", () => {
       new ExecutionPlacementInbox(hostDatabase);
       const firstWorker = new SessionStore(workerDatabase);
       persistPlacementCancellation({
-        store: firstWorker,
+        store: firstWorker.chat,
         kind: "chat",
         executionId: "placement-chat:0123456789abcdef",
         reason: "Canceled before worker restart.",
@@ -44,14 +44,14 @@ describe("execution placement durable local ownership", () => {
         const restartedWorker = new SessionStore(restartedDatabase);
         expect(
           getPlacementCancellation({
-            store: restartedWorker,
+            store: restartedWorker.chat,
             kind: "chat",
             executionId: "placement-chat:0123456789abcdef",
           }),
         ).toBe("Canceled before worker restart.");
         expect(
           getPlacementCancellation({
-            store: restartedWorker,
+            store: restartedWorker.chat,
             kind: "agent",
             executionId: "placement-agent:0123456789abcdef",
           }),

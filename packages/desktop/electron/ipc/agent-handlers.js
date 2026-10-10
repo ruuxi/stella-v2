@@ -1,15 +1,33 @@
 import { getFileLogger } from "@stella/runtime/observability/file-logger";
-import { ipcMain, webContents, } from "electron";
+import { webContents } from "electron";
 import crypto from "node:crypto";
 import { promises as fs } from "fs";
 import path from "path";
 import { AGENT_RUN_FINISH_OUTCOMES, AGENT_STREAM_EVENT_TYPES, } from "@stella/contracts/agent-runtime";
-import { IPC_AGENT_ONE_SHOT_COMPLETION, IPC_PI_CHAT_ENABLED, IPC_PI_CHAT_REQUEST, } from "@stella/contracts/desktop/ipc-channels";
+import {
+  IPC_AGENT_ONE_SHOT_COMPLETION,
+  IPC_PI_CHAT_ENABLED,
+  IPC_PI_CHAT_REQUEST,
+  IPC_AGENT_EVENT,
+  IPC_AGENT_HEALTH_CHECK,
+  IPC_AGENT_GET_ACTIVE_RUN,
+  IPC_AGENT_GET_SESSION_STARTED_AT,
+  IPC_AGENT_RESUME,
+  IPC_AGENT_START_CHAT,
+  IPC_AGENT_SEND_INPUT,
+  IPC_AGENT_CANCEL_CHAT,
+  IPC_DEVTEST_TRIGGER_VITE_ERROR,
+  IPC_DEVTEST_FIX_VITE_ERROR,
+} from "@stella/contracts/desktop/ipc-channels";
 import { desktopPiChatEnabled } from "@stella/contracts/pi-chat";
 import { getAgentRuntimeEngine } from "@stella/runtime/kernel/preferences/local-preferences";
 import { requireMatchingCloudConversationId, selectedCloudConversationId, } from "../cloud-conversation-mode.js";
 import { createMonotonicSeqGenerator } from "./monotonic-seq.js";
 import { stampAgentEventMainSeq, workerResumeLastSeq, } from "./agent-event-seq.js";
+import {
+  handleIpc,
+  onIpc,
+} from "./typed-ipc.js";
 const redactSensitiveLogText = (value) => value
     .replace(/\b(sk-[A-Za-z0-9_-]{12,})\b/g, "[redacted-token]")
     .replace(/\b(Bearer\s+[A-Za-z0-9._-]{12,})\b/gi, "[redacted-token]")
@@ -146,7 +164,7 @@ export const registerAgentHandlers = (options) => {
         }
         const receiver = webContents.fromId(receiverId);
         if (receiver && !receiver.isDestroyed()) {
-            receiver.send("agent:event", normalizedEvent);
+            receiver.send(IPC_AGENT_EVENT, normalizedEvent);
         }
     };
     const scheduleRunCleanup = (runId, requestId) => {
@@ -176,14 +194,14 @@ export const registerAgentHandlers = (options) => {
             pruneConversationEventBuffers();
         }, 60_000);
     };
-    ipcMain.handle(IPC_AGENT_ONE_SHOT_COMPLETION, async (_event, payload) => {
+    handleIpc(IPC_AGENT_ONE_SHOT_COMPLETION, async (_event, payload) => {
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
             throw new Error("Stella runtime is not ready.");
         }
         return await stellaHostRunner.runOneShotCompletion(payload);
     });
-    ipcMain.handle("agent:healthCheck", async () => {
+    handleIpc(IPC_AGENT_HEALTH_CHECK, async () => {
         const stellaHostRunner = options.getStellaHostRunner();
         if (!stellaHostRunner) {
             return null;
@@ -196,7 +214,7 @@ export const registerAgentHandlers = (options) => {
             : rawResult;
         return result;
     });
-    ipcMain.handle("agent:getActiveRun", async () => {
+    handleIpc(IPC_AGENT_GET_ACTIVE_RUN, async () => {
         const selectedId = selectedCloudConversationId(options.uiState?.conversationId);
         if (!selectedId)
             return null;
@@ -209,10 +227,10 @@ export const registerAgentHandlers = (options) => {
         const activeRun = await stellaHostRunner.getActiveOrchestratorRun();
         return activeRun?.conversationId === selectedId ? activeRun : null;
     });
-    ipcMain.handle("agent:getAppSessionStartedAt", async () => {
+    handleIpc(IPC_AGENT_GET_SESSION_STARTED_AT, async () => {
         return options.getAppSessionStartedAt();
     });
-    ipcMain.handle("agent:resume", async (event, payload) => {
+    handleIpc(IPC_AGENT_RESUME, async (event, payload) => {
         pruneConversationEventBuffers();
         const conversationId = requireMatchingCloudConversationId(payload?.conversationId, options.uiState?.conversationId);
         const lastSeq = Number.isFinite(payload.lastSeq) ? payload.lastSeq : 0;
@@ -348,12 +366,6 @@ export const registerAgentHandlers = (options) => {
                     conversationId,
                     requestId,
                 }, senderWebContentsId),
-                onProviderLifecycle: (ev) => emitAgentEvent({
-                    ...ev,
-                    type: AGENT_STREAM_EVENT_TYPES.PROVIDER_LIFECYCLE,
-                    conversationId,
-                    requestId,
-                }, senderWebContentsId),
                 onToolStart: (ev) => emitAgentEvent({
                     ...ev,
                     type: AGENT_STREAM_EVENT_TYPES.TOOL_START,
@@ -433,10 +445,10 @@ export const registerAgentHandlers = (options) => {
             hasMore: false,
         };
     });
-    ipcMain.handle("agent:startChat", async (event, payload) => {
+    handleIpc(IPC_AGENT_START_CHAT, async (event, payload) => {
         const receivedAt = Date.now();
         const preparationAt = performance.now();
-        if (!options.assertPrivilegedSender(event, "agent:startChat")) {
+        if (!options.assertPrivilegedSender(event, IPC_AGENT_START_CHAT)) {
             throw new Error("Blocked untrusted request.");
         }
         const stellaHostRunner = options.getStellaHostRunner();
@@ -601,12 +613,6 @@ export const registerAgentHandlers = (options) => {
                 conversationId,
                 requestId,
             }, senderWebContentsId),
-            onProviderLifecycle: (ev) => emitAgentEvent({
-                ...ev,
-                type: AGENT_STREAM_EVENT_TYPES.PROVIDER_LIFECYCLE,
-                conversationId,
-                requestId,
-            }, senderWebContentsId),
             onToolStart: (ev) => emitAgentEvent({
                 ...ev,
                 type: AGENT_STREAM_EVENT_TYPES.TOOL_START,
@@ -699,8 +705,8 @@ export const registerAgentHandlers = (options) => {
                 : {}),
         };
     });
-    ipcMain.handle("agent:sendInput", async (event, payload) => {
-        if (!options.assertPrivilegedSender(event, "agent:sendInput")) {
+    handleIpc(IPC_AGENT_SEND_INPUT, async (event, payload) => {
+        if (!options.assertPrivilegedSender(event, IPC_AGENT_SEND_INPUT)) {
             throw new Error("Blocked untrusted request.");
         }
         const stellaHostRunner = options.getStellaHostRunner();
@@ -717,10 +723,10 @@ export const registerAgentHandlers = (options) => {
     // The desktop chat on pi-durable (unless the user's engine is Claude
     // Code): the renderer submits to and watches one conversation's harness
     // in the runtime.
-    ipcMain.on(IPC_PI_CHAT_ENABLED, (event) => {
-        event.returnValue = desktopPiChatEnabled(process.env.STELLA_AGENT_RUNTIME, getAgentRuntimeEngine(options.getStellaDataDir()));
+    onIpc(IPC_PI_CHAT_ENABLED, (event) => {
+        event.returnValue = desktopPiChatEnabled(getAgentRuntimeEngine(options.getStellaDataDir()));
     });
-    ipcMain.handle(IPC_PI_CHAT_REQUEST, async (event, request) => {
+    handleIpc(IPC_PI_CHAT_REQUEST, async (event, request) => {
         if (!options.assertPrivilegedSender(event, IPC_PI_CHAT_REQUEST)) {
             throw new Error("Blocked untrusted request.");
         }
@@ -742,8 +748,8 @@ export const registerAgentHandlers = (options) => {
         await stellaHostRunner.waitUntilConnected(5_000);
         return await stellaHostRunner.piChat({ ...request, conversationId });
     });
-    ipcMain.on("agent:cancelChat", (event, target) => {
-        if (!options.assertPrivilegedSender(event, "agent:cancelChat")) {
+    onIpc(IPC_AGENT_CANCEL_CHAT, (event, target) => {
+        if (!options.assertPrivilegedSender(event, IPC_AGENT_CANCEL_CHAT)) {
             return;
         }
         const stellaHostRunner = options.getStellaHostRunner();
@@ -784,16 +790,16 @@ export const registerAgentHandlers = (options) => {
     });
     // Dev-only: trigger/fix a Vite compile error for testing the error overlay
     const TEST_BROKEN_FILE = path.join(options.stellaAppDir, "src", "testing", "__vite_error_trigger.tsx");
-    ipcMain.handle("devtest:triggerViteError", async (event) => {
-        if (!options.assertPrivilegedSender(event, "devtest:triggerViteError")) {
+    handleIpc(IPC_DEVTEST_TRIGGER_VITE_ERROR, async (event) => {
+        if (!options.assertPrivilegedSender(event, IPC_DEVTEST_TRIGGER_VITE_ERROR)) {
             throw new Error("Blocked untrusted request.");
         }
         await fs.mkdir(path.dirname(TEST_BROKEN_FILE), { recursive: true });
         await fs.writeFile(TEST_BROKEN_FILE, "const x: number = {\n// deliberately broken syntax\n", "utf-8");
         return { ok: true };
     });
-    ipcMain.handle("devtest:fixViteError", async (event) => {
-        if (!options.assertPrivilegedSender(event, "devtest:fixViteError")) {
+    handleIpc(IPC_DEVTEST_FIX_VITE_ERROR, async (event) => {
+        if (!options.assertPrivilegedSender(event, IPC_DEVTEST_FIX_VITE_ERROR)) {
             throw new Error("Blocked untrusted request.");
         }
         try {

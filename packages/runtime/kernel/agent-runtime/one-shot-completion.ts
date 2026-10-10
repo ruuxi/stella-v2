@@ -20,8 +20,7 @@
  * default — rather than surfacing a hard error to the RPC caller.
  */
 
-import { completeSimple, readAssistantText } from "../../ai/stream.js";
-import type { Context, Message } from "../../ai/types.js";
+import type { Context, Message } from "@earendil-works/pi-ai";
 import {
   resolveLlmRoute,
   resolvedLlmSupportsCredentiallessCalls,
@@ -254,13 +253,14 @@ export const runOneShotCompletion = async (args: {
       // Unreachable: a non-Claude-Code selection always carries a route.
       throw new Error("No usable model route was selected.");
     }
-    const response = await completeSimple(route.model, context, {
-      apiKey,
+    // Off the worker's boot path: the request brings pi-ai's providers with it.
+    const { completeOnRoute, readAssistantText } = await import(
+      "../llm-completion.js"
+    );
+    const response = await completeOnRoute(route, context, {
+      ...(apiKey ? { apiKey } : {}),
       ...(request.reasoningEffort && request.reasoningEffort !== "none"
         ? { reasoning: request.reasoningEffort }
-        : {}),
-      ...(request.reasoningEffort === "none"
-        ? { disableReasoning: true }
         : {}),
       ...(request.maxOutputTokens != null
         ? { maxTokens: request.maxOutputTokens }

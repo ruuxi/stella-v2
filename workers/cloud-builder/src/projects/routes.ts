@@ -31,6 +31,7 @@ import {
   installationIndex,
   verifyInstallationBelongsToUser,
 } from "./github.js";
+import { json } from "../http/response.js";
 
 const CALLBACK_PATH = "/api/cloud/projects/github/callback";
 const WEBHOOK_PATH = "/api/cloud/projects/github/webhook";
@@ -53,9 +54,6 @@ const page = (title: string, detail: string, status = 200, extra = ""): Response
       `<p style="margin:0;color:#555">${detail}</p>${extra}</body>`,
     { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
   );
-
-const json = (body: unknown, status = 200): Response =>
-  Response.json(body, { status, headers: { "cache-control": "no-store" } });
 
 const internal = async (env: Cloudflare.Env, ownerId: string, name: string, args: unknown): Promise<RpcResponse> => {
   const gate = env.OWNER_GATES.getByName(ownerId);

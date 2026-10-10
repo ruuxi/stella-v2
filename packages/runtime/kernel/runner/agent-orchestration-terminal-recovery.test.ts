@@ -21,6 +21,10 @@ import {
 import { SessionStore } from "../storage/session-store.js";
 import type { SqliteDatabase } from "../storage/shared.js";
 import { createReadinessLatch } from "../shared/readiness-latch.js";
+import {
+  loadLocalPreferences,
+  saveLocalPreferences,
+} from "../preferences/local-preferences.js";
 import { persistThreadCustomMessage } from "../agent-runtime/thread-memory.js";
 import { resolveOrchestratorThreadKey } from "../thread-runtime.js";
 
@@ -41,6 +45,13 @@ const openStore = (root?: string) => {
     getDesktopDatabasePath(dataDir),
   ) as unknown as SqliteDatabase;
   initializeDesktopDatabase(db);
+  // On Stella's own engine (pi) a report goes to the pi chat. These boots
+  // wire the orchestrator-turn path (`sendMessage`) that chat on Claude Code
+  // takes, so the data dir selects that engine.
+  saveLocalPreferences(dataDir, {
+    ...loadLocalPreferences(dataDir),
+    agentRuntimeEngine: "claude_code_local",
+  });
   openStores.push({ db, root: dataDir });
   return { db, store: new SessionStore(db), root: dataDir };
 };

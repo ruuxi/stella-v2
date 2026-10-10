@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Keyboard,
   Pressable,
   StyleSheet,
   Text,
@@ -250,6 +251,7 @@ function QuestionDeck({
     (draft: UserAskDraft) => {
       if (!entry || busy) return;
       tapLight();
+      Keyboard.dismiss();
       const nextDrafts = { ...drafts, [entry.key]: draft };
       setDrafts(nextDrafts);
       const next = nextUnansweredIndex(entries, nextDrafts, index);

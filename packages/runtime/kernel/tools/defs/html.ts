@@ -21,15 +21,12 @@
 
 import path from "node:path";
 import fs from "node:fs/promises";
-import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { BackendClient } from "@stella/contracts/backend/client";
 import {
   SHARE_MAX_HTML_BYTES,
   type SavedCanvasShare,
 } from "@stella/contracts/backend/shares";
-import { runToolEffect } from "../effect-runtime.js";
 import type { ToolDefinition } from "../types.js";
 import {
   HTML_TOOL_DESCRIPTION,
@@ -58,19 +55,19 @@ const saveCanvasLink = async (
   const auth = options.getCloudBackendAuth?.();
   if (!auth) return null;
   if (Buffer.byteLength(args.html, "utf8") > SHARE_MAX_HTML_BYTES) return null;
+  // One deadline for the whole save, including the 401 retry; aborting it
+  // also cancels the request instead of leaving it running.
+  const signal = AbortSignal.timeout(SAVE_LINK_TIMEOUT_MS);
   const client = new BackendClient({
     baseUrl: auth.baseUrl,
     getToken: async () => auth.authToken,
+    fetch: (input, init) => fetch(input, { ...init, signal }),
   });
-  // The timeout is a sleeping fiber interrupted as soon as the save settles
-  // (no dangling timer); timing out or failing both fall back to no link.
-  return runToolEffect(
-    Effect.tryPromise(() => client.call("shares.save", args)).pipe(
-      Effect.timeoutOption(SAVE_LINK_TIMEOUT_MS),
-      Effect.map(Option.getOrNull),
-      Effect.orElseSucceed(() => null),
-    ),
-  );
+  try {
+    return await client.call("shares.save", args);
+  } catch {
+    return null;
+  }
 };
 
 export const createHtmlTool = (options: HtmlToolOptions): ToolDefinition => {

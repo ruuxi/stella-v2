@@ -7,7 +7,7 @@ import { FooterLegalLinks } from "@/components/footer-legal-links";
 import { homeFooterGroups } from "@/components/site-footer-groups";
 import { StellaMark } from "@/components/stella-mark";
 import { AuroraField } from "./aurora-field";
-import { ease, seg, useScene } from "./scroll-engine";
+import { useInViewOnce } from "./motion";
 import l from "./landing.module.css";
 import o from "./closing.module.css";
 
@@ -52,28 +52,13 @@ const HIGHLIGHT = `    await git(cwd, ["merge", "--ff-only", to]);`;
 
 export function OpenSourceAct() {
   const ref = useRef<HTMLElement>(null);
-  const wallRef = useRef<HTMLDivElement>(null);
-  const titleRef = useRef<HTMLHeadingElement>(null);
   const lines = SOURCE.split("\n");
 
-  useScene(
-    ref,
-    ({ progress }) => {
-      if (wallRef.current) {
-        wallRef.current.style.transform = `translate3d(0, ${(0.5 - progress) * 260}px, 0) rotate(-4deg)`;
-      }
-      if (titleRef.current) {
-        const t = ease.out(seg(progress, 0.15, 0.5));
-        titleRef.current.style.transform = `translate3d(0, ${(1 - t) * 80}px, 0) scale(${0.94 + t * 0.06})`;
-        titleRef.current.style.opacity = String(seg(progress, 0.12, 0.4));
-      }
-    },
-    "view",
-  );
+  useInViewOnce(ref);
 
   return (
     <section ref={ref} className={o.source} data-tone="light" data-bg="#ffffff" aria-labelledby="source-title">
-      <div ref={wallRef} className={o.wall} aria-hidden="true">
+      <div className={o.wall} aria-hidden="true">
         {[0, 1, 2].map((col) => (
           <pre key={col} className={o.col}>
             {lines.map((line, i) => (
@@ -85,7 +70,7 @@ export function OpenSourceAct() {
           </pre>
         ))}
       </div>
-      <h2 ref={titleRef} id="source-title" className={o.sourceTitle}>
+      <h2 id="source-title" className={o.sourceTitle}>
         Open <span>source.</span>
       </h2>
       <code className={o.hot}>{HIGHLIGHT.trim()}</code>

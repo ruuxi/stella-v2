@@ -5,7 +5,7 @@
   position: relative;
   min-height: 100vh;
   overflow-x: clip;
-  background: #060609;
+  background: #ffffff;
   color: var(--l-ink);
   font-family: var(--l-sans), system-ui, sans-serif;
   font-optical-sizing: auto;
@@ -58,4 +58,10 @@
 .invert :global(.button--download):hover,
 .invert :global(.download-menu > summary):hover {
   background: #fff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root {
+    transition: none !important;
+  }
 }

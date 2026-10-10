@@ -3,9 +3,8 @@
 }
 
 .sticky {
-  position: sticky;
-  top: 0;
-  height: 100svh;
+  position: relative;
+  height: max(100svh, 720px);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -18,7 +17,24 @@
   font-weight: 800;
   line-height: 0.9;
   letter-spacing: -0.06em;
-  will-change: transform, opacity;
+  opacity: 0;
+  transform: translateY(40px);
+  transition:
+    opacity 700ms ease,
+    transform 1000ms cubic-bezier(0.2, 1, 0.3, 1);
+}
+
+.act[data-in="1"] .title {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .title {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }
 
 .title span {

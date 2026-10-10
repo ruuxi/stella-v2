@@ -2,8 +2,10 @@
   position: relative;
   display: grid;
   grid-template-columns: 1fr minmax(0, 0.95fr);
+  align-items: center;
   gap: clamp(24px, 4vw, 80px);
-  padding: clamp(80px, 14svh, 160px) var(--l-margin) clamp(80px, 14svh, 160px);
+  min-height: max(100svh, 720px);
+  padding: clamp(84px, 12svh, 140px) var(--l-margin) clamp(48px, 9svh, 110px);
 }
 
 .side {
@@ -11,10 +13,9 @@
 }
 
 .words {
-  position: sticky;
-  top: calc(50svh - 0.5 * 5 * 0.86 * clamp(46px, 9.6vw, 184px));
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   margin: 0;
   font-size: clamp(46px, 9.6vw, 184px);
   font-weight: 820;
@@ -27,6 +28,14 @@
 }
 
 .word {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
   color: #dedee4;
   font-stretch: 75%;
   transition:
@@ -34,28 +43,67 @@
     font-stretch 700ms cubic-bezier(0.3, 1.5, 0.5, 1);
 }
 
+.word:hover {
+  color: #b9b9c2;
+}
+
 .word[data-active="1"] {
   color: #0a0a0d;
   font-stretch: 125%;
 }
 
-.cards {
-  display: flex;
-  flex-direction: column;
-  gap: clamp(40px, 10svh, 120px);
+.stage {
+  position: relative;
+  height: min(76svh, 720px);
 }
 
 .card {
-  position: relative;
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 100%;
+  transition:
+    transform 1100ms cubic-bezier(0.2, 1, 0.3, 1),
+    opacity 700ms ease;
 }
 
-.mobileWord {
-  display: none;
+.card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 28px;
+  background: #0a0a0d;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 900ms ease;
+}
+
+.card[data-pos="next"] {
+  transform: translateY(115%) rotate(6deg);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.card:nth-child(even)[data-pos="next"] {
+  transform: translateY(115%) rotate(-6deg);
+}
+
+.card[data-pos="past"] {
+  transform: translateY(-5%) scale(0.9);
+  pointer-events: none;
+}
+
+.card[data-pos="past"]::after {
+  opacity: 0.5;
+}
+
+.act:not([data-in="1"]) .card[data-pos="on"] {
+  transform: translateY(80px);
+  opacity: 0;
 }
 
 .frame {
   position: relative;
-  height: min(78svh, 760px);
+  height: 100%;
   overflow: hidden;
   border-radius: 28px;
   box-shadow: 0 0 0 1px rgba(10, 10, 20, 0.06), 0 60px 100px -50px rgba(20, 20, 60, 0.45);
@@ -281,29 +329,28 @@
 @media (max-width: 800px) {
   .act {
     grid-template-columns: 1fr;
-    gap: 0;
+    align-content: center;
+    gap: 22px;
   }
 
-  .side {
-    display: none;
+  .words {
+    font-size: clamp(40px, 11.5vw, 64px);
   }
 
-  .cards {
-    gap: 56px;
+  .stage {
+    height: min(58svh, 520px);
   }
 
-  .mobileWord {
-    display: block;
-    margin: 0 0 14px;
-    font-size: clamp(44px, 13vw, 72px);
-    font-weight: 820;
-    line-height: 0.9;
-    letter-spacing: -0.06em;
-    font-stretch: 125%;
-  }
-
-  .frame {
-    height: min(64svh, 560px);
+  .frame,
+  .card::after {
     border-radius: 22px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .card::after,
+  .word {
+    transition: none;
   }
 }

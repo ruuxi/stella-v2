@@ -3,24 +3,13 @@
 }
 
 .sticky {
+  --h: max(100svh, 720px);
   --stage-w: min(1100px, 88vw);
   --stage-h: min(600px, 58svh);
-  --stage-top: calc(100svh - var(--stage-h) - 6svh);
-  position: sticky;
-  top: 0;
-  height: 100svh;
+  --stage-top: calc(var(--h) - var(--stage-h) - 6svh);
+  position: relative;
+  height: var(--h);
   overflow: hidden;
-  background: #fff;
-}
-
-.night {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(80% 60% at 50% 110%, #12102a 0%, transparent 70%),
-    #060609;
-  opacity: 0;
-  will-change: opacity;
 }
 
 .aurora {
@@ -44,47 +33,6 @@
   background: none;
 }
 
-.hero {
-  position: absolute;
-  left: var(--l-margin);
-  right: var(--l-margin);
-  top: clamp(92px, 14.5svh, 170px);
-  will-change: transform, opacity;
-}
-
-.title {
-  margin: 0;
-  font-family: var(--l-sans);
-  font-size: clamp(50px, 14.6vw, 290px);
-  font-weight: 820;
-  line-height: 0.84;
-  letter-spacing: -0.062em;
-  color: #0a0a0d;
-}
-
-.titleLine {
-  display: block;
-}
-
-.titleLine + .titleLine {
-  font-stretch: 125%;
-  letter-spacing: -0.07em;
-}
-
-.cta {
-  display: flex;
-  align-items: center;
-  gap: 22px;
-  margin-top: clamp(30px, 5svh, 56px);
-}
-
-.free {
-  font-family: var(--l-mono);
-  font-size: 13px;
-  letter-spacing: 0.02em;
-  color: rgba(10, 10, 13, 0.55);
-}
-
 .line {
   position: absolute;
   left: var(--l-margin);
@@ -103,7 +51,6 @@
   line-height: 0.95;
   letter-spacing: -0.055em;
   color: #fff;
-  opacity: 0;
 }
 
 .line span {
@@ -276,14 +223,6 @@
     right: auto;
     left: 100px;
     font-size: 10px;
-  }
-
-  .cta {
-    flex-wrap: wrap;
-  }
-
-  .title {
-    font-size: 17.4vw;
   }
 
   .pill {

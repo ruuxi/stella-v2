@@ -2,120 +2,6 @@
 
 import { useEffect, useRef, type RefObject } from "react";
 
-export type SceneMode = "pin" | "view";
-
-export type SceneFrame = {
-  progress: number;
-  viewportHeight: number;
-  viewportWidth: number;
-};
-
-type Scene = {
-  el: HTMLElement;
-  mode: SceneMode;
-  top: number;
-  height: number;
-  last: number;
-  update: (frame: SceneFrame) => void;
-};
-
-const scenes = new Set<Scene>();
-let frame = 0;
-let measured = false;
-let vh = 0;
-let vw = 0;
-let listening = false;
-
-function measure() {
-  vh = window.innerHeight;
-  vw = window.innerWidth;
-  const scrollY = window.scrollY;
-  for (const scene of scenes) {
-    const rect = scene.el.getBoundingClientRect();
-    scene.top = rect.top + scrollY;
-    scene.height = rect.height;
-    scene.last = Number.NaN;
-  }
-  measured = true;
-}
-
-function compute(scene: Scene, scrollY: number) {
-  if (scene.mode === "pin") {
-    const span = Math.max(1, scene.height - vh);
-    return clamp((scrollY - scene.top) / span);
-  }
-  return clamp((scrollY + vh - scene.top) / (scene.height + vh));
-}
-
-function tick() {
-  frame = 0;
-  if (!measured) measure();
-  const scrollY = window.scrollY;
-  for (const scene of scenes) {
-    const progress = compute(scene, scrollY);
-    if (progress === scene.last) continue;
-    const inRange =
-      scrollY + vh > scene.top - vh * 0.5 &&
-      scrollY < scene.top + scene.height + vh * 0.5;
-    if (!inRange && !Number.isNaN(scene.last)) {
-      const snapped = progress <= 0 ? 0 : 1;
-      if (scene.last === snapped) continue;
-    }
-    scene.last = progress;
-    scene.update({ progress, viewportHeight: vh, viewportWidth: vw });
-  }
-}
-
-function schedule() {
-  if (!frame) frame = requestAnimationFrame(tick);
-}
-
-function remeasure() {
-  measured = false;
-  schedule();
-}
-
-function listen() {
-  if (listening) return;
-  listening = true;
-  window.addEventListener("scroll", schedule, { passive: true });
-  window.addEventListener("resize", remeasure);
-  window.addEventListener("load", remeasure);
-  const ro = new ResizeObserver(remeasure);
-  ro.observe(document.body);
-  document.fonts?.ready.then(remeasure).catch(() => {});
-}
-
-export function useScene(
-  ref: RefObject<HTMLElement | null>,
-  update: (frame: SceneFrame) => void,
-  mode: SceneMode = "pin",
-) {
-  const updateRef = useRef(update);
-  useEffect(() => {
-    updateRef.current = update;
-  });
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const scene: Scene = {
-      el,
-      mode,
-      top: 0,
-      height: 0,
-      last: Number.NaN,
-      update: (f) => updateRef.current(f),
-    };
-    scenes.add(scene);
-    listen();
-    remeasure();
-    return () => {
-      scenes.delete(scene);
-    };
-  }, [ref, mode]);
-}
-
 export function clamp(value: number, min = 0, max = 1) {
   return value < min ? min : value > max ? max : value;
 }
@@ -259,4 +145,78 @@ export function usePlayOnce(
       cancelAnimationFrame(raf);
     };
   }, [ref, duration, threshold]);
+}
+
+
+export function useTimeline(
+  ref: RefObject<HTMLElement | null>,
+  onFrame: (seconds: number) => void,
+  { reducedAt = 0, threshold = 0.35 }: { reducedAt?: number; threshold?: number } = {},
+) {
+  const frameRef = useRef(onFrame);
+  useEffect(() => {
+    frameRef.current = onFrame;
+  });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let raf = 0;
+    let last = 0;
+    let elapsed = 0;
+    let visible = false;
+    frameRef.current(0);
+
+    const loop = (now: number) => {
+      raf = 0;
+      if (!visible || document.hidden) {
+        last = 0;
+        return;
+      }
+      if (last) elapsed += Math.min(0.1, (now - last) / 1000);
+      last = now;
+      frameRef.current(elapsed);
+      raf = requestAnimationFrame(loop);
+    };
+    const play = () => {
+      if (!raf && visible && !document.hidden) raf = requestAnimationFrame(loop);
+    };
+
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        visible = entry?.isIntersecting ?? false;
+        if (prefersReducedMotion()) {
+          if (visible) frameRef.current(reducedAt);
+          return;
+        }
+        if (visible) play();
+      },
+      { threshold },
+    );
+    io.observe(el);
+    const onVisibility = () => play();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      io.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
+      cancelAnimationFrame(raf);
+    };
+  }, [ref, reducedAt, threshold]);
+}
+
+export function useInViewOnce(ref: RefObject<HTMLElement | null>, threshold = 0.25) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return;
+        el.dataset.in = "1";
+        io.disconnect();
+      },
+      { threshold },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [ref, threshold]);
 }

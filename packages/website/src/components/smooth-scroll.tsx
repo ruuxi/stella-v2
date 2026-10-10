@@ -24,6 +24,7 @@ import { useEffect } from "react";
 export function SmoothScroll() {
   useEffect(() => {
     if (document.documentElement.dataset.embedded === "true") return;
+    if (document.querySelector("[data-native-scroll]")) return;
 
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     let lenis: Lenis | null = null;

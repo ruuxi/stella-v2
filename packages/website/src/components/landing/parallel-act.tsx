@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { ease, lerp, seg, usePlayOnce } from "./scroll-engine";
+import { ease, lerp, seg, usePlayOnce } from "./motion";
 import p from "./parallel-act.module.css";
 
 const TASKS = [

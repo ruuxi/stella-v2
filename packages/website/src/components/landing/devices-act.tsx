@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { StellaMark } from "@/components/stella-mark";
-import { prefersReducedMotion } from "./scroll-engine";
+import { prefersReducedMotion } from "./motion";
 import d from "./devices-act.module.css";
 
 const MESSAGES = [

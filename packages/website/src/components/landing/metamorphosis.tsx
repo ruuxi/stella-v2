@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { DownloadButton } from "@/components/download-button";
 import { AuroraField } from "./aurora-field";
-import { ease, lerp, seg, useScene } from "./scroll-engine";
+import { ease, seg, useTimeline } from "./motion";
 import { KidSkin, OrbitSkin, RetroSkin, StellaSkin, SynthSkin } from "./skins";
 import m from "./metamorphosis.module.css";
 
@@ -32,202 +31,167 @@ const CHANGES = [
 
 const SKINS = [StellaSkin, RetroSkin, KidSkin, OrbitSkin, SynthSkin];
 
-const D = 7.3;
-const STEP0 = 1.4;
-const STEP = 1.2;
+const INTRO = 2.4;
+const SEG = 6.2;
+const FINAL = 4.6;
+const RETURN = INTRO;
+const LOOP = SEG * 4 + FINAL + RETURN;
+
+type Frame = {
+  text: string;
+  base: number;
+  next: number;
+  sweep: number;
+  code: number;
+  card: number;
+  pressed: boolean;
+};
+
+function typed(line: string, t: number, start: number, end: number) {
+  return line.slice(0, Math.round(line.length * seg(t, start, end)));
+}
+
+function erased(line: string, t: number, end: number) {
+  return line.slice(0, Math.round(line.length * (1 - seg(t, 0, end))));
+}
+
+function frameAt(seconds: number): Frame {
+  const f: Frame = { text: "", base: 0, next: -1, sweep: 0, code: -1, card: -1, pressed: false };
+  if (seconds < INTRO) {
+    f.text = typed(LINES[0], seconds, 0.2, 1.4);
+    return f;
+  }
+  const t = (seconds - INTRO) % LOOP;
+  const k = Math.floor(t / SEG);
+  if (k < 4) {
+    const local = t - k * SEG;
+    f.base = k;
+    f.text = local < 0.5 ? erased(LINES[k], local, 0.5) : typed(LINES[k + 1], local, 0.5, 1.8);
+    if (local > 1.9 && local < 3.1) {
+      f.card = k;
+      f.pressed = local > 2.5;
+    }
+    if (local >= 2.8) {
+      const s = ease.inOut(seg(local, 2.8, 4.1));
+      if (s >= 1) f.base = k + 1;
+      else {
+        f.next = k + 1;
+        f.sweep = s;
+        f.code = k;
+      }
+    }
+    return f;
+  }
+  const local = t - 4 * SEG;
+  f.base = 4;
+  if (local < FINAL) {
+    f.text = local < 0.5 ? erased(LINES[4], local, 0.5) : typed(LINES[5], local, 0.5, 1.7);
+    return f;
+  }
+  const back = local - FINAL;
+  f.text = back < 0.5 ? erased(LINES[5], back, 0.5) : typed(LINES[0], back, 0.5, 1.7);
+  const s = ease.inOut(seg(back, 0.4, 1.7));
+  if (s >= 1) f.base = 0;
+  else if (s > 0) {
+    f.next = 0;
+    f.sweep = s;
+  }
+  return f;
+}
 
 export function Metamorphosis() {
   const sectionRef = useRef<HTMLElement>(null);
-  const nightRef = useRef<HTMLDivElement>(null);
-  const auroraRef = useRef<HTMLDivElement>(null);
-  const heroRef = useRef<HTMLDivElement>(null);
   const lineRef = useRef<HTMLParagraphElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const sweepRef = useRef<HTMLDivElement>(null);
   const codeRef = useRef<HTMLSpanElement>(null);
   const pillRef = useRef<HTMLDivElement>(null);
+  const changeRef = useRef<HTMLSpanElement>(null);
   const layerRefs = useRef<(HTMLDivElement | null)[]>([]);
   const innerRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const liftRef = useRef(0);
-  const geo = useRef({
-    stageTop: 0,
-    stageH: 0,
-    stageW: 0,
-    stageCx: 0,
-    stageCy: 0,
-  });
-  const state = useRef({ text: "", code: -1, visible: "", change: "" });
-  const changeRef = useRef<HTMLSpanElement>(null);
+  const liftRef = useRef(0.55);
+  const stageH = useRef(600);
+  const state = useRef({ text: "", code: -1, change: -1 });
 
   useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
     const measure = () => {
-      const stage = stageRef.current;
-      if (!stage) return;
-      const g = geo.current;
-      g.stageTop = stage.offsetTop;
-      g.stageH = stage.offsetHeight;
-      g.stageW = stage.offsetWidth;
-      g.stageCx = stage.offsetLeft + g.stageW / 2;
-      g.stageCy = stage.offsetTop + g.stageH / 2;
+      stageH.current = stage.offsetHeight;
     };
     measure();
     const ro = new ResizeObserver(measure);
-    if (sectionRef.current) ro.observe(sectionRef.current);
+    ro.observe(stage);
     return () => ro.disconnect();
   }, []);
 
-  useScene(sectionRef, ({ progress, viewportHeight: vh }) => {
-    const u = progress * D;
-    const g = geo.current;
-
-    const rise = ease.inOut(seg(u, 0.05, 1.05));
-    const dark = seg(u, 0.3, 0.95);
-    if (nightRef.current) nightRef.current.style.opacity = String(dark);
-    if (auroraRef.current) {
-      auroraRef.current.style.opacity = String(lerp(1, 0.75, dark));
-    }
-    liftRef.current = rise;
-    sectionRef.current?.setAttribute("data-tone", dark > 0.5 ? "dark" : "light");
-
-    if (heroRef.current) {
-      const out = seg(u, 0, 0.7);
-      heroRef.current.style.transform = `translate3d(0, ${-out * vh * 0.32}px, 0)`;
-      heroRef.current.style.opacity = String(1 - ease.in(out) * 1.1);
-      heroRef.current.style.visibility = out >= 0.95 ? "hidden" : "visible";
-    }
-
-    const peekTop = vh * 0.72;
-    const heroOffset = Math.max(0, peekTop - g.stageTop);
-    const stageScale = lerp(0.9, 1, rise);
-    const stageY = heroOffset * (1 - rise);
-    if (stageRef.current) {
-      stageRef.current.style.transform = `translate3d(0, ${stageY}px, 0) scale(${stageScale})`;
-    }
-
-    let text: string;
-    if (u < STEP0) {
-      const n = Math.round(LINES[0].length * seg(u, 0.55, 1.15));
-      text = LINES[0].slice(0, n);
-    } else {
-      const k = Math.min(4, Math.floor((u - STEP0) / STEP));
-      const local = u - (STEP0 + k * STEP);
-      const prev = LINES[k];
-      const next = LINES[k + 1];
-      if (local < 0.16) {
-        text = prev.slice(0, Math.round(prev.length * (1 - seg(local, 0, 0.16))));
-      } else {
-        text = next.slice(0, Math.round(next.length * seg(local, 0.16, 0.48)));
+  useTimeline(
+    sectionRef,
+    (seconds) => {
+      const f = frameAt(seconds);
+      if (f.text !== state.current.text && textRef.current) {
+        state.current.text = f.text;
+        textRef.current.textContent = f.text;
       }
-    }
-    if (text !== state.current.text && textRef.current) {
-      state.current.text = text;
-      textRef.current.textContent = text;
-    }
-    if (lineRef.current) {
-      const lineIn = seg(u, 0.5, 0.75);
-      lineRef.current.style.opacity = String(lineIn);
-    }
 
-    const H = g.stageH + 120;
-    let visible = "0";
-    let sweepY = -1;
-    let codeIndex = -1;
-    for (let i = 0; i < SKINS.length; i += 1) {
-      const layer = layerRefs.current[i];
-      const inner = innerRefs.current[i];
-      if (!layer || !inner) continue;
-      let top = 0;
-      let bottom = H;
-      let show = false;
-      if (i === 0) {
-        const s = seg(u, STEP0 + 0.72, STEP0 + 1.12);
-        show = s < 1;
-        top = s * H;
-      } else {
-        const sIn = seg(u, STEP0 + (i - 1) * STEP + 0.72, STEP0 + (i - 1) * STEP + 1.12);
-        const sOut =
-          i < SKINS.length - 1
-            ? seg(u, STEP0 + i * STEP + 0.72, STEP0 + i * STEP + 1.12)
-            : 0;
-        show = sIn > 0 && sOut < 1;
-        bottom = sIn * H;
-        top = sOut * H;
-        if (sIn > 0 && sIn < 1) {
-          sweepY = sIn * H;
-          codeIndex = i - 1;
+      const H = stageH.current + 120;
+      const y = f.sweep * H;
+      for (let i = 0; i < SKINS.length; i += 1) {
+        const layer = layerRefs.current[i];
+        const inner = innerRefs.current[i];
+        if (!layer || !inner) continue;
+        let offset: number | null = null;
+        if (i === f.next) offset = y - H;
+        else if (i === f.base) offset = f.next >= 0 ? y : 0;
+        const show = offset !== null;
+        layer.style.visibility = show ? "visible" : "hidden";
+        layer.dataset.paused = show ? "0" : "1";
+        if (offset !== null) {
+          layer.style.transform = `translate3d(0, ${offset}px, 0)`;
+          inner.style.transform = `translate3d(0, ${-offset}px, 0)`;
         }
       }
-      if (show) visible += `${i}`;
-      layer.style.visibility = show ? "visible" : "hidden";
-      layer.dataset.paused = show ? "0" : "1";
-      if (show) {
-        const offset = bottom < H ? bottom - H : top;
-        layer.style.transform = `translate3d(0, ${offset}px, 0)`;
-        inner.style.transform = `translate3d(0, ${-offset}px, 0)`;
+      if (sweepRef.current) {
+        const on = f.next >= 0;
+        sweepRef.current.style.opacity = on ? "1" : "0";
+        if (on) sweepRef.current.style.transform = `translate3d(0, ${y}px, 0)`;
       }
-    }
-    if (sweepRef.current) {
-      sweepRef.current.style.opacity = sweepY >= 0 ? "1" : "0";
-      if (sweepY >= 0) sweepRef.current.style.transform = `translate3d(0, ${sweepY}px, 0)`;
-    }
-    if (pillRef.current) {
-      let card = "0";
-      let pressed = "0";
-      if (u >= STEP0) {
-        const k = Math.floor((u - STEP0) / STEP);
-        const local = u - (STEP0 + k * STEP);
-        if (k < 4 && local > 0.5 && local < 0.8) {
-          card = "1";
-          if (local > 0.63) pressed = "1";
-          const label = CHANGES[k];
-          if (state.current.change !== label && changeRef.current) {
-            state.current.change = label;
-            changeRef.current.textContent = label;
-          }
+      if (f.code !== state.current.code && codeRef.current) {
+        state.current.code = f.code;
+        codeRef.current.textContent = f.code >= 0 ? CODE[f.code] : "";
+        codeRef.current.style.display = f.code >= 0 ? "" : "none";
+      }
+      if (pillRef.current) {
+        pillRef.current.dataset.on = f.card >= 0 ? "1" : "0";
+        pillRef.current.dataset.pressed = f.pressed ? "1" : "0";
+        if (f.card >= 0 && f.card !== state.current.change && changeRef.current) {
+          state.current.change = f.card;
+          changeRef.current.textContent = CHANGES[f.card];
         }
       }
-      pillRef.current.dataset.on = card;
-      pillRef.current.dataset.pressed = pressed;
-    }
-    if (codeIndex !== state.current.code && codeRef.current) {
-      state.current.code = codeIndex;
-      if (codeIndex >= 0) codeRef.current.textContent = CODE[codeIndex];
-    }
-
-  });
+    },
+    { reducedAt: INTRO + SEG * 3 + 4.5 },
+  );
 
   return (
     <section
       ref={sectionRef}
       className={m.act}
-      style={{ height: `${(D + 1) * 100}svh` }}
-      data-tone="light"
+      data-tone="dark"
       data-bg="#060609"
-      aria-labelledby="hero-title"
+      aria-labelledby="rewrite-title"
     >
       <div className={m.sticky}>
-        <div ref={nightRef} className={m.night} />
-        <div ref={auroraRef} className={m.aurora}>
-          <AuroraField className={m.auroraCanvas} liftRef={liftRef} />
-        </div>
-
-        <div ref={heroRef} className={m.hero}>
-          <h1 id="hero-title" className={m.title}>
-            <span className={m.titleLine}>Ask for</span>
-            <span className={m.titleLine}>anything.</span>
-          </h1>
-          <div className={m.cta}>
-            <DownloadButton />
-            <span className={m.free}>Free.</span>
-          </div>
+        <div className={m.aurora}>
+          <AuroraField className={m.auroraCanvas} liftRef={liftRef} dark />
         </div>
 
         <p ref={lineRef} className={m.line} aria-hidden="true">
-          <span ref={textRef} />
+          <span ref={textRef}>{LINES[0]}</span>
           <i className={m.caret} />
         </p>
-        <h2 className="visually-hidden">
+        <h2 id="rewrite-title" className="visually-hidden">
           Stella rewrites itself. Ask it to look like 1984, work for your kid, put
           your week in orbit or become a synth. Anything you ask.
         </h2>

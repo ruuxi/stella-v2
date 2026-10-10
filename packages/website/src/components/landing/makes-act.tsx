@@ -1,6 +1,7 @@
 "use client";
 
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { prefersReducedMotion } from "./motion";
 import k from "./makes-act.module.css";
 
 const CatViewer = lazy(() => import("./cat-viewer").then((m) => ({ default: m.CatViewer })));
@@ -9,7 +10,7 @@ const PEAKS = [0.097,0.118,0.183,0.099,0.068,0.12,0.066,0.17,0.951,0.743,0.856,0
 
 const WORDS = ["images.", "video.", "music.", "3D."];
 
-function MusicCard({ active }: { active: boolean }) {
+function MusicCard({ active, onPlaying }: { active: boolean; onPlaying: (playing: boolean) => void }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const fillRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -17,6 +18,10 @@ function MusicCard({ active }: { active: boolean }) {
   useEffect(() => {
     if (!active && audioRef.current && !audioRef.current.paused) audioRef.current.pause();
   }, [active]);
+
+  useEffect(() => {
+    onPlaying(playing);
+  }, [playing, onPlaying]);
 
   useEffect(() => {
     if (!playing) return;
@@ -80,14 +85,22 @@ function MusicCard({ active }: { active: boolean }) {
   );
 }
 
+const CARDS = ["images", "video", "music", "three"] as const;
+const ADVANCE_MS = 5200;
+
 export function MakesAct() {
   const sectionRef = useRef<HTMLElement>(null);
-  const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [active, setActive] = useState(0);
   const [near, setNear] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [hold, setHold] = useState(false);
+  const [tick, setTick] = useState(0);
+  const onPlaying = useCallback((p: boolean) => setHold(p), []);
 
   useEffect(() => {
+    const el = sectionRef.current;
+    if (!el) return;
     const near = new IntersectionObserver(
       ([entry]) => {
         if (!entry?.isIntersecting) return;
@@ -97,18 +110,16 @@ export function MakesAct() {
       },
       { rootMargin: "150% 0px" },
     );
-    if (sectionRef.current) near.observe(sectionRef.current);
+    near.observe(el);
     const io = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const i = cardRefs.current.indexOf(entry.target as HTMLDivElement);
-          if (i >= 0) setActive(i);
-        }
+      ([entry]) => {
+        const on = entry?.isIntersecting ?? false;
+        setRunning(on);
+        if (on) el.dataset.in = "1";
       },
-      { rootMargin: "-45% 0px -45% 0px" },
+      { threshold: 0.45 },
     );
-    cardRefs.current.forEach((card) => card && io.observe(card));
+    io.observe(el);
     return () => {
       near.disconnect();
       io.disconnect();
@@ -116,14 +127,22 @@ export function MakesAct() {
   }, []);
 
   useEffect(() => {
+    if (!running || hold || prefersReducedMotion()) return;
+    const id = window.setTimeout(() => setActive((a) => (a + 1) % CARDS.length), ADVANCE_MS);
+    return () => window.clearTimeout(id);
+  }, [running, hold, active, tick]);
+
+  useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    if (active === 1) void v.play().catch(() => {});
+    if (active === 1 && running) void v.play().catch(() => {});
     else v.pause();
-  }, [active, near]);
+  }, [active, near, running]);
 
-  const setCard = (i: number) => (el: HTMLDivElement | null) => {
-    cardRefs.current[i] = el;
+  const pos = (i: number) => (i === active ? "on" : i < active ? "past" : "next");
+  const choose = (i: number) => {
+    setActive(i);
+    setTick((t) => t + 1);
   };
 
   return (
@@ -132,24 +151,29 @@ export function MakesAct() {
         <h2 id="makes-title" className={k.words}>
           <span className={k.lead}>Makes</span>
           {WORDS.map((w, i) => (
-            <span key={w} className={k.word} data-active={i === active ? "1" : "0"}>
+            <button
+              key={w}
+              type="button"
+              className={k.word}
+              data-active={i === active ? "1" : "0"}
+              aria-pressed={i === active}
+              onClick={() => choose(i)}
+            >
               {w}
-            </span>
+            </button>
           ))}
         </h2>
       </div>
 
-      <div className={k.cards}>
-        <div ref={setCard(0)} className={`${k.card} ${k.images}`}>
-          <p className={k.mobileWord} aria-hidden="true">Images.</p>
+      <div className={k.stage}>
+        <div className={`${k.card} ${k.images}`} data-pos={pos(0)}>
           <div className={k.frame}>
             <img className={k.cabin} src="/landing/cabin.webp" alt="Our cabin in winter, painted by Stella in gouache." loading="lazy" decoding="async" />
             <img className={k.record} src="/landing/record.webp" alt="An abstract mid-century jazz record cover made by Stella." loading="lazy" decoding="async" />
             <p className={k.ask}>“A cover for my jazz record”</p>
           </div>
         </div>
-        <div ref={setCard(1)} className={`${k.card} ${k.video}`}>
-          <p className={k.mobileWord} aria-hidden="true">Video.</p>
+        <div className={`${k.card} ${k.video}`} data-pos={pos(1)}>
           <div className={k.frame}>
             <video
               ref={videoRef}
@@ -165,15 +189,17 @@ export function MakesAct() {
             <p className={k.ask}>“Now make it snow”</p>
           </div>
         </div>
-        <div ref={setCard(2)} className={`${k.card} ${k.musicCard}`}>
-          <p className={k.mobileWord} aria-hidden="true">Music.</p>
+        <div className={`${k.card} ${k.musicCard}`} data-pos={pos(2)}>
           <div className={k.frame}>
-            <MusicCard active={active === 2} />
+            <MusicCard active={active === 2} onPlaying={onPlaying} />
             <p className={k.ask}>“Something to code to”</p>
           </div>
         </div>
-        <div ref={setCard(3)} className={`${k.card} ${k.three}`}>
-          <p className={k.mobileWord} aria-hidden="true">3D.</p>
+        <div
+          className={`${k.card} ${k.three}`}
+          data-pos={pos(3)}
+          onPointerDown={() => setTick((t) => t + 1)}
+        >
           <div className={k.frame}>
             <img className={k.catPoster} src="/landing/cat-poster.webp" alt="" loading="lazy" decoding="async" />
             {near ? (

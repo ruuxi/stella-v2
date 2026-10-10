@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { createSpring, ease, lerp, seg, useScene, type Spring } from "./scroll-engine";
+import { createSpring, ease, lerp, seg, useInViewOnce, useTimeline, type Spring } from "./motion";
 import c from "./computer-act.module.css";
 
 const W = 1200;
 const H = 750;
-const D = 3.4;
+const U0 = 0.3;
+const U1 = 3.25;
+const PLAY = 11;
+const CYCLE = PLAY + 3.5;
 
 type Key = { u: number; x: number; y: number };
 
@@ -58,7 +61,6 @@ export function ComputerAct() {
   const rippleRef = useRef<HTMLSpanElement>(null);
   const queryRef = useRef<HTMLSpanElement>(null);
   const chipRef = useRef<HTMLDivElement>(null);
-  const headRef = useRef<HTMLHeadingElement>(null);
   const fit = useRef({ scale: 1, zoom: 1, vw: 0, vh: 0 });
   const springs = useRef<{ x: Spring; y: Spring } | null>(null);
   const live = useRef({ x: 1320, y: 470, stage: "", query: "", dragging: false, enter: 0 });
@@ -114,18 +116,15 @@ export function ComputerAct() {
     };
   }, []);
 
-  useScene(sectionRef, ({ progress }) => {
-    const u = progress * D;
+  useTimeline(sectionRef, (seconds) => {
+    const cycle = seconds % CYCLE;
+    const u = U0 + Math.min(PLAY, cycle) * ((U1 - U0) / PLAY);
     const l = live.current;
     const p = pathAt(u);
     springs.current?.x.set(p.x);
     springs.current?.y.set(p.y);
 
-    l.enter = ease.out(seg(u, 0, 0.5));
-    if (headRef.current) {
-      headRef.current.style.transform = `translate3d(0, ${(1 - l.enter) * 60}px, 0)`;
-      headRef.current.style.opacity = String(seg(u, 0, 0.35));
-    }
+    l.enter = ease.out(seg(seconds, 0, 0.9));
 
     const stage = stageAt(u);
     if (stage !== l.stage && canvasRef.current) {
@@ -154,19 +153,20 @@ export function ComputerAct() {
       rippleRef.current.style.transform = `translate(-50%, -50%) scale(${0.3 + ripple * 1.4})`;
     }
     cursorRef.current?.setAttribute("data-press", ripple > 0 && ripple < 0.4 ? "1" : "0");
-  });
+  }, { reducedAt: PLAY, threshold: 0.4 });
+
+  useInViewOnce(sectionRef);
 
   return (
     <section
       ref={sectionRef}
       className={c.act}
-      style={{ height: `${(D + 1) * 100}svh` }}
       data-tone="light"
       data-bg="#ffffff"
       aria-labelledby="computer-title"
     >
       <div className={c.sticky}>
-        <h2 ref={headRef} id="computer-title" className={c.title}>
+        <h2 id="computer-title" className={c.title}>
           It uses your <span>computer.</span>
         </h2>
         <div ref={viewRef} className={c.view} aria-hidden="true">

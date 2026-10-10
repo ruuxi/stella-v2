@@ -172,6 +172,16 @@ import {
   turnStartErrorResponse,
 } from "./turn-start-request.js";
 import { CLOUD_HISTORY_TOKEN_BUDGET } from "@stella/executor-cloud/prune-history";
+import {
+  JOURNAL_CHECKPOINT_PATH,
+  JOURNAL_CHECKPOINT_SUMMARY_MAX_BYTES,
+  parseJournalCheckpoint,
+  parseJournalCheckpointFirstKept,
+  type JournalCheckpoint,
+  type JournalCheckpointFirstKept,
+  type JournalCheckpointPublish,
+} from "@stella/contracts/journal-checkpoint";
+import type { JournalStart } from "@stella/agent/stella/journal-sync";
 import { AgentHome } from "./agent-home.js";
 import { createWorldMemory, ownerMemoryWorld } from "./world-memory.js";
 import type { CloudSkillCatalogSnapshot } from "./cloud-home-store.js";
@@ -657,6 +667,10 @@ const PI_MIRRORED_KEY = "piMirroredEntry";
 const PI_LIVE_KEY = "piLive";
 /** Where this pi conversation's brain runs (`@stella/contracts/turn-plane/pi-brain`). */
 const PI_BRAIN_KEY = "piBrain";
+/** The conversation's latest compaction checkpoint (`@stella/contracts/journal-checkpoint`). */
+const JOURNAL_CHECKPOINT_KEY = "journalCheckpoint";
+/** How many of its own recent turns the cloud searches for the one a compaction kept. */
+const CHECKPOINT_TURN_SCAN = 64;
 /**
  * Durable key: the brief a turn's `switch_destination` left for the computer
  * Stella moved to (pi's or Claude Code's), placed there once that turn ends.
@@ -3210,6 +3224,9 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     if (url.pathname === "/history/query") {
       return this.handleHistoryQuery(request);
     }
+    if (url.pathname === JOURNAL_CHECKPOINT_PATH) {
+      return this.handleJournalCheckpoint(request);
+    }
     if (url.pathname === "/pi-workspace") {
       return this.handlePiWorkspace(request);
     }
@@ -5574,6 +5591,16 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
       await this.ctx.storage.put(PI_MIRRORED_KEY, mirrored).catch(() => undefined);
       // Agents this turn started keep running after it.
       await this.piHeartbeat().catch(() => undefined);
+      // A compaction this turn (or one since the last) is every host's checkpoint.
+      await runtime
+        .publishCheckpoint(
+          () => this.journal.recentTurnIds("orchestrator", CHECKPOINT_TURN_SCAN),
+          (summary, firstKept) => this.storeJournalCheckpoint(summary, firstKept),
+          pi.contextFor(),
+        )
+        .catch((error: unknown) =>
+          log("error", "journal_checkpoint_publish_failed", { message: errorMessage(error) }),
+        );
       await this.placeBrainHandoff(
         turn.turnId,
         turnCancellation.aborted || executionSignal.aborted,
@@ -5612,8 +5639,7 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
           storage: this.ctx.storage,
           env: this.env,
           gatewayOrigin,
-          contextStartSeq: () =>
-            this.journal.contextStartSeq("", CLOUD_HISTORY_TOKEN_BUDGET),
+          journalStart: () => this.journalStart(),
           waitUntil: (work) => this.ctx.waitUntil(work),
           report: (error) =>
             log("error", "pi_runtime_report", { message: errorMessage(error) }),
@@ -8505,7 +8531,93 @@ export class OrchestratorSessionObject extends DurableObject<Env> {
     // No lease is acquired and no journal state is mutated. The empty
     // exclusion key cannot match a real turn id, so this is the same bounded,
     // spill-hydrated canonical window used to seed a local cloud turn.
-    return json(await this.localTurnHistory(""));
+    const checkpoint = await this.journalCheckpoint();
+    return json({ ...(await this.localTurnHistory("")), ...(checkpoint ? { checkpoint } : {}) });
+  }
+
+  /**
+   * The latest checkpoint of this journal epoch, if a host published one.
+   * One whose messages after it already rolled out of the hot journal is
+   * stale (no host compacted for that long), and a new transcript starts
+   * from the journal's window instead.
+   */
+  private async journalCheckpoint(): Promise<JournalCheckpoint | undefined> {
+    const stored = await this.ctx.storage.get<JournalCheckpoint & { epoch: number }>(
+      JOURNAL_CHECKPOINT_KEY,
+    );
+    const meta = this.journal.meta();
+    if (!stored || stored.epoch !== meta.epoch || stored.throughSeq + 1 < meta.hot_min_seq) {
+      return undefined;
+    }
+    return parseJournalCheckpoint(stored);
+  }
+
+  /** Where a new transcript of this conversation starts (`journalImportAfter`). */
+  private async journalStart(): Promise<JournalStart> {
+    const checkpoint = await this.journalCheckpoint();
+    return {
+      contextStartSeq: this.journal.contextStartSeq("", CLOUD_HISTORY_TOKEN_BUDGET),
+      ...(checkpoint ? { checkpoint } : {}),
+    };
+  }
+
+  /**
+   * Keep a compaction as the conversation's checkpoint: its summary covers
+   * the journal up to the message before the first one it kept. Only a newer
+   * checkpoint replaces the one kept. Returns where it covers through, or
+   * undefined when the kept message is not in the journal.
+   */
+  private async storeJournalCheckpoint(
+    summary: string,
+    firstKept: JournalCheckpointFirstKept,
+    deviceId?: string,
+  ): Promise<number | undefined> {
+    const keptSeq =
+      "seq" in firstKept
+        ? firstKept.seq
+        : this.journal.turnStartSeq(
+            "turnId" in firstKept
+              ? firstKept.turnId
+              : makeLocalTurnId(deviceId ?? "", firstKept.localTurnId),
+          );
+    const meta = this.journal.meta();
+    if (keptSeq === undefined || keptSeq < 1 || keptSeq >= meta.next_seq) return undefined;
+    const throughSeq = keptSeq - 1;
+    const current = await this.journalCheckpoint();
+    if (current && current.throughSeq >= throughSeq) return current.throughSeq;
+    await this.ctx.storage.put(JOURNAL_CHECKPOINT_KEY, { summary, throughSeq, epoch: meta.epoch });
+    log("info", "journal_checkpoint_stored", {
+      conversationId: this.conversationId(),
+      throughSeq,
+      summaryBytes: utf8Length(summary),
+      from: deviceId ? "device" : "cloud",
+    });
+    return throughSeq;
+  }
+
+  private async handleJournalCheckpoint(request: Request): Promise<Response> {
+    const body = (await request.json().catch(() => null)) as Partial<JournalCheckpointPublish> | null;
+    const expectedOwnerGeneration = parseExpectedOwnerGeneration(body?.expectedOwnerGeneration);
+    const firstKept = parseJournalCheckpointFirstKept(body?.firstKept);
+    const deviceId = typeof body?.deviceId === "string" ? body.deviceId.trim() : undefined;
+    if (
+      !expectedOwnerGeneration ||
+      !firstKept ||
+      typeof body?.summary !== "string" ||
+      !body.summary ||
+      utf8Length(body.summary) > JOURNAL_CHECKPOINT_SUMMARY_MAX_BYTES ||
+      (deviceId !== undefined && !LOCAL_DEVICE_ID_PATTERN.test(deviceId)) ||
+      ("localTurnId" in firstKept && !deviceId)
+    ) {
+      return json({ code: "bad_request", message: "Malformed request." }, 400);
+    }
+    const owner = await this.localTurnOwner(request, undefined, expectedOwnerGeneration);
+    if (owner instanceof Response) return owner;
+    const throughSeq = await this.storeJournalCheckpoint(body.summary, firstKept, deviceId);
+    if (throughSeq === undefined) {
+      return json({ code: "not_found", message: "That checkpoint's messages are not in the journal." }, 404);
+    }
+    return json({ ok: true, throughSeq });
   }
 
   /**

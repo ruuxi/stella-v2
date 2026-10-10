@@ -11,6 +11,7 @@ import {
   NOTIFICATION_NAMES,
   type RuntimeChatPayload,
 } from "@stella/contracts/protocol";
+import { CLIENT_MSG_ID_PATTERN } from "@stella/contracts/turn-plane/turn-start";
 import {
   getAgentRuntimeEngine,
   getModelOverride,
@@ -485,7 +486,14 @@ export const piChatRequest = async (
     resolveImageTarget: async () =>
       (await session.runnerCell.get()?.resolveImageTarget(payload.agentType)) ?? undefined,
   });
-  return await chats.submit(request.conversationId, request.requestId, piUserContent(payload, prepared), {
+  const content = piUserContent(payload, prepared);
+  // The composer's id rides on the message into the journal, so every view of
+  // the conversation binds the sent message to the same row.
+  if (CLIENT_MSG_ID_PATTERN.test(request.requestId)) {
+    const [first] = content;
+    content[0] = { ...first!, stella: { ...first!.stella, clientMsgId: request.requestId } };
+  }
+  return await chats.submit(request.conversationId, request.requestId, content, {
     ...(payload.locale ? { locale: payload.locale } : {}),
     ...(request.send.followSender ? { followSender: true } : {}),
   });

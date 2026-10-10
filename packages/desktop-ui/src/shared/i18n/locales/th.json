@@ -1447,8 +1447,6 @@
       "cantRightNow": "ตอนนี้ไม่ได้",
       "deadline": "เหลือ {time}",
       "deadlinePassed": "หมดเวลาแล้ว",
-      "deadlineWithDefault": "เหลือ {time} — ไม่งั้นจะเลือก “{option}”",
-      "defaultOption": "ค่าเริ่มต้น",
       "hideSecret": "ซ่อน {label}",
       "missingFields": "กรอกข้อมูลที่จำเป็นให้ครบ",
       "notification": {
@@ -1461,14 +1459,11 @@
       "plain": "ส่งเป็นข้อความธรรมดา",
       "revealSecret": "แสดง {label}",
       "sealFailed": "เข้ารหัสบนอุปกรณ์นี้ไม่สำเร็จ",
-      "send": "ส่ง",
       "sendSecurely": "ส่งอย่างปลอดภัย",
       "sending": "กำลังส่ง…",
       "sensitive": "เข้ารหัสแบบต้นทางถึงปลายทาง",
       "sensitiveToggleA11y": "เข้ารหัส {label}",
       "sensitiveUnavailable": "อุปกรณ์นี้ยังเข้ารหัสไม่ได้",
-      "somethingElse": "อย่างอื่น",
-      "somethingElsePlaceholder": "บอก Stella ว่าให้ทำอะไรแทน",
       "unnamedComputer": "คอมพิวเตอร์ · {id}",
       "waitingBadge": "กำลังรอคุณ"
     }
@@ -2716,8 +2711,7 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "เหลือ {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
@@ -2727,11 +2721,16 @@
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "ใช้คำตอบนี้",
+      "default": "ค่าเริ่มต้น",
+      "next": "คำถามถัดไป",
+      "previous": "คำถามก่อนหน้า",
+      "progress": "{current} จาก {total}",
+      "sending": "กำลังส่ง…",
+      "skip": "ข้าม",
+      "skipped": "ข้ามแล้ว",
+      "somethingElse": "อย่างอื่น",
+      "submit": "ส่ง"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

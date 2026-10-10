@@ -7,21 +7,31 @@ import {
   View,
   type TextInputProps,
 } from "react-native";
-import {
-  USER_ASK_SOMETHING_ELSE_OPTION_ID,
-  withSomethingElseOption,
-  type UserAsk,
-  type UserAskAnswerFieldValue,
-  type UserAskField,
-  type UserAskOption,
-  type UserAskQuestionDetail,
-  type UserAskSecureInputDetail,
+import type {
+  UserAsk,
+  UserAskAnswerFieldValue,
+  UserAskField,
+  UserAskSecureInputDetail,
 } from "@stella/contracts/user-ask";
+import {
+  EMPTY_USER_ASK_DRAFT,
+  nextUnansweredIndex,
+  pickUserAskOption,
+  skipUserAskQuestion,
+  typeUserAskText,
+  userAskDeckAnswers,
+  userAskDeckComplete,
+  userAskDeckEntries,
+  userAskDeckKey,
+  type UserAskDeckEntry,
+  type UserAskDraft,
+  type UserAskDrafts,
+} from "@stella/contracts/user-ask-deck";
 import { tapLight } from "../lib/haptics";
 import {
   answerUserAsk,
   cancelUserAsk,
-  useConversationUserAsk,
+  useConversationUserAsks,
   useResolveFocusedUserAsk,
   useUserAskOriginLabel,
   useUserAskSync,
@@ -67,13 +77,353 @@ export function UserAskCard({
   conversationId: string | null | undefined;
 }) {
   useUserAskSync(true);
-  const ask = useConversationUserAsk(conversationId);
-  useResolveFocusedUserAsk(ask?.askId ?? null);
-  if (!ask) return null;
-  return <UserAskSurface ask={ask} key={ask.askId} />;
+  const { questions, secureInput, focused } =
+    useConversationUserAsks(conversationId);
+  const showSecure =
+    secureInput !== null &&
+    (questions.length === 0 || focused?.askId === secureInput.askId);
+  useResolveFocusedUserAsk(
+    showSecure
+      ? (secureInput?.askId ?? null)
+      : questions.length > 0
+        ? (focused?.askId ?? null)
+        : null,
+  );
+  if (showSecure && secureInput?.detail.kind === "secure_input") {
+    return (
+      <SecureAskSurface
+        ask={secureInput}
+        detail={secureInput.detail}
+        key={secureInput.askId}
+      />
+    );
+  }
+  if (questions.length === 0) return null;
+  return (
+    <QuestionDeck
+      asks={questions}
+      focusedAskId={focused?.kind === "question" ? focused.askId : null}
+    />
+  );
 }
 
-function UserAskSurface({ ask }: { ask: UserAsk }) {
+function DeckTiming({
+  ask,
+  colors,
+  styles,
+  t,
+}: {
+  ask: UserAsk;
+  colors: Colors;
+  styles: AskStyles;
+  t: Translate;
+}) {
+  const remaining = useRemaining(ask.blocking ? undefined : ask.deadlineAt);
+  if (remaining === null) return null;
+  return (
+    <View
+      accessibilityLabel={t("userAsk.deadline.remaining", {
+        time: formatRemaining(remaining),
+      })}
+      accessibilityRole="timer"
+      style={styles.timingRow}
+    >
+      <Icon color={colors.textMuted} name="clock" size={14} />
+      <Text numberOfLines={1} style={styles.timing}>
+        {formatRemaining(remaining)}
+      </Text>
+    </View>
+  );
+}
+
+function QuestionDeck({
+  asks,
+  focusedAskId,
+}: {
+  asks: readonly UserAsk[];
+  focusedAskId: string | null;
+}) {
+  const colors = useColors();
+  const t = useT();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const entries = useMemo(() => userAskDeckEntries(asks), [asks]);
+  const [drafts, setDrafts] = useState<UserAskDrafts>({});
+  const [currentKey, setCurrentKey] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [issue, setIssue] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!focusedAskId) return;
+    const target = entries.find((entry) => entry.ask.askId === focusedAskId);
+    if (target) setCurrentKey(target.key);
+  }, [entries, focusedAskId]);
+
+  const found = entries.findIndex((entry) => entry.key === currentKey);
+  const index =
+    found >= 0 ? found : (nextUnansweredIndex(entries, drafts, -1) ?? 0);
+  const entry = entries[index];
+  const total = entries.length;
+  const entryKey = entry?.key ?? null;
+
+  useEffect(() => {
+    if (entryKey && entryKey !== currentKey) setCurrentKey(entryKey);
+  }, [currentKey, entryKey]);
+  const complete = userAskDeckComplete(entries, drafts);
+
+  const submit = useCallback(
+    async (finalDrafts: UserAskDrafts) => {
+      if (busy) return;
+      setBusy(true);
+      setIssue(null);
+      const results = await Promise.allSettled(
+        userAskDeckAnswers(entries, finalDrafts).map(answerUserAsk),
+      );
+      setBusy(false);
+      if (results.some((result) => result.status === "rejected")) {
+        setIssue(t("mobile.userAsk.answerFailed"));
+      }
+    },
+    [busy, entries, t],
+  );
+
+  const goTo = useCallback(
+    (nextIndex: number) => {
+      const target = entries[nextIndex];
+      if (target) setCurrentKey(target.key);
+    },
+    [entries],
+  );
+
+  const commit = useCallback(
+    (draft: UserAskDraft) => {
+      if (!entry || busy) return;
+      tapLight();
+      const nextDrafts = { ...drafts, [entry.key]: draft };
+      setDrafts(nextDrafts);
+      const next = nextUnansweredIndex(entries, nextDrafts, index);
+      if (next === null) {
+        void submit(nextDrafts);
+        return;
+      }
+      goTo(next);
+    },
+    [busy, drafts, entries, entry, goTo, index, submit],
+  );
+
+  if (!entry) return null;
+  const { ask, question } = entry;
+  const draft = drafts[entry.key] ?? EMPTY_USER_ASK_DRAFT;
+  const typed = draft.text.trim().length > 0;
+  const textChosen = !draft.choiceId && !draft.skipped && typed;
+
+  return (
+    <View style={styles.card} accessibilityRole="summary">
+      <View style={styles.headerRow}>
+        <Text numberOfLines={1} style={styles.eyebrow}>
+          {ask.agentLabel ?? t("userAsk.eyebrow.question")}
+        </Text>
+        <DeckTiming ask={ask} colors={colors} styles={styles} t={t} />
+      </View>
+
+      <View key={userAskDeckKey(ask.askId, question.id)} style={styles.step}>
+        <Text style={styles.title}>{question.question}</Text>
+        {question.detail ? (
+          <Text style={styles.detail}>{question.detail}</Text>
+        ) : null}
+
+        <View style={styles.options} accessibilityRole="radiogroup">
+          {question.options.map((option, optionIndex) => {
+            const selected = draft.choiceId === option.id;
+            return (
+              <Pressable
+                accessibilityRole="radio"
+                accessibilityState={{ checked: selected, disabled: busy }}
+                disabled={busy}
+                key={option.id}
+                onPress={() => commit(pickUserAskOption(draft, option.id))}
+                style={({ pressed }) => [
+                  styles.option,
+                  selected && styles.optionSelected,
+                  pressed && styles.pressed,
+                  busy && styles.disabled,
+                ]}
+              >
+                <View
+                  style={[styles.optionKey, selected && styles.optionKeySelected]}
+                >
+                  <Text
+                    style={[
+                      styles.optionKeyText,
+                      selected && styles.optionKeyTextSelected,
+                    ]}
+                  >
+                    {optionIndex + 1}
+                  </Text>
+                </View>
+                <View style={styles.optionCopy}>
+                  <Text style={styles.optionLabel}>{option.label}</Text>
+                  {option.hint ? (
+                    <Text style={styles.optionHint}>{option.hint}</Text>
+                  ) : null}
+                </View>
+                {selected ? (
+                  <Icon color={colors.accent} name="check" size={18} />
+                ) : option.id === question.defaultChoiceId ? (
+                  <Text style={styles.optionTag}>
+                    {t("userAsk.question.default")}
+                  </Text>
+                ) : null}
+              </Pressable>
+            );
+          })}
+
+          <View style={[styles.other, textChosen && styles.optionSelected]}>
+            <AskTextInput
+              accessibilityLabel={t("userAsk.question.somethingElse")}
+              colors={colors}
+              editable={!busy}
+              multiline
+              onChangeText={(text) =>
+                setDrafts((current) => ({
+                  ...current,
+                  [entry.key]: typeUserAskText(text),
+                }))
+              }
+              placeholder={t("userAsk.question.somethingElse")}
+              style={styles.otherInput}
+              submitBehavior="blurAndSubmit"
+              onSubmitEditing={() => {
+                if (typed) commit(typeUserAskText(draft.text));
+              }}
+              returnKeyType="done"
+              value={draft.text}
+            />
+            <Pressable
+              accessibilityLabel={t("userAsk.question.confirm")}
+              accessibilityRole="button"
+              disabled={busy || !typed}
+              hitSlop={6}
+              onPress={() => commit(typeUserAskText(draft.text))}
+              style={({ pressed }) => [
+                styles.otherConfirm,
+                (busy || !typed) && styles.otherConfirmIdle,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Icon
+                color={typed ? colors.accentForeground : colors.textMuted}
+                name="check"
+                size={18}
+              />
+            </Pressable>
+          </View>
+        </View>
+      </View>
+
+      {issue ? <Text style={styles.issue}>{issue}</Text> : null}
+
+      <View style={styles.footer}>
+        {total > 1 ? (
+          <View style={styles.pager}>
+            <Pressable
+              accessibilityLabel={t("userAsk.question.previous")}
+              accessibilityRole="button"
+              disabled={index === 0}
+              hitSlop={6}
+              onPress={() => {
+                tapLight();
+                goTo(index - 1);
+              }}
+              style={({ pressed }) => [styles.nav, pressed && styles.pressed]}
+            >
+              <Icon
+                color={index === 0 ? colors.textWeaker : colors.text}
+                name="chevron-left"
+                size={20}
+              />
+            </Pressable>
+            <Text style={styles.progress}>
+              {t("userAsk.question.progress", { current: index + 1, total })}
+            </Text>
+            <Pressable
+              accessibilityLabel={t("userAsk.question.next")}
+              accessibilityRole="button"
+              disabled={index === total - 1}
+              hitSlop={6}
+              onPress={() => {
+                tapLight();
+                goTo(index + 1);
+              }}
+              style={({ pressed }) => [styles.nav, pressed && styles.pressed]}
+            >
+              <Icon
+                color={index === total - 1 ? colors.textWeaker : colors.text}
+                name="chevron-right"
+                size={20}
+              />
+            </Pressable>
+          </View>
+        ) : (
+          <View />
+        )}
+        <View style={styles.footerActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ selected: draft.skipped === true, disabled: busy }}
+            disabled={busy}
+            onPress={() => commit(skipUserAskQuestion(draft))}
+            style={({ pressed }) => [
+              styles.skip,
+              draft.skipped && styles.skipSelected,
+              pressed && styles.pressed,
+              busy && styles.disabled,
+            ]}
+          >
+            {draft.skipped ? (
+              <Icon color={colors.text} name="check" size={15} />
+            ) : null}
+            <Text
+              style={[styles.skipText, draft.skipped && styles.skipTextSelected]}
+            >
+              {draft.skipped
+                ? t("userAsk.question.skipped")
+                : t("userAsk.question.skip")}
+            </Text>
+          </Pressable>
+          {total > 1 && complete ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={() => {
+                tapLight();
+                void submit(drafts);
+              }}
+              style={({ pressed }) => [
+                styles.primaryAction,
+                pressed && styles.pressed,
+                busy && styles.disabled,
+              ]}
+            >
+              <Text style={styles.primaryActionText}>
+                {busy
+                  ? t("userAsk.question.sending")
+                  : t("userAsk.question.submit")}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function SecureAskSurface({
+  ask,
+  detail,
+}: {
+  ask: UserAsk;
+  detail: UserAskSecureInputDetail;
+}) {
   const colors = useColors();
   const t = useT();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -105,26 +455,18 @@ function UserAskSurface({ ask }: { ask: UserAsk }) {
     );
   }, [ask.askId, submit]);
 
-  const detail = ask.detail;
-  const defaultOption =
-    detail.kind === "question" && detail.defaultChoiceId
-      ? detail.options.find((option) => option.id === detail.defaultChoiceId)
-      : undefined;
-
-  const title = detail.kind === "question" ? detail.question : detail.purpose;
-
   return (
     <View style={styles.card} accessibilityRole="summary">
       <View style={styles.header}>
         <View style={[styles.icon, ask.blocking && styles.iconBlocking]}>
           <Icon
-            name={ask.kind === "secure_input" ? "eye-off" : "message-square"}
-            size={16}
+            name="eye-off"
+            size={17}
             color={ask.blocking ? colors.accent : colors.text}
           />
         </View>
         <View style={styles.headerCopy}>
-          <Text style={styles.title}>{title}</Text>
+          <Text style={styles.title}>{detail.purpose}</Text>
           {ask.agentLabel ? (
             <Text style={styles.meta}>
               {t("mobile.userAsk.askedBy", { label: ask.agentLabel })}
@@ -147,39 +489,22 @@ function UserAskSurface({ ask }: { ask: UserAsk }) {
           <Text style={styles.countdown}>
             {remaining <= 0
               ? t("mobile.userAsk.deadlinePassed")
-              : defaultOption
-                ? t("mobile.userAsk.deadlineWithDefault", {
-                    time: formatRemaining(remaining),
-                    option: defaultOption.label,
-                  })
-                : t("mobile.userAsk.deadline", {
-                    time: formatRemaining(remaining),
-                  })}
+              : t("mobile.userAsk.deadline", {
+                  time: formatRemaining(remaining),
+                })}
           </Text>
         ) : null}
       </View>
 
-      {detail.kind === "question" ? (
-        <QuestionBody
-          ask={ask}
-          detail={detail}
-          busy={busy}
-          styles={styles}
-          colors={colors}
-          t={t}
-          onAnswer={submit}
-        />
-      ) : (
-        <SecureInputBody
-          ask={ask}
-          detail={detail}
-          busy={busy}
-          styles={styles}
-          colors={colors}
-          t={t}
-          onAnswer={submit}
-        />
-      )}
+      <SecureInputBody
+        ask={ask}
+        detail={detail}
+        busy={busy}
+        styles={styles}
+        colors={colors}
+        t={t}
+        onAnswer={submit}
+      />
 
       {issue ? <Text style={styles.issue}>{issue}</Text> : null}
 
@@ -197,140 +522,6 @@ function UserAskSurface({ ask }: { ask: UserAsk }) {
           {t("mobile.userAsk.cantRightNow")}
         </Text>
       </Pressable>
-    </View>
-  );
-}
-
-function QuestionBody({
-  ask,
-  detail,
-  busy,
-  styles,
-  colors,
-  t,
-  onAnswer,
-}: {
-  ask: UserAsk;
-  detail: UserAskQuestionDetail;
-  busy: boolean;
-  styles: AskStyles;
-  colors: Colors;
-  t: Translate;
-  onAnswer: (run: () => Promise<void>, failureKey: string) => Promise<void>;
-}) {
-  const [elsewhere, setElsewhere] = useState(false);
-  const [note, setNote] = useState("");
-
-  const options = useMemo(
-    () =>
-      withSomethingElseOption(
-        detail.options,
-        t("mobile.userAsk.somethingElse"),
-      ),
-    [detail.options, t],
-  );
-
-  const answerChoice = useCallback(
-    (option: UserAskOption) => {
-      if (option.id === USER_ASK_SOMETHING_ELSE_OPTION_ID) {
-        tapLight();
-        setElsewhere(true);
-        return;
-      }
-      tapLight();
-      void onAnswer(
-        () =>
-          answerUserAsk({
-            askId: ask.askId,
-            revision: ask.revision,
-            kind: "choice",
-            choiceId: option.id,
-          }),
-        "mobile.userAsk.answerFailed",
-      );
-    },
-    [ask.askId, ask.revision, onAnswer],
-  );
-
-  const sendNote = useCallback(() => {
-    const text = note.trim();
-    if (!text) return;
-    tapLight();
-    void onAnswer(
-      () =>
-        answerUserAsk({
-          askId: ask.askId,
-          revision: ask.revision,
-          kind: "choice",
-          choiceId: USER_ASK_SOMETHING_ELSE_OPTION_ID,
-          text,
-        }),
-      "mobile.userAsk.answerFailed",
-    );
-  }, [ask.askId, ask.revision, note, onAnswer]);
-
-  return (
-    <View style={styles.body}>
-      {options.map((option) => {
-        const isElsewhere = option.id === USER_ASK_SOMETHING_ELSE_OPTION_ID;
-        const selected = isElsewhere && elsewhere;
-        return (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ disabled: busy, selected }}
-            disabled={busy}
-            key={option.id}
-            onPress={() => answerChoice(option)}
-            style={({ pressed }) => [
-              styles.option,
-              selected && styles.optionSelected,
-              pressed && styles.pressed,
-              busy && styles.disabled,
-            ]}
-          >
-            <View style={styles.optionCopy}>
-              <Text style={styles.optionLabel}>{option.label}</Text>
-              {option.hint ? (
-                <Text style={styles.optionHint}>{option.hint}</Text>
-              ) : null}
-            </View>
-            {option.id === detail.defaultChoiceId ? (
-              <Text style={styles.optionTag}>
-                {t("mobile.userAsk.defaultOption")}
-              </Text>
-            ) : null}
-          </Pressable>
-        );
-      })}
-
-      {elsewhere ? (
-        <View style={styles.noteRow}>
-          <AskTextInput
-            autoFocus
-            colors={colors}
-            multiline
-            onChangeText={setNote}
-            placeholder={t("mobile.userAsk.somethingElsePlaceholder")}
-            accessibilityLabel={t("mobile.userAsk.somethingElse")}
-            style={styles.inputMultiline}
-            value={note}
-          />
-          <Pressable
-            accessibilityRole="button"
-            disabled={busy || note.trim().length === 0}
-            onPress={sendNote}
-            style={({ pressed }) => [
-              styles.primaryAction,
-              pressed && styles.pressed,
-              (busy || note.trim().length === 0) && styles.disabled,
-            ]}
-          >
-            <Text style={styles.primaryActionText}>
-              {busy ? t("mobile.userAsk.sending") : t("mobile.userAsk.send")}
-            </Text>
-          </Pressable>
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -638,37 +829,39 @@ const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     blockingBadge: {
       backgroundColor: colors.accentSoft,
-      borderRadius: 7,
+      borderRadius: 8,
       color: colors.text,
       fontFamily: fonts.sans.medium,
-      fontSize: 11,
+      fontSize: 13,
       overflow: "hidden",
-      paddingHorizontal: 7,
+      paddingHorizontal: 8,
       paddingVertical: 3,
     },
     body: {
-      gap: 8,
+      gap: 10,
     },
     card: {
       alignSelf: "stretch",
       backgroundColor: colors.surface,
       borderColor: colors.border,
-      borderRadius: 15,
+      borderRadius: 20,
       borderWidth: StyleSheet.hairlineWidth,
-      gap: 10,
-      padding: 11,
+      gap: 14,
+      paddingBottom: 12,
+      paddingHorizontal: 16,
+      paddingTop: 16,
     },
     choice: {
       borderColor: colors.border,
-      borderRadius: 14,
+      borderRadius: 16,
       borderWidth: StyleSheet.hairlineWidth,
-      paddingHorizontal: 11,
-      paddingVertical: 6,
+      paddingHorizontal: 13,
+      paddingVertical: 8,
     },
     choiceRow: {
       flexDirection: "row",
       flexWrap: "wrap",
-      gap: 6,
+      gap: 8,
     },
     choiceSelected: {
       backgroundColor: colors.accentSoft,
@@ -677,7 +870,7 @@ const makeStyles = (colors: Colors) =>
     choiceText: {
       color: colors.text,
       fontFamily: fonts.sans.medium,
-      fontSize: 12,
+      fontSize: 15,
     },
     choiceTextSelected: {
       color: colors.text,
@@ -685,7 +878,7 @@ const makeStyles = (colors: Colors) =>
     countdown: {
       color: colors.textMuted,
       fontFamily: fonts.sans.regular,
-      fontSize: 11,
+      fontSize: 13,
     },
     declineRow: {
       alignSelf: "flex-start",
@@ -694,22 +887,29 @@ const makeStyles = (colors: Colors) =>
     declineText: {
       color: colors.textMuted,
       fontFamily: fonts.sans.regular,
-      fontSize: 12,
+      fontSize: 15,
     },
     detail: {
       color: colors.textMuted,
       fontFamily: fonts.sans.regular,
-      fontSize: 12,
-      lineHeight: 17,
+      fontSize: 15,
+      lineHeight: 21,
+      marginTop: 6,
     },
     disabled: {
       opacity: 0.4,
     },
+    eyebrow: {
+      color: colors.textMuted,
+      flexShrink: 1,
+      fontFamily: fonts.sans.medium,
+      fontSize: 13,
+    },
     field: {
       backgroundColor: colors.surfaceInset,
-      borderRadius: 12,
-      gap: 6,
-      padding: 10,
+      borderRadius: 14,
+      gap: 7,
+      padding: 12,
     },
     fieldHeader: {
       alignItems: "center",
@@ -719,35 +919,52 @@ const makeStyles = (colors: Colors) =>
     fieldHint: {
       color: colors.textMuted,
       fontFamily: fonts.sans.regular,
-      fontSize: 11,
-      lineHeight: 15,
+      fontSize: 13,
+      lineHeight: 18,
     },
     fieldLabel: {
       color: colors.text,
       fontFamily: fonts.sans.medium,
-      fontSize: 12,
+      fontSize: 15,
     },
     fieldOptional: {
       color: colors.textWeaker,
       fontFamily: fonts.sans.regular,
-      fontSize: 11,
+      fontSize: 13,
+    },
+    footer: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "space-between",
+      minHeight: 38,
+    },
+    footerActions: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 8,
     },
     header: {
       alignItems: "flex-start",
       flexDirection: "row",
-      gap: 10,
+      gap: 12,
     },
     headerCopy: {
       flex: 1,
-      gap: 2,
+      gap: 3,
+    },
+    headerRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 10,
+      justifyContent: "space-between",
     },
     icon: {
       alignItems: "center",
       backgroundColor: colors.muted,
-      borderRadius: 10,
-      height: 32,
+      borderRadius: 11,
+      height: 36,
       justifyContent: "center",
-      width: 32,
+      width: 36,
     },
     iconBlocking: {
       backgroundColor: colors.accentSoft,
@@ -755,33 +972,19 @@ const makeStyles = (colors: Colors) =>
     input: {
       backgroundColor: colors.surface,
       borderColor: colors.border,
-      borderRadius: 11,
+      borderRadius: 12,
       borderWidth: StyleSheet.hairlineWidth,
       color: colors.text,
       flex: 1,
       fontFamily: fonts.sans.regular,
-      fontSize: 14,
-      minHeight: 38,
-      paddingHorizontal: 11,
-      paddingVertical: 8,
+      fontSize: 16,
+      minHeight: 44,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
     },
     inputCode: {
       fontFamily: fonts.mono.regular,
       letterSpacing: 3,
-    },
-    inputMultiline: {
-      backgroundColor: colors.surface,
-      borderColor: colors.border,
-      borderRadius: 11,
-      borderWidth: StyleSheet.hairlineWidth,
-      color: colors.text,
-      fontFamily: fonts.sans.regular,
-      fontSize: 14,
-      maxHeight: 110,
-      minHeight: 58,
-      paddingHorizontal: 11,
-      paddingVertical: 8,
-      textAlignVertical: "top",
     },
     inputRow: {
       alignItems: "center",
@@ -791,42 +994,66 @@ const makeStyles = (colors: Colors) =>
     issue: {
       color: colors.danger,
       fontFamily: fonts.sans.regular,
-      fontSize: 12,
+      fontSize: 14,
     },
     meta: {
       color: colors.textMuted,
       fontFamily: fonts.sans.regular,
-      fontSize: 11,
+      fontSize: 13,
     },
-    noteRow: {
-      gap: 7,
+    nav: {
+      alignItems: "center",
+      height: 36,
+      justifyContent: "center",
+      width: 32,
     },
     option: {
       alignItems: "center",
       borderColor: colors.border,
-      borderRadius: 13,
+      borderRadius: 15,
       borderWidth: StyleSheet.hairlineWidth,
       flexDirection: "row",
-      gap: 8,
-      minHeight: 44,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
+      gap: 12,
+      minHeight: 52,
+      paddingLeft: 11,
+      paddingRight: 14,
+      paddingVertical: 10,
     },
     optionCopy: {
       flex: 1,
-      gap: 1,
+      gap: 2,
     },
     optionHint: {
       color: colors.textMuted,
       fontFamily: fonts.sans.regular,
-      fontSize: 11,
-      lineHeight: 15,
+      fontSize: 13,
+      lineHeight: 18,
+    },
+    optionKey: {
+      alignItems: "center",
+      backgroundColor: colors.muted,
+      borderRadius: 8,
+      height: 28,
+      justifyContent: "center",
+      width: 28,
+    },
+    optionKeySelected: {
+      backgroundColor: colors.accent,
+    },
+    optionKeyText: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 14,
+    },
+    optionKeyTextSelected: {
+      color: colors.accentForeground,
     },
     optionLabel: {
       color: colors.text,
       fontFamily: fonts.sans.medium,
-      fontSize: 14,
+      fontSize: 16,
       letterSpacing: -0.2,
+      lineHeight: 21,
     },
     optionSelected: {
       backgroundColor: colors.accentSoft,
@@ -835,64 +1062,117 @@ const makeStyles = (colors: Colors) =>
     optionTag: {
       color: colors.textWeaker,
       fontFamily: fonts.sans.regular,
-      fontSize: 11,
+      fontSize: 13,
+    },
+    options: {
+      gap: 8,
+      marginTop: 14,
+    },
+    other: {
+      alignItems: "flex-end",
+      backgroundColor: colors.surfaceInset,
+      borderColor: colors.border,
+      borderRadius: 15,
+      borderWidth: StyleSheet.hairlineWidth,
+      flexDirection: "row",
+      gap: 8,
+      minHeight: 52,
+      paddingLeft: 14,
+      paddingRight: 8,
+      paddingVertical: 8,
+    },
+    otherConfirm: {
+      alignItems: "center",
+      backgroundColor: colors.accent,
+      borderRadius: 18,
+      height: 36,
+      justifyContent: "center",
+      width: 36,
+    },
+    otherConfirmIdle: {
+      backgroundColor: colors.muted,
+    },
+    otherInput: {
+      color: colors.text,
+      flex: 1,
+      fontFamily: fonts.sans.regular,
+      fontSize: 16,
+      lineHeight: 21,
+      maxHeight: 120,
+      minHeight: 36,
+      paddingBottom: 7,
+      paddingTop: 7,
+      textAlignVertical: "center",
+    },
+    pager: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 2,
     },
     pressed: {
       opacity: 0.72,
-    },
-    redirect: {
-      backgroundColor: colors.surfaceInset,
-      borderRadius: 12,
-      gap: 6,
-      padding: 11,
-    },
-    redirectBody: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 12,
-      lineHeight: 17,
-    },
-    redirectField: {
-      color: colors.textMuted,
-      fontFamily: fonts.sans.regular,
-      fontSize: 11,
-      lineHeight: 16,
-    },
-    redirectFields: {
-      borderTopColor: fadeHex(colors.border, 0.8),
-      borderTopWidth: StyleSheet.hairlineWidth,
-      gap: 1,
-      paddingTop: 7,
-    },
-    redirectTitle: {
-      color: colors.text,
-      fontFamily: fonts.sans.medium,
-      fontSize: 13,
-      letterSpacing: -0.1,
     },
     primaryAction: {
       alignItems: "center",
       alignSelf: "flex-end",
       backgroundColor: colors.accent,
-      borderRadius: 16,
+      borderRadius: 19,
       justifyContent: "center",
-      minHeight: 34,
-      paddingHorizontal: 14,
+      minHeight: 38,
+      paddingHorizontal: 16,
     },
     primaryActionText: {
       color: colors.accentForeground,
       fontFamily: fonts.sans.semiBold,
-      fontSize: 13,
+      fontSize: 15,
     },
     primaryActionWide: {
       alignSelf: "stretch",
-      minHeight: 42,
+      minHeight: 46,
+    },
+    progress: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 14,
+      fontVariant: ["tabular-nums"],
+      minWidth: 52,
+      textAlign: "center",
+    },
+    redirect: {
+      backgroundColor: colors.surfaceInset,
+      borderRadius: 14,
+      gap: 7,
+      padding: 12,
+    },
+    redirectBody: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.regular,
+      fontSize: 14,
+      lineHeight: 20,
+    },
+    redirectField: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.regular,
+      fontSize: 13,
+      lineHeight: 18,
+    },
+    redirectFields: {
+      borderTopColor: fadeHex(colors.border, 0.8),
+      borderTopWidth: StyleSheet.hairlineWidth,
+      gap: 2,
+      paddingTop: 8,
+    },
+    redirectTitle: {
+      color: colors.text,
+      fontFamily: fonts.sans.medium,
+      fontSize: 15,
+      letterSpacing: -0.1,
     },
     reveal: {
       alignItems: "center",
-      height: 34,
+      height: 38,
       justifyContent: "center",
-      width: 30,
+      width: 32,
     },
     sensitiveRow: {
       alignItems: "center",
@@ -900,14 +1180,36 @@ const makeStyles = (colors: Colors) =>
       borderTopWidth: StyleSheet.hairlineWidth,
       flexDirection: "row",
       gap: 10,
-      paddingTop: 7,
+      paddingTop: 8,
     },
     sensitiveText: {
       color: colors.textMuted,
       flex: 1,
       fontFamily: fonts.sans.regular,
-      fontSize: 11,
-      lineHeight: 15,
+      fontSize: 13,
+      lineHeight: 18,
+    },
+    skip: {
+      alignItems: "center",
+      borderColor: "transparent",
+      borderRadius: 19,
+      borderWidth: StyleSheet.hairlineWidth,
+      flexDirection: "row",
+      gap: 5,
+      justifyContent: "center",
+      minHeight: 38,
+      paddingHorizontal: 14,
+    },
+    skipSelected: {
+      borderColor: colors.border,
+    },
+    skipText: {
+      color: colors.textMuted,
+      fontFamily: fonts.sans.medium,
+      fontSize: 15,
+    },
+    skipTextSelected: {
+      color: colors.text,
     },
     statusRow: {
       alignItems: "center",
@@ -915,10 +1217,26 @@ const makeStyles = (colors: Colors) =>
       flexWrap: "wrap",
       gap: 8,
     },
+    step: {
+      gap: 0,
+    },
+    timingRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 4,
+    },
+    timing: {
+      color: colors.textMuted,
+      flexShrink: 1,
+      fontFamily: fonts.sans.regular,
+      fontSize: 13,
+      fontVariant: ["tabular-nums"],
+    },
     title: {
       color: colors.text,
       fontFamily: fonts.sans.semiBold,
-      fontSize: 14,
-      lineHeight: 19,
+      fontSize: 18,
+      letterSpacing: -0.3,
+      lineHeight: 24,
     },
   });

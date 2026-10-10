@@ -7,6 +7,7 @@ import {
 } from "react";
 import {
   normalizeUserAskOptions,
+  normalizeUserAskQuestions,
   USER_ASK_FIELD_TYPES,
   USER_ASK_KINDS,
   USER_ASK_MAX_FIELDS,
@@ -109,19 +110,8 @@ const normalizeDetail = (
   const source = input as Record<string, unknown>;
   const detail = text(source.detail);
   if (kind === "question") {
-    const question = text(source.question);
-    const options = normalizeUserAskOptions(source.options);
-    if (!question || options.length === 0) return null;
-    const defaultChoiceId = text(source.defaultChoiceId);
-    return {
-      kind: "question",
-      question,
-      options,
-      ...(detail ? { detail } : {}),
-      ...(options.some((option) => option.id === defaultChoiceId)
-        ? { defaultChoiceId }
-        : {}),
-    };
+    const questions = normalizeUserAskQuestions(source);
+    return questions.length > 0 ? { kind: "question", questions } : null;
   }
   const purpose = text(source.purpose);
   const rawFields = Array.isArray(source.fields) ? source.fields : [];
@@ -388,21 +378,42 @@ export const useUserAskSync = (enabled: boolean) => {
   }, [active, available, live, liveDown, visible]);
 };
 
-export const useConversationUserAsk = (
+export type ConversationUserAsks = {
+  readonly questions: readonly UserAsk[];
+  readonly secureInput: UserAsk | null;
+  readonly focused: UserAsk | null;
+};
+
+const NO_CONVERSATION_ASKS: ConversationUserAsks = {
+  questions: EMPTY_ASKS,
+  secureInput: null,
+  focused: null,
+};
+
+export const useConversationUserAsks = (
   conversationId: string | null | undefined,
-): UserAsk | null => {
+): ConversationUserAsks => {
   const asks = useOpenUserAsks();
-  const focused = useFocusedUserAskId();
+  const focusedId = useFocusedUserAskId();
   return useMemo(() => {
-    const target = focused
-      ? asks.find((ask) => ask.askId === focused)
-      : undefined;
-    if (target) return target;
+    if (asks.length === 0) return NO_CONVERSATION_ASKS;
+    const focused = focusedId
+      ? (asks.find((ask) => ask.askId === focusedId) ?? null)
+      : null;
     const mine = asks.filter(
       (ask) => !ask.conversationId || ask.conversationId === conversationId,
     );
-    return mine[0] ?? asks[0] ?? null;
-  }, [asks, conversationId, focused]);
+    const pool = mine.length > 0 ? mine : asks;
+    const shown =
+      focused && !pool.includes(focused) ? [focused, ...pool] : pool;
+    const secureInputs = shown.filter((ask) => ask.kind === "secure_input");
+    return {
+      questions: shown.filter((ask) => ask.detail.kind === "question"),
+      secureInput:
+        focused?.kind === "secure_input" ? focused : (secureInputs[0] ?? null),
+      focused,
+    };
+  }, [asks, conversationId, focusedId]);
 };
 
 const deviceLabels = new Map<string, string>();

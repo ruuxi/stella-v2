@@ -19,17 +19,21 @@ import { redactSensitiveText } from "@stella/contracts/sensitive-data";
 import {
   DEFAULT_USER_ASK_ESCALATION_POLICY,
   USER_ASK_BLOCKING_TTL_MS,
-  USER_ASK_DEFAULT_TIMEOUT_MS,
   USER_ASK_ESCALATION_STEP_MS,
   USER_ASK_SCHEMA_VERSION,
   USER_ASK_SECRET_HANDLE_PREFIX,
   clampUrgency,
+  clampUserAskTimeoutMs,
   isUserAskSecretHandle,
   normalizeUserAskEscalationPolicy,
+  normalizeUserAskQuestions,
   userAskAcceptsAnswer,
-  userAskDefaultedNote,
+  userAskDefaultedResolution,
   userAskIsOpen,
-  withSomethingElseOption,
+  userAskQuestionsOf,
+  userAskReadableAnswers,
+  userAskTitleOf,
+  validateUserAskResponses,
 } from "@stella/contracts/user-ask";
 import { protectValue, unprotectValue } from "@stella/runtime/kernel/shared/protected-storage";
 import { writePrivateFileSync } from "@stella/runtime/kernel/shared/private-fs";
@@ -48,7 +52,6 @@ const SECURE_VALUES_FILE = "user-ask-secrets.json";
 const KEYCHAIN_FALLBACK_FILE = "user-ask-keychain.json";
 const SECRET_SCOPE_PREFIX = "user-ask-secret";
 const KEYCHAIN_SCOPE_PREFIX = "user-ask-keychain";
-const SOMETHING_ELSE_LABEL = "Something else";
 const COMMAND_PLACEHOLDER = "{{secret}}";
 const COMMAND_SECRET_ENV_VAR = "STELLA_SECRET";
 const COMMAND_TIMEOUT_MS = 2 * 60_000;
@@ -271,28 +274,19 @@ export class UserAskService {
             .sort((left, right) => left.createdAt - right.createdAt);
     }
     async askUser(request) {
-        const options = withSomethingElseOption(request.options ?? [], SOMETHING_ELSE_LABEL);
         const blocking = request.blocking === true;
-        const timeoutMs = blocking
-            ? null
-            : typeof request.timeoutMs === "number" && Number.isFinite(request.timeoutMs)
-                ? request.timeoutMs
-                : USER_ASK_DEFAULT_TIMEOUT_MS;
-        const defaultChoiceId = options.some((option) => option.id === request.defaultChoiceId)
-            ? request.defaultChoiceId
-            : options[0]?.id;
+        const timeoutMs = blocking ? null : clampUserAskTimeoutMs(request.timeoutMs);
+        const questions = normalizeUserAskQuestions({ questions: request.questions ?? [] })
+            .map(({ defaultChoiceId, ...question }) => blocking || !defaultChoiceId ? question : { ...question, defaultChoiceId });
+        if (questions.length === 0) {
+            throw new Error("An ask needs at least one question.");
+        }
         return await this.open({
             request,
             blocking,
             timeoutMs,
             kind: "question",
-            detail: {
-                kind: "question",
-                question: request.question,
-                ...(request.detail ? { detail: request.detail } : {}),
-                options,
-                ...(defaultChoiceId ? { defaultChoiceId } : {}),
-            },
+            detail: { kind: "question", questions },
         });
     }
     async requestSecureInput(request) {
@@ -367,23 +361,9 @@ export class UserAskService {
         if (!record || record.ask.state !== "pending") {
             return;
         }
-        const detail = record.ask.detail;
-        const choiceId = detail.kind === "question"
-            ? detail.defaultChoiceId ?? detail.options[0]?.id ?? ""
-            : "";
-        const choiceLabel = detail.kind === "question"
-            ? detail.options.find((option) => option.id === choiceId)?.label ?? choiceId
-            : "";
         this.escalation.stop(askId);
         this.updateAsk(askId, { state: "defaulted" });
-        this.pending.resolve(askId, {
-            outcome: "defaulted",
-            askId,
-            choiceId,
-            choiceLabel,
-            defaultedAt: Date.now(),
-            note: userAskDefaultedNote(choiceLabel),
-        });
+        this.pending.resolve(askId, userAskDefaultedResolution(askId, record.ask.detail, Date.now()));
     }
     expire(askId) {
         const record = this.asks.get(askId);
@@ -479,19 +459,12 @@ export class UserAskService {
     async buildAnsweredResolution(record, payload, late) {
         const answeredAt = Date.now();
         const askId = record.ask.askId;
-        if (payload?.kind === "choice") {
-            const detail = record.ask.detail;
-            const choiceId = typeof payload.choiceId === "string" ? payload.choiceId : "";
-            if (detail.kind !== "question" ||
-                !detail.options.some((option) => option.id === choiceId)) {
-                throw new Error("That is not one of the offered options.");
-            }
-            const text = typeof payload.text === "string" ? payload.text.trim().slice(0, 2000) : "";
+        if (payload?.kind === "questions") {
+            const responses = validateUserAskResponses(record.ask.detail, payload.responses);
             return {
                 outcome: "answered",
                 askId,
-                choiceId,
-                ...(text ? { text } : {}),
+                responses,
                 answeredAt,
                 ...(late ? { late: true } : {}),
             };
@@ -559,13 +532,14 @@ export class UserAskService {
             };
         }
         const detail = record.ask.detail;
-        const title = detail.kind === "question" ? detail.question : detail.purpose;
+        const title = userAskTitleOf(detail);
         const body = {
             outcome: "answered",
             late: true,
             askId: record.ask.askId,
-            ...(answered.choiceId ? { choice: answered.choiceId } : {}),
-            ...(answered.text ? { text: answered.text } : {}),
+            ...(answered.responses
+                ? { answers: userAskReadableAnswers(userAskQuestionsOf(detail), answered.responses) }
+                : {}),
             ...(answered.values ? { values: answered.values } : {}),
             ...(answered.handles ? { handles: answered.handles } : {}),
         };
@@ -733,7 +707,7 @@ export class UserAskService {
     async applyEscalationLevel(ask, level, { policy, quietHours, nextEscalationAt }) {
         const detail = ask.detail;
         const title = detail.kind === "question" ? "Stella needs an answer" : "Stella needs a value";
-        const body = detail.kind === "question" ? detail.question : detail.purpose;
+        const body = userAskTitleOf(detail);
         if (level >= 2) {
             const withSound = level >= 3 && policy.soundEnabled && !quietHours;
             showStellaNotification(this.options.notificationContext, {

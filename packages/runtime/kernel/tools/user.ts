@@ -1,29 +1,25 @@
 import {
   USER_ASK_MAX_FIELDS,
   USER_ASK_MAX_OPTIONS,
-  USER_ASK_MAX_TIMEOUT_MS,
   USER_ASK_MIN_OPTIONS,
-  USER_ASK_MIN_TIMEOUT_MS,
-  USER_ASK_DEFAULT_TIMEOUT_MS,
   USER_ASK_FIELD_TYPES,
-  USER_ASK_SOMETHING_ELSE_OPTION_ID,
   clampUrgency,
+  clampUserAskTimeoutMs,
   normalizeUserAskOptions,
+  normalizeUserAskQuestions,
+  userAskReadableAnswers,
   type SecureValueTarget,
   type SecureValueUseReceipt,
   type UserAskField,
   type UserAskFieldType,
-  type UserAskOption,
+  type UserAskQuestion,
   type UserAskResolution,
   type UserAskUrgencyLevel,
 } from "@stella/contracts/user-ask";
 import type { ToolContext, ToolResult } from "./types.js";
 
 export type AskUserRequest = {
-  question: string;
-  detail?: string;
-  options: readonly UserAskOption[];
-  defaultChoiceId?: string;
+  questions: readonly UserAskQuestion[];
   timeoutMs?: number;
   blocking: boolean;
   urgency: UserAskUrgencyLevel;
@@ -76,13 +72,17 @@ const contextFields = (
   };
 };
 
-const resolutionToResult = (resolution: UserAskResolution): ToolResult => {
+const resolutionToResult = (
+  resolution: UserAskResolution,
+  questions: readonly UserAskQuestion[] = [],
+): ToolResult => {
   if (resolution.outcome === "answered") {
     return {
       result: {
         outcome: "answered",
-        ...(resolution.choiceId ? { choice: resolution.choiceId } : {}),
-        ...(resolution.text ? { text: resolution.text } : {}),
+        ...(resolution.responses
+          ? { answers: userAskReadableAnswers(questions, resolution.responses) }
+          : {}),
         ...(resolution.values ? { values: resolution.values } : {}),
         ...(resolution.handles ? { handles: resolution.handles } : {}),
         ...(resolution.late ? { late: true } : {}),
@@ -93,8 +93,7 @@ const resolutionToResult = (resolution: UserAskResolution): ToolResult => {
     return {
       result: {
         outcome: "defaulted",
-        choice: resolution.choiceId,
-        choiceLabel: resolution.choiceLabel,
+        answers: userAskReadableAnswers(questions, resolution.responses),
         note: resolution.note,
         tellTheUser: resolution.note,
       },
@@ -110,14 +109,7 @@ const normalizeTimeout = (
   blocking: boolean,
 ): number | undefined => {
   if (blocking) return undefined;
-  const numeric = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) {
-    return USER_ASK_DEFAULT_TIMEOUT_MS;
-  }
-  return Math.min(
-    USER_ASK_MAX_TIMEOUT_MS,
-    Math.max(USER_ASK_MIN_TIMEOUT_MS, Math.round(numeric)),
-  );
+  return clampUserAskTimeoutMs(value);
 };
 
 export const handleAskUser = async (
@@ -128,44 +120,40 @@ export const handleAskUser = async (
   if (!config.askUser) {
     return { error: "Asking the user is not supported on this device." };
   }
-  const question = text(args.question, 500);
-  if (!question) return { error: "question is required." };
-
-  const options = normalizeUserAskOptions(args.options);
-  if (options.length < USER_ASK_MIN_OPTIONS) {
+  const questions = normalizeUserAskQuestions(args);
+  if (questions.length === 0) return { error: "questions is required." };
+  const thin = questions.find(
+    (question) => question.options.length < USER_ASK_MIN_OPTIONS,
+  );
+  if (thin) {
     return {
-      error: `Give between ${USER_ASK_MIN_OPTIONS} and ${USER_ASK_MAX_OPTIONS} concrete options. "Something else" is added for you.`,
+      error: `Give "${thin.question}" between ${USER_ASK_MIN_OPTIONS} and ${USER_ASK_MAX_OPTIONS} concrete options. The user can always type their own answer or skip.`,
     };
   }
 
   const blocking = args.blocking === true;
-  const requestedDefault = text(args.default_choice ?? args.defaultChoice, 64);
-  const defaultChoiceId = options.some((option) => option.id === requestedDefault)
-    ? requestedDefault
-    : undefined;
-
-  if (!blocking && !defaultChoiceId) {
-    return {
-      error:
-        "A timed ask needs default_choice set to one of your option ids, so the work can continue without an answer. Use blocking only for hard-to-undo actions.",
-    };
+  if (!blocking) {
+    const missing = questions.find(
+      (question) => question.defaultChoiceId === undefined,
+    );
+    if (missing) {
+      return {
+        error: `A timed ask needs default_choice on every question, set to one of its option ids, so the work can continue without an answer ("${missing.question}" has none). Use blocking only for hard-to-undo actions.`,
+      };
+    }
   }
 
-  const detail = text(args.detail, 1000);
   const timeoutMs = normalizeTimeout(args.timeout_ms ?? args.timeoutMs, blocking);
 
   try {
     const resolution = await config.askUser({
-      question,
-      ...(detail ? { detail } : {}),
-      options,
-      ...(defaultChoiceId ? { defaultChoiceId } : {}),
+      questions,
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
       blocking,
       urgency: clampUrgency(args.urgency),
       ...contextFields(context, args),
     });
-    return resolutionToResult(resolution);
+    return resolutionToResult(resolution, questions);
   } catch (error) {
     return { error: (error as Error).message || "The ask failed." };
   }
@@ -313,5 +301,3 @@ export const handleUseSecureValue = async (
     };
   }
 };
-
-export const SOMETHING_ELSE_OPTION_ID = USER_ASK_SOMETHING_ELSE_OPTION_ID;

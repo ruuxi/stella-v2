@@ -1467,8 +1467,6 @@
       "cantRightNow": "Ahora no puedo",
       "deadline": "Quedan {time}",
       "deadlinePassed": "Se acabó el tiempo",
-      "deadlineWithDefault": "Quedan {time} — si no, «{option}»",
-      "defaultOption": "Predeterminado",
       "hideSecret": "Ocultar {label}",
       "missingFields": "Completa todos los campos obligatorios.",
       "notification": {
@@ -1481,14 +1479,11 @@
       "plain": "Se envía como texto normal",
       "revealSecret": "Mostrar {label}",
       "sealFailed": "No se pudo cifrar eso en este dispositivo.",
-      "send": "Enviar",
       "sendSecurely": "Enviar de forma segura",
       "sending": "Enviando…",
       "sensitive": "Cifrado de extremo a extremo",
       "sensitiveToggleA11y": "Cifrar {label}",
       "sensitiveUnavailable": "Este dispositivo aún no puede cifrarlo",
-      "somethingElse": "Otra cosa",
-      "somethingElsePlaceholder": "Dile a Stella qué hacer en su lugar",
       "unnamedComputer": "Ordenador · {id}",
       "waitingBadge": "Te está esperando"
     }
@@ -2754,8 +2749,7 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "Quedan {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
@@ -2765,11 +2759,16 @@
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Usar esta respuesta",
+      "default": "Predeterminada",
+      "next": "Pregunta siguiente",
+      "previous": "Pregunta anterior",
+      "progress": "{current} de {total}",
+      "sending": "Enviando…",
+      "skip": "Omitir",
+      "skipped": "Omitida",
+      "somethingElse": "Otra cosa",
+      "submit": "Enviar"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

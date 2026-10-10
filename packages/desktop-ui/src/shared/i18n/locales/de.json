@@ -1457,8 +1457,6 @@
       "cantRightNow": "Gerade nicht",
       "deadline": "Noch {time}",
       "deadlinePassed": "Zeit ist um",
-      "deadlineWithDefault": "Noch {time} — sonst „{option}“",
-      "defaultOption": "Standard",
       "hideSecret": "{label} verbergen",
       "missingFields": "Fülle alle erforderlichen Felder aus.",
       "notification": {
@@ -1471,14 +1469,11 @@
       "plain": "Wird im Klartext gesendet",
       "revealSecret": "{label} anzeigen",
       "sealFailed": "Das ließ sich auf diesem Gerät nicht verschlüsseln.",
-      "send": "Senden",
       "sendSecurely": "Sicher senden",
       "sending": "Wird gesendet…",
       "sensitive": "Ende-zu-Ende verschlüsselt",
       "sensitiveToggleA11y": "{label} verschlüsseln",
       "sensitiveUnavailable": "Dieses Gerät kann das noch nicht verschlüsseln",
-      "somethingElse": "Etwas anderes",
-      "somethingElsePlaceholder": "Sag Stella, was sie stattdessen tun soll",
       "unnamedComputer": "Computer · {id}",
       "waitingBadge": "Wartet auf dich"
     }
@@ -2736,8 +2731,7 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "Noch {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
@@ -2747,11 +2741,16 @@
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Diese Antwort verwenden",
+      "default": "Standard",
+      "next": "Nächste Frage",
+      "previous": "Vorherige Frage",
+      "progress": "{current} von {total}",
+      "sending": "Wird gesendet…",
+      "skip": "Überspringen",
+      "skipped": "Übersprungen",
+      "somethingElse": "Etwas anderes",
+      "submit": "Senden"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

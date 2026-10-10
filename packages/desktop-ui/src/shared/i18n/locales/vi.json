@@ -1447,8 +1447,6 @@
       "cantRightNow": "Chưa được lúc này",
       "deadline": "Còn {time}",
       "deadlinePassed": "Đã hết thời gian",
-      "deadlineWithDefault": "Còn {time} — nếu không sẽ chọn “{option}”",
-      "defaultOption": "Mặc định",
       "hideSecret": "Ẩn {label}",
       "missingFields": "Hãy điền mọi trường bắt buộc.",
       "notification": {
@@ -1461,14 +1459,11 @@
       "plain": "Gửi dưới dạng văn bản thường",
       "revealSecret": "Hiện {label}",
       "sealFailed": "Không mã hóa được trên thiết bị này.",
-      "send": "Gửi",
       "sendSecurely": "Gửi an toàn",
       "sending": "Đang gửi…",
       "sensitive": "Mã hóa đầu cuối",
       "sensitiveToggleA11y": "Mã hóa {label}",
       "sensitiveUnavailable": "Thiết bị này chưa thể mã hóa nội dung đó",
-      "somethingElse": "Việc khác",
-      "somethingElsePlaceholder": "Cho Stella biết nên làm gì thay vào đó",
       "unnamedComputer": "Máy tính · {id}",
       "waitingBadge": "Đang chờ bạn"
     }
@@ -2716,8 +2711,7 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "Còn {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
@@ -2727,11 +2721,16 @@
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Dùng câu trả lời này",
+      "default": "Mặc định",
+      "next": "Câu hỏi tiếp theo",
+      "previous": "Câu hỏi trước",
+      "progress": "{current}/{total}",
+      "sending": "Đang gửi…",
+      "skip": "Bỏ qua",
+      "skipped": "Đã bỏ qua",
+      "somethingElse": "Khác",
+      "submit": "Gửi"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

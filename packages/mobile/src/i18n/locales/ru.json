@@ -1477,8 +1477,6 @@
       "cantRightNow": "Сейчас не могу",
       "deadline": "Осталось {time}",
       "deadlinePassed": "Время истекло",
-      "deadlineWithDefault": "Осталось {time} — иначе «{option}»",
-      "defaultOption": "По умолчанию",
       "hideSecret": "Скрыть {label}",
       "missingFields": "Заполните все обязательные поля.",
       "notification": {
@@ -1491,14 +1489,11 @@
       "plain": "Отправляется открытым текстом",
       "revealSecret": "Показать {label}",
       "sealFailed": "Не удалось зашифровать это на устройстве.",
-      "send": "Отправить",
       "sendSecurely": "Отправить безопасно",
       "sending": "Отправка…",
       "sensitive": "Сквозное шифрование",
       "sensitiveToggleA11y": "Шифровать {label}",
       "sensitiveUnavailable": "Это устройство пока не может это зашифровать",
-      "somethingElse": "Другое",
-      "somethingElsePlaceholder": "Скажите Stella, что сделать вместо этого",
       "unnamedComputer": "Компьютер · {id}",
       "waitingBadge": "Ждёт вас"
     }
@@ -2772,8 +2767,7 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "Осталось {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
@@ -2783,11 +2777,16 @@
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Использовать этот ответ",
+      "default": "По умолчанию",
+      "next": "Следующий вопрос",
+      "previous": "Предыдущий вопрос",
+      "progress": "{current} из {total}",
+      "sending": "Отправка…",
+      "skip": "Пропустить",
+      "skipped": "Пропущено",
+      "somethingElse": "Другое",
+      "submit": "Отправить"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

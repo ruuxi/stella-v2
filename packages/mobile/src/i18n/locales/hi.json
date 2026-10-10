@@ -1457,8 +1457,6 @@
       "cantRightNow": "अभी नहीं",
       "deadline": "{time} बाकी",
       "deadlinePassed": "समय ख़त्म",
-      "deadlineWithDefault": "{time} बाकी — वरना “{option}”",
-      "defaultOption": "डिफ़ॉल्ट",
       "hideSecret": "{label} छिपाएं",
       "missingFields": "सभी आवश्यक फ़ील्ड भरें।",
       "notification": {
@@ -1471,14 +1469,11 @@
       "plain": "सादे टेक्स्ट में भेजा जाएगा",
       "revealSecret": "{label} दिखाएं",
       "sealFailed": "इस डिवाइस पर इसे एन्क्रिप्ट नहीं कर सके।",
-      "send": "भेजें",
       "sendSecurely": "सुरक्षित भेजें",
       "sending": "भेज रहे हैं…",
       "sensitive": "एंड-टू-एंड एन्क्रिप्टेड",
       "sensitiveToggleA11y": "{label} एन्क्रिप्ट करें",
       "sensitiveUnavailable": "यह डिवाइस इसे अभी एन्क्रिप्ट नहीं कर सकता",
-      "somethingElse": "कुछ और",
-      "somethingElsePlaceholder": "Stella को बताएं कि इसके बजाय क्या करना है",
       "unnamedComputer": "कंप्यूटर · {id}",
       "waitingBadge": "आपका इंतज़ार है"
     }
@@ -2736,8 +2731,7 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "{time} बाकी"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
@@ -2747,11 +2741,16 @@
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "यह उत्तर इस्तेमाल करें",
+      "default": "डिफ़ॉल्ट",
+      "next": "अगला प्रश्न",
+      "previous": "पिछला प्रश्न",
+      "progress": "{total} में से {current}",
+      "sending": "भेजा जा रहा है…",
+      "skip": "छोड़ें",
+      "skipped": "छोड़ा गया",
+      "somethingElse": "कुछ और",
+      "submit": "भेजें"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

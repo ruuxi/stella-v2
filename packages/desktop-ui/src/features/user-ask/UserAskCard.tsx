@@ -1,23 +1,11 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type FormEvent,
-} from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type {
   UserAsk,
   UserAskAnswerFieldValue,
   UserAskField,
-  UserAskOption,
-  UserAskQuestionDetail,
   UserAskSecureInputDetail,
 } from "@stella/contracts/user-ask";
-import {
-  USER_ASK_SOMETHING_ELSE_OPTION_ID,
-  withSomethingElseOption,
-} from "@stella/contracts/user-ask";
-import { AlertCircle, CircleQuestionMark, Clock, Eye, Lock } from "@/ui/icons";
+import { AlertCircle, Clock, Eye, Lock } from "@/ui/icons";
 import { Button } from "@/ui/button";
 import { Select } from "@/ui/select";
 import { TextField } from "@/ui/text-field";
@@ -27,33 +15,11 @@ import {
   setUserAskFieldSensitive,
   useUserAskRemainingMs,
 } from "./user-ask-store";
+import { formatRemaining } from "./format-remaining";
 import "./user-ask-card.css";
-
-type Translate = ReturnType<typeof useT>;
-
-const formatRemaining = (remainingMs: number): string => {
-  const totalSeconds = Math.max(0, Math.round(remainingMs / 1000));
-  if (totalSeconds >= 3600) {
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    return `${hours}:${String(minutes).padStart(2, "0")}:00`;
-  }
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${String(seconds).padStart(2, "0")}`;
-};
 
 const inputTypeForField = (field: UserAskField): string =>
   field.type === "secret" ? "password" : "text";
-
-const questionOptions = (
-  detail: UserAskQuestionDetail,
-  t: Translate,
-): readonly UserAskOption[] =>
-  withSomethingElseOption(
-    detail.options,
-    t("userAsk.question.somethingElse"),
-  );
 
 function UserAskHeader({
   ask,
@@ -68,134 +34,33 @@ function UserAskHeader({
   const remainingMs = useUserAskRemainingMs(
     ask.blocking ? undefined : ask.deadlineAt,
   );
-  const askDetail = ask.detail;
-  const isQuestion = askDetail.kind === "question";
-  const defaultOption =
-    askDetail.kind === "question"
-      ? askDetail.options.find(
-          (option) => option.id === askDetail.defaultChoiceId,
-        )
-      : undefined;
-
   const timing = ask.blocking
     ? t("userAsk.blocking")
     : remainingMs === null
       ? null
-      : defaultOption
-        ? remainingMs === 0
-          ? t("userAsk.deadline.continuesNow", { option: defaultOption.label })
-          : t("userAsk.deadline.continues", {
-              option: defaultOption.label,
-              time: formatRemaining(remainingMs),
-            })
-        : remainingMs === 0
-          ? t("userAsk.deadline.closing")
-          : t("userAsk.deadline.closes", { time: formatRemaining(remainingMs) });
+      : remainingMs === 0
+        ? t("userAsk.deadline.closing")
+        : t("userAsk.deadline.closes", { time: formatRemaining(remainingMs) });
 
   return (
     <div className="user-ask__head">
       <span className="user-ask__icon" aria-hidden="true">
-        {isQuestion ? <CircleQuestionMark size={15} /> : <Lock size={15} />}
+        <Lock size={16} />
       </span>
       <div className="user-ask__heading">
         <p className="user-ask__eyebrow">
-          {ask.agentLabel ??
-            t(
-              isQuestion
-                ? "userAsk.eyebrow.question"
-                : "userAsk.eyebrow.secureInput",
-            )}
+          {ask.agentLabel ?? t("userAsk.eyebrow.secureInput")}
         </p>
-        <p className="user-ask__title">{title}</p>
+        <h3 className="user-ask__title">{title}</h3>
         {detail ? <p className="user-ask__detail">{detail}</p> : null}
       </div>
       {timing ? (
         <span
           className={`user-ask__timing${ask.blocking ? " user-ask__timing--blocking" : ""}`}
         >
-          {ask.blocking ? null : <Clock size={12} aria-hidden="true" />}
+          {ask.blocking ? null : <Clock size={13} aria-hidden="true" />}
           {timing}
         </span>
-      ) : null}
-    </div>
-  );
-}
-
-function UserAskQuestionBody({
-  detail,
-  busy,
-  onAnswer,
-}: {
-  detail: UserAskQuestionDetail;
-  busy: boolean;
-  onAnswer: (choiceId: string, text?: string) => void;
-}) {
-  const t = useT();
-  const [freeTextOpen, setFreeTextOpen] = useState(false);
-  const [freeText, setFreeText] = useState("");
-  const options = useMemo(() => questionOptions(detail, t), [detail, t]);
-
-  return (
-    <div className="user-ask__body">
-      <div className="user-ask__options" role="group">
-        {options.map((option) => {
-          const isSomethingElse =
-            option.id === USER_ASK_SOMETHING_ELSE_OPTION_ID;
-          const isDefault = option.id === detail.defaultChoiceId;
-          return (
-            <Button
-              key={option.id}
-              type="button"
-              variant={isDefault ? "primary" : "ghost"}
-              className={`pill-btn${isDefault ? " pill-btn--primary" : ""} user-ask__option`}
-              disabled={busy}
-              aria-pressed={isSomethingElse ? freeTextOpen : undefined}
-              title={option.hint}
-              onClick={() => {
-                if (isSomethingElse) {
-                  setFreeTextOpen((open) => !open);
-                  return;
-                }
-                onAnswer(option.id);
-              }}
-            >
-              {option.label}
-            </Button>
-          );
-        })}
-      </div>
-      {freeTextOpen ? (
-        <form
-          className="user-ask__free-text"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const text = freeText.trim();
-            if (!text) return;
-            onAnswer(USER_ASK_SOMETHING_ELSE_OPTION_ID, text);
-          }}
-        >
-          <TextField
-            label={t("userAsk.question.somethingElseLabel")}
-            placeholder={t("userAsk.question.somethingElsePlaceholder")}
-            value={freeText}
-            onChange={(event) => setFreeText(event.target.value)}
-            autoFocus
-            multiline
-            rows={2}
-          />
-          <div className="user-ask__actions">
-            <Button
-              type="submit"
-              variant="primary"
-              className="pill-btn pill-btn--primary"
-              disabled={busy || !freeText.trim()}
-            >
-              {busy
-                ? t("userAsk.question.sending")
-                : t("userAsk.question.send")}
-            </Button>
-          </div>
-        </form>
       ) : null}
     </div>
   );
@@ -400,24 +265,27 @@ function UserAskSecureInputBody({
   );
 }
 
-export function UserAskCard({ ask }: { ask: UserAsk }) {
+export function UserAskSecureInputCard({
+  ask,
+  detail,
+}: {
+  ask: UserAsk;
+  detail: UserAskSecureInputDetail;
+}) {
   const t = useT();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const send = useCallback(
-    async (
-      payload:
-        | { kind: "choice"; choiceId: string; text?: string }
-        | { kind: "fields"; fields: readonly UserAskAnswerFieldValue[] },
-    ) => {
+    async (fields: readonly UserAskAnswerFieldValue[]) => {
       if (busy) return;
       setBusy(true);
       setError(null);
       const ok = await answerUserAsk({
         askId: ask.askId,
         revision: ask.revision,
-        ...payload,
+        kind: "fields",
+        fields,
       });
       if (!ok) {
         setError(t("userAsk.errors.answer"));
@@ -427,40 +295,23 @@ export function UserAskCard({ ask }: { ask: UserAsk }) {
     [ask.askId, ask.revision, busy, t],
   );
 
-  const title =
-    ask.detail.kind === "question" ? ask.detail.question : ask.detail.purpose;
-
   return (
     <section
       className="user-ask"
       data-ask-id={ask.askId}
-      data-ask-kind={ask.detail.kind}
+      data-ask-kind="secure_input"
       aria-live="polite"
     >
-      <UserAskHeader ask={ask} title={title} detail={ask.detail.detail} />
-      {ask.detail.kind === "question" ? (
-        <UserAskQuestionBody
-          detail={ask.detail}
-          busy={busy}
-          onAnswer={(choiceId, text) =>
-            void send({
-              kind: "choice",
-              choiceId,
-              ...(text ? { text } : {}),
-            })
-          }
-        />
-      ) : (
-        <UserAskSecureInputBody
-          ask={ask}
-          detail={ask.detail}
-          busy={busy}
-          onAnswerFields={(fields) => void send({ kind: "fields", fields })}
-        />
-      )}
+      <UserAskHeader ask={ask} title={detail.purpose} detail={detail.detail} />
+      <UserAskSecureInputBody
+        ask={ask}
+        detail={detail}
+        busy={busy}
+        onAnswerFields={(fields) => void send(fields)}
+      />
       {error ? (
         <p className="user-ask__error" role="alert">
-          <AlertCircle size={12} aria-hidden="true" />
+          <AlertCircle size={13} aria-hidden="true" />
           {error}
         </p>
       ) : null}

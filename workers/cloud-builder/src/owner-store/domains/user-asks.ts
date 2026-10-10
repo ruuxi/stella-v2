@@ -1,27 +1,32 @@
 import {
   DEFAULT_USER_ASK_ESCALATION_POLICY,
   USER_ASK_BLOCKING_TTL_MS,
-  USER_ASK_DEFAULT_TIMEOUT_MS,
   USER_ASK_ESCALATION_STEP_MS,
   USER_ASK_FIELD_TYPES,
   USER_ASK_KINDS,
   USER_ASK_MAX_FIELDS,
   USER_ASK_MAX_OPTIONS,
   USER_ASK_MAX_PER_HOUR_LIMIT,
-  USER_ASK_MAX_TIMEOUT_MS,
+  USER_ASK_MAX_QUESTIONS,
+  USER_ASK_MAX_RESPONSE_TEXT,
+  USER_ASK_RESPONSE_KINDS,
   USER_ASK_MIN_OPTIONS,
-  USER_ASK_MIN_TIMEOUT_MS,
   USER_ASK_PUSH_CATEGORY,
   USER_ASK_PUSH_KIND,
   USER_ASK_SCHEMA_VERSION,
   USER_ASK_SEAL_ALGORITHM,
   clampUrgency,
+  clampUserAskTimeoutMs,
   effectiveEscalationCeiling,
   nextEscalationLevel,
   normalizeUserAskEscalationPolicy,
+  normalizeUserAskQuestions,
   toUserAskSummary,
   userAskAcceptsAnswer,
+  userAskHasDefaults,
   userAskIsOpen,
+  userAskTitleOf,
+  validateUserAskResponses,
   type UserAsk,
   type UserAskAnswer,
   type UserAskAnswerFieldValue,
@@ -29,8 +34,8 @@ import {
   type UserAskEscalationPolicy,
   type UserAskField,
   type UserAskKind,
-  type UserAskOption,
   type UserAskPushPayload,
+  type UserAskQuestionResponse,
   type UserAskRecipientKey,
   type UserAskSealedValue,
   type UserAskState,
@@ -149,6 +154,11 @@ export const USER_ASKS_ANSWER_REVISION_MIGRATION = {
   statements: [`ALTER TABLE user_ask_answers ADD COLUMN answer_revision INTEGER`],
 };
 
+export const USER_ASKS_QUESTION_RESPONSES_MIGRATION = {
+  id: "userAsks.4-question-responses",
+  statements: [`ALTER TABLE user_ask_answers ADD COLUMN responses TEXT`],
+};
+
 type AskRow = {
   ask_id: string;
   kind: string;
@@ -182,6 +192,7 @@ type AnswerRow = {
   late: number;
   answered_at: number;
   answer_revision: number | null;
+  responses: string | null;
 };
 
 type StoredAnswer = {
@@ -264,8 +275,26 @@ const offsetFromLocalMinute = (
   return ((difference % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
 };
 
-const parseDetail = (row: AskRow): UserAskDetail =>
-  JSON.parse(row.detail) as UserAskDetail;
+const parseDetail = (row: AskRow): UserAskDetail => {
+  const stored = JSON.parse(row.detail) as UserAskDetail;
+  return stored.kind === "question"
+    ? { kind: "question", questions: normalizeUserAskQuestions(stored) }
+    : stored;
+};
+
+const legacyChoiceResponses = (
+  row: AnswerRow,
+  detail: UserAskDetail | null,
+): readonly UserAskQuestionResponse[] => {
+  const questionId =
+    detail?.kind === "question" ? (detail.questions[0]?.id ?? "q1") : "q1";
+  if (row.answer_text) {
+    return [{ questionId, kind: "text", text: row.answer_text }];
+  }
+  return row.choice_id
+    ? [{ questionId, kind: "option", choiceId: row.choice_id }]
+    : [{ questionId, kind: "skipped" }];
+};
 
 const rowToAsk = (row: AskRow): UserAsk => ({
   schemaVersion: USER_ASK_SCHEMA_VERSION,
@@ -305,6 +334,7 @@ const readAnswer = (db: OwnerDbReader, askId: string): StoredAnswer | null => {
     askId,
   );
   if (!row) return null;
+  const askRow = row.answer_kind === "fields" ? null : readRow(db, askId);
   const revision = row.answer_revision ?? 1;
   const answeredOnDeviceId = row.answered_on_device_id
     ? { answeredOnDeviceId: row.answered_on_device_id }
@@ -323,9 +353,10 @@ const readAnswer = (db: OwnerDbReader, askId: string): StoredAnswer | null => {
       : {
           askId: row.ask_id,
           revision,
-          kind: "choice",
-          choiceId: row.choice_id ?? "",
-          ...(row.answer_text ? { text: row.answer_text } : {}),
+          kind: "questions",
+          responses: row.responses
+            ? (JSON.parse(row.responses) as readonly UserAskQuestionResponse[])
+            : legacyChoiceResponses(row, askRow ? parseDetail(askRow) : null),
           ...answeredOnDeviceId,
         };
   return { answer, late: row.late === 1, answeredAt: row.answered_at };
@@ -410,13 +441,36 @@ const fieldParser = object({
   choices: optional(array(optionParser, { max: USER_ASK_MAX_OPTIONS })),
 });
 
-const questionDetailParser = object({
-  kind: literal("question"),
+const questionParser = object({
+  id: string({ min: 1, max: 64 }),
   question: string({ min: 1, max: 2_000 }),
   detail: optional(string({ max: 4_000 })),
   options: array(optionParser, { max: USER_ASK_MAX_OPTIONS }),
   defaultChoiceId: optional(string({ max: 64 })),
 });
+
+const questionDetailParser = object({
+  kind: literal("question"),
+  questions: array(questionParser, { max: USER_ASK_MAX_QUESTIONS }),
+});
+
+const legacyQuestionDetailParser = object({
+  kind: literal("question"),
+  question: string({ min: 1, max: 2_000 }),
+  detail: optional(string({ max: 4_000 })),
+  options: array(optionParser, { max: USER_ASK_MAX_OPTIONS + 1 }),
+  defaultChoiceId: optional(string({ max: 64 })),
+});
+
+const parseQuestionDetail = (raw: unknown) => {
+  if (raw && typeof raw === "object" && "questions" in raw) {
+    return questionDetailParser(raw, "detail");
+  }
+  return {
+    kind: "question" as const,
+    questions: normalizeUserAskQuestions(legacyQuestionDetailParser(raw, "detail")),
+  };
+};
 
 const secureInputDetailParser = object({
   kind: literal("secure_input"),
@@ -449,7 +503,7 @@ const registerParser = object({
   originDeviceId: string({ min: 1, max: 256 }),
   urgency: optional(number({ int: true, min: 1, max: 4 })),
   blocking: optional(boolean()),
-  timeoutMs: optional(number({ int: true, min: 0, max: USER_ASK_MAX_TIMEOUT_MS })),
+  timeoutMs: optional(number({ int: true, min: 0, max: USER_ASK_BLOCKING_TTL_MS })),
   localMinuteOfDay: optional(number({ int: true, min: 0, max: MINUTES_PER_DAY - 1 })),
   detail: json({ maxBytes: 32 * 1024 }),
   recipientKey: optional(recipientKeyParser),
@@ -471,6 +525,28 @@ const answerFieldParser: Parser<UserAskAnswerFieldValue> = (value, path = "") =>
   })(value, path);
 };
 
+const responseParser: Parser<UserAskQuestionResponse> = (value, path = "") => {
+  const kind = (value as { kind?: unknown } | null)?.kind;
+  if (kind === "option") {
+    return object({
+      questionId: string({ min: 1, max: 64 }),
+      kind: literal("option"),
+      choiceId: string({ min: 1, max: 64 }),
+    })(value, path);
+  }
+  if (kind === "text") {
+    return object({
+      questionId: string({ min: 1, max: 64 }),
+      kind: literal("text"),
+      text: string({ max: USER_ASK_MAX_RESPONSE_TEXT }),
+    })(value, path);
+  }
+  return object({
+    questionId: string({ min: 1, max: 64 }),
+    kind: literal(...USER_ASK_RESPONSE_KINDS),
+  })(value, path) as UserAskQuestionResponse;
+};
+
 const answerParser: Parser<UserAskAnswer> = (value, path = "") => {
   const kind = (value as { kind?: unknown } | null)?.kind;
   if (kind === "fields") {
@@ -485,9 +561,8 @@ const answerParser: Parser<UserAskAnswer> = (value, path = "") => {
   return object({
     askId: string({ min: 1, max: 128 }),
     revision: number({ int: true, min: 1 }),
-    kind: literal("choice"),
-    choiceId: string({ min: 1, max: 64 }),
-    text: optional(string({ max: MAX_PLAIN_VALUE })),
+    kind: literal("questions"),
+    responses: array(responseParser, { max: USER_ASK_MAX_QUESTIONS }),
     answeredOnDeviceId: optional(string({ max: 256 })),
   })(value, path);
 };
@@ -530,25 +605,34 @@ const validateDetail = (
   recipientKey: UserAskRecipientKey | undefined,
 ): UserAskDetail => {
   if (kind === "question") {
-    const detail = questionDetailParser(raw, "detail");
-    if (
-      detail.options.length < USER_ASK_MIN_OPTIONS ||
-      detail.options.length > USER_ASK_MAX_OPTIONS
-    ) {
-      throw new RpcError(
-        "BAD_REQUEST",
-        `A question needs between ${USER_ASK_MIN_OPTIONS} and ${USER_ASK_MAX_OPTIONS} options.`,
-      );
+    const detail = parseQuestionDetail(raw);
+    if (detail.questions.length === 0) {
+      throw new RpcError("BAD_REQUEST", "A question ask needs at least one question.");
     }
     uniqueIds(
-      detail.options.map((option) => option.id),
-      "option",
+      detail.questions.map((question) => question.id),
+      "question",
     );
-    if (
-      detail.defaultChoiceId !== undefined &&
-      !detail.options.some((option) => option.id === detail.defaultChoiceId)
-    ) {
-      throw new RpcError("BAD_REQUEST", "defaultChoiceId is not one of the options.");
+    for (const question of detail.questions) {
+      if (
+        question.options.length < USER_ASK_MIN_OPTIONS ||
+        question.options.length > USER_ASK_MAX_OPTIONS
+      ) {
+        throw new RpcError(
+          "BAD_REQUEST",
+          `A question needs between ${USER_ASK_MIN_OPTIONS} and ${USER_ASK_MAX_OPTIONS} options.`,
+        );
+      }
+      uniqueIds(
+        question.options.map((option) => option.id),
+        "option",
+      );
+      if (
+        question.defaultChoiceId !== undefined &&
+        !question.options.some((option) => option.id === question.defaultChoiceId)
+      ) {
+        throw new RpcError("BAD_REQUEST", "defaultChoiceId is not one of the options.");
+      }
     }
     return detail as UserAskDetail;
   }
@@ -577,9 +661,6 @@ const validateDetail = (
 const fieldsOf = (detail: UserAskDetail): readonly UserAskField[] =>
   detail.kind === "secure_input" ? detail.fields : [];
 
-const optionsOf = (detail: UserAskDetail): readonly UserAskOption[] =>
-  detail.kind === "question" ? detail.options : [];
-
 const sealedMatchesAsk = (
   sealed: UserAskSealedValue,
   recipientKey: UserAskRecipientKey | undefined,
@@ -588,15 +669,16 @@ const sealedMatchesAsk = (
   sealed.algorithm === recipientKey.algorithm &&
   sealed.keyId === recipientKey.keyId;
 
-const validateAnswer = (ask: UserAsk, answer: UserAskAnswer): void => {
-  if (answer.kind === "choice") {
-    if (ask.detail.kind !== "question") {
-      throw new RpcError("BAD_REQUEST", "This ask needs field values, not a choice.");
+const validateAnswer = (
+  ask: UserAsk,
+  answer: UserAskAnswer,
+): readonly UserAskQuestionResponse[] | null => {
+  if (answer.kind === "questions") {
+    try {
+      return validateUserAskResponses(ask.detail, answer.responses);
+    } catch (error) {
+      throw new RpcError("BAD_REQUEST", (error as Error).message);
     }
-    if (!optionsOf(ask.detail).some((option) => option.id === answer.choiceId)) {
-      throw new RpcError("BAD_REQUEST", "That choice is not one of this ask's options.");
-    }
-    return;
   }
   if (ask.detail.kind !== "secure_input") {
     throw new RpcError("BAD_REQUEST", "This ask needs a choice, not field values.");
@@ -643,12 +725,17 @@ const validateAnswer = (ask: UserAsk, answer: UserAskAnswer): void => {
       throw new RpcError("BAD_REQUEST", `${field.label} is required.`);
     }
   }
+  return null;
 };
 
 const pushCopy = (row: AskRow): { title: string; body: string } => {
   const detail = parseDetail(row);
   const who = row.agent_label ? `${row.agent_label} needs you` : "Stella needs you";
-  const text = detail.kind === "question" ? detail.question : detail.purpose;
+  const questions = detail.kind === "question" ? detail.questions.length : 0;
+  const text =
+    questions > 1
+      ? `${userAskTitleOf(detail)} (+${questions - 1} more)`
+      : userAskTitleOf(detail);
   return { title: who, body: text.slice(0, 240) };
 };
 
@@ -813,13 +900,9 @@ const registerAsk = (ctx: OwnerContext, args: RegisterArgs) => {
   }
   const detail = validateDetail(args.kind, args.detail, args.recipientKey);
   const blocking = args.blocking ?? false;
-  const timeout = Math.min(
-    USER_ASK_MAX_TIMEOUT_MS,
-    Math.max(USER_ASK_MIN_TIMEOUT_MS, args.timeoutMs ?? USER_ASK_DEFAULT_TIMEOUT_MS),
-  );
+  const timeout = clampUserAskTimeoutMs(args.timeoutMs);
   const urgency = clampUrgency(args.urgency ?? 1);
-  const hasDefault =
-    detail.kind === "question" && detail.defaultChoiceId !== undefined;
+  const hasDefault = !blocking && userAskHasDefaults(detail);
   const deadlineAt = ctx.now + timeout;
   const expiresAt = ctx.now + USER_ASK_BLOCKING_TTL_MS;
   ctx.db.run(
@@ -899,22 +982,21 @@ const answerAsk = (ctx: OwnerContext, askId: string, answer: UserAskAnswer) => {
     );
   }
   const ask = rowToAsk(row);
-  validateAnswer(ask, answer);
+  const responses = validateAnswer(ask, answer);
   const late = state === "defaulted";
   ctx.db.run(
     `INSERT INTO user_ask_answers
        (ask_id, answer_kind, choice_id, answer_text, fields, answered_on_device_id, late,
-        answered_at, answer_revision)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        answered_at, answer_revision, responses)
+     VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)`,
     askId,
     answer.kind,
-    answer.kind === "choice" ? answer.choiceId : null,
-    answer.kind === "choice" ? (answer.text ?? null) : null,
     answer.kind === "fields" ? JSON.stringify(answer.fields) : null,
     answer.answeredOnDeviceId ?? null,
     late ? 1 : 0,
     ctx.now,
     answer.revision,
+    responses ? JSON.stringify(responses) : null,
   );
   const closed = closeAsk(ctx, row, late ? "answered_late" : "answered");
   const stored = readAnswer(ctx.db, askId)!;
@@ -990,7 +1072,7 @@ const turnRegisterParser = object({
   agentLabel: optional(string({ max: 96 })),
   urgency: optional(number({ int: true, min: 1, max: 4 })),
   blocking: optional(boolean()),
-  timeoutMs: optional(number({ int: true, min: 0, max: USER_ASK_MAX_TIMEOUT_MS })),
+  timeoutMs: optional(number({ int: true, min: 0, max: USER_ASK_BLOCKING_TTL_MS })),
   detail: json({ maxBytes: 32 * 1024 }),
 });
 
@@ -1275,7 +1357,7 @@ const defaultAsk = (ctx: OwnerContext, payload: unknown): void => {
   if (!row || row.state !== "pending") return;
   if (row.deadline_at !== null && row.deadline_at > ctx.now) return;
   const detail = parseDetail(row);
-  if (detail.kind !== "question" || detail.defaultChoiceId === undefined) return;
+  if (!userAskHasDefaults(detail)) return;
   ctx.db.run(
     `UPDATE user_asks SET state = 'defaulted', revision = revision + 1,
        next_escalation_at = NULL, updated_at = ? WHERE ask_id = ?`,
@@ -1465,6 +1547,7 @@ export const userAsksDomain = {
     USER_ASKS_MIGRATION,
     USER_ASKS_POLICY_TIME_ZONE_MIGRATION,
     USER_ASKS_ANSWER_REVISION_MIGRATION,
+    USER_ASKS_QUESTION_RESPONSES_MIGRATION,
   ],
   calls: {
     "userAsks.policy": {

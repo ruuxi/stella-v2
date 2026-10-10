@@ -1497,8 +1497,6 @@
       "cantRightNow": "ليس الآن",
       "deadline": "بقي {time}",
       "deadlinePassed": "انتهى الوقت",
-      "deadlineWithDefault": "بقي {time} — وإلا فسيُختار «{option}»",
-      "defaultOption": "الافتراضي",
       "hideSecret": "إخفاء {label}",
       "missingFields": "أكمل كل الحقول المطلوبة.",
       "notification": {
@@ -1511,14 +1509,11 @@
       "plain": "يُرسل كنص عادي",
       "revealSecret": "إظهار {label}",
       "sealFailed": "تعذّر تشفير ذلك على هذا الجهاز.",
-      "send": "إرسال",
       "sendSecurely": "إرسال بشكل آمن",
       "sending": "جارٍ الإرسال…",
       "sensitive": "مشفّر من الطرف إلى الطرف",
       "sensitiveToggleA11y": "تشفير {label}",
       "sensitiveUnavailable": "لا يمكن لهذا الجهاز تشفيره بعد",
-      "somethingElse": "شيء آخر",
-      "somethingElsePlaceholder": "أخبر ستella بما تريده بدلاً من ذلك",
       "unnamedComputer": "كمبيوتر · {id}",
       "waitingBadge": "في انتظارك"
     }
@@ -2808,8 +2803,7 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "متبقٍ {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
@@ -2819,11 +2813,16 @@
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "استخدم هذه الإجابة",
+      "default": "الافتراضي",
+      "next": "السؤال التالي",
+      "previous": "السؤال السابق",
+      "progress": "{current} من {total}",
+      "sending": "جارٍ الإرسال…",
+      "skip": "تخطٍّ",
+      "skipped": "تم التخطي",
+      "somethingElse": "شيء آخر",
+      "submit": "إرسال"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

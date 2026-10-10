@@ -1467,8 +1467,6 @@
       "cantRightNow": "Nu acum",
       "deadline": "{time} rămase",
       "deadlinePassed": "Timpul a expirat",
-      "deadlineWithDefault": "{time} rămase — altfel „{option}”",
-      "defaultOption": "Implicit",
       "hideSecret": "Ascunde {label}",
       "missingFields": "Completează toate câmpurile obligatorii.",
       "notification": {
@@ -1481,14 +1479,11 @@
       "plain": "Trimis ca text simplu",
       "revealSecret": "Arată {label}",
       "sealFailed": "Nu s-a putut cripta pe acest dispozitiv.",
-      "send": "Trimite",
       "sendSecurely": "Trimite în siguranță",
       "sending": "Se trimite…",
       "sensitive": "Criptat cap-coadă",
       "sensitiveToggleA11y": "Criptează {label}",
       "sensitiveUnavailable": "Acest dispozitiv nu poate încă să cripteze asta",
-      "somethingElse": "Altceva",
-      "somethingElsePlaceholder": "Spune-i Stellei ce să facă în schimb",
       "unnamedComputer": "Calculator · {id}",
       "waitingBadge": "Te așteaptă"
     }
@@ -2754,8 +2749,7 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "Au mai rămas {time}"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
@@ -2765,11 +2759,16 @@
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Folosește acest răspuns",
+      "default": "Implicit",
+      "next": "Întrebarea următoare",
+      "previous": "Întrebarea anterioară",
+      "progress": "{current} din {total}",
+      "sending": "Se trimite…",
+      "skip": "Omite",
+      "skipped": "Omis",
+      "somethingElse": "Altceva",
+      "submit": "Trimite"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

@@ -1457,8 +1457,6 @@
       "cantRightNow": "Kan inte nu",
       "deadline": "{time} kvar",
       "deadlinePassed": "Tiden är ute",
-      "deadlineWithDefault": "{time} kvar — annars ”{option}”",
-      "defaultOption": "Standard",
       "hideSecret": "Dölj {label}",
       "missingFields": "Fyll i alla obligatoriska fält.",
       "notification": {
@@ -1471,14 +1469,11 @@
       "plain": "Skickas som vanlig text",
       "revealSecret": "Visa {label}",
       "sealFailed": "Kunde inte kryptera det på den här enheten.",
-      "send": "Skicka",
       "sendSecurely": "Skicka säkert",
       "sending": "Skickar…",
       "sensitive": "Krypterat hela vägen",
       "sensitiveToggleA11y": "Kryptera {label}",
       "sensitiveUnavailable": "Den här enheten kan inte kryptera det än",
-      "somethingElse": "Något annat",
-      "somethingElsePlaceholder": "Berätta för Stella vad som ska göras i stället",
       "unnamedComputer": "Dator · {id}",
       "waitingBadge": "Väntar på dig"
     }
@@ -2736,8 +2731,7 @@
     "deadline": {
       "closes": "Closes in {time}",
       "closing": "Closing now",
-      "continues": "Continues with “{option}” in {time}",
-      "continuesNow": "Continuing with “{option}”"
+      "remaining": "{time} kvar"
     },
     "errors": {
       "answer": "That didn't go through. Try again."
@@ -2747,11 +2741,16 @@
       "secureInput": "Stella needs a value from you"
     },
     "question": {
-      "send": "Send",
-      "sending": "Sending…",
-      "somethingElse": "Something else",
-      "somethingElseLabel": "What would you rather do?",
-      "somethingElsePlaceholder": "Tell Stella what to do instead"
+      "confirm": "Använd det här svaret",
+      "default": "Standard",
+      "next": "Nästa fråga",
+      "previous": "Föregående fråga",
+      "progress": "{current} av {total}",
+      "sending": "Skickar…",
+      "skip": "Hoppa över",
+      "skipped": "Överhoppad",
+      "somethingElse": "Något annat",
+      "submit": "Skicka"
     },
     "secureInput": {
       "choosePlaceholder": "Choose",

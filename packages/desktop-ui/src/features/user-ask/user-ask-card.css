@@ -403,17 +403,7 @@
   flex-direction: column;
   gap: 2px;
   min-width: 0;
-  padding: 9px 0;
-}
-
-.user-ask-record__item + .user-ask-record__item::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: min(100%, 3.5rem);
-  height: 1px;
-  background: color-mix(in oklch, var(--foreground) 12%, transparent);
+  padding: 6px 0;
 }
 
 .user-ask-record__question,

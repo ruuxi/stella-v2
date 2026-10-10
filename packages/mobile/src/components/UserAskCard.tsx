@@ -124,7 +124,6 @@ export function UserAskRecordView({ record }: { record: UserAskRecord }) {
     <View style={styles.record}>
       {record.answers.map((answer, index) => (
         <View key={`${record.id}:${index}`} style={styles.recordItem}>
-          {index > 0 ? <View style={styles.recordDivider} /> : null}
           <Text style={styles.recordQuestion}>{answer.question}</Text>
           <Text
             style={[
@@ -909,14 +908,6 @@ const makeStyles = (colors: Colors) =>
       paddingHorizontal: 14,
       paddingVertical: 3,
     },
-    recordDivider: {
-      backgroundColor: colors.border,
-      height: StyleSheet.hairlineWidth,
-      left: 0,
-      position: "absolute",
-      top: 0,
-      width: 48,
-    },
     recordAnswer: {
       color: colors.text,
       fontFamily: fonts.sans.medium,
@@ -930,7 +921,7 @@ const makeStyles = (colors: Colors) =>
     },
     recordItem: {
       gap: 2,
-      paddingVertical: 8,
+      paddingVertical: 6,
     },
     recordQuestion: {
       color: colors.textMuted,

@@ -4,6 +4,7 @@ import {
   installBrowserWorkerApi,
   type BrowserWorkerCall,
 } from "@stella/runtime/kernel/browser-use/worker-api";
+import { browserWorkerApiSource } from "@stella/runtime/kernel/browser-use/worker-api-source";
 
 type RecordedCall = {
   method: "command" | "chain";
@@ -330,9 +331,9 @@ describe("browser worker API", () => {
     });
   });
 
-  it("is self-contained when stringified and deeply freezes public roots", async () => {
+  it("is self-contained when bundled for the worker and deeply freezes public roots", async () => {
     const restored = (0, eval)(
-      `(${installBrowserWorkerApi.toString()})`,
+      browserWorkerApiSource(),
     ) as typeof installBrowserWorkerApi;
     const browser = restored(async (method, args) => {
       if (method === "command" && args[0] === "tab_list") {
@@ -628,10 +629,10 @@ describe("browser worker API", () => {
   });
 
   it("exposes enumerable method names so agents can introspect the frozen API", async () => {
-    // Run against the data-URL-restored function: introspection must survive
-    // stringification exactly like the rest of the worker API.
+    // Run against the bundled source the Node REPL worker evaluates:
+    // introspection must survive bundling like the rest of the worker API.
     const restored = (0, eval)(
-      `(${installBrowserWorkerApi.toString()})`,
+      browserWorkerApiSource(),
     ) as typeof installBrowserWorkerApi;
     const browser = restored(async () => ({ success: true, data: {} }));
     const tab = browser.tabs.get(9);

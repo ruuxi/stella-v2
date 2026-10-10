@@ -21,12 +21,15 @@
 
 import path from "node:path";
 import fs from "node:fs/promises";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import { AGENT_IDS } from "@stella/contracts/agent-runtime";
 import { BackendClient } from "@stella/contracts/backend/client";
 import {
   SHARE_MAX_HTML_BYTES,
   type SavedCanvasShare,
 } from "@stella/contracts/backend/shares";
+import { runToolEffect } from "../effect-runtime.js";
 import type { ToolDefinition } from "../types.js";
 import {
   HTML_TOOL_DESCRIPTION,
@@ -59,19 +62,15 @@ const saveCanvasLink = async (
     baseUrl: auth.baseUrl,
     getToken: async () => auth.authToken,
   });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      client.call("shares.save", args),
-      new Promise<null>((resolve) => {
-        timer = setTimeout(() => resolve(null), SAVE_LINK_TIMEOUT_MS);
-      }),
-    ]);
-  } catch {
-    return null;
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+  // The timeout is a sleeping fiber interrupted as soon as the save settles
+  // (no dangling timer); timing out or failing both fall back to no link.
+  return runToolEffect(
+    Effect.tryPromise(() => client.call("shares.save", args)).pipe(
+      Effect.timeoutOption(SAVE_LINK_TIMEOUT_MS),
+      Effect.map(Option.getOrNull),
+      Effect.orElseSucceed(() => null),
+    ),
+  );
 };
 
 export const createHtmlTool = (options: HtmlToolOptions): ToolDefinition => {
@@ -117,7 +116,9 @@ export const createHtmlTool = (options: HtmlToolOptions): ToolDefinition => {
           title,
           createdAt,
           bytes: Buffer.byteLength(html, "utf8"),
-          ...(link ? { shareUrl: link.url, shareVisibility: link.visibility } : {}),
+          ...(link
+            ? { shareUrl: link.url, shareVisibility: link.visibility }
+            : {}),
         },
       };
     },

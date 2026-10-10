@@ -35,7 +35,7 @@ import {
 // a manifest param (or the global tabId). finalize_tabs is deliberately
 // absent: it is top-level-only on the daemon and exposed as
 // browser.tabs.finalize() instead.
-const SAFE_ACTION_KEYS: Readonly<Record<string, readonly string[]>> =
+export const SAFE_ACTION_KEYS: Readonly<Record<string, readonly string[]>> =
   Object.freeze({
     navigate: ["tabId", "url", "waitUntil", "timeout"],
     back: ["tabId", "timeout"],

@@ -7,7 +7,7 @@ import {
   BROWSER_CHAIN_ACTIONS,
   BROWSER_PROTOCOL_ACTIONS,
 } from "@stella/runtime/kernel/browser-use/client";
-import { installBrowserWorkerApi } from "@stella/runtime/kernel/browser-use/worker-api";
+import { SAFE_ACTION_KEYS } from "@stella/runtime/kernel/browser-use/worker-api/chain";
 
 /**
  * Contract tests binding every JS layer of the browser vocabulary to the
@@ -19,10 +19,7 @@ import { installBrowserWorkerApi } from "@stella/runtime/kernel/browser-use/work
  */
 
 const MANIFEST_PATH = fileURLToPath(
-  new URL(
-    "../../../../stella-browser/protocol/actions.json",
-    import.meta.url,
-  ),
+  new URL("../../../../stella-browser/protocol/actions.json", import.meta.url),
 );
 
 type ManifestEntry = Readonly<{
@@ -48,37 +45,13 @@ const paramsOf = (action: string): Set<string> =>
   new Set(manifest.actions[action]?.params ?? []);
 
 /**
- * SAFE_ACTION_KEYS lives inside installBrowserWorkerApi so the function stays
- * self-contained for data-URL embedding; recover the literal from its source.
+ * The agent-facing chain vocabulary, as the worker API's chain validation
+ * (worker-api/chain.ts) enforces it.
  */
 const extractSafeActionKeys = (): Record<string, readonly string[]> => {
-  const source = installBrowserWorkerApi.toString();
-  const marker = source.indexOf("SAFE_ACTION_KEYS");
-  expect(marker).toBeGreaterThan(-1);
-  const open = source.indexOf("{", source.indexOf("Object.freeze(", marker));
-  expect(open).toBeGreaterThan(-1);
-  let depth = 0;
-  let end = -1;
-  for (let index = open; index < source.length; index += 1) {
-    const char = source[index];
-    if (char === "{") depth += 1;
-    if (char === "}") {
-      depth -= 1;
-      if (depth === 0) {
-        end = index;
-        break;
-      }
-    }
-  }
-  expect(end).toBeGreaterThan(open);
-  const literal = source.slice(open, end + 1);
-  const parsed = new Function(`return (${literal});`)() as Record<
-    string,
-    readonly string[]
-  >;
-  // Sanity: the extraction must have found the real table.
-  expect(Object.keys(parsed)).toContain("navigate");
-  return parsed;
+  // Sanity: this must be the real table.
+  expect(Object.keys(SAFE_ACTION_KEYS)).toContain("navigate");
+  return SAFE_ACTION_KEYS;
 };
 
 /**

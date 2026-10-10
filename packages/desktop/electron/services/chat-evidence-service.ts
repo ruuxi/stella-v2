@@ -33,6 +33,7 @@ import {
   stackTitleFor,
   type EvidenceSourceKind,
 } from "@stella/contracts/chat-evidence-naming";
+import { cloudWorldDrivePath } from "@stella/contracts/cloud-world-paths";
 
 const CACHE_DIRNAME = "chat-evidence";
 const CACHE_SCHEMA = "v1";
@@ -48,6 +49,7 @@ type SourceEntry = {
   byteSize: number;
   isDirectory: boolean;
   order: number;
+  elsewhere?: boolean;
 };
 
 type CardPlan =
@@ -132,7 +134,10 @@ const planCards = (entries: SourceEntry[]): CardPlan[] => {
   const stackable: EvidenceSourceKind[] = ["image", "video"];
   for (const sourceKind of stackable) {
     const group = entries.filter(
-      (entry) => entry.kind === sourceKind && !consumed.has(entry.filePath),
+      (entry) =>
+        entry.kind === sourceKind &&
+        !entry.elsewhere &&
+        !consumed.has(entry.filePath),
     );
     if (group.length < STACK_THRESHOLD) continue;
     for (const entry of group) consumed.add(entry.filePath);
@@ -186,6 +191,20 @@ const plainCard = (id: string, entry: SourceEntry): EvidenceCard => ({
   subtitle: `${plainKindLabel(entry.filePath)} · ${formatByteSize(entry.byteSize)}`,
   sourcePaths: [entry.filePath],
   byteSize: entry.byteSize,
+  extensionLabel: plainKindLabel(entry.filePath),
+});
+
+const elsewhereCard = (entry: SourceEntry): EvidenceCard => ({
+  id: `elsewhere:${createHash("sha1").update(entry.filePath).digest("hex").slice(0, 32)}`,
+  kind:
+    entry.kind === "page" || entry.kind === "table"
+      ? entry.kind
+      : entry.kind === "bundle" || entry.kind === "folder"
+        ? "bundle"
+        : "plain",
+  title: humanTitleFor(entry.filePath, entry.kind),
+  subtitle: plainKindLabel(entry.filePath),
+  sourcePaths: [entry.filePath],
   extensionLabel: plainKindLabel(entry.filePath),
 });
 
@@ -400,6 +419,9 @@ export const createChatEvidenceService = (options: {
   };
 
   const cardFor = async (plan: CardPlan): Promise<EvidenceCard> => {
+    if (plan.kind === "single" && plan.entry.elsewhere) {
+      return elsewhereCard(plan.entry);
+    }
     const cacheKey = await planCacheKey(plan);
     const cached = await readCached(cacheKey);
     if (cached) return cached;
@@ -431,7 +453,21 @@ export const createChatEvidenceService = (options: {
       const described = await Promise.all(
         unique.map((filePath, index) => describeSource(filePath, index)),
       );
-      const entries = described.filter((entry): entry is SourceEntry => entry !== null);
+      const entries = described.flatMap((entry, index): SourceEntry[] => {
+        if (entry) return [entry];
+        const filePath = unique[index] as string;
+        if (cloudWorldDrivePath(filePath) !== null) return [];
+        return [
+          {
+            filePath,
+            kind: evidenceSourceKind(filePath, false),
+            byteSize: 0,
+            isDirectory: false,
+            order: index,
+            elsewhere: true,
+          },
+        ];
+      });
       if (entries.length === 0) return { cards: [], overflowCount: 0 };
       const plans = planCards(entries);
       const shown = plans.slice(0, EVIDENCE_CARD_CAP);

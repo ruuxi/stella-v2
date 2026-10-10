@@ -1,5 +1,10 @@
 import type { AgentActivityEntry } from "@stella/contracts/conversation-agent-activity";
 import type { CloudAgentLifecycleCard } from "@stella/contracts/cloud-agent-lifecycle";
+import type {
+  JournalKind,
+  MessageRole,
+  TurnPhase,
+} from "@stella/contracts/conversation-protocol";
 /**
  * The conversation transcript's shared vocabulary: tuning constants, the wire
  * protocol's record and frame shapes, and the two interfaces that split the
@@ -11,8 +16,32 @@ import type { CloudAgentLifecycleCard } from "@stella/contracts/cloud-agent-life
  * `workers/cloud-builder` may hold a durable conversation fact.
  *
  * This module is the seam. It is written once and then frozen: both halves
- * import it, so an edit here is an edit to both.
+ * import it, so an edit here is an edit to both. The socket-facing constants,
+ * close codes and enums are the clients' own wire contract
+ * (`@stella/contracts/conversation-protocol`), re-exported here so the hub
+ * and the clients read one definition.
  */
+
+export {
+  BACKFILL_BATCH_RECORDS,
+  CLOSE_BAD_REQUEST,
+  CLOSE_DELETED,
+  CLOSE_FORBIDDEN,
+  CLOSE_FRAME_TOO_LARGE,
+  CLOSE_NOT_FOUND,
+  CLOSE_PROTOCOL_VERSION,
+  CLOSE_RATE_LIMITED,
+  CLOSE_TOO_MANY_SOCKETS,
+  CLOSE_UNAUTHENTICATED,
+  INITIAL_WINDOW_RECORDS,
+  MAX_RESUME_RECORDS,
+  PROTOCOL_VERSION,
+  RATE_BACKFILL_PER_MIN,
+  RE_AUTH_LEAD_MS,
+  SOCKET_STALE_MS,
+} from "@stella/contracts/conversation-protocol";
+export type { MessageRole, TurnPhase };
+export type JournalRecordKind = JournalKind;
 
 /**
  * 2 adds `spills.bytes`; 3 added owner-move object tracking (since removed);
@@ -24,7 +53,6 @@ import type { CloudAgentLifecycleCard } from "@stella/contracts/cloud-agent-life
  * rollover-surviving FTS5 table.
  */
 export const JOURNAL_SCHEMA_VERSION = 8;
-export const PROTOCOL_VERSION = 1;
 
 // ---------------------------------------------------------------------------
 // Residency / rollover
@@ -61,8 +89,6 @@ export const REPAIR_SCAN_ROW_CAP = 400;
 // Socket
 // ---------------------------------------------------------------------------
 
-export const INITIAL_WINDOW_RECORDS = 100;
-export const MAX_RESUME_RECORDS = 2_000;
 /**
  * How far behind a resuming client may be and still have its delta replayed
  * exactly. Beyond this the hub serves the newest window with `reset: "window"`.
@@ -74,7 +100,7 @@ export const MAX_RESUME_RECORDS = 2_000;
  * client is better served by landing on the latest window and pulling the rest
  * back through scrollback, which it already does for a compacted floor.
  */
-export const MAX_CATCH_UP_RECORDS = 300;
+export { MAX_CATCHUP_RESUME_RECORDS as MAX_CATCH_UP_RECORDS } from "@stella/contracts/conversation-protocol";
 /**
  * Hot rows one running-agent rebuild reads. The fold is cached in the object's
  * memory and carried forward by newly appended rows, so this scan runs once per
@@ -82,14 +108,10 @@ export const MAX_CATCH_UP_RECORDS = 300;
  * has rolled into R2 and cannot be waited on from the `ready` path.
  */
 export const AGENT_ACTIVITY_SCAN_ROWS = 2_000;
-export const BACKFILL_BATCH_RECORDS = 200;
 export const BACKFILL_BATCH_BYTES = 512 * 1024;
 export const MAX_SOCKETS_PER_CONVERSATION = 16;
 export const MAX_INCOMING_FRAME_BYTES = 64 * 1024;
-export const SOCKET_STALE_MS = 90_000;
-export const RE_AUTH_LEAD_MS = 60_000;
 export const AUTH_GRACE_MS = 30_000;
-export const RATE_BACKFILL_PER_MIN = 20;
 export const RATE_CANCEL_PER_MIN = 10;
 export const RATE_AUTH_PER_MIN = 10;
 export const RATE_TOTAL_PER_MIN = 60;
@@ -148,35 +170,12 @@ export const CLOCK_SKEW_S = 60;
 // Close codes
 // ---------------------------------------------------------------------------
 
-/**
- * The close *reason* is capped at 123 bytes by the protocol, so it carries the
- * code only. Human text goes in a preceding `error` frame, which is free.
- */
-export const CLOSE_BAD_REQUEST = 4400;
-export const CLOSE_UNAUTHENTICATED = 4401;
-export const CLOSE_FORBIDDEN = 4403;
-export const CLOSE_NOT_FOUND = 4404;
-export const CLOSE_PROTOCOL_VERSION = 4409;
-export const CLOSE_DELETED = 4410;
-export const CLOSE_FRAME_TOO_LARGE = 4413;
-export const CLOSE_RATE_LIMITED = 4429;
-export const CLOSE_TOO_MANY_SOCKETS = 4503;
+/** The 44xx/4503 codes are the shared ones above; this one is server-only. */
 export const CLOSE_INTERNAL = 1011;
 
 // ---------------------------------------------------------------------------
 // Records
 // ---------------------------------------------------------------------------
-
-export type JournalRecordKind = "message" | "turn" | "card";
-
-export type MessageRole = "user" | "assistant" | "toolResult";
-
-export type TurnPhase =
-  | "started"
-  | "completed"
-  | "failed"
-  | "canceled"
-  | "timeout";
 
 export type ConversationCard =
   | CloudAgentLifecycleCard

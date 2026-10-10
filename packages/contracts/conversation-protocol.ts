@@ -1,17 +1,21 @@
 import {
   parseCloudAgentLifecycleCard,
   type CloudAgentLifecycleCard,
-} from "@stella/contracts/cloud-agent-lifecycle";
+} from "./cloud-agent-lifecycle.js";
+import {
+  parseAgentActivityEntry,
+  type AgentActivityEntry,
+} from "./conversation-agent-activity.js";
 /**
- * The conversation socket's wire contract, client side.
+ * The conversation socket's wire contract, shared by every client.
  *
- * The server's copy of these shapes lives in
- * `workers/cloud-builder/src/conversation-types.ts`. This is a deliberate
- * second declaration rather than a shared package: the interior is a browser
- * bundle that must not take a build dependency on worker sources, and the
- * frames are small enough that a drifting field is caught by the decoder
- * below. Unknown advisory frames are dropped; durable rows with a valid raw
- * sequence become skipped sentinels so the ordered cursor can still advance.
+ * Desktop and mobile decode the same frames with this module, and the worker's
+ * `workers/cloud-builder/src/conversation-types.ts` takes its socket constants
+ * and close codes from here, so the three cannot drift apart. The worker keeps
+ * its own writer-side record shapes (spill stubs, stream ids); these are the
+ * decoded, render-side ones. Unknown advisory frames are dropped; durable rows
+ * with a valid raw sequence become skipped sentinels so the ordered cursor can
+ * still advance.
  *
  * The one invariant to keep in mind while reading: a frame carrying `seq` is
  * durable and replayable; a frame without `seq` is advisory and lossy.
@@ -23,6 +27,18 @@ export const PROTOCOL_VERSION = 1;
 export const INITIAL_WINDOW_RECORDS = 100;
 /** Server cap on one resume; the client never asks for more in one request. */
 export const MAX_RESUME_RECORDS = 2_000;
+/**
+ * How far behind the head a cursor may be and still be worth replaying.
+ *
+ * Past this, catching up record by record is slower than simply reading the
+ * newest window — and it is also the wrong thing to show: the rows arrive
+ * oldest first, so the view would spend the whole replay displaying history the
+ * user has already read while the messages they opened the app for are still on
+ * the wire. Beyond the limit the view takes the newest window immediately and
+ * earlier history comes back through scrollback. The server applies the same
+ * limit; this copy is what protects a client talking to an older one.
+ */
+export const MAX_CATCHUP_RESUME_RECORDS = 300;
 /** Server cap on one backfill response. */
 export const BACKFILL_BATCH_RECORDS = 200;
 /** Server's socket-liveness window; the client probes rather than assumes. */
@@ -47,23 +63,43 @@ export const MAX_CLIENT_RECORDS = 3_000;
 /** Records buffered while a gap is being filled before we give up and resync. */
 export const MAX_BUFFERED_AHEAD = 512;
 
+/**
+ * Close codes the hub sends. The close *reason* is capped at 123 bytes by the
+ * protocol, so it carries the code only; human text rides a preceding `error`
+ * frame.
+ */
+export const CLOSE_BAD_REQUEST = 4400;
+export const CLOSE_UNAUTHENTICATED = 4401;
+export const CLOSE_FORBIDDEN = 4403;
+export const CLOSE_NOT_FOUND = 4404;
+export const CLOSE_PROTOCOL_VERSION = 4409;
+export const CLOSE_DELETED = 4410;
+export const CLOSE_FRAME_TOO_LARGE = 4413;
+export const CLOSE_RATE_LIMITED = 4429;
+export const CLOSE_TOO_MANY_SOCKETS = 4503;
+
 export type SocketCloseCode =
-  | 4400
-  | 4401
-  | 4403
-  | 4404
-  | 4409
-  | 4410
-  | 4413
-  | 4429
-  | 4503;
+  | typeof CLOSE_BAD_REQUEST
+  | typeof CLOSE_UNAUTHENTICATED
+  | typeof CLOSE_FORBIDDEN
+  | typeof CLOSE_NOT_FOUND
+  | typeof CLOSE_PROTOCOL_VERSION
+  | typeof CLOSE_DELETED
+  | typeof CLOSE_FRAME_TOO_LARGE
+  | typeof CLOSE_RATE_LIMITED
+  | typeof CLOSE_TOO_MANY_SOCKETS;
 
 /**
  * Closes the client must never retry. `4401` is retryable exactly once — a
  * fresh token may fix it — and becomes terminal when the retry also fails.
  */
 export const TERMINAL_CLOSE_CODES: ReadonlySet<number> = new Set([
-  4403, 4404, 4409, 4410,
+  CLOSE_BAD_REQUEST,
+  CLOSE_FORBIDDEN,
+  CLOSE_NOT_FOUND,
+  CLOSE_PROTOCOL_VERSION,
+  CLOSE_DELETED,
+  CLOSE_FRAME_TOO_LARGE,
 ]);
 
 export type JournalKind = "message" | "turn" | "card";
@@ -151,8 +187,15 @@ export type SkippedJournalRecord = JournalRecordBase & {
 export type JournalRecord = KnownJournalRecord | SkippedJournalRecord;
 
 /**
- * The turn that is running right now, as `ready` describes it. This is what a
- * mid-turn joiner rides: the reply itself only arrives when its row commits.
+ * The turn that is running right now, as `ready` describes it.
+ *
+ * There is no partial reply here. Assistant text is delivered whole on a
+ * committed `record`, so a mid-turn joiner gets the working indicator from the
+ * turn's `started` phase and then the finished reply.
+ *
+ * The hub still writes the retired stream fields on the wire — an empty
+ * `partialText` here and a `streamId` on each message row. This decoder names
+ * neither, so a client carries no notion of a provider stream at all.
  */
 export type LiveTurnSnapshot = {
   turnId: string;
@@ -180,6 +223,13 @@ export type ReadyFrame = {
   authExpiresAtMs: number;
   serverTimeMs: number;
   live: LiveTurnSnapshot | null;
+  /**
+   * Every agent the journal still shows as working, folded server-side over the
+   * whole journal. Authoritative: it names agents whose `agent-started` row is
+   * far below anything this client holds, including ones started on another
+   * device. Empty from a server that predates the field.
+   */
+  agents: AgentActivityEntry[];
 };
 
 export type ServerFrame =
@@ -427,6 +477,7 @@ export const decodeServerFrame = (data: string): ServerFrame | null => {
         authExpiresAtMs: num(raw.authExpiresAtMs) ?? 0,
         serverTimeMs: num(raw.serverTimeMs) ?? Date.now(),
         live: decodeLive(raw.live),
+        agents: decodeAgents(raw.agents),
       };
     }
     case "record": {
@@ -495,6 +546,16 @@ export const decodeServerFrame = (data: string): ServerFrame | null => {
   }
 };
 
+const decodeAgents = (value: unknown): AgentActivityEntry[] => {
+  if (!Array.isArray(value)) return [];
+  const agents: AgentActivityEntry[] = [];
+  for (const entry of value) {
+    const agent = parseAgentActivityEntry(entry);
+    if (agent) agents.push(agent);
+  }
+  return agents;
+};
+
 const decodeLive = (value: unknown): LiveTurnSnapshot | null => {
   const raw = asRecord(value);
   const turnId = str(raw?.turnId);
@@ -519,7 +580,7 @@ const decodeLive = (value: unknown): LiveTurnSnapshot | null => {
 };
 
 /**
- * RFC 6455 subprotocol values must be RFC 7230 tokens. A Better Auth JWT is
+ * RFC 6455 subprotocol values must be RFC 7230 tokens. A backend JWT is
  * base64url with `.` separators, all of which are legal — but a token that
  * somehow is not would throw a `SyntaxError` out of the `WebSocket`
  * constructor, which is a crash rather than a readable failure.

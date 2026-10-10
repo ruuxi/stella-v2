@@ -7,25 +7,9 @@ import {
   type ReplyContextRow,
 } from "@stella/contracts/reply-context";
 import type { ChatMessage, ChatArtifact } from "../types";
-import type { JournalFile, JournalRecord } from "./cloud-conversation-protocol";
+import type { JournalFile, JournalRecord } from "@stella/contracts/conversation-protocol";
+import { lifecycleWakeTask } from "@stella/contracts/conversation-journal-projection";
 import { cloudFileArtifact } from "./cloud-file-payload";
-
-const WAKE_THREAD_RE = /^\[(?:Agent completed|Task failed|Task canceled|Subagent paused)\][\s\S]*?(?:^thread_id:\s*(\S+)|\(thread ([^)]+)\))/mu;
-const WAKE_DESCRIPTION_RE = /^\[(?:Agent completed|Task failed|Task canceled|Subagent paused)\][\s\S]*?^description:\s*(.+)$/mu;
-
-/**
- * The task named by a hidden lifecycle wake prompt (`[Agent completed]` and
- * friends): its thread id and, when carried, its description. A locally
- * executed turn mirrored into the journal has no lifecycle card, so this is
- * where a cited task's title comes from.
- */
-export function lifecycleWakeTask(text: string): { threadId: string; description?: string } | null {
-  const match = WAKE_THREAD_RE.exec(text);
-  const threadId = (match?.[1] ?? match?.[2])?.trim();
-  if (!threadId) return null;
-  const description = WAKE_DESCRIPTION_RE.exec(text)?.[1]?.trim();
-  return description ? { threadId, description } : { threadId };
-}
 
 const SUMMARY_MAX_CHARS = 160;
 
@@ -302,20 +286,3 @@ export function mobileReplyLineage(messages: readonly ChatMessage[], root: Reply
   return messages.filter(m => selectedIds.has(m.id) || userIds.has(m.id) || (Boolean(m.canonicalId) && userIds.has(m.canonicalId)));
 }
 
-/** Desktop-executed turns persist resolved refs instead of a model fence. */
-export function resolvedMobileReplyRefs(payload: Record<string, unknown>): ReplyRef[] {
-  const metadata = payload.metadata;
-  if (!metadata || typeof metadata !== "object" || !("runtime" in metadata)) return [];
-  const runtime = metadata.runtime;
-  if (!runtime || typeof runtime !== "object" || !("replyRefs" in runtime) || !Array.isArray(runtime.replyRefs)) return [];
-  return runtime.replyRefs.flatMap((ref: unknown): ReplyRef[] => {
-    if (!ref || typeof ref !== "object" || !("kind" in ref)) return [];
-    if (ref.kind === "agent" && "threadId" in ref && typeof ref.threadId === "string") {
-      return [{ kind: "agent", threadId: ref.threadId, title: "title" in ref && typeof ref.title === "string" ? ref.title : "" }];
-    }
-    if (ref.kind === "message" && "id" in ref && typeof ref.id === "string" && "sequence" in ref && typeof ref.sequence === "number" && "role" in ref && (ref.role === "user" || ref.role === "assistant")) {
-      return [{ kind: "message", id: ref.id, sequence: ref.sequence, role: ref.role, preview: "preview" in ref && typeof ref.preview === "string" ? ref.preview : "" }];
-    }
-    return [];
-  });
-}

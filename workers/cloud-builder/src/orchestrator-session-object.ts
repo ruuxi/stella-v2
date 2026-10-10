@@ -284,6 +284,41 @@ export class OrchestratorSessionObject extends OrchestratorTurnStart {
     await this.finalizeTerminalTurn(turn);
   }
 
+  /**
+   * Slack's events route binds this conversation to the thread its replies
+   * go to, before each Slack turn. Internal: only the Worker reaches it. A
+   * conversation already owned by someone else refuses.
+   */
+  private async handleSlackBind(request: Request): Promise<Response> {
+    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+    const text = (value: unknown, max = 128): string | null =>
+      typeof value === "string" && value.length > 0 && value.length <= max ? value : null;
+    const teamId = text(body?.teamId);
+    const channelId = text(body?.channelId);
+    const ownerId = text(body?.ownerId, 512);
+    const requesterUserId = text(body?.requesterUserId);
+    const clientMsgId = text(body?.clientMsgId);
+    const triggerTs = text(body?.triggerTs);
+    const threadTs = body?.threadTs === null ? null : text(body?.threadTs);
+    if (!teamId || !channelId || !ownerId || !requesterUserId || !clientMsgId || !triggerTs || threadTs === undefined) {
+      return json({ error: "Malformed Slack binding." }, 400);
+    }
+    if (this.purged()) return json({ error: "Conversation deleted." }, 410);
+    const owner = this.journal.meta().owner_id;
+    if (owner && owner !== ownerId) return json({ error: "owner_mismatch" }, 403);
+    await this.slack().bind({
+      teamId,
+      channelId,
+      threadTs,
+      ownerId,
+      requesterUserId,
+      shared: body?.shared === true,
+      clientMsgId,
+      triggerTs,
+    });
+    return json({ bound: true });
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/socket") return this.handleSocket(request);
@@ -345,6 +380,7 @@ export class OrchestratorSessionObject extends OrchestratorTurnStart {
       return this.handleLocalTurnFinish(request);
     }
     if (url.pathname === "/journal") return this.handleJournalAppend(request);
+    if (url.pathname === "/slack/bind") return this.handleSlackBind(request);
     if (url.pathname === "/cards") return this.handleCard(request);
     if (url.pathname === "/purge") return this.handlePurge();
     if (url.pathname === "/owner-purge-cancel") {

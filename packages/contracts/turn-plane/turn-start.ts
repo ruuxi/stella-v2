@@ -38,7 +38,8 @@ export type CloudTurnSource =
   | "schedule"
   | "agent-thread"
   | "placement"
-  | "probe";
+  | "probe"
+  | "slack";
 
 export const CLIENT_MSG_ID_PATTERN = /^[A-Za-z0-9._:-]{8,64}$/;
 export const CONVERSATION_ID_PATTERN = /^[A-Za-z0-9._-]{8,128}$/;

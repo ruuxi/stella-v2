@@ -50,6 +50,7 @@ export const CLOUD_TURN_SOURCES: readonly CloudTurnSource[] = [
   "agent-thread",
   "placement",
   "probe",
+  "slack",
 ];
 
 /** HTTP status for each owner-gate refusal on the agent lane. */

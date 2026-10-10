@@ -15,6 +15,7 @@ import { worldName } from "../workspace.js";
  * @see src/index.ts for `export default worker`.
  */
 
+import { handleSlackRoute } from "../slack/routes.js";
 import { Hono, type MiddlewareHandler } from "hono";
 import { GATEWAY_NETWORK_POLICY } from "@stella/contracts/gateway/api";
 import { TURN_BROKER_HEADERS } from "@stella/contracts/turn-credential-broker";
@@ -1012,6 +1013,8 @@ app.use(mount(handleDevicesRoute));
 app.use(mount(handleUserAsksRoute));
 app.use(mount(handleVoiceRoute));
 app.use(mount(handleIntegrationsRoute));
+// Slack signs its own requests; the link pages carry signed state.
+app.use(mount(handleSlackRoute));
 
 app.all("/dictation/socket", socketOnly, async (c) => {
   const receivedAt = Date.now();

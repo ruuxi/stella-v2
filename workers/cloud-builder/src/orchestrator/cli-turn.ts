@@ -867,6 +867,7 @@ export abstract class OrchestratorCliTurn extends OrchestratorTools {
         ? { argsPreview: previewArgs(call.args) }
         : { isError: isError === true }),
     });
+    this.slack().tool(turn.turnId, call.toolCallId, call.name, phase, isError);
   }
 
   /**

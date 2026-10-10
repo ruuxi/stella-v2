@@ -50,6 +50,7 @@ const SOURCES: readonly CloudTurnSource[] = [
   "agent-thread",
   "placement",
   "probe",
+  "slack",
 ];
 /** What a user-authenticated caller may claim to be. */
 const CLIENT_SOURCES: readonly CloudTurnSource[] = ["desktop", "web", "mobile"];

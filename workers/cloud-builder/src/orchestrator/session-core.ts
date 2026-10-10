@@ -46,6 +46,7 @@ import {
 } from "./constants.js";
 import { listedAgents, errorMessage, log } from "./support.js";
 import type { OrchestratorOwner } from "./owner.js";
+import { SlackRelay } from "../slack/relay.js";
 
 /**
  * The conversation Durable Object (`OrchestratorSessionObject`, see
@@ -429,6 +430,20 @@ export abstract class OrchestratorSessionCore extends DurableObject<Env> {
         message: errorMessage(error),
       });
     }
+    this.slack().observe(record);
+  }
+
+  private slackRelay?: SlackRelay;
+
+  /** Mirrors a Slack-started conversation into its thread (`../slack/relay.ts`). */
+  protected slack(): SlackRelay {
+    this.slackRelay ??= new SlackRelay(
+      this.ctx.storage,
+      this.env as unknown as Cloudflare.Env,
+      () => this.conversationId(),
+      (work) => this.ctx.waitUntil(work),
+    );
+    return this.slackRelay;
   }
 
   /**

@@ -11,6 +11,7 @@
  * simply run again with the same `requestId`, which rejoins the same fence.
  */
 
+import { purgeSlackOwner } from "./slack/store.js";
 import type { Env } from "./build-session/shared/env.js";
 import { errorMessage, log } from "./build-session/shared/keys.js";
 import {
@@ -71,6 +72,12 @@ export const runOwnerPurge = async (input: {
   const pending: string[] = [];
   if (await purgeTurnState(env, ownerId, generation)) pending.push("turn-state");
   if (await purgeBrowserProfile(env, ownerId)) pending.push("browser-profile:default");
+  try {
+    await purgeSlackOwner(env as unknown as Cloudflare.Env, ownerId, mode === "delete" ? "delete" : "reset");
+  } catch (error) {
+    pending.push("slack");
+    log("error", "owner_storage_purge_step_failed", { store: "slack", message: errorMessage(error) });
+  }
   try {
     const ownerData = await input.purgeOwnerData();
     pending.push(...ownerData.pending.map((domain) => `owner-data:${domain}`));
